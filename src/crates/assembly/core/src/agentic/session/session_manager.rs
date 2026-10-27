@@ -134,6 +134,7 @@ pub(crate) const INTERRUPTED_TURN_REASONING_FINGERPRINT_METADATA_KEY: &str =
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TurnAdmissionSessionFacts {
     model_id: Option<String>,
+    model_routing: Option<String>,
     model_pool_id: Option<String>,
     model_pool_selection_revision: u64,
     reasoning_preset: Option<String>,
@@ -155,6 +156,7 @@ impl TurnAdmissionSessionFacts {
     pub(crate) fn from_session(session: &Session) -> Self {
         Self {
             model_id: session.config.model_id.clone(),
+            model_routing: session.config.model_routing.clone(),
             model_pool_id: session.config.model_pool_id.clone(),
             model_pool_selection_revision: session.config.model_pool_selection_revision,
             reasoning_preset: session.config.reasoning_preset.clone(),
@@ -179,7 +181,8 @@ impl TurnAdmissionSessionFacts {
     }
 
     fn matches(&self, session: &Session) -> bool {
-        self.model_id == session.config.model_id
+        self.model_routing == session.config.model_routing
+            && self.model_id == session.config.model_id
             && self.model_pool_id == session.config.model_pool_id
             && self.model_pool_selection_revision == session.config.model_pool_selection_revision
             && self.reasoning_preset == session.config.reasoning_preset
@@ -1322,13 +1325,29 @@ impl SessionManager {
     }
 
     pub async fn persistent_model_exchange_trace_dir(&self, session_id: &str) -> Option<PathBuf> {
+        self.persistent_session_layout(session_id)
+            .await
+            .map(|layout| layout.request_traces_dir(session_id))
+    }
+
+    /// Runtime-owned checkpoints share the session snapshot directory, not diagnostic traces.
+    pub(crate) async fn persistent_context_snapshot_dir(
+        &self,
+        session_id: &str,
+    ) -> Option<PathBuf> {
+        self.persistent_session_layout(session_id)
+            .await
+            .map(|layout| layout.snapshots_dir(session_id))
+    }
+
+    async fn persistent_session_layout(&self, session_id: &str) -> Option<SessionStorageLayout> {
         if !self.should_persist_session_id(session_id) {
             return None;
         }
 
         let storage_path = self.effective_session_storage_path(session_id).await?;
 
-        Some(SessionStorageLayout::new(storage_path).request_traces_dir(session_id))
+        Some(SessionStorageLayout::new(storage_path))
     }
 
     /// Materialize a bounded transcript copy for a user-selected reference.
@@ -2340,6 +2359,11 @@ impl SessionManager {
             .iter()
             .filter_map(|entry| {
                 let session = entry.value();
+                // Reconciliation observes provider configuration; it is not an
+                // explicit manual selection that may retire a saved strategy.
+                if session.config.model_routing.as_deref() == Some("smart") {
+                    return None;
+                }
                 let current = session.config.model_id.as_deref()?.trim().to_string();
                 // External generations pin the model that the user approved.
                 // If that model disappears, execution must fail closed instead
@@ -2793,6 +2817,31 @@ impl SessionManager {
         session.created_by = created_by;
         session.kind = kind;
         let ai_config = Self::load_ai_config_for_model_resolution().await;
+        if session.config.model_routing.is_none()
+            && kind != SessionKind::Subagent
+            && session.config.model_binding_policy == SessionModelBindingPolicy::Mutable
+            && matches!(
+                session.config.agent_route_owner,
+                crate::agentic::core::SessionAgentRouteOwner::Local
+            )
+        {
+            if !crate::agentic::execution::round_model_routing::configuration::available() {
+                if ai_config.as_ref().is_some_and(|config| {
+                    config.model_routing.default_mode.as_deref() == Some("smart")
+                }) {
+                    info!("Smart mode is unavailable in this release; creating a manual session: session_id={}", session.session_id);
+                }
+                session.config.model_routing = Some("manual".into());
+            } else if let Some(mode) = ai_config
+                .as_ref()
+                .and_then(|config| config.model_routing.default_mode.as_ref())
+            {
+                session.config.model_routing = Some(mode.clone());
+            } else if !crate::agentic::execution::round_model_routing::configuration::legacy_enabled(
+            ) {
+                session.config.model_routing = Some("manual".into());
+            }
+        }
         if let Some(ai_config) = ai_config.as_ref() {
             let previous_reasoning_preset = session.config.reasoning_preset.clone();
             session.config.reasoning_preset =
@@ -4299,11 +4348,28 @@ impl SessionManager {
         model_id: &str,
         reasoning_preset: Option<&str>,
     ) -> OpenBitFunResult<()> {
-        self.update_session_model_selection_in_storage(
+        self.update_session_model_selection_with_routing(
+            session_id,
+            model_id,
+            reasoning_preset,
+            None,
+        )
+        .await
+    }
+
+    pub async fn update_session_model_selection_with_routing(
+        &self,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
+    ) -> OpenBitFunResult<()> {
+        self.update_session_model_selection_in_storage_with_routing(
             None,
             session_id,
             model_id,
             reasoning_preset,
+            routing_mode,
             true,
             |_| Ok(()),
         )
@@ -4320,11 +4386,34 @@ impl SessionManager {
         include_internal: bool,
         validate_binding: impl FnOnce(&Session) -> OpenBitFunResult<()>,
     ) -> OpenBitFunResult<Session> {
+        self.update_session_model_selection_in_storage_with_routing(
+            storage_path,
+            session_id,
+            model_id,
+            reasoning_preset,
+            None,
+            include_internal,
+            validate_binding,
+        )
+        .await
+    }
+
+    pub(crate) async fn update_session_model_selection_in_storage_with_routing(
+        &self,
+        storage_path: Option<&Path>,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
+        include_internal: bool,
+        validate_binding: impl FnOnce(&Session) -> OpenBitFunResult<()>,
+    ) -> OpenBitFunResult<Session> {
         self.update_session_selection_in_storage(
             storage_path,
             session_id,
             model_id,
             reasoning_preset,
+            routing_mode,
             include_internal,
             None,
             validate_binding,
@@ -4357,6 +4446,7 @@ impl SessionManager {
             session_id,
             model_id,
             reasoning_preset,
+            None,
             true,
             Some(selection),
             |_| Ok(()),
@@ -4371,6 +4461,7 @@ impl SessionManager {
         session_id: &str,
         model_id: &str,
         reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
         include_internal: bool,
         selection: Option<&openbitfun_core_types::model_pool::ModelSelection>,
         validate_binding: impl FnOnce(&Session) -> OpenBitFunResult<()>,
@@ -4416,6 +4507,9 @@ impl SessionManager {
             }
         };
         validate_binding(&original_session)?;
+        if routing_mode == Some("smart") {
+            crate::agentic::execution::round_model_routing::configuration::require_available()?;
+        }
         if original_session.config.model_pool_id.is_some() && selection.is_none() {
             return Err(OpenBitFunError::validation("This session uses a model pool; explicit model_pool_selection_v1 selection is required"));
         }
@@ -4431,8 +4525,52 @@ impl SessionManager {
         let mut resolved_context_window = None;
         let mut auto_cleared_reasoning_preset = None;
         let mut updated_session = original_session.clone();
+        if routing_mode.is_none()
+            && selection.is_none()
+            && original_session.config.model_routing.as_deref() == Some("smart")
+            && original_session.config.model_id.as_deref() != Some(model_id)
+        {
+            if crate::agentic::execution::round_model_routing::configuration::available() {
+                return Err(OpenBitFunError::Validation(
+                    "This session uses smart routing; update its model strategy with a compatible GUI"
+                        .into(),
+                ));
+            }
+            // A legacy client explicitly choosing another ordinary model is a
+            // manual selection. Merely reading or updating reasoning preserves
+            // the retained smart-mode record.
+            updated_session.config.model_routing = Some("manual".into());
+        }
+        if let Some(mode) = routing_mode {
+            if !matches!(mode, "manual" | "smart") {
+                return Err(OpenBitFunError::Validation(
+                    "Unsupported model routing strategy".into(),
+                ));
+            }
+            if mode == "smart" {
+                let eligible = original_session.kind != SessionKind::Subagent
+                    && original_session.config.model_binding_policy
+                        != SessionModelBindingPolicy::ApprovedImmutable
+                    && matches!(
+                        original_session.config.agent_route_owner,
+                        crate::agentic::core::SessionAgentRouteOwner::Local
+                    );
+                if !eligible {
+                    return Err(OpenBitFunError::Validation(
+                        "Smart mode is unavailable for this session".into(),
+                    ));
+                }
+                crate::agentic::execution::round_model_routing::configuration::prepare_turn(
+                    Some(mode),
+                    true,
+                )
+                .await?;
+            }
+            updated_session.config.model_routing = Some(mode.into());
+        }
         updated_session.config.model_id = Some(model_id.to_string());
         if let Some(selection) = selection {
+            updated_session.config.model_routing = Some("manual".into());
             updated_session.config.model_pool_selection_revision = original_session
                 .config
                 .model_pool_selection_revision
@@ -4490,7 +4628,8 @@ impl SessionManager {
             resolved_context_window =
                 Self::sync_session_context_window_from_ai_config(&mut updated_session, ai_config);
         }
-        if original_session.config.model_id == updated_session.config.model_id
+        if original_session.config.model_routing == updated_session.config.model_routing
+            && original_session.config.model_id == updated_session.config.model_id
             && original_session.config.model_pool_id == updated_session.config.model_pool_id
             && original_session.config.model_binding_policy
                 == updated_session.config.model_binding_policy
@@ -4527,6 +4666,7 @@ impl SessionManager {
 
         if let Some(mut session) = self.sessions.get_mut(session_id) {
             session.config.model_id = updated_session.config.model_id.clone();
+            session.config.model_routing = updated_session.config.model_routing.clone();
             session.config.model_pool_selection_revision =
                 updated_session.config.model_pool_selection_revision;
             session.config.model_pool_id = updated_session.config.model_pool_id.clone();
@@ -6187,6 +6327,8 @@ impl SessionManager {
             let trimmed = persisted_model_id.trim();
             let needs_fallback = if trimmed.is_empty()
                 || !session_model_allows_fallback(session.config.model_binding_policy)
+                || (!crate::agentic::execution::round_model_routing::configuration::available()
+                    && session.config.model_routing.as_deref() == Some("smart"))
             {
                 false
             } else if let Some(ai_config) = ai_config_for_restore.as_ref() {
@@ -7977,8 +8119,21 @@ impl SessionManager {
                             end_time: Some(timestamp),
                             duration_ms: Some(0),
                             provider_id: None,
-                            model_config_id: None,
-                            effective_model_name: None,
+                            model_config_id: msg
+                                .metadata
+                                .model_execution
+                                .as_ref()
+                                .map(|facts| facts.model_config_id.clone()),
+                            effective_model_name: msg
+                                .metadata
+                                .model_execution
+                                .as_ref()
+                                .map(|facts| facts.effective_model_name.clone()),
+                            routing: msg
+                                .metadata
+                                .model_execution
+                                .as_ref()
+                                .and_then(|facts| facts.routing.clone()),
                             first_chunk_ms: None,
                             first_visible_output_ms: None,
                             stream_duration_ms: None,
@@ -8481,6 +8636,7 @@ impl SessionManager {
                     provider_id: None,
                     model_config_id: None,
                     effective_model_name: None,
+                    routing: None,
                     first_chunk_ms: None,
                     first_visible_output_ms: None,
                     stream_duration_ms: None,
@@ -8626,8 +8782,13 @@ impl SessionManager {
                 round.end_time = existing.end_time.or(round.end_time);
                 round.duration_ms = existing.duration_ms.or(round.duration_ms);
                 round.provider_id = existing.provider_id.clone();
-                round.model_config_id = existing.model_config_id.clone();
-                round.effective_model_name = existing.effective_model_name.clone();
+                round.model_config_id = round
+                    .model_config_id
+                    .or_else(|| existing.model_config_id.clone());
+                round.effective_model_name = round
+                    .effective_model_name
+                    .or_else(|| existing.effective_model_name.clone());
+                round.routing = round.routing.or_else(|| existing.routing.clone());
                 round.first_chunk_ms = existing.first_chunk_ms;
                 round.first_visible_output_ms = existing.first_visible_output_ms;
                 round.stream_duration_ms = existing.stream_duration_ms;
@@ -8736,6 +8897,7 @@ impl SessionManager {
                 provider_id: None,
                 model_config_id: None,
                 effective_model_name: None,
+                routing: None,
                 first_chunk_ms: None,
                 first_visible_output_ms: None,
                 stream_duration_ms: None,
@@ -10478,6 +10640,40 @@ mod tests {
     use std::sync::Arc;
     use std::time::{Duration, SystemTime};
     use uuid::Uuid;
+
+    #[test]
+    fn model_routing_history_survives_headless_persistence_and_legacy_messages() {
+        let legacy = Message::assistant("legacy".into());
+        let mut legacy_json = serde_json::to_value(&legacy).unwrap();
+        legacy_json["metadata"]
+            .as_object_mut()
+            .unwrap()
+            .remove("model_execution");
+        let restored: Message = serde_json::from_value(legacy_json).unwrap();
+        assert!(restored.metadata.model_execution.is_none());
+        let mut routed = Message::assistant("routed".into()).with_round_id("round-economy".into());
+        routed.metadata.model_execution =
+            Some(crate::agentic::core::message::ModelExecutionMetadata {
+                model_config_id: "economy-config".into(),
+                effective_model_name: "economy-api-model".into(),
+                routing: Some(openbitfun_events::agentic::ModelRoutingDecision {
+                    route: "economy".into(),
+                    latency_ms: 17,
+                    fallback_reason: None,
+                }),
+            });
+        let restored: Message =
+            serde_json::from_value(serde_json::to_value(routed).unwrap()).unwrap();
+        let rounds =
+            SessionManager::build_model_rounds_from_messages(&[legacy, restored], "turn", 1);
+        assert!(rounds[0].routing.is_none());
+        assert_eq!(rounds[1].model_config_id.as_deref(), Some("economy-config"));
+        assert_eq!(
+            rounds[1].effective_model_name.as_deref(),
+            Some("economy-api-model")
+        );
+        assert_eq!(rounds[1].routing.as_ref().unwrap().latency_ms, 17);
+    }
 
     #[test]
     fn classified_edit_history_preserves_detail_and_readable_error() {
@@ -13592,6 +13788,382 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn model_routing_preserves_strategy_when_only_reasoning_changes() {
+        let workspace = TestWorkspace::new();
+        let persistence = Arc::new(PersistenceManager::new(workspace.path_manager()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let session = Session::new_with_id(
+            id.clone(),
+            "Smart session".into(),
+            "Standard".into(),
+            SessionConfig {
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                model_id: Some("primary".into()),
+                model_routing: Some("smart".into()),
+                reasoning_preset: Some("high".into()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        let updated = manager
+            .update_session_model_selection_in_storage(
+                Some(workspace.path()),
+                &id,
+                "primary",
+                None,
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.config.model_routing.as_deref(), Some("smart"));
+        assert!(updated.config.reasoning_preset.is_none());
+        let persisted = persistence
+            .load_session_header(workspace.path(), &id)
+            .await
+            .unwrap();
+        assert_eq!(persisted.config.model_routing.as_deref(), Some("smart"));
+        assert_eq!(persisted.config.model_id.as_deref(), Some("primary"));
+        assert!(persisted.config.reasoning_preset.is_none());
+        assert!(manager.get_session(&id).is_none());
+    }
+
+    #[tokio::test]
+    async fn smart_release_gate_new_sessions_ignore_saved_smart_defaults() {
+        let workspace = TestWorkspace::new();
+        let persistence = Arc::new(PersistenceManager::new(workspace.path_manager()).unwrap());
+        let manager = test_manager(persistence);
+        let mut ai = crate::service::config::types::AIConfig::default();
+        ai.model_routing.default_mode = Some("smart".into());
+        ai.model_routing.summary_enabled = false;
+        let session = TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(
+                ai,
+                manager.create_session(
+                    "Release gate fixture".into(),
+                    "Standard".into(),
+                    SessionConfig {
+                        workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                        ..Default::default()
+                    },
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(session.config.model_routing.as_deref(), Some("manual"));
+    }
+
+    #[tokio::test]
+    async fn smart_release_gate_reconcile_preserves_old_smart_but_keeps_manual_fallback() {
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence);
+        let mut ai = crate::service::config::types::AIConfig::default();
+        for id in ["removed-model", "fallback-model"] {
+            ai.models
+                .push(crate::service::config::types::AIModelConfig {
+                    id: id.into(),
+                    enabled: true,
+                    ..Default::default()
+                });
+        }
+        ai.default_models.primary = Some("fallback-model".into());
+        let (retained, manual) = TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(ai.clone(), async {
+                let mut sessions = Vec::new();
+                for mode in ["smart", "manual"] {
+                    sessions.push(
+                        manager
+                            .create_session(
+                                mode.into(),
+                                "Standard".into(),
+                                SessionConfig {
+                                    model_id: Some("removed-model".into()),
+                                    model_routing: Some(mode.into()),
+                                    workspace_path: Some(
+                                        workspace.path().to_string_lossy().into_owned(),
+                                    ),
+                                    ..Default::default()
+                                },
+                            )
+                            .await
+                            .unwrap(),
+                    );
+                }
+                (sessions.remove(0), sessions.remove(0))
+            })
+            .await;
+        let state_path = paths
+            .project_sessions_dir(workspace.path())
+            .join(&retained.session_id)
+            .join("state.json");
+        let bytes = std::fs::read(&state_path).unwrap();
+        ai.models.retain(|model| model.id != "removed-model");
+        TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(
+                ai,
+                manager.apply_fallback_to_invalidated_session_models(
+                    &["removed-model".into()],
+                    "release_gate_fixture",
+                ),
+            )
+            .await;
+        let retained = manager.get_session(&retained.session_id).unwrap();
+        assert_eq!(retained.config.model_routing.as_deref(), Some("smart"));
+        assert_eq!(retained.config.model_id.as_deref(), Some("removed-model"));
+        assert_eq!(std::fs::read(&state_path).unwrap(), bytes);
+        let manual = manager.get_session(&manual.session_id).unwrap();
+        assert_eq!(manual.config.model_routing.as_deref(), Some("manual"));
+        assert_eq!(manual.config.model_id.as_deref(), Some("primary"));
+    }
+
+    #[tokio::test]
+    async fn smart_release_gate_restore_preserves_old_smart_model_reference() {
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let session = Session::new_with_id(
+            id.clone(),
+            "Retained smart session".into(),
+            "Standard".into(),
+            SessionConfig {
+                model_id: Some("removed-model".into()),
+                model_routing: Some("smart".into()),
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        let summary_path = paths
+            .project_sessions_dir(workspace.path())
+            .join(&id)
+            .join("retained-router-summary.json");
+        std::fs::write(&summary_path, b"Retained historical summary evidence").unwrap();
+        let mut ai = crate::service::config::types::AIConfig::default();
+        ai.models
+            .push(crate::service::config::types::AIModelConfig {
+                id: "fallback-model".into(),
+                enabled: true,
+                ..Default::default()
+            });
+        ai.default_models.primary = Some("fallback-model".into());
+        let restored = TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(ai, manager.restore_session(workspace.path(), &id))
+            .await
+            .unwrap();
+        assert_eq!(restored.config.model_routing.as_deref(), Some("smart"));
+        assert_eq!(restored.config.model_id.as_deref(), Some("removed-model"));
+        let persisted = persistence
+            .load_session_header(workspace.path(), &id)
+            .await
+            .unwrap();
+        assert_eq!(persisted.config.model_routing.as_deref(), Some("smart"));
+        assert_eq!(persisted.config.model_id.as_deref(), Some("removed-model"));
+        assert_eq!(
+            std::fs::read(&summary_path).unwrap(),
+            b"Retained historical summary evidence"
+        );
+    }
+
+    #[tokio::test]
+    async fn smart_release_gate_rejects_public_smart_selection_without_changing_old_records() {
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let session = Session::new_with_id(
+            id.clone(),
+            "Retained smart session".into(),
+            "Standard".into(),
+            SessionConfig {
+                model_id: Some("primary".into()),
+                model_routing: Some("smart".into()),
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        let directory = paths.project_sessions_dir(workspace.path()).join(&id);
+        let state_path = directory.join("state.json");
+        let summary_path = directory.join("retained-router-summary.json");
+        std::fs::write(&summary_path, b"Retained historical summary evidence").unwrap();
+        for loaded in [false, true] {
+            if loaded {
+                manager
+                    .restore_session(workspace.path(), &id)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    manager
+                        .get_session(&id)
+                        .unwrap()
+                        .config
+                        .model_routing
+                        .as_deref(),
+                    Some("smart")
+                );
+            }
+            let bytes = std::fs::read(&state_path).unwrap();
+            let error = manager
+                .update_session_model_selection_in_storage_with_routing(
+                    if loaded { None } else { Some(workspace.path()) },
+                    &id,
+                    "primary",
+                    Some("high"),
+                    Some("smart"),
+                    false,
+                    |_| Ok(()),
+                )
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("Smart mode is unavailable in this release"),
+                "loaded={loaded}: {error}"
+            );
+            assert_eq!(std::fs::read(&state_path).unwrap(), bytes);
+            assert_eq!(
+                std::fs::read(&summary_path).unwrap(),
+                b"Retained historical summary evidence"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn smart_release_gate_legacy_explicit_model_change_returns_to_manual() {
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let session = Session::new_with_id(
+            id.clone(),
+            "Retained smart session".into(),
+            "Standard".into(),
+            SessionConfig {
+                model_id: Some("primary".into()),
+                model_routing: Some("smart".into()),
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        let directory = paths.project_sessions_dir(workspace.path()).join(&id);
+        let summary_path = directory.join("retained-router-summary.json");
+        std::fs::write(&summary_path, b"Retained historical summary evidence").unwrap();
+        let mut ai = crate::service::config::types::AIConfig::default();
+        ai.models
+            .push(crate::service::config::types::AIModelConfig {
+                id: "chosen-model".into(),
+                enabled: true,
+                ..Default::default()
+            });
+        let updated = TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(
+                ai,
+                manager.update_session_model_selection_in_storage(
+                    Some(workspace.path()),
+                    &id,
+                    "chosen-model",
+                    None,
+                    false,
+                    |_| Ok(()),
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.config.model_routing.as_deref(), Some("manual"));
+        assert_eq!(updated.config.model_id.as_deref(), Some("chosen-model"));
+        let persisted = persistence
+            .load_session_header(workspace.path(), &id)
+            .await
+            .unwrap();
+        assert_eq!(persisted.config.model_routing.as_deref(), Some("manual"));
+        assert_eq!(persisted.config.model_id.as_deref(), Some("chosen-model"));
+        assert_eq!(
+            std::fs::read(&summary_path).unwrap(),
+            b"Retained historical summary evidence"
+        );
+        assert!(manager.get_session(&id).is_none());
+    }
+
+    #[tokio::test]
+    async fn model_routing_explicit_typed_target_returns_to_manual_without_restoring_session() {
+        let workspace = TestWorkspace::new();
+        let persistence = Arc::new(PersistenceManager::new(workspace.path_manager()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let session = Session::new_with_id(
+            id.clone(),
+            "Smart session".into(),
+            "Standard".into(),
+            SessionConfig {
+                model_id: Some("primary".into()),
+                model_routing: Some("smart".into()),
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        let mut ai = crate::service::config::types::AIConfig::default();
+        ai.models
+            .push(crate::service::config::types::AIModelConfig {
+                id: "chosen-model".into(),
+                enabled: true,
+                ..Default::default()
+            });
+        let target = openbitfun_core_types::model_pool::ModelSelection::Model {
+            model_ref: "chosen-model".into(),
+        };
+        let updated = TEST_MODEL_RESOLUTION_AI_CONFIG
+            .scope(
+                ai,
+                manager.update_session_selection_in_storage(
+                    Some(workspace.path()),
+                    &id,
+                    "chosen-model",
+                    None,
+                    None,
+                    false,
+                    Some(&target),
+                    |_| Ok(()),
+                ),
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.config.model_routing.as_deref(), Some("manual"));
+        assert_eq!(updated.config.model_id.as_deref(), Some("chosen-model"));
+        let saved = persistence
+            .load_session_header(workspace.path(), &id)
+            .await
+            .unwrap();
+        assert_eq!(saved.config.model_routing.as_deref(), Some("manual"));
+        assert_eq!(saved.config.model_id.as_deref(), Some("chosen-model"));
+        assert!(manager.get_session(&id).is_none());
+    }
+
+    #[tokio::test]
     async fn cold_session_model_update_preserves_history_and_unknown_state_without_restore() {
         let workspace = TestWorkspace::new();
         let paths = workspace.path_manager();
@@ -13671,6 +14243,35 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(std::fs::read(&state_path).unwrap(), bytes);
+        manager
+            .update_session_model_selection_in_storage_with_routing(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                Some("high"),
+                Some("manual"),
+                false,
+                |_| Ok(()),
+            )
+            .await
+            .unwrap();
+        let routed: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+        assert_eq!(routed["config"]["model_routing"], "manual");
+        assert_eq!(routed["future_state"], state["future_state"]);
+        assert_eq!(routed["config"]["future_config"], 42);
+        assert!(manager
+            .update_session_model_selection_in_storage_with_routing(
+                Some(workspace.path()),
+                &id,
+                "fast",
+                Some("high"),
+                Some("future-mode"),
+                false,
+                |_| Ok(())
+            )
+            .await
+            .is_err());
         // Clearing a preset on the same model is a real mutation.
         manager
             .update_session_model_selection_in_storage(
@@ -17152,6 +17753,7 @@ mod tests {
             provider_id: None,
             model_config_id: None,
             effective_model_name: None,
+            routing: None,
             first_chunk_ms: None,
             first_visible_output_ms: None,
             stream_duration_ms: None,

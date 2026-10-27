@@ -2787,6 +2787,10 @@ impl PersistenceManager {
             serde_json::to_value(&session.config.model_id)?,
         );
         config.insert(
+            "model_routing".into(),
+            serde_json::to_value(&session.config.model_routing)?,
+        );
+        config.insert(
             "reasoning_preset".into(),
             serde_json::to_value(&session.config.reasoning_preset)?,
         );
@@ -6297,6 +6301,7 @@ mod tests {
             provider_id: None,
             model_config_id: None,
             effective_model_name: None,
+            routing: None,
             first_chunk_ms: None,
             first_visible_output_ms: None,
             stream_duration_ms: None,

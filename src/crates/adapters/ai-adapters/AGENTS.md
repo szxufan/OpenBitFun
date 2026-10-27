@@ -36,6 +36,12 @@ provider-neutral contracts owned by `openbitfun-agent-stream`.
   `cargo test --locked -p openbitfun-ai-adapters --lib providers::openai::chat::tests`.
 - Do not move provider-neutral stream DTOs, replay policy, or tool-call
   accumulation ownership back into this crate.
+- Optional model image-input ceilings are applied to outgoing message copies at
+  the shared AIClient send boundary, including single-attempt Responses calls.
+  Count user image parts and tool attachments together; preserve durable history,
+  tool-result identities, opaque tool text and non-image media. Newer messages
+  keep their pixels first, with explicit omission text for older pixels. Verify
+  with `cargo test --locked -p openbitfun-ai-adapters --lib client::image_budget::tests`.
 - Normalize explicitly reported response models into the typed stream
   `response_model` observation. Responses/Codex lifecycle metadata is emitted
   before an associated error, and Chat Completions model identifiers remain
@@ -248,6 +254,24 @@ public Zen/Go API-key routes. Legacy accounts lazily refresh missing routing
 metadata with credential revision checks, preserving their tokens and models.
 A failed account request (including 404) must not fall back to public OAuth
 inference. Account route metadata must not contain keys or token material.
+
+Router HTTP serialization, classifier parsing, authentication, and failures:
+
+```bash
+cargo test --locked -p openbitfun-ai-adapters --lib round_router
+```
+
+`round_router` owns the OpenAI-compatible wire protocol and returns classifier
+facts. Core retains thresholds, model-slot selection, context lifecycle, traces,
+and fallback; the adapter must not depend on Core config or Agent sessions.
+
+Local Router token counting (optional `local-tokenizer`, no model downloads):
+
+```bash
+cargo test --locked -p openbitfun-ai-adapters --features local-tokenizer --lib local_tokenizer
+```
+
+Subscription model discovery must use the authenticated account catalog.
 Antigravity uses `v1internal:fetchAvailableModels`; preserve returned wire IDs
 and restrict alias translation to known legacy names. Codex's `supported_in_api`
 flag describes the public API, not subscription availability. OpenCode public catalog
@@ -273,6 +297,7 @@ run the subscription-auth command below after changing those interpretations.
 ```bash
 cargo test -p openbitfun-agent-stream
 cargo test -p openbitfun-ai-adapters
+cargo test --locked -p openbitfun-ai-adapters --lib providers::anthropic::request::tests
 cargo test -p openbitfun-ai-adapters --lib opencode_catalog
 cargo test --locked -p openbitfun-ai-adapters --lib providers::opencode::tests
 cargo test -p openbitfun-ai-adapters --lib models_dev::tests

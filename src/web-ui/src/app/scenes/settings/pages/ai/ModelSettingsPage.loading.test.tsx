@@ -4,10 +4,13 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { aiApi, systemAPI } from '@/infrastructure/api';
+import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
+import { configAPI } from '@/infrastructure/api/service-api/ConfigAPI';
 import { ConfigConflictError, configManager } from '@/infrastructure/config/services/ConfigManager';
 import { cancelPendingSettingsNavigation, getSettingsDraftSnapshot, requestAllSettingsDraftsExit } from '@/infrastructure/config/settingsDraftRegistry';
-import type { AIModelConfig } from '@/infrastructure/config/types';
+import type { AIModelConfig, ModelRoutingConfig } from '@/infrastructure/config/types';
 import { i18nService } from '@/infrastructure/i18n';
+import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 import { notificationService } from '@/shared/notification-system';
 import ModelSettingsPage from './ModelSettingsPage';
 
@@ -55,6 +58,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
   });
 
   beforeEach(() => {
+    activateSurface('local');
     configManager.clearCache();
     reads = new Map([
       'ai.models', 'ai.default_models', 'ai.proxy',
@@ -72,6 +76,8 @@ describe('ModelSettingsPage loading and provider actions', () => {
     vi.spyOn(aiApi, 'getModelsDevCatalogStatus').mockImplementation(() => new Promise(() => {}));
     vi.spyOn(aiApi, 'listSubscriptionAccounts').mockImplementation(() => new Promise(() => {}));
     vi.spyOn(aiApi, 'onModelCatalogUpdated').mockReturnValue(() => {});
+    vi.spyOn(agentAPI, 'getModelRoutingStatus').mockResolvedValue({ apiVersion: 1, available: true,
+      mode: 'manual', defaultMode: 'manual', ready: false, issue: null, connected: null, summaryEnabled: true });
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
@@ -82,6 +88,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     container.remove();
     vi.useRealTimers();
     vi.restoreAllMocks();
+    activateSurface('local');
   });
 
   it.each([false, true])('shows host accounts on the page without importing a model (account slots: %s)', async slotsSupported => {
@@ -171,6 +178,48 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(selectors()[0].disabled).toBe(false);
     expect(configManager.getOptionalConfig).not.toHaveBeenCalled();
     expect(configManager.getConfig).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, 3])('saves and clears the per-model image ceiling (previous: %s)', async previous => {
+    const configured: AIModelConfig = {
+      ...model, api_key: 'fixture-key', context_window: 128_000,
+      max_images_per_request: previous,
+      capabilities: ['text_chat', 'image_understanding'],
+    };
+    const models = [configured];
+    const values: Record<string, unknown> = {
+      'ai.models': models, 'ai.default_models': { primary: configured.id },
+      'ai.proxy': { enabled: false, url: '', username: '', password: '' },
+      'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
+    };
+    vi.spyOn(configManager, 'hasCachedConfig').mockImplementation(path => path in values);
+    vi.spyOn(configManager, 'getCachedConfig').mockImplementation(<T,>(path: string) => values[path] as T);
+    const update = vi.spyOn(configManager, 'updateConfig').mockImplementation(
+      async <T,>(_path: string, transform: (current: T) => T) => transform(models as T),
+    );
+    vi.spyOn(aiApi, 'testAIConfigConnection').mockImplementation(() => new Promise(() => {}));
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => container.querySelector<HTMLButtonElement>(
+      `[data-config-id="${configured.id}"] button[aria-label="${copy('actions.edit')}"]`,
+    )!.click());
+    const editor = document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
+    const advancedSection = editor.querySelector<HTMLElement>('[data-testid="settings-model-advanced-toggle"]');
+    const advancedToggle = advancedSection?.querySelector<HTMLButtonElement>('button');
+    expect(advancedToggle).not.toBeNull();
+    if (advancedToggle?.getAttribute('aria-expanded') !== 'true') {
+      await act(async () => advancedToggle?.click());
+    }
+    const input = editor.querySelector<HTMLInputElement>('[data-testid="settings-model-image-limit"]')!;
+    expect(input.value).toBe(previous === undefined ? '' : '3');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, previous === undefined ? '3' : '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => editor.querySelector<HTMLButtonElement>('[data-testid="settings-model-save-btn"]')!.click());
+    expect(update).toHaveBeenCalledOnce();
+    const saved = await update.mock.results[0].value as AIModelConfig[];
+    expect(saved[0].max_images_per_request).toBe(previous === undefined ? 3 : undefined);
+    expect(saved[0].api_key).toBe(configured.api_key);
   });
 
   it.each(['add', 'remove', 'reorder', 'manual'] as const)('protects a channel-only %s edit and saves its original model snapshot', async operation => {
@@ -345,11 +394,12 @@ describe('ModelSettingsPage loading and provider actions', () => {
     }
     const defaultLabel = (key: string) => String(i18nService.getI18nInstance().t(key, { ns: 'settings/default-model' }));
     expect(selectors().map(element => element.getAttribute('aria-label'))).toEqual([
-      'core.primary.label', 'core.fast.label', 'optional.capabilities.image_understanding.label',
+      'core.primary.label', 'core.fast.label', 'core.economy.label', 'optional.capabilities.image_understanding.label',
       'optional.capabilities.image_generation.label', 'optional.capabilities.speech_recognition.label',
     ].map(defaultLabel));
     expect(selectors().every(element => element.disabled)).toBe(true);
     expect(button('actions.addModel').disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')?.disabled).toBe(true);
     expect(button('acquisition.import').disabled).toBe(false);
 
     await act(async () => {
@@ -361,6 +411,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(selectors()[0].disabled).toBe(false);
     expect(selectors()[0].textContent).toContain(model.model_name);
     expect(button('actions.addModel').disabled).toBe(false);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')?.disabled).toBe(false);
     const imageSelector = container.querySelector<HTMLButtonElement>('[data-testid="image-service-default-select"] button[role="combobox"]')!;
     expect(imageSelector.disabled).toBe(true);
     const image = {
@@ -372,6 +423,114 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(imageSelector.disabled).toBe(false);
     expect(imageSelector.textContent).toContain(image.name);
     expect(selectors()[0].textContent).toContain(model.model_name);
+  });
+
+  it('projects an economy-only default onto its model card and finds it by the role label', async () => {
+    const economyLabel = String(i18nService.getI18nInstance().t('core.economy.label', { ns: 'settings/default-model' }));
+    const otherModel: AIModelConfig = { ...model, id: 'unassigned-model', model_name: 'unassigned-model' };
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => {
+      reads.get('ai.models')!.resolve([model, otherModel]);
+      reads.get('ai.default_models')!.resolve({ economy: model.id });
+    });
+    const pool = container.querySelector<HTMLElement>('[data-testid="settings-model-pool"]')!;
+    const card = pool.querySelector<HTMLElement>(`[data-config-id="${model.id}"]`)!;
+    expect([...card.querySelectorAll('.openbitfun-model-settings__pool-tags [data-openbitfun-component="status-pill"]')]
+      .map(badge => badge.textContent)).toEqual([economyLabel]);
+    expect(pool.querySelectorAll('[data-testid="settings-model-row"]')).toHaveLength(2);
+
+    const search = container.querySelector<HTMLInputElement>(`input[aria-label="${copy('pool.search')}"]`)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, economyLabel);
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect([...container.querySelectorAll('[data-testid="settings-model-pool"] [data-testid="settings-model-row"]')]
+      .map(row => row.getAttribute('data-config-id'))).toEqual([model.id]);
+  });
+
+  it('projects all five default roles once in a shared row outside the model name', async () => {
+    const roleLabels = [
+      'core.primary.label', 'core.fast.label', 'core.economy.label',
+      'optional.capabilities.image_understanding.label', 'optional.capabilities.speech_recognition.label',
+    ].map(key => String(i18nService.getI18nInstance().t(key, { ns: 'settings/default-model' })));
+    const taggedModel: AIModelConfig = { ...model,
+      metadata: { user_tags: [roleLabels[2]] }, recommended_for: [roleLabels[3]],
+    };
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => {
+      reads.get('ai.models')!.resolve([taggedModel]);
+      reads.get('ai.default_models')!.resolve({ primary: model.id, fast: model.id, economy: model.id,
+        image_understanding: model.id, speech_recognition: model.id });
+    });
+    const card = container.querySelector<HTMLElement>(`[data-testid="settings-model-pool"] [data-config-id="${model.id}"]`)!;
+    const badges = [...card.querySelectorAll('.openbitfun-model-settings__pool-tags [data-openbitfun-component="status-pill"]')];
+    expect(badges.map(badge => badge.textContent)).toEqual(roleLabels);
+    const title = card.querySelector<HTMLElement>('[data-openbitfun-part="title"]')!;
+    const description = card.querySelector<HTMLElement>('[data-openbitfun-part="description"]')!;
+    const roleRow = card.querySelector<HTMLElement>('.openbitfun-model-settings__pool-tags')!;
+    expect(title.textContent).toBe(model.model_name);
+    expect(title.querySelector('[data-openbitfun-component="status-pill"]')).toBeNull();
+    expect(roleRow.closest('[data-openbitfun-part="description"]')).toBe(description);
+    expect(title.contains(roleRow)).toBe(false);
+    expect(description.querySelectorAll('.openbitfun-model-settings__pool-tags')).toHaveLength(1);
+    expect(badges.every(badge => description.contains(badge))).toBe(true);
+  });
+
+  it.each([false, undefined])('keeps the smart settings entry closed when host availability is %s', async available => {
+    vi.mocked(agentAPI.getModelRoutingStatus).mockResolvedValue({ apiVersion: 1, available,
+      mode: 'smart', defaultMode: 'smart', ready: true, issue: null, connected: true, summaryEnabled: true });
+    const update = vi.spyOn(configManager, 'updateConfig');
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+    const entry = container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')!;
+    expect(entry.disabled).toBe(true);
+    expect(entry.textContent).toBe(copy('selectionModes.unavailable'));
+    await act(async () => entry.click());
+    expect(document.querySelector('.model-router-settings')).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+    expect(vi.mocked(agentAPI.getModelRoutingStatus).mock.calls.every(([request]) => request?.probe !== true)).toBe(true);
+  });
+
+  it('opens the shared smart configuration dialog and saves without enabling routing', async () => {
+    let routing: ModelRoutingConfig = { default_mode: 'manual', router_model_id: null,
+      simple_threshold: .75, timeout_ms: 10000, summary_enabled: false };
+    vi.spyOn(configManager, 'getConfigs').mockResolvedValue({ 'ai.model_routing': routing, 'ai.default_models': { primary: model.id } });
+    vi.spyOn(configAPI, 'getConfig').mockResolvedValue({ primary: model.id });
+    const updateConfig = vi.spyOn(configManager, 'updateConfig').mockImplementation(async <T,>(path: string, update: (current: T) => T) => {
+      expect(path).toBe('ai.model_routing'); routing = update(routing as T) as ModelRoutingConfig; return routing as T;
+    });
+    vi.spyOn(agentAPI, 'getModelRoutingStatus').mockResolvedValue({ apiVersion: 1, available: true, mode: 'manual', defaultMode: 'manual',
+      ready: false, issue: null, connected: null, summaryEnabled: false, estimatedTokenBudgetSupported: true });
+    const updateSession = vi.spyOn(agentAPI, 'updateSessionModel');
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+    expect(container.querySelector('.openbitfun-model-settings__mode-row [data-openbitfun-component="status-pill"]')).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')!.click());
+    const dialog = document.querySelector<HTMLElement>('.model-router-settings')!.closest('[role="dialog"]')!;
+    expect(dialog.textContent).toContain(copy('router.title'));
+    expect(updateConfig).not.toHaveBeenCalled();
+    await act(async () => [...dialog.querySelectorAll<HTMLButtonElement>('button')].find(element => element.textContent === copy('router.save'))!.click());
+    expect(document.querySelector('.model-router-settings')).toBeNull();
+    expect(routing).not.toHaveProperty('tokenizer_path');
+    expect(routing.summary_enabled).toBe(true);
+    expect(routing.default_mode).toBe('manual');
+    expect(updateConfig).toHaveBeenCalledOnce(); expect(updateSession).not.toHaveBeenCalled();
+    expect(configAPI.getConfig).toHaveBeenCalledWith('ai.default_models');
+  });
+
+  it('closes smart configuration on a device switch and ignores its late read', async () => {
+    const pending = deferred();
+    vi.spyOn(configManager, 'getConfigs').mockReturnValue(pending.promise as ReturnType<typeof configManager.getConfigs>);
+    const updateConfig = vi.spyOn(configManager, 'updateConfig');
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')!.click());
+    expect(document.querySelector('.model-router-settings')).not.toBeNull();
+    await act(async () => activateSurface('peer-smart-settings'));
+    expect(document.querySelector('.model-router-settings')).toBeNull();
+    await act(async () => pending.resolve({ 'ai.model_routing': {}, 'ai.default_models': { primary: model.id } }));
+    expect(document.querySelector('.model-router-settings')).toBeNull();
+    expect(updateConfig).not.toHaveBeenCalled();
   });
 
   it('isolates a failed model read, keeps network settings usable, and recovers through the section retry', async () => {

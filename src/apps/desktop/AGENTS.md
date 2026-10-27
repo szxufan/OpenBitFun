@@ -154,10 +154,15 @@ After command registration changes, also run the `remote_workspace_policy` filte
 For optional workspace catalog query payload compatibility, run
 `cargo test --locked -p openbitfun-desktop --lib api::session_api::catalog_request_tests`.
 
+For MCP ProductControl provider wiring, run
+`cargo test --locked -p openbitfun-desktop --lib openbitfun_control_host::tests`.
+The shared MCP behavior fixtures are documented in the Core guide.
+
 For model selector request compatibility and configuration effect routing:
 
 ```bash
 cargo test --locked -p openbitfun-desktop --lib update_session_model_distinguishes_omitted_null_and_explicit_reasoning_presets
+cargo test --locked -p openbitfun-desktop --lib model_routing_status_preserves_legacy_requests_and_internal_session_opt_in
 cargo test --locked -p openbitfun-desktop --lib backend_effect_routing_is_owned_by_the_control_transaction
 ```
 
@@ -222,6 +227,12 @@ and `cargo build -p openbitfun-desktop`. The host keeps the native file receiver
 enabled for Finder paths; the Wry adapter delegates non-file gestures to WebKit.
 Frontend HMR and synthetic DOM drag tests cannot verify that native boundary.
 
+For unavailable macOS browser URLs and native navigation failures, run the `wkwebview_url` native regression in
+[`third_party/wry/OPENBITFUN-PATCH.md`](../../../third_party/wry/OPENBITFUN-PATCH.md)
+and the Desktop build below. The test covers native URL readback and
+page-load callbacks, navigation failure and explicit recovery; it does not exercise remote hosts. Panic hooks must report
+failures without claiming that returning from the hook catches a panic.
+
 The layered receiver requires the compatibility declaration in
 `windows-app.manifest`; keep it wired through `build.rs` for dev and release.
 After changes to that contract, run
@@ -267,13 +278,14 @@ For the matching startup wiring contract, run
 For native sidebar material and appearance bootstrap, run
 `cargo test -p openbitfun-desktop --no-default-features --lib appearance::startup_appearance_tests`
 and `pnpm --dir src/web-ui run test:run src/infrastructure/appearance/adapters/ThemeTokenAppearanceAdapter.test.ts`.
-For embedded browser preview encoding and target correlation, run
+For embedded browser preview encoding, target correlation and navigation outcomes, run
 `cargo test -p openbitfun-desktop --lib api::browser_api::tests`.
 For conversation-owned browser lifetime, build Desktop and Web UI, then run
 `node tests/e2e/scripts/run-browser-session-isolation.mjs`. Its isolated native
 fixture delays A's model response until B is selected, exercises background
 opening and concurrent reads through real Agent tools, and verifies native
-visibility and retained document state across session switches. It scripts only
+visibility and retained document state across session switches. On macOS it also
+checks navigation failure delivery to tools/UI and recovery by manual navigation. It scripts only
 model HTTP, not browser or session behavior; it does not establish remote coverage.
 After browser command registration changes, also run
 `cargo test -p openbitfun-desktop --lib remote_workspace_policy`.

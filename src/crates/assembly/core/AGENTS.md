@@ -192,6 +192,23 @@ Narrower local guides already exist for some subtrees:
 
 ## Verification
 
+For smart routing, unchanged subagent model policy and resumed subagent choices:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib subagent_model
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib round_model_routing
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib coordinator::tests::reused_subagent
+```
+
+These fixtures cover host-owned configuration, nested delegation and Router protocol
+behavior with mocks. They do not establish connectivity to a deployed Router or a
+live SSH, relay, Peer or detached-dispatch host.
+
+Smart routing applies only to main sessions. Subagents use their independent
+model or pool configuration. Restoring an older smart child retains its saved
+target and legacy strategy fields without enabling routing; an explicit model
+replacement atomically returns that child to manual selection.
+
 For tool catalog feature gates, loaded-spec collection, and native/PTC
 presentation, check both the native baseline and the optional PTC owner:
 
@@ -199,7 +216,6 @@ presentation, check both the native baseline and the optional PTC owner:
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib agentic::tools::product_runtime::
 cargo test --locked -p openbitfun-core --no-default-features --features ptc-runtime --lib agentic::tools::product_runtime::
 ```
-
 For config-backed product-control option defaults, typed binding, and persisted readback:
 
 ```bash
@@ -337,6 +353,12 @@ Remote session host rollback port wiring:
 
 `cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib remote_session_host_registers_targeted_rollback_port`.
 
+For mobile/bot model-selection eligibility, legacy child records, and unknown
+session failures:
+`cargo test --locked -p openbitfun-core --no-default-features --features remote-connect,git --lib remote_model_strategy`.
+These owner fixtures preserve the unsupported child-editing boundary; they do not
+exercise a live relay or bot connection.
+
 Configuration persistence, account settings import, backup restore, legacy
 field/deletion compatibility, local-change notifications, and save/reload/model
 concurrency regressions have feature-free fixtures:
@@ -374,6 +396,17 @@ existing Agent tool test assembly):
 ```bash
 cargo test --locked -p openbitfun-core --no-default-features --features mcp-runtime,git --lib agentic::tools::product_runtime::
 ```
+
+For MCP ProductControl discovery, prompt budget, shared GUI/Agent persistence,
+runtime failures, and headless/remote-path refusal:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features mcp-runtime,git --lib mcp_control_
+cargo test --locked -p openbitfun-core --no-default-features --features mcp-runtime,git --lib agentic::tools::implementations::openbitfun_control_tool::tests
+```
+
+These fixtures use temporary storage and local lifecycle state; they do not
+exercise live SSH, relay, Peer, or Detached Dispatch connections.
 
 User Agent directory watching and registry regressions (omit `file-watch` to
 exercise query-time discovery fallback):

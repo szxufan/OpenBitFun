@@ -20,6 +20,26 @@ import {
 import { TauriTransportAdapter } from './tauri-adapter';
 import { isSurfaceChangedError } from '@/infrastructure/peer-device/deviceSurface';
 
+describe('smart routing host capability', () => {
+  it('rejects unsupported routing reads and mutations before RPC', async () => {
+    const rpc = vi.fn();
+    const adapter = new PeerDeviceTransportAdapter('peer-1', rpc);
+    await expect(adapter.request('get_model_routing_status', { request: {} })).rejects.toThrow('model_routing_v1_unsupported');
+    await expect(adapter.request('update_session_model', { request: { sessionId: 's', modelName: 'primary', routingMode: 'smart' } })).rejects.toThrow('model_routing_v1_unsupported');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('forwards routing to a capable host and keeps legacy manual requests compatible', async () => {
+    const rpc = vi.fn().mockResolvedValue(JSON.stringify({ resp: 'host_invoke_result', ok: true, value: null }));
+    const adapter = new PeerDeviceTransportAdapter('peer-1', rpc, { supportsModelRoutingV1: true });
+    const params = { request: { sessionId: 's', modelName: 'primary', routingMode: 'smart' } };
+    await adapter.request('update_session_model', params);
+    expect(JSON.parse(rpc.mock.calls[0][1])).toMatchObject({ command: 'update_session_model', args: params });
+    adapter.setHostCapabilities({ supportsModelRoutingV1: false });
+    await adapter.request('update_session_model', { request: { sessionId: 's', modelName: 'fast' } });
+  });
+});
+
 describe('model pool capability negotiation', () => {
   const commands = ['get_model_pools', 'save_model_pool', 'delete_model_pool', 'get_model_pool_status',
     'get_session_model_target', 'update_session_model_target', 'retry_model_pool_member'];

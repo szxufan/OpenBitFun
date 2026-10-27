@@ -310,13 +310,13 @@ impl Tool for OpenBitFunControlTool {
 
     async fn description(&self) -> OpenBitFunResult<String> {
         Ok(
-            "Control OpenBitFun itself through its internal ProductControl API. Use the two-step flow: first `list` or `search`, then `get` the matching capability and follow its returned schema and availability to `configure`, `execute`, or `open`. To show a capability's root surface, call `open` with only its capability_id. destination.actionId is presentation metadata, never an item_id or operation_id. The full catalog loads only on demand; never guess IDs or values."
+            "Control OpenBitFun features and settings, including MCP servers. Prefer this tool over ComputerUse. Use the two-step flow: `list` or `search`, then `get` the matching capability and follow its schema and availability to `configure`, `execute`, or `open`. Open a root with capability_id only. destination.actionId is presentation metadata, never an item_id or operation_id. The catalog loads on demand; never guess IDs or values."
                 .to_string(),
         )
     }
 
     fn short_description(&self) -> String {
-        "Discover and control OpenBitFun features and settings.".to_string()
+        "Discover and control OpenBitFun features and settings, including MCP servers.".to_string()
     }
 
     fn input_schema(&self) -> Value {
@@ -1332,6 +1332,64 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.to_string().contains("unsupported[profile=headless]"));
+    }
+
+    #[tokio::test]
+    async fn mcp_control_discovery_exposes_operations_and_headless_execution_refuses() {
+        let (tool, _root) = tool_with_temp_config("mcp-control").await;
+        let results = tool
+            .call_impl(
+                &json!({"action":"get", "capability_id":"setting.tools.mcp"}),
+                &context(),
+            )
+            .await
+            .unwrap();
+        let ToolResult::Result {
+            data,
+            result_for_assistant,
+            ..
+        } = &results[0]
+        else {
+            panic!("structured result");
+        };
+        assert!(data["nextToolCalls"]["validOperationIds"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("configure-server")));
+        assert!(result_for_assistant
+            .as_deref()
+            .unwrap()
+            .contains("expectedFingerprint"));
+        let read = json!({"action":"execute", "capability_id":"setting.tools.mcp", "operation_id":"list-servers"});
+        assert!(tool
+            .permission_intents(&read, &context())
+            .unwrap()
+            .is_empty());
+        assert!(tool
+            .call_impl(&read, &context())
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported[profile=headless]"));
+        let write = json!({"action":"execute", "capability_id":"setting.tools.mcp", "operation_id":"configure-server",
+            "arguments":{"serverId":"docs", "expectedFingerprint":"observed", "config":{"url":"https://example.test/mcp"}}});
+        assert_eq!(
+            tool.permission_intents(&write, &context()).unwrap().len(),
+            1
+        );
+        assert!(
+            tool.validate_input(&write, Some(&remote_context()))
+                .await
+                .result
+        );
+        let mut path_write = write;
+        path_write["arguments"]["workingDirectory"] = json!("/remote/workspace");
+        assert!(
+            !tool
+                .validate_input(&path_write, Some(&remote_context()))
+                .await
+                .result
+        );
     }
 
     #[tokio::test]

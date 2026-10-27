@@ -38,6 +38,47 @@ current catalog. For these paths, use:
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib -- deferred_tool listing_baseline untracked_previous unchanged_tracked prepended_deferred
 ```
 
+For per-round Router input preparation, isolation from main context compression,
+background summaries, and routing protocol behavior, use:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib round_model_routing
+```
+
+Smart mode is currently closed by the feature owner's fixed release policy in
+`round_model_routing::configuration`. Public status reports unavailable, explicit
+activation is rejected, and neither saved settings nor legacy environment values
+enable Router or auxiliary-summary execution. Existing records remain readable.
+For release-gate, old-record, manual-selection and no-provider-IO checks, run:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,subscription-auth --lib smart_release_gate
+```
+
+For routed execution models, prepared account/channel identity, and overflow re-entry:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git,subscription-auth --lib smart_slot
+```
+
+These loopback fixtures verify actual provider requests and slot-owned account,
+channel, replay and retry state. They do not establish live OAuth, SSH, Peer or
+detached-dispatch behavior.
+
+Router context state/budgets live in `openbitfun-agent-runtime::router_context`;
+Core only observes messages, invokes the configured auxiliary model and stores its
+separate sidecar. Portable summary admission lives in
+`openbitfun-agent-runtime::router_summary_queue`; Core supplies snapshots and
+provider futures. Session continuity must validate the complete visible turn
+lineage and fence recovered execution generations before writing. Legacy per-turn
+sidecars without lineage proof are retained but cannot establish continuity. Never feed Router summaries back into the main transcript or
+use the main compactor's summary/model/config as Router state.
+
+Router HTTP transport and classifier wire parsing live in
+`openbitfun-ai-adapters::round_router`. Keep the existing Core router facade and
+error categories; thresholds, execution-model slots, traces and fallback stay
+owned here. Core Agent Runtime must not enable a direct Reqwest dependency.
+
 For model retry admission and recovery, use:
 
 ```bash
@@ -295,6 +336,16 @@ and coordinate metadata through the provider wire converters:
 ```bash
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,git,tools-computer-use --lib computer_use_pixels_and_geometry_reach_real_provider_wire
 ```
+
+For configured image limits, legacy tool-image history, plain continuation after
+a provider rejection, and user attachment admission:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib -- configured_image_limit input_image_count
+```
+
+These fixtures use an isolated loopback model and temporary session state. They
+do not exercise live providers, SSH, relay, peer, or detached dispatch transports.
 
 ## Background result delivery
 

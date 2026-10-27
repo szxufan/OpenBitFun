@@ -221,6 +221,7 @@ export interface ModelRound {
   providerId?: string;
   modelConfigId?: string;
   effectiveModelName?: string;
+  routing?: import('@/shared/types/session-history').ModelRoutingDecision;
   firstChunkMs?: number;
   firstVisibleOutputMs?: number;
   streamDurationMs?: number;

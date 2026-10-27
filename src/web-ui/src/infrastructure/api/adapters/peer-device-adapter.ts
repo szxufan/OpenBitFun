@@ -301,6 +301,7 @@ export interface PeerDeviceTransportHooks {
   supportsMiniAppAgentImagesV1?: boolean;
   supportsWslWorkspacesV1?: boolean;
   supportsWholeSessionCopyV1?: boolean;
+  supportsModelRoutingV1?: boolean;
   supportsModelPoolSelectionV1?: boolean;
   supportsBtwModelPoolSelectionV1?: boolean;
   supportsComputerUseSharingV1?: boolean;
@@ -441,6 +442,7 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
       | 'supportsMiniAppAgentImagesV1'
       | 'supportsWslWorkspacesV1'
       | 'supportsWholeSessionCopyV1'
+      | 'supportsModelRoutingV1'
       | 'supportsModelPoolSelectionV1'
       | 'supportsBtwModelPoolSelectionV1'
       | 'supportsComputerUseSharingV1'
@@ -506,6 +508,11 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
     }
 
     this.assertRenderedTransport(action);
+
+    if ((action === 'get_model_routing_status' || (action === 'update_session_model' && params?.request?.routingMode !== undefined))
+      && this.hooks.supportsModelRoutingV1 !== true) {
+      throw new PeerProductCommandError('model_routing_v1_unsupported: The connected Peer host does not support smart routing');
+    }
 
     if (['retry_model_pool_member', 'get_model_pools', 'save_model_pool', 'delete_model_pool', 'get_model_pool_status',
       'get_session_model_target', 'update_session_model_target'].includes(action)

@@ -9,6 +9,7 @@ import { SubscriptionQuotaPanel } from './SubscriptionQuotaPanel';
 import { SubscriptionAccountList, SubscriptionServiceGroup } from './SubscriptionServiceGroup';
 import { managedSubscriptionAccounts, modelsUsingSubscriptionAccount, groupSubscriptionServices, isRetiredSubscriptionProvider, isZcodeProvider, preferredZcodeProvider, subscriptionManagerAccounts } from './subscriptionServices';
 import { aiApi, systemAPI } from '@/infrastructure/api';
+import { agentAPI, type ModelRoutingStatus } from '@/infrastructure/api/service-api/AgentAPI';
 import type {
   SubscriptionAccount,
   SubscriptionAccountInstance,
@@ -28,6 +29,7 @@ import {
   ConfigRetryState,
 } from '@/infrastructure/config/components/common';
 import DefaultModelConfig from '@/infrastructure/config/components/DefaultModelConfig';
+import { ModelRouterSettings } from '@/infrastructure/config/components/ModelRouterSettings';
 import { ImageGenerationAcquisitionRow, ImageGenerationDefaultSlot, ImageGenerationDialogs, ImageGenerationModelCard } from '@/infrastructure/config/components/image-generation/ImageGenerationSection';
 import { useImageGenerationSettings } from '@/infrastructure/config/components/image-generation/useImageGenerationSettings';
 import { matchesImageModel } from '@/infrastructure/config/components/image-generation/imageModels';
@@ -480,6 +482,8 @@ const ModelSettingsPage: React.FC = () => {
   const [showTagSyncNotice, setShowTagSyncNotice] = useState(false);
   const [showSubscriptionManager, setShowSubscriptionManager] = useState(false);
   const [showProviderManager, setShowProviderManager] = useState(false);
+  const [routerSettingsScope, setRouterSettingsScope] = useState<ReturnType<typeof getActiveSurfaceScope> | null>(null);
+  const [routerAvailability, setRouterAvailability] = useState<{ surfaceKey: string; status: ModelRoutingStatus } | null>(null);
   const [subscriptionLoadError, setSubscriptionLoadError] = useState(false);
   const [isConfigLoading, setIsConfigLoading] = useState(!modelSeed.loaded);
   const [configLoadError, setConfigLoadError] = useState(false);
@@ -503,6 +507,14 @@ const ModelSettingsPage: React.FC = () => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [expandedProviderGroupKeys, setExpandedProviderGroupKeys] = useState<Set<string>>(new Set());
   const notification = useNotification();
+
+  useEffect(() => {
+    if (!routerSettingsScope) return;
+    const close = () => setRouterSettingsScope(null);
+    if (!routerSettingsScope.isCurrent()) { close(); return; }
+    routerSettingsScope.signal.addEventListener('abort', close, { once: true });
+    return () => routerSettingsScope.signal.removeEventListener('abort', close);
+  }, [routerSettingsScope]);
 
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
 
@@ -604,6 +616,16 @@ const ModelSettingsPage: React.FC = () => {
     }
   }, [isEditing, managingSubscriptionProvider]);
   const accountSurface = React.useSyncExternalStore(onSurfaceActivated, getActiveSurfaceScope, getActiveSurfaceScope);
+  const routingSurfaceKey = accountSurface.key('model-routing-availability');
+  const routerAvailable = routerAvailability?.surfaceKey === routingSurfaceKey
+    && routerAvailability.status.apiVersion === 1 && routerAvailability.status.available === true;
+  useEffect(() => {
+    let active = true;
+    void agentAPI.getModelRoutingStatus().then(status => {
+      if (active && accountSurface.isCurrent()) setRouterAvailability({ surfaceKey: accountSurface.key('model-routing-availability'), status });
+    }).catch(() => { if (active && accountSurface.isCurrent()) setRouterAvailability(null); });
+    return () => { active = false; };
+  }, [accountSurface]);
   const [accountDataKey, setAccountDataKey] = useState<string | null>(null);
   const [storedSubscriptionAccounts, setSubscriptionAccounts] = useState<SubscriptionAccount[]>([]);
   const [storedAccountInstances, setAccountInstances] = useState<SubscriptionAccountInstance[]>([]);
@@ -1161,6 +1183,7 @@ const ModelSettingsPage: React.FC = () => {
       !!settings.skip_ssl_verify
       || settings.custom_request_body_mode === 'trim'
       || !!settings.custom_request_body?.trim()
+      || settings.max_images_per_request !== undefined
       || Object.keys(settings.custom_headers || {}).length > 0,
     );
   };
@@ -1947,6 +1970,7 @@ const ModelSettingsPage: React.FC = () => {
         !!config.skip_ssl_verify ||
         config.custom_request_body_mode === 'trim' ||
         (!!config.custom_request_body && config.custom_request_body.trim() !== '') ||
+        configuredProviderModels.some(model => model.max_images_per_request !== undefined) ||
         (!!config.custom_headers && Object.keys(config.custom_headers).length > 0)
       );
       setCreationMode('form');
@@ -1979,7 +2003,8 @@ const ModelSettingsPage: React.FC = () => {
         hasCustomHeaders ||
         hasCustomBody ||
         config.custom_request_body_mode === 'trim' ||
-        !!config.skip_ssl_verify
+        !!config.skip_ssl_verify ||
+        config.max_images_per_request !== undefined
       );
       setIsEditing(true);
     });
@@ -2628,6 +2653,7 @@ const ModelSettingsPage: React.FC = () => {
   const poolRoles = useMemo(() => [
     { modelId: poolDefaults.primary, label: tDefault('core.primary.label') },
     { modelId: poolDefaults.fast, label: tDefault('core.fast.label') },
+    { modelId: poolDefaults.economy, label: tDefault('core.economy.label') },
     { modelId: poolDefaults.image_understanding, label: tDefault('optional.capabilities.image_understanding.label') },
     { modelId: poolDefaults.speech_recognition, label: tDefault('optional.capabilities.speech_recognition.label') },
   ], [poolDefaults, tDefault]);
@@ -3637,6 +3663,7 @@ const ModelSettingsPage: React.FC = () => {
     const renderAdvancedSettings = () => (
       !authIsSubscription && (
         <Disclosure
+          data-testid="settings-model-advanced-toggle"
           summary={t('advancedSettings.title')}
           description={isProviderScopedEditing ? t('advancedSettings.description') : undefined}
           className={isProviderScopedEditing
@@ -3661,6 +3688,28 @@ const ModelSettingsPage: React.FC = () => {
                   />
                 </ConfigPageRow>
               )}
+              <ConfigPageRow
+                label={t('advancedSettings.maxImagesPerRequest.label')}
+                description={t('advancedSettings.maxImagesPerRequest.hint')}
+                align="center"
+              >
+                <Input
+                  aria-label={t('advancedSettings.maxImagesPerRequest.label')}
+                  data-testid="settings-model-image-limit"
+                  type="number"
+                  min={1}
+                  step={1}
+                  size="sm"
+                  value={requestSettings.max_images_per_request ?? ''}
+                  onChange={event => {
+                    const value = event.target.value;
+                    const count = Number(value);
+                    if (value === '' || (Number.isSafeInteger(count) && count > 0)) {
+                      updateRequestSettings({ max_images_per_request: value === '' ? undefined : count });
+                    }
+                  }}
+                />
+              </ConfigPageRow>
               <ConfigPageRow
                 label={t('advancedSettings.skipSslVerify.label')}
                 description={requestSettings.skip_ssl_verify ? (
@@ -4446,15 +4495,15 @@ const ModelSettingsPage: React.FC = () => {
               title={(
                 <div className="openbitfun-model-settings__pool-card-title">
                   <OverflowText>{modelLabel}</OverflowText>
-                  {(roles.length > 0 || tags.length > 0) && (
-                    <div className="openbitfun-model-settings__pool-tags">
-                      {roles.map(role => <StatusPill key={role.label} tone="neutral">{role.label}</StatusPill>)}
-                      {tags.map(tag => <StatusPill key={tag} tone="neutral">{tag}</StatusPill>)}
-                    </div>
-                  )}
                   {(isTesting || testResult) && badge}
                 </div>
               )}
+              description={(roles.length > 0 || tags.length > 0) ? (
+                <div className="openbitfun-model-settings__pool-tags">
+                  {roles.map(role => <StatusPill key={role.label} tone="neutral">{role.label}</StatusPill>)}
+                  {tags.map(tag => <StatusPill key={tag} tone="neutral">{tag}</StatusPill>)}
+                </div>
+              ) : undefined}
             />
             <CardFooter align="between" className="openbitfun-model-settings__pool-card-footer">
               <OverflowText className="openbitfun-model-settings__pool-card-source">
@@ -4736,7 +4785,10 @@ const ModelSettingsPage: React.FC = () => {
 
         <ConfigPageSection title={t('sections.selectionModes')}>
           <ConfigPageRow className="openbitfun-model-settings__mode-row" label={t('selectionModes.smart')} description={t('selectionModes.smartHint')} align="center">
-            <StatusPill tone="neutral">{t('selectionModes.unavailable')}</StatusPill>
+            <Button size="sm" data-testid="settings-smart-mode-configure" disabled={!modelConfigReady || !routerAvailable}
+              onClick={() => { if (routerAvailable) setRouterSettingsScope(getActiveSurfaceScope()); }}>
+              {t(routerAvailable ? 'selectionModes.configure' : 'selectionModes.unavailable')}
+            </Button>
           </ConfigPageRow>
 
         </ConfigPageSection>
@@ -4965,6 +5017,9 @@ const ModelSettingsPage: React.FC = () => {
           {renderSubscriptionManagerContent()}
         </DialogBody>
       </Dialog>
+
+      {routerAvailable && routerSettingsScope?.isCurrent() && <ModelRouterSettings models={aiModels} initialStatus={routerAvailability?.status}
+        onClose={() => setRouterSettingsScope(null)} onSaved={() => { void loadConfig(); }} />}
 
       <Dialog open={showProviderManager} onOpenChange={setShowProviderManager} size="xl">
         <DialogHeader>

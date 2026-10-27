@@ -4,8 +4,8 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "bff6e24a5bc74bba63fcd2858d7ac58e028d6901e44aece40e5bd885f518f8af",
-  "ownerDigest": "4e1ace270088acecbd333d2c8aced0547dddb0fd6bae778bec24f2b0fb48ea91",
+  "digest": "40fada109d5dbcfdbc1b289af574f7ac736da1620d4eee26128a40d3f0f5818c",
+  "ownerDigest": "f27c231da2e536e4f2123910f34f862b55d21feb0528bc915d4d13edbd528af9",
   "searchAcceptance": [
     {
       "id": "native-image-generation",
@@ -153,17 +153,33 @@
         "capabilityId": "setting.tools.execution",
         "itemId": "timeouts"
       }
+    },
+    {
+      "id": "mcp-control-chinese",
+      "query": "MCP 服务器",
+      "expectedFirstCapabilityId": "setting.tools.mcp",
+      "expectedCapabilityIds": [
+        "setting.tools.mcp"
+      ]
+    },
+    {
+      "id": "mcp-control-english",
+      "query": "MCP server configuration",
+      "expectedFirstCapabilityId": "setting.tools.mcp",
+      "expectedCapabilityIds": [
+        "setting.tools.mcp"
+      ]
     }
   ],
   "counts": {
     "features": 23,
     "settings": 21,
     "userFacing": 44,
-    "documentedItems": 335,
+    "documentedItems": 336,
     "controlCoverage": {
-      "direct": 52,
+      "direct": 56,
       "delegated": 67,
-      "interactive": 216,
+      "interactive": 213,
       "unsupported": 0
     }
   },
@@ -14062,6 +14078,7 @@
         "available-models",
         "model-catalog",
         "advanced-request",
+        "smart-routing",
         "connection-test",
         "model-pools"
       ],
@@ -14606,6 +14623,52 @@
         "additionalProperties": true
       },
       "openReason": "secretEntry",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "ai.models"
+      }
+    },
+    {
+      "id": "setting.ai.models:open:smart-routing",
+      "capabilityId": "setting.ai.models",
+      "itemIds": [
+        "smart-routing"
+      ],
+      "kind": "open",
+      "risk": "ui",
+      "executionHost": "presentationSurface",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_presentation_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openReason": "unstructuredInteraction",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "ai.models"
@@ -17958,27 +18021,30 @@
       }
     },
     {
-      "id": "setting.tools.mcp:open:json-config",
+      "id": "setting.tools.mcp:operation:list-servers",
       "capabilityId": "setting.tools.mcp",
       "itemIds": [
-        "json-config"
+        "json-config",
+        "server-types",
+        "lifecycle",
+        "status"
       ],
-      "kind": "open",
-      "risk": "ui",
-      "executionHost": "presentationSurface",
+      "kind": "operation",
+      "risk": "read",
+      "executionHost": "productHost",
       "availability": {
         "desktop": {
           "available": true
         },
         "cli": {
           "available": false,
-          "reason": "This delivery profile has no live presentation surface"
+          "reason": "This command requires a native product-host provider"
         },
         "peer": {
           "available": true,
           "requiredCapabilities": [
             "product_control_v1",
-            "product_control_presentation_v1"
+            "product_control_native_v1"
           ]
         },
         "remoteControl": {
@@ -17986,45 +18052,49 @@
         },
         "detachedDispatch": {
           "available": false,
-          "reason": "This delivery profile has no live presentation surface"
+          "reason": "This command requires a native product-host provider"
         }
       },
       "inputSchema": {
-        "type": "object",
-        "additionalProperties": false
+        "additionalProperties": false,
+        "type": "object"
       },
       "outputSchema": {
         "type": "object",
         "additionalProperties": true
       },
-      "openReason": "unstructuredInteraction",
+      "valueSource": {
+        "kind": "provider",
+        "providerId": "mcp"
+      },
       "presentationTarget": {
         "kind": "settings",
         "pageId": "tools.mcp"
       }
     },
     {
-      "id": "setting.tools.mcp:open:server-types",
+      "id": "setting.tools.mcp:operation:configure-server",
       "capabilityId": "setting.tools.mcp",
       "itemIds": [
+        "json-config",
         "server-types"
       ],
-      "kind": "open",
-      "risk": "ui",
-      "executionHost": "presentationSurface",
+      "kind": "operation",
+      "risk": "write",
+      "executionHost": "productHost",
       "availability": {
         "desktop": {
           "available": true
         },
         "cli": {
           "available": false,
-          "reason": "This delivery profile has no live presentation surface"
+          "reason": "This command requires a native product-host provider"
         },
         "peer": {
           "available": true,
           "requiredCapabilities": [
             "product_control_v1",
-            "product_control_presentation_v1"
+            "product_control_native_v1"
           ]
         },
         "remoteControl": {
@@ -18032,45 +18102,155 @@
         },
         "detachedDispatch": {
           "available": false,
-          "reason": "This delivery profile has no live presentation surface"
+          "reason": "This command requires a native product-host provider"
         }
       },
       "inputSchema": {
-        "type": "object",
-        "additionalProperties": false
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "additionalProperties": false,
+            "description": "Patch non-secret fields of one server; omitted fields and existing credentials are preserved. New stdio servers require command; HTTP/SSE servers require url. Use null to remove an obsolete string field when switching transport. Credentials, environment and headers are entered through the protected MCP settings flow, never by reading existing secrets or putting secrets in command/args/url. Saving reconciles runtime state; autoStart defaults to true. Inspect the returned status instead of assuming connection succeeded.",
+            "properties": {
+              "args": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "autoStart": {
+                "type": "boolean"
+              },
+              "command": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "inheritParentEnvironment": {
+                "type": "boolean"
+              },
+              "name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "oauthEnabled": {
+                "type": "boolean"
+              },
+              "source": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "transport": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "expectedFingerprint": {
+            "description": "Copy the fingerprint returned by list-servers. Reload after a conflict; never overwrite a concurrent edit.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "serverId": {
+            "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "workingDirectory": {
+            "description": "Optional directory on the OpenBitFun product host for a local process; never a remote workspace path.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "expectedFingerprint",
+          "config"
+        ],
+        "type": "object"
       },
       "outputSchema": {
         "type": "object",
         "additionalProperties": true
       },
-      "openReason": "unstructuredInteraction",
+      "valueSource": {
+        "kind": "provider",
+        "providerId": "mcp"
+      },
       "presentationTarget": {
         "kind": "settings",
         "pageId": "tools.mcp"
       }
     },
     {
-      "id": "setting.tools.mcp:open:lifecycle",
+      "id": "setting.tools.mcp:operation:start-server",
       "capabilityId": "setting.tools.mcp",
       "itemIds": [
         "lifecycle"
       ],
-      "kind": "open",
-      "risk": "ui",
-      "executionHost": "presentationSurface",
+      "kind": "operation",
+      "risk": "write",
+      "executionHost": "productHost",
       "availability": {
         "desktop": {
           "available": true
         },
         "cli": {
           "available": false,
-          "reason": "This delivery profile has no live presentation surface"
+          "reason": "This command requires a native product-host provider"
         },
         "peer": {
           "available": true,
           "requiredCapabilities": [
             "product_control_v1",
-            "product_control_presentation_v1"
+            "product_control_native_v1"
           ]
         },
         "remoteControl": {
@@ -18078,45 +18258,58 @@
         },
         "detachedDispatch": {
           "available": false,
-          "reason": "This delivery profile has no live presentation surface"
+          "reason": "This command requires a native product-host provider"
         }
       },
       "inputSchema": {
-        "type": "object",
-        "additionalProperties": false
+        "additionalProperties": false,
+        "properties": {
+          "serverId": {
+            "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId"
+        ],
+        "type": "object"
       },
       "outputSchema": {
         "type": "object",
         "additionalProperties": true
       },
-      "openReason": "unstructuredInteraction",
+      "valueSource": {
+        "kind": "provider",
+        "providerId": "mcp"
+      },
       "presentationTarget": {
         "kind": "settings",
         "pageId": "tools.mcp"
       }
     },
     {
-      "id": "setting.tools.mcp:open:status",
+      "id": "setting.tools.mcp:operation:stop-server",
       "capabilityId": "setting.tools.mcp",
       "itemIds": [
-        "status"
+        "lifecycle"
       ],
-      "kind": "open",
-      "risk": "ui",
-      "executionHost": "presentationSurface",
+      "kind": "operation",
+      "risk": "write",
+      "executionHost": "productHost",
       "availability": {
         "desktop": {
           "available": true
         },
         "cli": {
           "available": false,
-          "reason": "This delivery profile has no live presentation surface"
+          "reason": "This command requires a native product-host provider"
         },
         "peer": {
           "available": true,
           "requiredCapabilities": [
             "product_control_v1",
-            "product_control_presentation_v1"
+            "product_control_native_v1"
           ]
         },
         "remoteControl": {
@@ -18124,18 +18317,155 @@
         },
         "detachedDispatch": {
           "available": false,
-          "reason": "This delivery profile has no live presentation surface"
+          "reason": "This command requires a native product-host provider"
         }
       },
       "inputSchema": {
-        "type": "object",
-        "additionalProperties": false
+        "additionalProperties": false,
+        "properties": {
+          "serverId": {
+            "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId"
+        ],
+        "type": "object"
       },
       "outputSchema": {
         "type": "object",
         "additionalProperties": true
       },
-      "openReason": "unstructuredInteraction",
+      "valueSource": {
+        "kind": "provider",
+        "providerId": "mcp"
+      },
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.mcp"
+      }
+    },
+    {
+      "id": "setting.tools.mcp:operation:restart-server",
+      "capabilityId": "setting.tools.mcp",
+      "itemIds": [
+        "lifecycle"
+      ],
+      "kind": "operation",
+      "risk": "write",
+      "executionHost": "productHost",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This command requires a native product-host provider"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_native_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This command requires a native product-host provider"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "serverId": {
+            "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "valueSource": {
+        "kind": "provider",
+        "providerId": "mcp"
+      },
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.mcp"
+      }
+    },
+    {
+      "id": "setting.tools.mcp:operation:delete-server",
+      "capabilityId": "setting.tools.mcp",
+      "itemIds": [
+        "lifecycle"
+      ],
+      "kind": "operation",
+      "risk": "destructive",
+      "executionHost": "productHost",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This command requires a native product-host provider"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_native_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This command requires a native product-host provider"
+        }
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "expectedFingerprint": {
+            "description": "Copy the fingerprint returned by list-servers. Reload after a conflict; never overwrite a concurrent edit.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "serverId": {
+            "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "serverId",
+          "expectedFingerprint"
+        ],
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "valueSource": {
+        "kind": "provider",
+        "providerId": "mcp"
+      },
       "presentationTarget": {
         "kind": "settings",
         "pageId": "tools.mcp"
@@ -27718,6 +28048,17 @@
           }
         },
         {
+          "id": "smart-routing",
+          "titleZh": "查看智能模式可用状态（暂未开放）",
+          "titleEn": "View smart-mode availability (not released)",
+          "control": {
+            "kind": "open",
+            "reasonCode": "unstructuredInteraction",
+            "reasonZh": "“查看智能模式可用状态（暂未开放）”在模型设置页展示执行宿主的发布可用性；当前版本不提供智能模式配置或开启操作",
+            "reasonEn": "\"View smart-mode availability (not released)\" opens model settings to inspect execution-host availability. This release disables smart-mode configuration and activation."
+          }
+        },
+        {
           "id": "connection-test",
           "titleZh": "测试模型连接或图像生成，并刷新运行时客户端",
           "titleEn": "Test model connections or image generation and refresh the runtime client",
@@ -27839,6 +28180,8 @@
         "Inspect models.dev catalog status, refresh it manually, and reveal its local cache",
         "为供应商添加自定义 Header、请求体字段与 SSL 行为",
         "Add custom headers, request-body fields, and SSL behavior per provider",
+        "查看智能模式可用状态（暂未开放）",
+        "View smart-mode availability (not released)",
         "测试模型连接或图像生成，并刷新运行时客户端",
         "Test model connections or image generation and refresh the runtime client",
         "管理模型池、路由策略与会话模型选择",
@@ -30028,13 +30371,15 @@
       "items": [
         {
           "id": "json-config",
-          "titleZh": "用表单或 JSON 查看和保存全部 MCP 服务器配置",
-          "titleEn": "View and save all MCP server configuration through forms or JSON",
+          "titleZh": "查看服务器状态并按服务器保存非秘密配置",
+          "titleEn": "Inspect server state and save non-secret configuration per server",
           "control": {
-            "kind": "open",
-            "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“用表单或 JSON 查看和保存全部 MCP 服务器配置”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“View and save all MCP server configuration through forms or JSON” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
+            "kind": "direct",
+            "operations": [
+              "list-servers",
+              "configure-server"
+            ],
+            "options": []
           }
         },
         {
@@ -30042,10 +30387,12 @@
           "titleZh": "添加本地进程、远程 HTTP/SSE 或容器 MCP 服务器",
           "titleEn": "Add local-process, remote HTTP/SSE, or container MCP servers",
           "control": {
-            "kind": "open",
-            "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“添加本地进程、远程 HTTP/SSE 或容器 MCP 服务器”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“Add local-process, remote HTTP/SSE, or container MCP servers” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
+            "kind": "direct",
+            "operations": [
+              "list-servers",
+              "configure-server"
+            ],
+            "options": []
           }
         },
         {
@@ -30053,10 +30400,15 @@
           "titleZh": "启动、停止、重启和删除单个 MCP 服务器",
           "titleEn": "Start, stop, restart, and delete individual MCP servers",
           "control": {
-            "kind": "open",
-            "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“启动、停止、重启和删除单个 MCP 服务器”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“Start, stop, restart, and delete individual MCP servers” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
+            "kind": "direct",
+            "operations": [
+              "list-servers",
+              "start-server",
+              "stop-server",
+              "restart-server",
+              "delete-server"
+            ],
+            "options": []
           }
         },
         {
@@ -30064,10 +30416,11 @@
           "titleZh": "查看初始化、连接、健康、重连、鉴权和失败状态",
           "titleEn": "Inspect initialization, connection, health, reconnecting, authentication, and failure states",
           "control": {
-            "kind": "open",
-            "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“查看初始化、连接、健康、重连、鉴权和失败状态”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“Inspect initialization, connection, health, reconnecting, authentication, and failure states” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
+            "kind": "direct",
+            "operations": [
+              "list-servers"
+            ],
+            "options": []
           }
         },
         {
@@ -30103,11 +30456,11 @@
               "GetMCPPrompt"
             ],
             "workflowZh": [
-              "先对明确的 server_id 调用 ListMCPPrompts；不知道服务器时先打开 MCP 设置查看已连接项",
+              "先通过 list-servers 取得用户服务器 ID，再对明确的 server_id 调用 ListMCPPrompts",
               "取得名称和参数模式后用 GetMCPPrompt 渲染指定 Prompt；连接或权限失败必须原样返回"
             ],
             "workflowEn": [
-              "Call ListMCPPrompts for an explicit server_id; if the server is unknown, open MCP settings to inspect connected servers first",
+              "Resolve a user server ID with list-servers, then call ListMCPPrompts for that explicit server_id",
               "After obtaining the name and argument shape, render it with GetMCPPrompt and preserve connection or permission failures"
             ]
           }
@@ -30167,17 +30520,250 @@
       ],
       "agentExamplesZh": [
         "打开 MCP 设置",
-        "带我管理 MCP 服务器"
+        "带我管理 MCP 服务器",
+        "帮我配置 MCP 服务器",
+        "重启指定 MCP 服务器"
       ],
       "agentExamplesEn": [
         "Open MCP settings",
-        "Take me to MCP server management"
+        "Take me to MCP server management",
+        "Configure an MCP server for me",
+        "Restart a specific MCP server"
       ],
       "destination": {
         "kind": "settings",
         "pageId": "tools.mcp"
       },
-      "operations": [],
+      "operations": [
+        {
+          "id": "list-servers",
+          "titleZh": "列出服务器与状态",
+          "titleEn": "List servers and state",
+          "descriptionZh": "返回当前产品宿主用户级服务器 ID、连接状态和配置版本，不返回已有凭据、命令参数或 URL。",
+          "descriptionEn": "Return user server IDs, connection state, and the configuration fingerprint on the executing product host without exposing stored credentials, command arguments, or URLs.",
+          "risk": "read",
+          "inputSchema": {
+            "additionalProperties": false,
+            "type": "object"
+          }
+        },
+        {
+          "id": "configure-server",
+          "titleZh": "添加或修改服务器",
+          "titleEn": "Add or update a server",
+          "descriptionZh": "先列出服务器取得 expectedFingerprint，再按 serverId 增量保存非秘密配置；保留其他服务器、未提供字段和已有凭据。保存后检查 runtimeReconciled 和连接状态，不能把写入成功当作连接成功。",
+          "descriptionEn": "List servers for expectedFingerprint, then patch non-secret configuration by serverId. Preserve other servers, omitted fields, and stored credentials. Check runtimeReconciled and connection state after saving; persistence is not proof of connectivity.",
+          "risk": "write",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "config": {
+                "additionalProperties": false,
+                "description": "Patch non-secret fields of one server; omitted fields and existing credentials are preserved. New stdio servers require command; HTTP/SSE servers require url. Use null to remove an obsolete string field when switching transport. Credentials, environment and headers are entered through the protected MCP settings flow, never by reading existing secrets or putting secrets in command/args/url. Saving reconciles runtime state; autoStart defaults to true. Inspect the returned status instead of assuming connection succeeded.",
+                "properties": {
+                  "args": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "autoStart": {
+                    "type": "boolean"
+                  },
+                  "command": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "inheritParentEnvironment": {
+                    "type": "boolean"
+                  },
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "oauthEnabled": {
+                    "type": "boolean"
+                  },
+                  "source": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "transport": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "type": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              },
+              "expectedFingerprint": {
+                "description": "Copy the fingerprint returned by list-servers. Reload after a conflict; never overwrite a concurrent edit.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "serverId": {
+                "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "workingDirectory": {
+                "description": "Optional directory on the OpenBitFun product host for a local process; never a remote workspace path.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "serverId",
+              "expectedFingerprint",
+              "config"
+            ],
+            "type": "object"
+          },
+          "argumentScopes": {
+            "workingDirectory": "productHostLocal"
+          }
+        },
+        {
+          "id": "start-server",
+          "titleZh": "启动服务器",
+          "titleEn": "Start a server",
+          "descriptionZh": "按返回的用户服务器 ID 启动服务并回读状态；需要 OAuth 时保留用户授权流程。",
+          "descriptionEn": "Start a returned user server ID and read back state; preserve the user authorization flow when OAuth is required.",
+          "risk": "write",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "serverId": {
+                "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "serverId"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "id": "stop-server",
+          "titleZh": "停止服务器",
+          "titleEn": "Stop a server",
+          "descriptionZh": "停止指定用户服务器并保留配置。",
+          "descriptionEn": "Stop the selected user server while preserving its configuration.",
+          "risk": "write",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "serverId": {
+                "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "serverId"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "id": "restart-server",
+          "titleZh": "重启服务器",
+          "titleEn": "Restart a server",
+          "descriptionZh": "重启指定用户服务器并回读状态，不重新写入配置。",
+          "descriptionEn": "Restart the selected user server and read back state without rewriting configuration.",
+          "risk": "write",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "serverId": {
+                "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "serverId"
+            ],
+            "type": "object"
+          }
+        },
+        {
+          "id": "delete-server",
+          "titleZh": "删除服务器",
+          "titleEn": "Delete a server",
+          "descriptionZh": "仅在用户要求时，使用最新 expectedFingerprint 删除指定用户服务器并清理对应运行时。",
+          "descriptionEn": "Only when requested, use the latest expectedFingerprint to remove the selected user server and reconcile its runtime.",
+          "risk": "destructive",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "expectedFingerprint": {
+                "description": "Copy the fingerprint returned by list-servers. Reload after a conflict; never overwrite a concurrent edit.",
+                "minLength": 1,
+                "type": "string"
+              },
+              "serverId": {
+                "description": "Exact user server ID from list-servers, or a new ID when adding a server. These settings belong to the executing OpenBitFun product host, not the workspace host.",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "serverId",
+              "expectedFingerprint"
+            ],
+            "type": "object"
+          }
+        }
+      ],
       "options": [],
       "searchTerms": [
         "setting.tools.mcp",
@@ -30200,8 +30786,8 @@
         "Add local or remote MCP servers",
         "Inspect connection health and tool inventory",
         "Complete remote OAuth authorization",
-        "用表单或 JSON 查看和保存全部 MCP 服务器配置",
-        "View and save all MCP server configuration through forms or JSON",
+        "查看服务器状态并按服务器保存非秘密配置",
+        "Inspect server state and save non-secret configuration per server",
         "添加本地进程、远程 HTTP/SSE 或容器 MCP 服务器",
         "Add local-process, remote HTTP/SSE, or container MCP servers",
         "启动、停止、重启和删除单个 MCP 服务器",
@@ -30222,13 +30808,17 @@
         "Open MCP App/UI surfaces, exchange messages, and answer interaction requests",
         "打开 MCP 设置",
         "带我管理 MCP 服务器",
+        "帮我配置 MCP 服务器",
+        "重启指定 MCP 服务器",
         "Open MCP settings",
         "Take me to MCP server management",
+        "Configure an MCP server for me",
+        "Restart a specific MCP server",
         "ListMCPPrompts",
         "GetMCPPrompt",
-        "先对明确的 server_id 调用 ListMCPPrompts；不知道服务器时先打开 MCP 设置查看已连接项",
+        "先通过 list-servers 取得用户服务器 ID，再对明确的 server_id 调用 ListMCPPrompts",
         "取得名称和参数模式后用 GetMCPPrompt 渲染指定 Prompt；连接或权限失败必须原样返回",
-        "Call ListMCPPrompts for an explicit server_id; if the server is unknown, open MCP settings to inspect connected servers first",
+        "Resolve a user server ID with list-servers, then call ListMCPPrompts for that explicit server_id",
         "After obtaining the name and argument shape, render it with GetMCPPrompt and preserve connection or permission failures",
         "ListMCPResources",
         "ReadMCPResource",

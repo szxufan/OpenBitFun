@@ -3232,6 +3232,7 @@ fn remote_connect_tracker_preserves_streaming_snapshot_contract() {
         round_index: 3,
         model_config_id: "model-config".to_string(),
         effective_model_name: "provider-model".to_string(),
+        routing: None,
     });
     tracker.handle_agentic_event(&AgenticEvent::ThinkingChunk {
         session_id: "session-1".to_string(),

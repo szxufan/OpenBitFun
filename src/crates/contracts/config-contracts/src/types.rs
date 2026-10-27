@@ -878,6 +878,8 @@ pub struct DefaultModelsConfig {
     pub primary: Option<String>,
     /// Fast model ID (for simple tasks). When unset, selection falls back to primary.
     pub fast: Option<String>,
+    /// Economy model for smart routing and optional delegated work.
+    pub economy: Option<String>,
     /// Search model.
     pub search: Option<String>,
     /// Image understanding model.
@@ -1204,6 +1206,41 @@ impl TaskModelsConfig {
     }
 }
 
+/// Host-owned classifier configuration. Credentials remain on the referenced model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelRoutingConfig {
+    /// Default for newly created native main sessions. Existing sessions keep their choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_mode: Option<String>,
+    pub router_model_id: Option<String>,
+    /// Optional exact-tokenizer override on the execution host. Empty or unavailable
+    /// paths use automatic estimates; retain this legacy field for older installs.
+    pub tokenizer_path: String,
+    pub simple_threshold: f64,
+    pub timeout_ms: u64,
+    /// Legacy smart-subagent setting retained for persisted-data compatibility only.
+    /// Subagent selection follows agent_model_selections; this field has no runtime effect.
+    pub subagent_model: String,
+    /// Compatibility switch for older hosts. Product smart mode maintains
+    /// economy-model routing summaries automatically; preserve legacy values on read.
+    pub summary_enabled: bool,
+}
+
+impl Default for ModelRoutingConfig {
+    fn default() -> Self {
+        Self {
+            default_mode: None,
+            router_model_id: None,
+            tokenizer_path: String::new(),
+            simple_threshold: 0.75,
+            timeout_ms: 10_000,
+            subagent_model: "primary".into(),
+            summary_enabled: true,
+        }
+    }
+}
+
 /// AI configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -1226,6 +1263,9 @@ pub struct AIConfig {
     /// Default model configuration.
     #[serde(default)]
     pub default_models: DefaultModelsConfig,
+
+    #[serde(default)]
+    pub model_routing: ModelRoutingConfig,
 
     /// Default selectors for future mode and delegated-subagent sessions.
     #[serde(default)]
@@ -1821,6 +1861,10 @@ pub struct AIModelConfig {
     /// Optional advanced override for the request output limit. When absent,
     /// OpenBitFun derives a tiered limit from the context window at runtime.
     pub max_tokens: Option<u32>,
+    /// Optional image input ceiling across the complete request, including history
+    /// and tool results. Missing preserves the existing provider behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_images_per_request: Option<usize>,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
     pub enabled: bool,
@@ -2246,6 +2290,7 @@ impl Default for AIConfig {
             tool_presentation_mode: ToolPresentationMode::default(),
             task_models: TaskModelsConfig::default(),
             default_models: DefaultModelsConfig::default(),
+            model_routing: ModelRoutingConfig::default(),
             agent_model_defaults: AgentModelDefaultsConfig::default(),
             agent_model_selections: None,
             agent_profiles: std::collections::HashMap::new(),
@@ -2310,6 +2355,7 @@ impl Default for AIModelConfig {
             api_key: String::new(),
             context_window: None,
             max_tokens: None,
+            max_images_per_request: None,
             temperature: None,
             top_p: None,
             enabled: false,
@@ -2446,6 +2492,109 @@ impl AIModelConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_routing_summary_defaults_to_automatic_and_preserves_old_switch_values() {
+        let legacy: super::ModelRoutingConfig =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(legacy.summary_enabled);
+        for enabled in [false, true] {
+            let payload = serde_json::json!({
+                "model_routing": {
+                    "router_model_id": "router",
+                    "summary_enabled": enabled,
+                    "simple_threshold": 0.8
+                }
+            });
+            let config: super::AIConfig = serde_json::from_value(payload).unwrap();
+            assert_eq!(config.model_routing.summary_enabled, enabled);
+            let saved = serde_json::to_value(config).unwrap();
+            assert_eq!(saved["model_routing"]["summary_enabled"], enabled);
+            assert_eq!(saved["model_routing"]["router_model_id"], "router");
+            let restored: super::AIConfig = serde_json::from_value(saved).unwrap();
+            assert_eq!(restored.model_routing.summary_enabled, enabled);
+        }
+    }
+
+    #[test]
+    fn model_routing_tokenizer_override_is_optional_and_legacy_paths_round_trip() {
+        for payload in [
+            serde_json::json!({}),
+            serde_json::json!({"model_routing": {}}),
+            serde_json::json!({"model_routing": {"router_model_id": "router"}}),
+        ] {
+            let config: super::AIConfig = serde_json::from_value(payload).unwrap();
+            assert!(config.model_routing.tokenizer_path.is_empty());
+            let round_trip: super::AIConfig =
+                serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
+            assert!(round_trip.model_routing.tokenizer_path.is_empty());
+        }
+        for path in [
+            "/execution-host/tokenizer.json",
+            "missing/legacy-tokenizer.json",
+            " \t ",
+        ] {
+            let payload = serde_json::json!({
+                "model_routing": {
+                    "router_model_id": "router",
+                    "tokenizer_path": path,
+                    "simple_threshold": 0.8,
+                    "timeout_ms": 12_000
+                }
+            });
+            let config: super::AIConfig = serde_json::from_value(payload.clone()).unwrap();
+            let saved = serde_json::to_value(config).unwrap();
+            for key in [
+                "router_model_id",
+                "tokenizer_path",
+                "simple_threshold",
+                "timeout_ms",
+            ] {
+                assert_eq!(saved["model_routing"][key], payload["model_routing"][key]);
+            }
+            let round_trip: super::AIConfig = serde_json::from_value(saved).unwrap();
+            assert_eq!(round_trip.model_routing.tokenizer_path, path);
+        }
+    }
+
+    #[test]
+    fn model_routing_defaults_preserve_legacy_and_future_settings() {
+        assert_eq!(
+            super::ModelRoutingConfig::default().subagent_model,
+            "primary"
+        );
+        let legacy: super::AIConfig = serde_json::from_value(
+            serde_json::json!({"default_models": {"primary": "main", "fast": "worker"}}),
+        )
+        .unwrap();
+        assert!(legacy.model_routing.default_mode.is_none());
+        assert_eq!(legacy.model_routing.subagent_model, "primary");
+        assert!(legacy.default_models.economy.is_none());
+        assert_eq!(legacy.default_models.fast.as_deref(), Some("worker"));
+        for role in ["auto", "primary", "economy", "future-role"] {
+            let legacy = serde_json::json!({
+                "model_routing": {
+                    "subagent_model": role,
+                    "router_model_id": "router",
+                    "tokenizer_path": "/execution-host/tokenizer.json"
+                }
+            });
+            let config: super::AIConfig = serde_json::from_value(legacy.clone()).unwrap();
+            let saved = serde_json::to_value(config).unwrap();
+            for key in ["subagent_model", "router_model_id", "tokenizer_path"] {
+                assert_eq!(saved["model_routing"][key], legacy["model_routing"][key]);
+            }
+            let restored: super::AIConfig = serde_json::from_value(saved).unwrap();
+            assert_eq!(restored.model_routing.subagent_model, role);
+        }
+        let config: super::ModelRoutingConfig = serde_json::from_value(
+            serde_json::json!({"default_mode":"future-policy", "subagent_model":"future-role", "future_field":true}),
+        )
+        .unwrap();
+        let saved = serde_json::to_value(config).unwrap();
+        assert_eq!(saved["default_mode"], "future-policy");
+        assert_eq!(saved["subagent_model"], "future-role");
+    }
+
     #[test]
     fn git_commit_coauthor_defaults_for_legacy_settings_and_preserves_opt_out() {
         let legacy = serde_json::json!({
@@ -3668,6 +3817,34 @@ mod tests {
         }))
         .expect("inherit selection should deserialize");
         assert_eq!(inherited, SubagentModelSelection::Inherit);
+    }
+
+    #[test]
+    fn model_billing_annotations_preserve_legacy_and_future_metadata() {
+        let legacy = serde_json::json!({
+            "id": "existing-model", "model_name": "same-model", "provider": "openai"
+        });
+        let model: AIModelConfig = serde_json::from_value(legacy).unwrap();
+        assert!(model.metadata.is_none());
+        let reloaded: AIModelConfig =
+            serde_json::from_value(serde_json::to_value(model).unwrap()).unwrap();
+        assert_eq!(reloaded.id, "existing-model");
+
+        // Older hosts already round-trip arbitrary metadata. Billing is an
+        // advisory annotation; it does not add a required config/wire field.
+        for version in [1, 2] {
+            let metadata = serde_json::json!({
+                "provider_instance_id": "work-account",
+                "user_tags": ["keep"],
+                "billing_v1": { "version": version, "kind": "api", "input": 0, "future": null }
+            });
+            let model: AIModelConfig = serde_json::from_value(serde_json::json!({
+                "id": "existing-model", "metadata": metadata
+            }))
+            .unwrap();
+            let saved = serde_json::to_value(model).unwrap();
+            assert_eq!(saved["metadata"], metadata);
+        }
     }
 
     #[test]

@@ -239,6 +239,17 @@ establish visual or remote transport behavior):
 pnpm --dir src/web-ui run test:run src/shared/ui/OverlayStack.test.tsx src/shared/ui/OverlayOwnership.contract.test.ts src/shared/ui/Dialog.test.tsx src/shared/ui/MenuPopover.test.tsx src/infrastructure/appearance/runtime/AppearanceOverlayHost.test.ts src/shared/notification-system/components/NotificationContainer.test.tsx src/shared/context-menu-system/components/ui/ContextMenu.test.tsx
 ```
 
+For the compact model picker, smart-mode items, session/default selection,
+and host capability negotiation:
+
+```bash
+pnpm --dir src/web-ui run test:run src/flow_chat/components/ModelSelectorProviderLevels.test.tsx src/flow_chat/components/ModelSelectorExternal.test.tsx src/flow_chat/components/ModelSelectorAcpMode.test.tsx src/flow_chat/hooks/useModelRouting.test.tsx src/infrastructure/api/adapters/peer-device-adapter.test.ts
+```
+
+These DOM and transport fixtures cover local and simulated Peer surfaces,
+including old-host gating and stale-device completions. They do not establish
+live SSH, relay remote control or detached-dispatch behavior.
+
 For Markdown Mermaid rendering states and supported syntax:
 
 ```bash

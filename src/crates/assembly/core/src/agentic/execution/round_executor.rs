@@ -103,6 +103,7 @@ pub(super) struct ModelRoundLifecycle {
     round_id: String,
     started_at: Instant,
     started_event_emitted: bool,
+    pub(super) routing: Option<openbitfun_events::agentic::ModelRoutingDecision>,
     attempts_started: u32,
     pub(super) safe_to_switch_model: bool,
     observed_effective_output: bool,
@@ -114,6 +115,7 @@ impl ModelRoundLifecycle {
             round_id: uuid::Uuid::new_v4().to_string(),
             started_at: Instant::now(),
             started_event_emitted: false,
+            routing: None,
             attempts_started: 0,
             safe_to_switch_model: false,
             observed_effective_output: false,
@@ -857,6 +859,7 @@ impl RoundExecutor {
                     round_index: context.round_number,
                     model_config_id: context.model_config_id.clone(),
                     effective_model_name: context.effective_model_name.clone(),
+                    routing: lifecycle.routing.clone(),
                 },
                 EventPriority::High,
             )
@@ -1886,7 +1889,7 @@ impl RoundExecutor {
                 ai_client.channel_replay_fingerprint(),
             );
             let (clean_text, _) = strip_openbitfun_memory_citations(&stream_result.full_text);
-            let assistant_message =
+            let mut assistant_message =
                 Message::assistant_with_reasoning(reasoning, clean_text, vec![])
                     .with_turn_id(context.dialog_turn_id.clone())
                     .with_round_id(round_id.clone())
@@ -1901,6 +1904,12 @@ impl RoundExecutor {
                             .configuration_fingerprint
                             .clone()
                     }));
+            assistant_message.metadata.model_execution =
+                Some(crate::agentic::core::message::ModelExecutionMetadata {
+                    model_config_id: context.model_config_id.clone(),
+                    effective_model_name: context.effective_model_name.clone(),
+                    routing: lifecycle.routing.clone(),
+                });
 
             debug!("Returning RoundResult: has_more_rounds=false");
             debug!(
@@ -1956,7 +1965,7 @@ impl RoundExecutor {
             ai_client.channel_replay_fingerprint(),
         );
         let (clean_text, _) = strip_openbitfun_memory_citations(&stream_result.full_text);
-        let assistant_message =
+        let mut assistant_message =
             Message::assistant_with_reasoning(reasoning, clean_text, tool_calls.clone())
                 .with_turn_id(context.dialog_turn_id.clone())
                 .with_round_id(round_id.clone())
@@ -1971,6 +1980,12 @@ impl RoundExecutor {
                         .configuration_fingerprint
                         .clone()
                 }));
+        assistant_message.metadata.model_execution =
+            Some(crate::agentic::core::message::ModelExecutionMetadata {
+                model_config_id: context.model_config_id.clone(),
+                effective_model_name: context.effective_model_name.clone(),
+                routing: lifecycle.routing.clone(),
+            });
 
         // Publish the semantic assistant response before tool execution so
         // readers can observe the active tool call while it is running. Fork
@@ -2734,7 +2749,7 @@ pub(super) mod tests {
         }
     }
 
-    fn test_round_context() -> RoundContext {
+    pub(in crate::agentic::execution) fn test_round_context() -> RoundContext {
         RoundContext {
             session_id: "session-1".to_string(),
             subagent_parent_info: None,
@@ -2947,6 +2962,7 @@ pub(super) mod tests {
                     format: "openai".to_string(),
                     context_window: 4096,
                     max_tokens: Some(128),
+                    max_images_per_request: None,
                     temperature: None,
                     top_p: None,
                     inline_think_in_text: false,

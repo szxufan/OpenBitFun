@@ -222,6 +222,13 @@ pub struct SessionConfig {
     /// Model config ID used by this session (for token usage tracking)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_id: Option<String>,
+    /// Main conversation strategy. None preserves legacy environment-driven routing.
+    /// Keep unknown values on disk so newer sessions remain readable by older hosts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_routing: Option<String>,
+    /// Legacy delegation hint retained for session compatibility; ignored by subagent model selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delegation_model_routing: Option<String>,
     /// Authoritative pool selection; model_id is not a pool identifier.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_pool_id: Option<String>,
@@ -321,6 +328,8 @@ impl Default for SessionConfig {
             remote_connection_id: None,
             remote_ssh_host: None,
             model_id: None,
+            model_routing: None,
+            delegation_model_routing: None,
             model_pool_id: None,
             model_pool_selection_revision: 0,
             model_pool_binding: None,
@@ -416,6 +425,20 @@ pub fn sanitize_persisted_session_state(state: &SessionState) -> SessionState {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn model_routing_is_additive_and_preserves_unknown_strategy() {
+        let mut old = serde_json::to_value(super::SessionConfig::default()).unwrap();
+        old.as_object_mut().unwrap().remove("model_routing");
+        let config: super::SessionConfig = serde_json::from_value(old.clone()).unwrap();
+        assert!(config.model_routing.is_none());
+        assert!(config.delegation_model_routing.is_none());
+        assert_eq!(serde_json::to_value(config).unwrap(), old);
+        old["model_routing"] = serde_json::json!("future-mode");
+        old["delegation_model_routing"] = serde_json::json!("future-delegation-mode");
+        let config: super::SessionConfig = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(serde_json::to_value(config).unwrap(), old);
+    }
+
     use super::{
         sanitize_persisted_session_state, CompressionState, PermissionMode,
         PersistedSessionStateFile, Session, SessionAgentRouteOwner, SessionConfig,

@@ -55,7 +55,8 @@ export function scoreCapability(capability, query) {
   if (!textScore) return 0;
   const directBonus = Math.min(8, capability.operations.length + capability.options.length);
   const delegatedBonus = capability.items.some(({ control }) => control.kind === 'delegate') ? 4 : 0;
-  return textScore + directBonus + delegatedBonus;
+  // Match the native and Web UI catalogs: control coverage breaks textual ties.
+  return textScore + (directBonus + delegatedBonus) / 100;
 }
 
 export function matchingItems(capability, query) {

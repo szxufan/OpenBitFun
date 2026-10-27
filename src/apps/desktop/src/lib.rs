@@ -1376,6 +1376,7 @@ pub async fn run() {
             api::agentic_api::create_session,
             api::agentic_api::update_session_mode,
             api::agentic_api::update_session_model,
+            api::agentic_api::get_model_routing_status,
             api::model_pool_api::get_model_pools,
             api::model_pool_api::retry_model_pool_member,
             api::model_pool_api::save_model_pool,
@@ -2200,13 +2201,14 @@ async fn init_agentic_system() -> anyhow::Result<(
 
     let execution_config = execution::execution_engine_config_from_global_config().await;
 
-    let execution_engine = Arc::new(execution::ExecutionEngine::new(
+    let execution_engine = execution::ExecutionEngine::new(
         round_executor,
         event_queue.clone(),
         session_manager.clone(),
         context_compressor,
         execution_config,
-    ));
+    );
+    let execution_engine = Arc::new(execution_engine);
 
     let runtime_ownership = Arc::new(
         openbitfun_core::runtime_ownership::CoreRuntimeOwnership::embedded(
@@ -2361,16 +2363,6 @@ fn setup_panic_hook() {
             thread_id,
         );
 
-        // Known wry bug: WKWebView.URL() returns nil after navigating to an
-        // invalid address, causing url_from_webview to panic on unwrap().
-        // This is non-fatal — the webview is still alive — so we log and
-        // continue instead of killing the process.
-        // See: https://github.com/tauri-apps/wry/pull/1554
-        if location.contains("wry") && location.contains("wkwebview") {
-            log::warn!("Suppressed non-fatal wry/wkwebview panic, application continues");
-            return;
-        }
-
         if message.contains("WSAStartup") || message.contains("10093") || message.contains("hyper")
         {
             log::error!("Network-related crash detected, possible solutions:");
@@ -2379,16 +2371,11 @@ fn setup_panic_hook() {
             log::error!("  3) Run as administrator");
         }
 
-        // ── Recovery strategy ──────────────────────────────────────────
-        // Main-thread panics are unrecoverable — the event loop is gone.
-        // Spawned-thread panics only kill that thread; the rest of the
-        // application can continue.  We log a clear message and skip the
-        // hard exit so the user isn't forced to restart.
+        // Returning from a panic hook does not catch the panic. Leave worker
+        // panics to the runtime and any caller-owned unwind boundary; main-thread
+        // panics follow the application's fatal cleanup and exit path.
         if !is_main_thread {
-            log::warn!(
-                "Non-main thread panicked — application will continue. \
-                 The affected feature may be degraded until the next restart."
-            );
+            log::warn!("Non-main-thread panic recorded; deferring to the panic runtime");
             return;
         }
 

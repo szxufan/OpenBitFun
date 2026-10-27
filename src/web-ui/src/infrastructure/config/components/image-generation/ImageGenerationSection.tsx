@@ -72,10 +72,10 @@ export function ImageGenerationModelCard({ settings, service, actions }: Props &
     <Card appearance="subtle" padding="md" gap="sm" className="openbitfun-model-settings__pool-card">
       <CardHeader className="openbitfun-model-settings__pool-card-header" contentAlign="start" title={
         <div className="openbitfun-model-settings__pool-card-title"><OverflowText>{label}</OverflowText>
+        </div>} description={
           <div className="openbitfun-model-settings__pool-tags"><StatusPill tone="neutral">{t('title')}</StatusPill>
             {settings.selectedId === service.id && <StatusPill tone="neutral">{t('card.defaultBadge')}</StatusPill>}
-          </div>
-        </div>} />
+          </div>} />
       <CardFooter align="between" className="openbitfun-model-settings__pool-card-footer">
         <OverflowText className="openbitfun-model-settings__pool-card-source">{t(findImageDialectPreset(service.dialect).labelKey)}</OverflowText>
         {actions}

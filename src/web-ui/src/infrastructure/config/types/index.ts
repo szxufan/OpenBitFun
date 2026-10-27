@@ -287,6 +287,8 @@ export interface AIModelConfig {
   model_name: string;
   context_window?: number;
   max_tokens?: number;
+  /** Optional image input ceiling across history, attachments, and tool results. */
+  max_images_per_request?: number;
   temperature?: number;
   top_p?: number;
   enabled: boolean;
@@ -361,6 +363,7 @@ export interface ProxyConfig {
 export interface DefaultModelsConfig {
   primary?: string | null;
   fast?: string | null;
+  economy?: string | null;
   image_understanding?: string | null;
   speech_recognition?: string | null;
 }
@@ -453,10 +456,25 @@ export interface AgentModelDefaultsConfig {
   };
 }
 
+export type ModelRoutingMode = 'manual' | 'smart';
+export interface ModelRoutingConfig {
+  default_mode?: ModelRoutingMode | null;
+  /** Smart subagent default role; keep unknown future values intact. */
+  /** Retained legacy data; subagent selection uses its existing configuration. */
+  subagent_model?: string;
+  router_model_id?: string | null;
+  /** Legacy optional override; the GUI preserves it without exposing an input. */
+  tokenizer_path?: string;
+  simple_threshold: number;
+  timeout_ms: number;
+  summary_enabled: boolean;
+}
+
 export interface AIConfig {
   models: AIModelConfig[];
   tool_presentation_mode?: 'native' | 'ptc';
   default_models: DefaultModelsConfig;
+  model_routing?: ModelRoutingConfig;
   agent_model_defaults: AgentModelDefaultsConfig;
   agent_model_selections?: AgentModelSelections;
   task_models: TaskModelsConfig;

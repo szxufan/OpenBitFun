@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "bff6e24a5bc74bba63fcd2858d7ac58e028d6901e44aece40e5bd885f518f8af",
-  "count": 216,
+  "catalogDigest": "40fada109d5dbcfdbc1b289af574f7ac736da1620d4eee26128a40d3f0f5818c",
+  "count": 213,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
-    "unstructuredInteraction": 182,
+    "unstructuredInteraction": 179,
     "visualSelection": 25
   },
   "entries": [
@@ -2854,6 +2854,25 @@
     },
     {
       "capabilityId": "setting.ai.models",
+      "itemId": "smart-routing",
+      "titleZh": "查看智能模式可用状态（暂未开放）",
+      "titleEn": "View smart-mode availability (not released)",
+      "reasonCode": "unstructuredInteraction",
+      "reasonZh": "“查看智能模式可用状态（暂未开放）”在模型设置页展示执行宿主的发布可用性；当前版本不提供智能模式配置或开启操作",
+      "reasonEn": "\"View smart-mode availability (not released)\" opens model settings to inspect execution-host availability. This release disables smart-mode configuration and activation.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "ai.models"
+      },
+      "evidence": [
+        "command:get_model_routing_status",
+        "source:src/web-ui/src/infrastructure/config/components/ModelRouterSettings.tsx#ModelRouterSettings",
+        "source:src/web-ui/src/flow_chat/components/NativeModelSelectionPanel.tsx#onRoutingSettings",
+        "source:src/web-ui/src/app/scenes/settings/pages/ai/ModelSettingsPage.tsx#settings-smart-mode-configure"
+      ]
+    },
+    {
+      "capabilityId": "setting.ai.models",
       "itemId": "connection-test",
       "titleZh": "测试模型连接或图像生成，并刷新运行时客户端",
       "titleEn": "Test model connections or image generation and refresh the runtime client",
@@ -3352,76 +3371,6 @@
         "source:src/web-ui/src/locales/zh-CN/settings/web-search.json#protocol.request.description",
         "source:src/web-ui/src/locales/zh-CN/settings/web-search.json#protocol.success.description",
         "source:src/web-ui/src/locales/zh-CN/settings/web-search.json#protocol.notes.transportLimits"
-      ]
-    },
-    {
-      "capabilityId": "setting.tools.mcp",
-      "itemId": "json-config",
-      "titleZh": "用表单或 JSON 查看和保存全部 MCP 服务器配置",
-      "titleEn": "View and save all MCP server configuration through forms or JSON",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“用表单或 JSON 查看和保存全部 MCP 服务器配置”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“View and save all MCP server configuration through forms or JSON” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "settings",
-        "pageId": "tools.mcp"
-      },
-      "evidence": [
-        "command:load_mcp_json_config",
-        "command:save_mcp_json_config"
-      ]
-    },
-    {
-      "capabilityId": "setting.tools.mcp",
-      "itemId": "server-types",
-      "titleZh": "添加本地进程、远程 HTTP/SSE 或容器 MCP 服务器",
-      "titleEn": "Add local-process, remote HTTP/SSE, or container MCP servers",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“添加本地进程、远程 HTTP/SSE 或容器 MCP 服务器”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Add local-process, remote HTTP/SSE, or container MCP servers” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "settings",
-        "pageId": "tools.mcp"
-      },
-      "evidence": [
-        "source:src/web-ui/src/locales/zh-CN/settings/mcp.json#server.typeLocal",
-        "source:src/web-ui/src/locales/zh-CN/settings/mcp.json#server.typeRemote"
-      ]
-    },
-    {
-      "capabilityId": "setting.tools.mcp",
-      "itemId": "lifecycle",
-      "titleZh": "启动、停止、重启和删除单个 MCP 服务器",
-      "titleEn": "Start, stop, restart, and delete individual MCP servers",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“启动、停止、重启和删除单个 MCP 服务器”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Start, stop, restart, and delete individual MCP servers” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "settings",
-        "pageId": "tools.mcp"
-      },
-      "evidence": [
-        "command:start_mcp_server",
-        "command:stop_mcp_server",
-        "command:restart_mcp_server",
-        "command:delete_mcp_server"
-      ]
-    },
-    {
-      "capabilityId": "setting.tools.mcp",
-      "itemId": "status",
-      "titleZh": "查看初始化、连接、健康、重连、鉴权和失败状态",
-      "titleEn": "Inspect initialization, connection, health, reconnecting, authentication, and failure states",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“查看初始化、连接、健康、重连、鉴权和失败状态”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Inspect initialization, connection, health, reconnecting, authentication, and failure states” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "settings",
-        "pageId": "tools.mcp"
-      },
-      "evidence": [
-        "command:get_mcp_server_status",
-        "command:get_mcp_servers"
       ]
     },
     {

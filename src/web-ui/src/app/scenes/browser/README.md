@@ -12,6 +12,14 @@ Replacement navigation gates tool evaluation on the next native load lifecycle,
 so a slow response cannot expose the previous completed document as the new page.
 Fragment-only transitions keep their existing document and do not await a load.
 
+On macOS, native main-frame navigation failures are retained and sent to both
+browser tools and the mounted panel. Failed navigation ends pending reads with
+the native reason instead of reporting that it is still loading. A subsequent
+manual navigation replaces that outcome; no automatic reload is added. A page
+whose native URL is temporarily unavailable can still be positioned and shown,
+and its address updates when navigation commits. Attachment after an earlier
+failure shows the retained failure without hiding or recreating the native page.
+
 The frontend commits each open event directly to that session's canvas snapshot
 without activating the session or touching another session's selected tab. Browser
 snapshots survive the ordinary canvas LRU eviction limit. Manually opened session

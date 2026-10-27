@@ -1740,6 +1740,27 @@ impl CoreAgentRuntimeCompatibility {
             .await
     }
 
+    pub async fn update_session_model_selection_from_storage_path_with_routing(
+        &self,
+        storage_path: &Path,
+        session_id: &str,
+        model_id: &str,
+        reasoning_preset: Option<&str>,
+        routing_mode: Option<&str>,
+        include_internal: bool,
+    ) -> OpenBitFunResult<Session> {
+        self.coordinator
+            .update_session_model_selection_from_storage_path_with_routing(
+                storage_path,
+                session_id,
+                model_id,
+                reasoning_preset,
+                routing_mode,
+                include_internal,
+            )
+            .await
+    }
+
     pub async fn begin_persisted_session_mutation(
         &self,
         storage_path: &Path,

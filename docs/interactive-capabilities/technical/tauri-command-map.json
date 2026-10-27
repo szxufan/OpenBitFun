@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "bff6e24a5bc74bba63fcd2858d7ac58e028d6901e44aece40e5bd885f518f8af",
-  "commandCount": 708,
+  "catalogDigest": "40fada109d5dbcfdbc1b289af574f7ac736da1620d4eee26128a40d3f0f5818c",
+  "commandCount": 705,
   "coverage": {
-    "commandCount": 708,
-    "documentedCommandCount": 642,
-    "implementationCommandCount": 66,
-    "implementationDigest": "eec9451ccd8f9b3640879d1a6cfdd267748d7eaccd138ede6e377f1a03167fd4"
+    "commandCount": 705,
+    "documentedCommandCount": 646,
+    "implementationCommandCount": 59,
+    "implementationDigest": "0bce9fbda3e8b517e409aec124ca0f2c3b36a7954d996400d9ccf405194dc768"
   },
   "commands": [
     {
@@ -137,6 +137,60 @@
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
+      "id": "account_github_info",
+      "moduleId": "account_identity",
+      "capabilityId": null,
+      "capabilityIds": [
+        "feature.miniapps",
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [
+        "feature.miniapps:market-account",
+        "feature.remote-connect:account"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::account_identity_api::account_github_info",
+      "sourceFile": "src/apps/desktop/src/api/account_identity_api.rs",
+      "signature": "fn account_github_info() -> Result<Option<MarketMe>, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "account_github_poll",
+      "moduleId": "account_identity",
+      "capabilityId": null,
+      "capabilityIds": [
+        "feature.miniapps",
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [
+        "feature.miniapps:market-account",
+        "feature.remote-connect:account"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::account_identity_api::account_github_poll",
+      "sourceFile": "src/apps/desktop/src/api/account_identity_api.rs",
+      "signature": "fn account_github_poll( app: AppHandle, request: GitHubAuthPollRequest, ) -> Result<GitHubAuthPollResponse, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "account_github_start",
+      "moduleId": "account_identity",
+      "capabilityId": null,
+      "capabilityIds": [
+        "feature.miniapps",
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [
+        "feature.miniapps:market-account",
+        "feature.remote-connect:account"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::account_identity_api::account_github_start",
+      "sourceFile": "src/apps/desktop/src/api/account_identity_api.rs",
+      "signature": "fn account_github_start() -> Result<GitHubAuthStart, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "account_list_devices",
       "moduleId": "remote_connect",
       "capabilityId": "feature.remote-connect",
@@ -177,23 +231,25 @@
       "visibility": "implementation",
       "rustPath": "api::remote_connect_api::account_login",
       "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn account_login(request: AccountAuthRequest) -> Result<AccountLoginResult, String>",
+      "signature": "fn account_login(_request: AccountAuthRequest) -> Result<AccountLoginResult, String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "account_logout",
       "moduleId": "remote_connect",
-      "capabilityId": "feature.remote-connect",
+      "capabilityId": null,
       "capabilityIds": [
+        "feature.miniapps",
         "feature.remote-connect"
       ],
       "documentedItemIds": [
+        "feature.miniapps:market-account",
         "feature.remote-connect:account"
       ],
       "visibility": "documented",
       "rustPath": "api::remote_connect_api::account_logout",
       "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn account_logout(_app: tauri::AppHandle) -> Result<(), String>",
+      "signature": "fn account_logout(app: tauri::AppHandle) -> Result<(), String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
@@ -213,20 +269,6 @@
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
-      "id": "account_refresh_relogin",
-      "moduleId": "remote_connect",
-      "capabilityId": "feature.remote-connect",
-      "capabilityIds": [
-        "feature.remote-connect"
-      ],
-      "documentedItemIds": [],
-      "visibility": "implementation",
-      "rustPath": "api::remote_connect_api::account_refresh_relogin",
-      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn account_refresh_relogin() -> Result<AccountLoginResult, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
       "id": "account_relay_capabilities",
       "moduleId": "remote_connect",
       "capabilityId": "feature.remote-connect",
@@ -240,34 +282,6 @@
       "rustPath": "api::remote_connect_api::account_relay_capabilities",
       "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
       "signature": "fn account_relay_capabilities() -> Result<Vec<String>, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
-      "id": "account_set_password",
-      "moduleId": "remote_connect",
-      "capabilityId": "feature.remote-connect",
-      "capabilityIds": [
-        "feature.remote-connect"
-      ],
-      "documentedItemIds": [],
-      "visibility": "implementation",
-      "rustPath": "api::remote_connect_api::account_set_password",
-      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn account_set_password(request: AccountSetPasswordRequest) -> Result<(), String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
-      "id": "account_sms_send",
-      "moduleId": "remote_connect",
-      "capabilityId": "feature.remote-connect",
-      "capabilityIds": [
-        "feature.remote-connect"
-      ],
-      "documentedItemIds": [],
-      "visibility": "implementation",
-      "rustPath": "api::remote_connect_api::account_sms_send",
-      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn account_sms_send(request: AccountSmsSendRequest) -> Result<(), String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
@@ -3802,6 +3816,22 @@
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
+      "id": "get_model_routing_status",
+      "moduleId": "agentic",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:smart-routing"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::agentic_api::get_model_routing_status",
+      "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
+      "signature": "fn get_model_routing_status( runtime: State<'_, DesktopRuntimeContext>, coordinator: State<'_, Arc<ConversationCoordinator>>, request: ModelRoutingStatusRequest, ) -> Result< openbitfun_core::agentic::execution::round_model_routing::configuration::ModelRoutingStatus, String, >",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "get_models_dev_catalog_status",
       "moduleId": "commands",
       "capabilityId": "setting.ai.models",
@@ -7013,62 +7043,6 @@
       "rustPath": "api::peer_host_invoke::peer_mode_ping",
       "sourceFile": "src/apps/desktop/src/api/peer_host_invoke.rs",
       "signature": "fn peer_mode_ping() -> Result<Value, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
-      "id": "peer_psk_complete",
-      "moduleId": "remote_connect",
-      "capabilityId": "feature.remote-connect",
-      "capabilityIds": [
-        "feature.remote-connect"
-      ],
-      "documentedItemIds": [],
-      "visibility": "implementation",
-      "rustPath": "api::remote_connect_api::peer_psk_complete",
-      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn peer_psk_complete( request: PeerPskCompleteRequest, ) -> Result<PeerPskCompleteResult, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
-      "id": "peer_psk_list",
-      "moduleId": "remote_connect",
-      "capabilityId": "feature.remote-connect",
-      "capabilityIds": [
-        "feature.remote-connect"
-      ],
-      "documentedItemIds": [],
-      "visibility": "implementation",
-      "rustPath": "api::remote_connect_api::peer_psk_list",
-      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn peer_psk_list( ) -> Result<Vec<openbitfun_core::service::remote_connect::psk_store::PeerPskListing>, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
-      "id": "peer_psk_offer_create",
-      "moduleId": "remote_connect",
-      "capabilityId": "feature.remote-connect",
-      "capabilityIds": [
-        "feature.remote-connect"
-      ],
-      "documentedItemIds": [],
-      "visibility": "implementation",
-      "rustPath": "api::remote_connect_api::peer_psk_offer_create",
-      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn peer_psk_offer_create( request: PeerPskOfferCreateRequest, ) -> Result<PeerPskOffer, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
-      "id": "peer_psk_remove",
-      "moduleId": "remote_connect",
-      "capabilityId": "feature.remote-connect",
-      "capabilityIds": [
-        "feature.remote-connect"
-      ],
-      "documentedItemIds": [],
-      "visibility": "implementation",
-      "rustPath": "api::remote_connect_api::peer_psk_remove",
-      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
-      "signature": "fn peer_psk_remove(request: PeerPskRemoveRequest) -> Result<bool, String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {

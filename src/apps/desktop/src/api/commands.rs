@@ -1116,6 +1116,7 @@ async fn create_transient_ai_client_for_config(
     );
 
     let mut ai_config: openbitfun_core::util::types::AIConfig = model_config
+        .clone()
         .try_into()
         .map_err(|e| format!("Failed to convert configuration: {}", e))?;
     let skip_ssl_verify = ai_config.skip_ssl_verify;
@@ -1139,7 +1140,7 @@ async fn create_transient_ai_client_for_config(
     .await
     .map_err(|e| format!("Failed to resolve subscription auth: {}", e))?;
 
-    Ok(
+    let client =
         openbitfun_core::infrastructure::ai::client_factory::apply_subscription_request_profile(
             &auth,
             openbitfun_core::infrastructure::ai::AIClient::new_with_runtime_options(
@@ -1147,7 +1148,13 @@ async fn create_transient_ai_client_for_config(
                 proxy_config,
                 stream_options,
             ),
-        ),
+        );
+    Ok(
+        openbitfun_core::infrastructure::ai::client_factory::apply_model_default_reasoning(
+            client,
+            &model_config,
+        )
+        .await,
     )
 }
 

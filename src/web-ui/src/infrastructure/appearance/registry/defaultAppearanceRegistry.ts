@@ -170,6 +170,8 @@ import { generativeWidgetToolCardAppearanceDescriptor } from '@/flow_chat/tool-c
 import { snapshotFullscreenDiffViewerAppearanceDescriptor } from '@/flow_chat/tool-cards/SnapshotFullscreenDiffViewer.appearance';
 import { mermaidBlockAppearanceDescriptor } from '@/infrastructure/markdown/MermaidBlock.appearance';
 import { defaultModelConfigAppearanceDescriptor } from '@/infrastructure/config/components/DefaultModelConfig.appearance';
+import { modelBillingAppearanceDescriptor } from '@/infrastructure/config/components/ModelBilling.appearance';
+import { modelRouterSettingsAppearanceDescriptor } from '@/infrastructure/config/components/ModelRouterSettings.appearance';
 import { globalPermissionRulesDialogAppearanceDescriptor } from '@/infrastructure/config/components/GlobalPermissionRulesDialog.appearance';
 import { mcpResourceBrowserAppearanceDescriptor } from '@/infrastructure/config/components/MCPResourceBrowser.appearance';
 import { editorStatusBarAppearanceDescriptor } from '@/tools/editor/components/EditorStatusBar.appearance';
@@ -436,6 +438,8 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(snapshotFullscreenDiffViewerAppearanceDescriptor)
     .registerComponent(mermaidBlockAppearanceDescriptor)
     .registerComponent(defaultModelConfigAppearanceDescriptor)
+    .registerComponent(modelBillingAppearanceDescriptor)
+    .registerComponent(modelRouterSettingsAppearanceDescriptor)
     .registerComponent(globalPermissionRulesDialogAppearanceDescriptor)
     .registerComponent(mcpResourceBrowserAppearanceDescriptor)
     .registerComponent(editorStatusBarAppearanceDescriptor)
