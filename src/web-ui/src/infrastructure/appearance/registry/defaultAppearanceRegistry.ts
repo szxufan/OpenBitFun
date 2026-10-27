@@ -94,6 +94,7 @@ import { contentCanvasAppearanceDescriptor } from '@/app/components/panels/conte
 import { filesPanelAppearanceDescriptor } from '@/app/components/panels/FilesPanel.appearance';
 import { reviewPlatformAppearanceDescriptor } from '@/app/components/panels/review-platform/appearance';
 import { remoteAccountPanelAppearanceDescriptor, remoteConnectDialogAppearanceDescriptor } from '@/app/components/RemoteConnectDialog/appearance';
+import { peerPskPairingDialogAppearanceDescriptor } from '@/app/components/PeerPskPairingDialog/appearance';
 import { scheduledJobsViewAppearanceDescriptor } from '@/app/components/scheduled-jobs/appearance';
 import { localizedDateTimeFieldAppearanceDescriptor } from '@/app/components/scheduled-jobs/LocalizedDateTimeField.appearance';
 import { dateTimePickerAppearanceDescriptor } from '@/app/components/scheduled-jobs/DateTimePickerPopover.appearance';
@@ -363,6 +364,7 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(filesPanelAppearanceDescriptor)
     .registerComponent(reviewPlatformAppearanceDescriptor)
     .registerComponent(remoteConnectDialogAppearanceDescriptor)
+    .registerComponent(peerPskPairingDialogAppearanceDescriptor)
     .registerComponent(remoteAccountPanelAppearanceDescriptor)
     .registerComponent(scheduledJobsViewAppearanceDescriptor)
     .registerComponent(localizedDateTimeFieldAppearanceDescriptor)

@@ -133,7 +133,12 @@ export const PeerPskPairingDialog: React.FC<PeerPskPairingDialogProps> = ({
       </DialogHeader>
       <DialogBody>
         {offerTarget && (
-          <section className="peer-psk-pairing-dialog__section" data-testid="peer-psk-offer">
+          <section
+            className="peer-psk-pairing-dialog__section"
+            data-testid="peer-psk-offer"
+            data-openbitfun-component="peer-psk-pairing-dialog"
+            data-openbitfun-part="offer"
+          >
             <h4>{t('accountLogin.pskPairing.offerHeading')}</h4>
             <p className="peer-psk-pairing-dialog__hint">
               {t('accountLogin.pskPairing.offerHint')}
@@ -148,6 +153,8 @@ export const PeerPskPairingDialog: React.FC<PeerPskPairingDialogProps> = ({
                   value={offer.code}
                   onFocus={event => event.currentTarget.select()}
                   data-testid="peer-psk-offer-code"
+                  data-openbitfun-component="peer-psk-pairing-dialog"
+                  data-openbitfun-part="offerCode"
                 />
                 <div className="peer-psk-pairing-dialog__offer-actions">
                   <span className="peer-psk-pairing-dialog__psk-id">
@@ -165,7 +172,12 @@ export const PeerPskPairingDialog: React.FC<PeerPskPairingDialogProps> = ({
             )}
           </section>
         )}
-        <section className="peer-psk-pairing-dialog__section" data-testid="peer-psk-complete">
+        <section
+          className="peer-psk-pairing-dialog__section"
+          data-testid="peer-psk-complete"
+          data-openbitfun-component="peer-psk-pairing-dialog"
+          data-openbitfun-part="complete"
+        >
           <h4>{t('accountLogin.pskPairing.completeHeading')}</h4>
           <p className="peer-psk-pairing-dialog__hint">
             {t('accountLogin.pskPairing.completeHint')}
@@ -176,6 +188,8 @@ export const PeerPskPairingDialog: React.FC<PeerPskPairingDialogProps> = ({
             onChange={event => setCode(event.target.value)}
             placeholder={t('accountLogin.pskPairing.codePlaceholder')}
             data-testid="peer-psk-complete-input"
+            data-openbitfun-component="peer-psk-pairing-dialog"
+            data-openbitfun-part="completeCode"
           />
           {completeError && (
             <p className="peer-psk-pairing-dialog__error" data-testid="peer-psk-complete-error">
@@ -194,7 +208,12 @@ export const PeerPskPairingDialog: React.FC<PeerPskPairingDialogProps> = ({
             {t('accountLogin.pskPairing.completeSubmit')}
           </Button>
         </section>
-        <section className="peer-psk-pairing-dialog__section" data-testid="peer-psk-list">
+        <section
+          className="peer-psk-pairing-dialog__section"
+          data-testid="peer-psk-list"
+          data-openbitfun-component="peer-psk-pairing-dialog"
+          data-openbitfun-part="list"
+        >
           <h4>{t('accountLogin.pskPairing.listHeading')}</h4>
           {entries.length === 0 && (
             <p className="peer-psk-pairing-dialog__hint">
@@ -202,7 +221,12 @@ export const PeerPskPairingDialog: React.FC<PeerPskPairingDialogProps> = ({
             </p>
           )}
           {entries.map(entry => (
-            <div key={entry.peer_device_id} className="peer-psk-pairing-dialog__entry">
+            <div
+              key={entry.peer_device_id}
+              className="peer-psk-pairing-dialog__entry"
+              data-openbitfun-component="peer-psk-pairing-dialog"
+              data-openbitfun-part="entry"
+            >
               <span className="peer-psk-pairing-dialog__entry-name">
                 {entry.peer_name || entry.peer_device_id}
               </span>
