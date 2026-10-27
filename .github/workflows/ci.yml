@@ -127,7 +127,7 @@ jobs:
     # uses C11 atomic types, but leptonica-sys 0.4.9's bindgen invocation
     # does not preinclude <stdatomic.h>, so binding generation fails with
     # "unknown type name 'atomic_int'". Preincluding it restores the parse.
-    BINDGEN_EXTRA_CLANG_ARGS: ${{ runner.os == 'Linux' && '-include stdatomic.h' || '' }}
+    BINDGEN_EXTRA_CLANG_ARGS: ${{ matrix.os == 'ubuntu-latest' && '-include stdatomic.h' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -205,7 +205,7 @@ jobs:
       # uses C11 atomic types, but leptonica-sys 0.4.9's bindgen invocation
       # does not preinclude <stdatomic.h>, so binding generation fails with
       # "unknown type name 'atomic_int'". Preincluding it restores the parse.
-      BINDGEN_EXTRA_CLANG_ARGS: ${{ runner.os == 'Linux' && '-include stdatomic.h' || '' }}
+      BINDGEN_EXTRA_CLANG_ARGS: ${{ matrix.os == 'ubuntu-latest' && '-include stdatomic.h' || '' }}
     strategy:
       fail-fast: false
       matrix:
