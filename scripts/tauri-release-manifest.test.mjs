@@ -7,22 +7,34 @@ import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..');
 
+function readMobileVersion() {
+  const appJson5 = fs.readFileSync(
+    path.join(root, 'src/apps/mobile/harmonyos/AppScope/app.json5'), 'utf8',
+  );
+  return appJson5.match(/"versionName"\s*:\s*"([^"]+)"/)[1];
+}
+
 test('desktop and mobile release metadata are synchronized within their own groups', () => {
   const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   const result = run('scripts/verify-release-version-sync.mjs', [
     '--version', version,
-    '--mobile-version', '1.0.0',
+    '--mobile-version', readMobileVersion(),
   ]);
   assert.equal(result.status, 0, result.stderr);
 });
 
 test('mobile release metadata rejects drift within the mobile group', () => {
+  const currentMobile = readMobileVersion();
+  const drifted = (() => {
+    const [major, minor, patch] = currentMobile.split('.').map(Number);
+    return `${major}.${minor}.${patch + 1}`;
+  })();
   const result = run('scripts/verify-release-version-sync.mjs', [
     '--version', JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version,
-    '--mobile-version', '1.0.1',
+    '--mobile-version', drifted,
   ]);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /expected mobile 1\.0\.1/);
+  assert.match(result.stderr, new RegExp(`expected mobile ${drifted.replace('.', '\.')}`));
 });
 
 test('prepares a versioned custom Windows installer asset', () => {

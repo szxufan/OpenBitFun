@@ -82,7 +82,15 @@ CONNECT_TIMEOUT=30
 MAX_TIME=1800          # per-request ceiling (30 min; installer packages can be large)
 MAX_RETRIES=3
 RETRY_DELAY=5
-PYTHON="${PYTHON:-python3}"
+# Prefer a Python that actually executes: some Windows hosts expose a
+# Microsoft Store python3 stub that silently exits nonzero.
+if [ -z "${PYTHON:-}" ]; then
+  if python3 -c 'import sys' >/dev/null 2>&1; then
+    PYTHON="$(command -v python3)"
+  else
+    PYTHON="$(command -v python)"
+  fi
+fi
 
 # ── Helpers ────────────────────────────────────────────────────
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"; }

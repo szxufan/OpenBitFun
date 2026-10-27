@@ -462,7 +462,6 @@ test('pruning keeps the two newest SemVer releases and drops a newer-looking bet
       source "$SYNC_SCRIPT"
       WEBSITE_RELEASE_DIR="$TEST_DIR"
       KEEP_VERSIONS=2
-      PYTHON=python3
       prune_old_versions
     `],
     {

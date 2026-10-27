@@ -231,9 +231,9 @@ describe('peerInvokePriorityFor', () => {
     expect(peerInvokePriorityFor('get_available_modes')).toBe('high');
   });
 
-  it('keeps GitHub identity and device account operations on the controller', () => {
+  it('keeps account credentials and device operations on the controller', () => {
     for (const command of [
-      'account_github_start', 'account_github_poll', 'account_github_info',
+      'account_sms_send', 'account_refresh_relogin', 'account_set_password',
       'account_login', 'account_logout', 'account_list_devices', 'account_device_rpc',
     ]) {
       expect(isPeerLocalOnlyCommand(command), command).toBe(true);
