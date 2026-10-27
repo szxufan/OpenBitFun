@@ -123,6 +123,119 @@ pub fn build_bridge_script(
   // The script below proactively requests it on startup.
   let _locale = 'en-US';
 
+  // Agent bridge handlers registered through app.agent.expose(). Null means this
+  // MiniApp declared no semantic state or actions, so the Agent only gets the
+  // automatic observation below.
+  let _agentBridge = null;
+
+  // Automatic observation reports activity, not application state. Canvas draw
+  // calls are not a live text model: clearing, compositing and multiple canvases
+  // make a draw-call history misleading. Use declared state or pixels instead.
+  const _AUTO_CANVAS_LIMIT = 4;
+  let _autoFrames = 0;
+  let _autoFrameAt = 0;
+  let _autoInput = null;
+  let _autoInputCount = 0;
+
+  // A frozen loop and a running one look identical in a single screenshot.
+  const _autoRequestFrame = window.requestAnimationFrame;
+  if (typeof _autoRequestFrame === 'function') {{
+    window.requestAnimationFrame = function (callback) {{
+      return _autoRequestFrame.call(window, function (time) {{
+        _autoFrames += 1;
+        _autoFrameAt = Date.now();
+        return callback(time);
+      }});
+    }};
+  }}
+
+  // Echo of what actually reached the app: an input that never arrived looks the
+  // same as an input the game ignored, and this separates the two.
+  ['keydown', 'keyup', 'pointerdown', 'wheel'].forEach((type) => {{
+    window.addEventListener(type, (event) => {{
+      _autoInputCount += 1;
+      const key = type === 'wheel'
+        ? Math.round(event.deltaY || 0)
+        : (event.key !== undefined ? String(event.key) : (event.button !== undefined ? event.button : null));
+      _autoInput = {{ type: type, key: key, at: Date.now() }};
+    }}, {{ capture: true, passive: true }});
+  }});
+
+  const _autoCanvases = () => {{
+    const canvases = [];
+    try {{
+      document.querySelectorAll('canvas').forEach((canvas) => {{
+        if (canvases.length >= _AUTO_CANVAS_LIMIT) return;
+        const rect = canvas.getBoundingClientRect();
+        canvases.push({{
+          width: canvas.width,
+          height: canvas.height,
+          cssWidth: Math.round(rect.width),
+          cssHeight: Math.round(rect.height),
+        }});
+      }});
+    }} catch (_error) {{}}
+    return canvases;
+  }};
+
+  // Coordinates are in the app's own space; the viewport and canvas sizes let the
+  // Agent map them onto a screenshot instead of guessing the scale.
+  const _autoSnapshot = () => ({{
+    source: _agentBridge && _agentBridge.observe ? 'declared' : 'auto',
+    // Keep the legacy array shape, but explicitly report the observation gap.
+    canvasText: [],
+    canvasTextUnavailable: true,
+    frames: _autoFrames,
+    frameAgeMs: _autoFrameAt ? Date.now() - _autoFrameAt : null,
+    input: _autoInput,
+    inputCount: _autoInputCount,
+    viewport: {{ width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio || 1 }},
+    canvases: _autoCanvases(),
+  }});
+
+  const _agentBridgeCapabilities = () => {{
+    // Automatic observation is always available; declared handlers only add
+    // labels and semantic actions on top of it.
+    const capabilities = ['auto-observe'];
+    if (_agentBridge && _agentBridge.observe) capabilities.push('observe');
+    if (_agentBridge && _agentBridge.act) capabilities.push('act');
+    return capabilities;
+  }};
+
+  // Declared action names are optional and stay bounded: an app that lists the
+  // action types its `act` handler answers spares the Agent from guessing, and
+  // an app that lists nothing keeps exactly the older behavior. Names are
+  // matched case-sensitively because the app decides what they mean.
+  const _normalizeAgentActions = (values) => {{
+    if (!Array.isArray(values)) return [];
+    const names = [];
+    for (const value of values) {{
+      const raw = typeof value === 'string'
+        ? value
+        : (value && typeof value.type === 'string' ? value.type : '');
+      const name = typeof raw === 'string' ? raw.trim() : '';
+      if (!name || name.length > 48) continue;
+      if (!/^[\x20-\x7e]+$/.test(name)) continue;
+      if (names.indexOf(name) !== -1) continue;
+      names.push(name);
+      if (names.length >= 32) break;
+    }}
+    return names;
+  }};
+
+  // Announce on startup and again on every expose(), so a host that mounts later
+  // still learns the bridge exists. The host pairs this frame by window identity,
+  // so the app id is only echoed for the protocol's own consistency check.
+  const _announceAgentBridge = () => {{
+    window.parent.postMessage({{
+      type: 'openbitfun:miniapp-agent-ready',
+      schemaVersion: 'agent.v1',
+      appId: {app_id_esc},
+      capabilities: _agentBridgeCapabilities(),
+      actions: (_agentBridge && Array.isArray(_agentBridge.actions)) ? _agentBridge.actions : [],
+    }}, '*');
+  }};
+
   const app = {{
     get appearanceMode() {{ return _appearanceMode; }},
     get locale() {{ return _locale; }},
@@ -211,6 +324,31 @@ pub fn build_bridge_script(
       cancelStaleRuns: () => _rpc('agent.cancelStaleRuns', {{}}),
       onEvent:        (fn) => app.on('agent:event', fn),
       offEvent:       (fn) => app.off('agent:event', fn),
+
+      // Reverse direction: expose bounded live state to the OpenBitFun Agent and
+      // accept semantic actions from it. Only what the handlers return is
+      // visible; the host never inspects app internals. Optional: every frame
+      // already reports automatic observations (loop liveness, input
+      // echo), and expose() layers labels and exact actions on top of that.
+      //   app.agent.expose({{
+      //     observe: () => ({{ score, lives, wave, player: {{ x, y }} }}),
+      //     act: (action) => {{ /* e.g. {{ type: 'move', dx }} or {{ type: 'restart' }} */ }},
+      //     actions: ['move', 'restart'],
+      //   }});
+      // `actions` is optional: declare the action types `act` answers so the
+      // Agent does not have to guess them. It is advisory — the app still
+      // decides what it accepts, and the host never blocks an undeclared name.
+      // Needs no manifest permission: everything stays inside this frame.
+      // Re-calling replaces the previous handlers so a restart can re-anchor.
+      expose: (handlers) => {{
+        const source = handlers || {{}};
+        const observe = typeof source.observe === 'function' ? source.observe : null;
+        const act = typeof source.act === 'function' ? source.act : null;
+        if (!observe && !act) return false;
+        _agentBridge = {{ observe, act, actions: _normalizeAgentActions(source.actions) }};
+        _announceAgentBridge();
+        return true;
+      }},
     }},
 
     // Deck namespace — renders one slide HTML page in a hidden host WebView
@@ -352,8 +490,108 @@ pub fn build_bridge_script(
     }}
   }});
 
+  // Agent bridge requests: the host asks for state or runs a semantic action the
+  // MiniApp chose. Replies pair by requestId; a throwing handler becomes a typed
+  // refusal instead of a hung request. Observation always answers, because the
+  // automatic half does not depend on the app declaring anything.
+  window.addEventListener('message', (e) => {{
+    if (e.source !== window.parent) return;
+    const data = e.data;
+    if (!data || data.type !== 'openbitfun:miniapp-agent-request') return;
+    const reply = (ok, value, error) => {{
+      window.parent.postMessage({{
+        type: 'openbitfun:miniapp-agent-response',
+        requestId: data.requestId,
+        ok: ok === true,
+        value: value === undefined ? null : value,
+        error: error ? String(error) : undefined,
+      }}, '*');
+    }};
+    if (data.schemaVersion !== 'agent.v1') {{
+      reply(false, null, 'Unsupported agent bridge schema version');
+      return;
+    }}
+    if (data.method === 'observe') {{
+      // One envelope for every app: `state` is the app's own declaration (null
+      // when it declared nothing) and `auto` is what this runtime observed.
+      const observe = _agentBridge && _agentBridge.observe;
+      if (typeof observe !== 'function') {{
+        reply(true, {{ state: null, auto: _autoSnapshot() }});
+        return;
+      }}
+      Promise.resolve()
+        .then(() => observe())
+        .then(
+          (state) => reply(true, {{
+            state: state === undefined ? null : state,
+            auto: _autoSnapshot(),
+          }}),
+          (error) => reply(false, null, (error && error.message) || error),
+        );
+      return;
+    }}
+    if (data.method === 'act') {{
+      const act = _agentBridge && _agentBridge.act;
+      if (typeof act !== 'function') {{
+        reply(false, null, "This MiniApp does not expose 'act'. Input actions and autoplay through key/click remain available.");
+        return;
+      }}
+      Promise.resolve()
+        .then(() => act(data.action))
+        .then(
+          (value) => reply(true, value),
+          (error) => reply(false, null, (error && error.message) || error),
+        );
+      return;
+    }}
+    if (data.method === 'input') {{
+      // Independent MiniApp windows cannot be reached through the Web UI DOM
+      // router, but the authenticated Shell can still deliver a normal browser
+      // key event into this frame. This keeps Canvas games controllable without
+      // granting the host arbitrary JavaScript evaluation or OS-level input.
+      const action = data.action && typeof data.action === 'object' ? data.action : {{}};
+      const rawKey = typeof action.key === 'string' ? action.key : '';
+      const trimmedKey = rawKey === ' ' ? ' ' : rawKey.trim();
+      const keyContract = {agent_key_contract};
+      const key = keyContract.aliases[trimmedKey.toLowerCase()] || trimmedKey;
+      if (!key) {{ reply(false, null, 'Input requires a non-empty key'); return; }}
+      const modifiers = Array.isArray(action.modifiers) ? action.modifiers : [];
+      const init = {{
+        key,
+        code: keyContract.codes[key.toLowerCase()]
+          || (/^[a-z]$/i.test(key) ? 'Key' + key.toUpperCase() : /^[0-9]$/.test(key) ? 'Digit' + key : key),
+        bubbles: true,
+        cancelable: true,
+        altKey: modifiers.some(value => String(value).toLowerCase() === 'alt'),
+        ctrlKey: modifiers.some(value => String(value).toLowerCase() === 'control'),
+        metaKey: modifiers.some(value => String(value).toLowerCase() === 'meta'),
+        shiftKey: modifiers.some(value => String(value).toLowerCase() === 'shift'),
+      }};
+      const holdMs = Math.max(0, Math.min(2000, Number(action.holdMs) || 0));
+      const target = document.activeElement && document.activeElement !== document.body
+        ? document.activeElement
+        : document.body;
+      try {{
+        target.dispatchEvent(new KeyboardEvent('keydown', init));
+        if (!['alt', 'control', 'meta', 'shift'].includes(key.toLowerCase())) target.dispatchEvent(new KeyboardEvent('keypress', init));
+        Promise.resolve()
+          .then(() => holdMs > 0 ? new Promise(resolve => setTimeout(resolve, holdMs)) : undefined)
+          .then(() => {{
+            target.dispatchEvent(new KeyboardEvent('keyup', init));
+            reply(true, {{ accepted: true, key, holdMs }});
+          }})
+          .catch(error => reply(false, null, (error && error.message) || error));
+      }} catch (error) {{
+        reply(false, null, (error && error.message) || error);
+      }}
+      return;
+    }}
+    reply(false, null, 'Unsupported bridge method: ' + String(data.method));
+  }});
+
   window.app = app;
   document.documentElement.setAttribute('data-openbitfun-appearance-mode', _appearanceMode);
+  _announceAgentBridge();
   window.parent.postMessage({{ method: 'openbitfun/request-appearance' }}, '*');
   window.parent.postMessage({{ method: 'openbitfun/request-locale' }}, '*');
 }})();
@@ -362,7 +600,8 @@ pub fn build_bridge_script(
         app_data_esc = app_data_esc,
         workspace_esc = workspace_esc,
         appearance_mode_esc = appearance_mode_esc,
-        platform_esc = platform_esc
+        platform_esc = platform_esc,
+        agent_key_contract = include_str!("../../../../../shared/miniapp-agent/keys.json"),
     )
 }
 
@@ -448,4 +687,36 @@ pub fn scroll_boundary_script() -> &'static str {
 /// Minimal MiniApp iframe first-paint contract before the host sends Appearance variables.
 pub fn build_miniapp_default_appearance_css() -> &'static str {
     include_str!("generated/default_appearance_style.html")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_bridge_script;
+
+    fn script() -> String {
+        build_bridge_script("app-1", "/data/app-1", "/workspace", "light", "macos")
+    }
+
+    #[test]
+    fn the_announcement_carries_the_declared_actions() {
+        let script = script();
+        // The Agent learns action names from the announcement, so the field has to
+        // travel with the capabilities an older app already reports.
+        assert!(script.contains("capabilities: _agentBridgeCapabilities()"));
+        assert!(script.contains("actions: (_agentBridge && Array.isArray(_agentBridge.actions))"));
+    }
+
+    #[test]
+    fn declared_actions_stay_optional_bounded_and_case_sensitive() {
+        let script = script();
+        // An app that declares nothing must behave exactly as before, so the
+        // normalizer returns an empty list instead of inventing a vocabulary.
+        assert!(script.contains("const _normalizeAgentActions = (values) => {"));
+        assert!(script.contains("if (!Array.isArray(values)) return [];"));
+        assert!(script.contains("if (names.length >= 32) break;"));
+        assert!(script.contains("if (names.indexOf(name) !== -1) continue;"));
+        // Action names are the app's own identifiers: no case folding here.
+        assert!(!script.contains("names.push(name.toLowerCase"));
+        assert!(script.contains("actions: _normalizeAgentActions(source.actions)"));
+    }
 }

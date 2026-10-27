@@ -22,19 +22,19 @@ pub mod tool_presentation;
 pub mod worktree;
 
 pub use ai::{
-    AIConfig, ConnectionTestMessageCode, ConnectionTestResult, Message, ModelAccountOrigin,
-    ModelReasoningSummaryPart, ModelRequestContext, ModelResponseReplay, ModelResponseReplayItem,
-    ModelsDevCatalogSource, ModelsDevCatalogStatus, ModelsDevReasoningCatalog,
-    ModelsDevReasoningModel, ModelsDevReasoningProvider, ModelsDevRefreshResult,
-    ModelsDevRefreshStatus, ProviderCatalog, ProviderCatalogEndpoint, ProviderCatalogModel,
-    ProviderCatalogModelCapabilities, ProviderCatalogModelLimits, ProviderCatalogModelPricing,
-    ProviderCatalogModelSource, ProviderCatalogProvider, ProviderCatalogSource,
-    ProviderCatalogUpstreamProvider, ProxyConfig, ReasoningCapabilityStatus,
+    AIConfig, ConnectionTestMessageCode, ConnectionTestResult, ImageDialect, Message,
+    ModelAccountOrigin, ModelReasoningSummaryPart, ModelRequestContext, ModelResponseReplay,
+    ModelResponseReplayItem, ModelsDevCatalogSource, ModelsDevCatalogStatus,
+    ModelsDevReasoningCatalog, ModelsDevReasoningModel, ModelsDevReasoningProvider,
+    ModelsDevRefreshResult, ModelsDevRefreshStatus, ProviderCatalog, ProviderCatalogEndpoint,
+    ProviderCatalogModel, ProviderCatalogModelCapabilities, ProviderCatalogModelLimits,
+    ProviderCatalogModelPricing, ProviderCatalogModelSource, ProviderCatalogProvider,
+    ProviderCatalogSource, ProviderCatalogUpstreamProvider, ProxyConfig, ReasoningCapabilityStatus,
     ReasoningCatalogBinding, ReasoningCatalogProjection, ReasoningCatalogProjectionRequest,
     ReasoningConfig, ReasoningContentKind, ReasoningPreset, ReasoningPresetAction,
     ReasoningPresetDescriptor, ReasoningPresetSource, RemoteModelInfo, RemoteModelRouting,
     ToolCall, ToolCallConfirmationDetails, ToolCallRequestInfo, ToolCallResponseInfo,
-    ToolDefinition,
+    ToolDefinition, MAX_IMAGES_PER_GENERATION_REQUEST,
 };
 pub use errors::{AiErrorDetail, ErrorCategory};
 pub use model::{

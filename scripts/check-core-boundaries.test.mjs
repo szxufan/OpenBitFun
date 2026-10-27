@@ -730,6 +730,38 @@ test('Services Core text runtime features keep independent exact owner profiles'
   ]);
 });
 
+test('image inspection and generation keep independent exact feature closures', async () => {
+  const manifestPath = 'src/crates/assembly/core/Cargo.toml';
+  const manifest = await readFile(new URL(`../${manifestPath}`, import.meta.url), 'utf8');
+  const features = parseManifestFeatures(manifest);
+  for (const [name, refs] of [
+    ['tools-image-analysis', ['openbitfun-tool-packs/image-analysis']],
+    ['tools-image-generation', [
+      'openbitfun-tool-packs/image-generation',
+      'ai-adapter-runtime',
+      'openbitfun-ai-adapters/image-generation',
+    ]],
+  ]) {
+    const rule = coreClosedFeatureProfileRules.find(candidate => candidate.manifestPath === manifestPath && candidate.featureName === name);
+    assert.equal(rule?.exact, true);
+    assert.deepEqual(rule.requiredFeatureRefs, refs);
+    assert.deepEqual(features[name], refs);
+  }
+});
+
+test('system proxy discovery owns registry access without process or storage capabilities', async () => {
+  const manifestPath = 'src/crates/services/services-core/Cargo.toml';
+  const manifest = await readFile(new URL(`../${manifestPath}`, import.meta.url), 'utf8');
+  const expected = ['dep:windows', 'windows/Win32_Foundation', 'windows/Win32_System_Registry'];
+  assert.deepEqual(parseManifestFeatures(manifest)['system-proxy'], expected);
+  const rule = coreClosedFeatureProfileRules.find(candidate => candidate.manifestPath === manifestPath && candidate.featureName === 'system-proxy');
+  assert.equal(rule?.exact, true);
+  assert.deepEqual(rule.requiredFeatureRefs, expected);
+  const windows = optionalDependencyFeatureOwnerRules.find(candidate => candidate.crateName === 'services-core')
+    .dependencies.find(dependency => dependency.depName === 'windows');
+  assert.ok(windows.ownerFeatures.includes('system-proxy'));
+});
+
 function parseManifestFeatures(manifest) {
   const section = manifest.match(/^\[features\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m)?.[1] ?? '';
   const features = {};
@@ -1494,6 +1526,7 @@ test('Core product-full explicitly assembles service and tool capability owners'
     'tools-computer-use',
     'tools-creation',
     'tools-image-analysis',
+    'tools-image-generation',
     'tools-miniapp',
     'tools-canvas',
     'tools-agent-control',
@@ -1867,6 +1900,7 @@ const SDK_HOST_REVIEWED_CORE_FEATURES = [
   'tools-browser-web',
   'tools-computer-use',
   'tools-image-analysis',
+  'tools-image-generation',
   'tools-agent-control',
 ];
 

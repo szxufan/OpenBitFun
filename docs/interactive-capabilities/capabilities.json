@@ -4,9 +4,21 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "65f1a11c6d994c382da25f2b9ad995ad0f443a5d352c2eafa10a8b9bcbf849e5",
+  "digest": "bff6e24a5bc74bba63fcd2858d7ac58e028d6901e44aece40e5bd885f518f8af",
   "ownerDigest": "4e1ace270088acecbd333d2c8aced0547dddb0fd6bae778bec24f2b0fb48ea91",
   "searchAcceptance": [
+    {
+      "id": "native-image-generation",
+      "query": "generate_image",
+      "expectedFirstCapabilityId": "feature.ai-assistant",
+      "expectedCapabilityIds": [
+        "feature.ai-assistant"
+      ],
+      "expectedItem": {
+        "capabilityId": "feature.ai-assistant",
+        "itemId": "image-generation"
+      }
+    },
     {
       "id": "companion-pet-mixed",
       "query": "宠物 pet mascot 桌面宠物",
@@ -147,10 +159,10 @@
     "features": 23,
     "settings": 21,
     "userFacing": 44,
-    "documentedItems": 333,
+    "documentedItems": 335,
     "controlCoverage": {
       "direct": 52,
-      "delegated": 65,
+      "delegated": 67,
       "interactive": 216,
       "unsupported": 0
     }
@@ -202,6 +214,7 @@
         "session-lifecycle",
         "model-mode-permissions",
         "creative-frontend-authoring",
+        "image-generation",
         "turn-control",
         "permission-mailbox",
         "history-search",
@@ -437,6 +450,51 @@
         "Read",
         "Write",
         "Edit"
+      ],
+      "presentationTarget": {
+        "kind": "scene",
+        "sceneId": "session"
+      }
+    },
+    {
+      "id": "feature.ai-assistant:delegate:image-generation",
+      "capabilityId": "feature.ai-assistant",
+      "itemIds": [
+        "image-generation"
+      ],
+      "kind": "delegate",
+      "risk": "execute",
+      "executionHost": "workspaceHost",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": true
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": true
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "delegateTools": [
+        "generate_image"
       ],
       "presentationTarget": {
         "kind": "scene",
@@ -5765,6 +5823,7 @@
         "versions",
         "agent-authoring",
         "agent-market-submit",
+        "agent-operate-app",
         "publishing"
       ],
       "kind": "query",
@@ -6705,6 +6764,51 @@
       },
       "delegateTools": [
         "PublishMiniApp"
+      ],
+      "presentationTarget": {
+        "kind": "action",
+        "actionId": "surface.miniapps.open"
+      }
+    },
+    {
+      "id": "feature.miniapps:delegate:agent-operate-app",
+      "capabilityId": "feature.miniapps",
+      "itemIds": [
+        "agent-operate-app"
+      ],
+      "kind": "delegate",
+      "risk": "execute",
+      "executionHost": "workspaceHost",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": true
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": true
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "delegateTools": [
+        "MiniAppBrowser"
       ],
       "presentationTarget": {
         "kind": "action",
@@ -19824,6 +19928,27 @@
           }
         },
         {
+          "id": "image-generation",
+          "titleZh": "通过已配置的默认图像模型生成图片",
+          "titleEn": "Generate images with the configured default image model",
+          "control": {
+            "kind": "delegate",
+            "tools": [
+              "generate_image"
+            ],
+            "workflowZh": [
+              "使用 generate_image 按用户描述生成图片，默认省略 service_id 以使用已配置的默认图像模型",
+              "按需指定数量和尺寸，通过返回的文件路径交付图片；远程工作区文件通过当前工作区数据面读写",
+              "缺少配置、认证失败或额度不足时明确报告，不自动切换到其他服务"
+            ],
+            "workflowEn": [
+              "Use generate_image to create images from the user's description; omit service_id to use the configured default image model",
+              "Specify count and size when needed and deliver the returned file paths; access remote workspace files through the active workspace data plane",
+              "Report missing configuration, authentication failures, or quota limits explicitly without automatically switching services"
+            ]
+          }
+        },
+        {
           "id": "turn-control",
           "titleZh": "开始、引导、打断、取消或恢复一次智能体运行",
           "titleEn": "Start, steer, interrupt, cancel, or recover an agent turn",
@@ -20085,6 +20210,8 @@
         "Choose the model, work mode, memory mode, and permission mode per session",
         "让创造模式扩展客户端界面与运行时能力",
         "Extend client UI and runtime capabilities in Creative mode",
+        "通过已配置的默认图像模型生成图片",
+        "Generate images with the configured default image model",
         "开始、引导、打断、取消或恢复一次智能体运行",
         "Start, steer, interrupt, cancel, or recover an agent turn",
         "查看并逐个或批量回答等待中的权限请求",
@@ -20125,6 +20252,13 @@
         "Call FrontendWorkbench prepare on the local Desktop in Creative mode, read the packaged API, and edit only draft CSS, JavaScript and owned assets without source or build tools",
         "Apply with the original draft ID; the host starts the immutable review window's 15-second countdown only after the real shell and customization activate, and apply waits for a final confirmed or rolled_back outcome",
         "Compose commands, state and events into reusable capabilities; use FrontendWorkbench inspect to discover schemas and diagnostics, then invoke to verify execution",
+        "generate_image",
+        "使用 generate_image 按用户描述生成图片，默认省略 service_id 以使用已配置的默认图像模型",
+        "按需指定数量和尺寸，通过返回的文件路径交付图片；远程工作区文件通过当前工作区数据面读写",
+        "缺少配置、认证失败或额度不足时明确报告，不自动切换到其他服务",
+        "Use generate_image to create images from the user's description; omit service_id to use the configured default image model",
+        "Specify count and size when needed and deliver the returned file paths; access remote workspace files through the active workspace data plane",
+        "Report missing configuration, authentication failures, or quota limits explicitly without automatically switching services",
         "ListWorkspaces",
         "SessionControl",
         "SessionHistory",
@@ -22951,6 +23085,25 @@
           }
         },
         {
+          "id": "agent-operate-app",
+          "titleZh": "由智能体结合源码控制 Mini App",
+          "titleEn": "Let an agent control a Mini App using its source and live interface",
+          "control": {
+            "kind": "delegate",
+            "tools": [
+              "MiniAppBrowser"
+            ],
+            "workflowZh": [
+              "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 读取源码，理解业务函数、动作参数和状态；源码更新属于应用改造，不是日常操作的前置步骤",
+              "用 MiniAppBrowser 的 open 连接当前实例，优先 observe_bridge 读取业务状态、act_bridge 执行语义动作并核对结果，保留用户草稿，不改源码、不重载、不切换呈现。旧应用缺少接口时使用可用的 DOM/输入或说明限制；自动活动信息不能代替业务状态"
+            ],
+            "workflowEn": [
+              "Use OpenBitFunControl get for feature.miniapps, then inspect-app source to understand business functions, action parameters, and state. Source updates are app enhancements, not prerequisites for routine operation",
+              "Open the current instance with MiniAppBrowser; prefer observe_bridge for business state and act_bridge for semantic operations and result verification. Preserve drafts without editing source, reloading, or changing presentation. For legacy apps use available DOM/input controls or report the gap; activity is not business state"
+            ]
+          }
+        },
+        {
           "id": "publishing",
           "titleZh": "撤回和审查市场发布，并可渲染幻灯片页面",
           "titleEn": "Withdraw and review market releases, and render slide pages",
@@ -23295,6 +23448,8 @@
         "Let an agent initialize, author, and validate a Mini App",
         "在用户明确要求时由智能体提交已完成的 Mini App 到市场审核",
         "Let an agent submit a completed Mini App for market review when explicitly requested",
+        "由智能体结合源码控制 Mini App",
+        "Let an agent control a Mini App using its source and live interface",
         "撤回和审查市场发布，并可渲染幻灯片页面",
         "Withdraw and review market releases, and render slide pages",
         "打开 Mini Apps",
@@ -23320,7 +23475,12 @@
         "仅在用户明确要求对外提交时调用 PublishMiniApp，并提供已完成应用、许可与发布说明",
         "登录、校验或上传返回可恢复状态时，向用户展示具体下一步，不把待授权或待审核状态报告成发布成功",
         "Call PublishMiniApp only after an explicit request to submit externally, with the completed app, license, and release notes",
-        "When authentication, validation, or upload returns a resumable state, show the exact next step and never report pending authorization or review as published"
+        "When authentication, validation, or upload returns a resumable state, show the exact next step and never report pending authorization or review as published",
+        "MiniAppBrowser",
+        "先用 OpenBitFunControl 的 get 查询 feature.miniapps，并按 schema 用 inspect-app 读取源码，理解业务函数、动作参数和状态；源码更新属于应用改造，不是日常操作的前置步骤",
+        "用 MiniAppBrowser 的 open 连接当前实例，优先 observe_bridge 读取业务状态、act_bridge 执行语义动作并核对结果，保留用户草稿，不改源码、不重载、不切换呈现。旧应用缺少接口时使用可用的 DOM/输入或说明限制；自动活动信息不能代替业务状态",
+        "Use OpenBitFunControl get for feature.miniapps, then inspect-app source to understand business functions, action parameters, and state. Source updates are app enhancements, not prerequisites for routine operation",
+        "Open the current instance with MiniAppBrowser; prefer observe_bridge for business state and act_bridge for semantic operations and result verification. Preserve drafts without editing source, reloading, or changing presentation. For legacy apps use available DOM/input controls or report the gap; activity is not business state"
       ],
       "docsUrl": "https://playbook.openbitfun.com/capabilities/feature.miniapps/"
     },
@@ -27559,13 +27719,13 @@
         },
         {
           "id": "connection-test",
-          "titleZh": "保存前测试供应商或模型连接并刷新运行时客户端",
-          "titleEn": "Test provider or model connectivity before saving and refresh the runtime client",
+          "titleZh": "测试模型连接或图像生成，并刷新运行时客户端",
+          "titleEn": "Test model connections or image generation and refresh the runtime client",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“保存前测试供应商或模型连接并刷新运行时客户端”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-            "reasonEn": "“Test provider or model connectivity before saving and refresh the runtime client” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user."
+            "reasonZh": "“测试模型连接或图像生成，并刷新运行时客户端”需要用户在配置表单中选择服务并主动发起；图像服务测试会实际生成图片并可能消耗额度，智能体只能打开对应设置入口。",
+            "reasonEn": "“Test model connections or image generation and refresh the runtime client” requires the user to select a configuration and start the test from its form; image-service tests generate an actual image and may consume quota, so the Agent can only open the settings entry."
           }
         },
         {
@@ -27679,8 +27839,8 @@
         "Inspect models.dev catalog status, refresh it manually, and reveal its local cache",
         "为供应商添加自定义 Header、请求体字段与 SSL 行为",
         "Add custom headers, request-body fields, and SSL behavior per provider",
-        "保存前测试供应商或模型连接并刷新运行时客户端",
-        "Test provider or model connectivity before saving and refresh the runtime client",
+        "测试模型连接或图像生成，并刷新运行时客户端",
+        "Test model connections or image generation and refresh the runtime client",
         "管理模型池、路由策略与会话模型选择",
         "Manage model pools, routing strategies, and session model selection",
         "打开模型设置",

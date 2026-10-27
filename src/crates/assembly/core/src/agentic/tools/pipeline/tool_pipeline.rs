@@ -4512,6 +4512,131 @@ mod tests {
         )
     }
 
+    #[cfg(feature = "tools-pages")]
+    #[tokio::test]
+    async fn presentation_tools_follow_permission_mode_without_weakening_denials() {
+        use crate::agentic::tools::implementations::{
+            DesktopCardTool, PageDeployTool, PagePublishTool,
+        };
+        use openbitfun_agent_runtime::permission::PERMISSION_MODE_CONTEXT_KEY;
+        use openbitfun_runtime_ports::PermissionMode;
+
+        let tools: Vec<(Box<dyn Tool>, serde_json::Value)> = vec![
+            (
+                Box::new(DesktopCardTool::new()),
+                json!({"action": "create", "card": {
+                    "title": "Status", "template": {"kind": "note", "text": "Ready"},
+                    "dataSource": {"kind": "command", "command": "git status", "intervalSeconds": 60}
+                }}),
+            ),
+            (
+                Box::new(PagePublishTool::new()),
+                json!({"slug": "demo", "visibility": "public", "deploy": true,
+                    "files": {"index.html": "<h1>Demo</h1>"}}),
+            ),
+            (
+                Box::new(PageDeployTool::new()),
+                json!({"slug": "demo", "version_id": "v1"}),
+            ),
+        ];
+        for (tool, input) in tools {
+            for mode in [
+                PermissionMode::Ask,
+                PermissionMode::AutoApprove,
+                PermissionMode::FullAccess,
+            ] {
+                let store = Arc::new(MemoryPermissionStore::default());
+                let manager = permission_test_manager(store);
+                let mut events = manager.subscribe();
+                let pipeline =
+                    test_tool_pipeline().with_permission_request_manager(manager.clone());
+                let mut context = permission_test_context();
+                // Pages also work without an open workspace.
+                if tool.name().starts_with("Page") {
+                    context.workspace = None;
+                }
+                context
+                    .context_vars
+                    .insert(PERMISSION_MODE_CONTEXT_KEY.into(), mode.as_str().into());
+                let mut options = ToolExecutionOptions::default();
+                options.auto_approve_ask = mode.auto_approve_ask();
+                options.permission_policy = ResolvedPermissionPolicy::new(
+                    vec![PermissionRule::new(
+                        "*",
+                        "*",
+                        if mode == PermissionMode::AutoApprove {
+                            PermissionEffect::Ask
+                        } else {
+                            // Ask still requires a fresh reply even with an allow rule.
+                            PermissionEffect::Allow
+                        },
+                    )],
+                    Vec::new(),
+                );
+                let task = ToolTask::new(
+                    test_tool_call("presentation", tool.name()),
+                    context,
+                    options,
+                );
+                let tool_context = pipeline.build_tool_use_context(&task, CancellationToken::new());
+                let intents = tool.permission_intents(&input, &tool_context).unwrap();
+                assert_eq!(intents.len(), 1);
+                assert_eq!(
+                    intents[0].display_metadata["requiresFreshApproval"],
+                    mode == PermissionMode::Ask
+                );
+                assert!(intents[0].save_resources.is_empty());
+                if mode == PermissionMode::Ask {
+                    assert!(matches!(
+                        pipeline
+                            .draft_permission_plan(
+                                task.clone(),
+                                tool.name().into(),
+                                intents.clone(),
+                                tool_context.clone()
+                            )
+                            .await
+                            .unwrap(),
+                        PermissionPlanDraft::Requests(_)
+                    ));
+                } else {
+                    let authorization = timeout(
+                        Duration::from_secs(1),
+                        pipeline.authorize_permission_intents(
+                            &task,
+                            tool.name(),
+                            intents.clone(),
+                            &tool_context,
+                            &CancellationToken::new(),
+                        ),
+                    )
+                    .await
+                    .expect("non-Ask modes must not wait for a user reply")
+                    .unwrap();
+                    assert!(matches!(authorization, PermissionAuthorization::Allowed));
+                    assert!(manager.pending_requests().is_empty());
+                    assert!(matches!(
+                        events.try_recv(),
+                        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+                    ));
+                }
+
+                let mut denied = task;
+                denied.options.permission_policy = ResolvedPermissionPolicy::new(
+                    vec![PermissionRule::new("*", "*", PermissionEffect::Deny)],
+                    Vec::new(),
+                );
+                assert!(matches!(
+                    pipeline
+                        .draft_permission_plan(denied, tool.name().into(), intents, tool_context)
+                        .await
+                        .unwrap(),
+                    PermissionPlanDraft::Rejected { .. }
+                ));
+            }
+        }
+    }
+
     async fn wait_for_permission_request(
         manager: &PermissionRequestManager,
     ) -> openbitfun_runtime_ports::PermissionRequest {

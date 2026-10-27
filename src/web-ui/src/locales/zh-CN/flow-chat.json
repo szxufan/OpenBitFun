@@ -3025,6 +3025,7 @@
         "AgentDelete": "删除子代理",
         "SessionHistory": "导出会话历史",
         "analyze_image": "分析图片",
+        "generate_image": "生成图片",
         "GetTime": "读取时间",
         "ListMCPResources": "发现资源",
         "ReadMCPResource": "读取资源",
@@ -3036,6 +3037,7 @@
         "FrontendWorkbench": "界面定制",
         "FinalizeMiniApp": "更新小应用",
         "PublishMiniApp": "提交小应用审核",
+        "MiniAppBrowser": "操作小程序",
         "PublishAppearance": "提交皮肤审核",
         "Playbook": "读取操作流程",
         "DesktopCard": "小卡片"
@@ -3060,6 +3062,7 @@
         "includeToolInputs": "包含工具参数",
         "includeThinking": "包含思考",
         "model": "视觉模型",
+        "service": "服务",
         "dimensions": "图片尺寸",
         "question": "分析问题",
         "analysis": "分析结果",
@@ -3283,6 +3286,7 @@
       "imageCurrent": "当前源图像",
       "imageUnavailable": "无法预览图像，可打开记录的路径查看源文件。",
       "imageLoading": "正在读取源图像…",
+      "generatedImages": "已生成图片：{{value}} 张",
       "hostUnavailable": "这条记录来自被派发任务的主机，请在该主机打开资源；当前无法从本机跳转。",
       "remoteLoopback": "这个回环地址属于执行主机，请在该主机上打开。",
       "desktopCard": {

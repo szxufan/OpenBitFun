@@ -32,7 +32,7 @@
         "description": "Analyze images and screenshots, support mixed image-text conversations"
       },
       "image_generation": {
-        "label": "Image Generation",
+        "label": "Image generation model",
         "description": "Generate images from text descriptions"
       },
       "speech_recognition": {

@@ -62,6 +62,15 @@ pnpm --dir src/web-ui run test:run src/infrastructure/config/components/modelEdi
 These checks cover draft isolation and source contracts, not rendered visuals
 or remote runtime behavior.
 
+For image-service credential reuse, subscription routing, and legacy drafts:
+
+```bash
+pnpm --dir src/web-ui run test:run src/infrastructure/config/components/image-generation/imageDialects.test.ts src/infrastructure/config/components/image-generation/imageModels.test.ts src/infrastructure/config/components/image-generation/ImageGenerationSettings.test.tsx
+```
+
+These fixtures cover imports, default selection, save failures, and simulated
+device activation. They do not exercise a real provider or remote host.
+
 For the device-scoped model catalog and non-blocking session/default selection:
 
 ```bash

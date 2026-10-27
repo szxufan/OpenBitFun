@@ -499,7 +499,7 @@
   },
   "proxy": {
     "enable": "Enable Proxy",
-    "enableHint": "When enabled, all AI requests are sent through the proxy (requires a OpenBitFun restart)",
+    "enableHint": "With the address left empty, requests follow the operating system proxy, such as the system proxy a local proxy agent sets. With an address and the switch on, every AI request uses that proxy; an address with the switch off forces a direct connection.",
     "url": "Proxy URL",
     "urlPlaceholder": "http://127.0.0.1:7890 or socks5://127.0.0.1:1080",
     "urlHint": "Supports HTTP/HTTPS/SOCKS5 proxy, format: protocol://address:port",

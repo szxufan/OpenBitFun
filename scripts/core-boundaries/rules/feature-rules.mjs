@@ -96,7 +96,7 @@ export const optionalDependencyFeatureOwnerRules = [
       },
       { depName: 'which', ownerFeatures: ['process-runtime'] },
       { depName: 'win32job', ownerFeatures: ['process-runtime'] },
-      { depName: 'windows', ownerFeatures: ['installed-apps', 'json-io', 'local-storage', 'process-runtime'] },
+      { depName: 'windows', ownerFeatures: ['installed-apps', 'json-io', 'local-storage', 'process-runtime', 'system-proxy'] },
       {
         depName: 'tokio',
         ownerFeatures: [
@@ -166,7 +166,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'base64', ownerFeatures: ['agent-runtime', 'dispatch-store'] },
       {
         depName: 'openbitfun-ai-adapters',
-        ownerFeatures: ['ai-adapter-runtime', 'subscription-auth'],
+        ownerFeatures: ['ai-adapter-runtime', 'subscription-auth', 'tools-image-generation'],
       },
       { depName: 'openbitfun-agent-runtime', ownerFeatures: ['agent-runtime', 'ai-adapter-runtime'] },
       { depName: 'openbitfun-agent-workflows', ownerFeatures: ['deep-research'] },
@@ -232,6 +232,7 @@ export const optionalDependencyFeatureOwnerRules = [
           'tools-creation',
           'tools-git',
           'tools-image-analysis',
+          'tools-image-generation',
           'tools-mcp',
           'tools-miniapp',
           'tools-pages',
@@ -691,7 +692,7 @@ export const capabilityContractDependencyRules = [
           capabilityForwarder('ai-adapter-runtime', 'account-routing'),
         ],
         ['agent-runtime', 'ai-adapter-runtime'],
-        ['external-sources', 'function-agents', 'model-catalog', 'mcp-runtime', 'opencode-plugin-host', 'plugin-runtime', 'product-search', 'product-full', 'ptc-runtime', 'remote-connect', 'tools-mcp'],
+        ['external-sources', 'function-agents', 'model-catalog', 'mcp-runtime', 'opencode-plugin-host', 'plugin-runtime', 'product-search', 'product-full', 'ptc-runtime', 'remote-connect', 'tools-mcp', 'tools-image-generation'],
       )],
       ['openbitfun-desktop', capabilityConsumer([
         capabilityEdge(['agent-runtime']),
@@ -745,6 +746,7 @@ export const coreProductFullFeatureAssemblyRule = {
     'tools-creation',
     'tools-git',
     'tools-image-analysis',
+    'tools-image-generation',
     'tools-mcp',
     'tools-miniapp',
     'tools-pages',
@@ -789,6 +791,7 @@ export const acpServerCoreFeatures = [
   'tools-browser-web',
   'tools-computer-use',
   'tools-image-analysis',
+  'tools-image-generation',
   'tools-agent-control',
 ];
 
@@ -1383,6 +1386,17 @@ export const coreClosedFeatureProfileRules = [
   },
   {
     manifestPath: 'src/crates/assembly/core/Cargo.toml',
+    featureName: 'tools-image-generation',
+    requiredFeatureRefs: [
+      'openbitfun-tool-packs/image-generation',
+      'ai-adapter-runtime',
+      'openbitfun-ai-adapters/image-generation',
+    ],
+    exact: true,
+    reason: 'tools-image-generation owns image generation with its configured AI client and wire adapter',
+  },
+  {
+    manifestPath: 'src/crates/assembly/core/Cargo.toml',
     featureName: 'tools-pages',
     requiredFeatureRefs: ['openbitfun-tool-packs/pages'],
     exact: true,
@@ -1472,6 +1486,13 @@ export const coreClosedFeatureProfileRules = [
     requiredFeatureRefs: ['dep:rustls'],
     exact: true,
     reason: 'services-core TLS provider owner must select only the workspace Rustls implementation',
+  },
+  {
+    manifestPath: 'src/crates/services/services-core/Cargo.toml',
+    featureName: 'system-proxy',
+    requiredFeatureRefs: ['dep:windows', 'windows/Win32_Foundation', 'windows/Win32_System_Registry'],
+    exact: true,
+    reason: 'services-core system proxy discovery owns only Windows registry access and environment parsing',
   },
   {
     manifestPath: 'src/crates/services/services-core/Cargo.toml',
@@ -1817,6 +1838,7 @@ export const ownerCrateFeatureAssemblyRules = [
       'browser-web',
       'computer-use',
       'image-analysis',
+      'image-generation',
       'miniapp',
       'pages',
       'creation',

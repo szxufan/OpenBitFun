@@ -42,6 +42,7 @@
             "session-lifecycle": "重命名、歸檔、恢復、刪除、複製、分叉與導出工作階段",
             "model-mode-permissions": "為工作階段選擇模型、工作模式、記憶模式與權限模式",
             "creative-frontend-authoring": "讓創造模式擴展客戶端界面與運行時能力",
+            "image-generation": "透過已設定的預設圖像模型生成圖片",
             "turn-control": "開始、引導、打斷、取消或恢復一次智能體運行",
             "permission-mailbox": "查看並逐個或批量回答等待中的權限請求",
             "history-search": "分頁加載、搜索和回填歷史消息與工作階段內容",
@@ -221,6 +222,7 @@
             "customization": "創建定制草稿、實時預覽，並應用、同步或丟棄修改",
             "versions": "查看版本歷史並回滾到舊版本",
             "agent-authoring": "讓智能體初始化、編寫並校驗一個 Mini App",
+            "agent-operate-app": "由智能體結合原始碼控制 Mini App",
             "agent-market-submit": "在用戶明確要求時由智能體提交已完成的 Mini App 到市場審核",
             "publishing": "撤回和審查市場發佈，並可渲染幻燈片頁面"
           }
@@ -467,7 +469,7 @@
               "available-models": "讓智能體查看當前配置下可用的模型",
               "model-catalog": "查看 models.dev 目錄狀態、手動重新整理並定位本地緩存",
               "advanced-request": "為供應商添加自定義 Header、請求體字段與 SSL 行為",
-              "connection-test": "保存前測試供應商或模型連接並重新整理運行時客戶端",
+              "connection-test": "測試模型連線或圖像生成，並重新整理執行階段用戶端",
               "model-pools": "管理模型池、路由策略與工作階段模型選擇"
             }
           },

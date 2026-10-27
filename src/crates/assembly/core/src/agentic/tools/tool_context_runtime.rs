@@ -91,6 +91,24 @@ pub struct ToolUseContext {
 }
 
 impl ToolUseContext {
+    /// Whether a tool's per-call approval should be raised in the resolved turn mode.
+    /// Missing mode context keeps the interactive default for older callers.
+    pub(crate) fn requires_fresh_approval(&self) -> bool {
+        if let Some(mode) = self
+            .custom_data
+            .get(PERMISSION_MODE_CONTEXT_KEY)
+            .and_then(Value::as_str)
+            .and_then(PermissionMode::parse)
+        {
+            return mode == PermissionMode::Ask;
+        }
+        !self
+            .custom_data
+            .get(AUTO_APPROVE_ASK_CONTEXT_KEY)
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+
     pub(crate) fn delegation_policy(&self) -> DelegationPolicy {
         delegation_policy_from_custom_data(&self.custom_data)
     }
@@ -153,6 +171,25 @@ impl ToolUseContext {
 
     pub fn primary_model_facts(&self) -> &PrimaryModelFacts {
         &self.primary_model_facts
+    }
+
+    /// Why an image result cannot reach the model in this session, or `None`
+    /// when images are usable.
+    ///
+    /// Every capture-style tool (browser page screenshots, MiniApp frames, …)
+    /// asks this before spending a round trip: returning base64 the model never
+    /// sees is not an observation, and it invites endless parameter retries.
+    pub fn image_observation_unavailable_reason(&self) -> Option<&'static str> {
+        if !self.primary_model_supports_image_understanding() {
+            return Some("primary_model_is_text_only");
+        }
+        if !self
+            .primary_model_facts()
+            .multimodal_tool_output_supported()
+        {
+            return Some("provider_no_multimodal_tool_output");
+        }
+        None
     }
 
     pub fn cancellation_token(&self) -> Option<&CancellationToken> {
@@ -1641,7 +1678,7 @@ mod context_builder_tests {
 
 #[cfg(test)]
 mod task_context_tests {
-    use super::build_tool_use_context_for_task;
+    use super::{build_tool_use_context_for_task, ToolUseContext};
     use crate::agentic::core::ToolCall;
     use crate::agentic::tools::pipeline::{
         SubagentParentInfo, ToolExecutionContext, ToolExecutionOptions, ToolTask,
@@ -1659,6 +1696,37 @@ mod task_context_tests {
     use std::collections::{BTreeSet, HashMap};
     use tokio_util::sync::CancellationToken;
     use tool_runtime::context::PrimaryModelFacts;
+
+    #[test]
+    fn fresh_approval_uses_the_turn_mode_and_supports_legacy_context() {
+        let mut context = ToolUseContext::for_tool_listing(None, None);
+        assert!(context.requires_fresh_approval());
+        context
+            .custom_data
+            .insert(AUTO_APPROVE_ASK_CONTEXT_KEY.into(), json!(true));
+        assert!(!context.requires_fresh_approval());
+        for (mode, requires_approval) in [
+            ("ask", true),
+            ("auto_approve", false),
+            ("auto", false),
+            ("full_access", false),
+            ("full", false),
+        ] {
+            context
+                .custom_data
+                .insert(PERMISSION_MODE_CONTEXT_KEY.into(), json!(mode));
+            assert_eq!(
+                context.requires_fresh_approval(),
+                requires_approval,
+                "{mode}"
+            );
+        }
+        context.custom_data.remove(AUTO_APPROVE_ASK_CONTEXT_KEY);
+        context
+            .custom_data
+            .insert(PERMISSION_MODE_CONTEXT_KEY.into(), json!("future-mode"));
+        assert!(context.requires_fresh_approval());
+    }
 
     fn loaded_spec(tool_name: &str) -> LoadedDeferredToolSpec {
         LoadedDeferredToolSpec {

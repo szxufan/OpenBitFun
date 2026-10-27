@@ -25,6 +25,7 @@ const normalizeSelectValue = (value: string | number | (string | number)[]): str
 type DefaultModelSlot = 'primary' | 'fast' | 'image_understanding' | 'speech_recognition';
 
 interface DefaultModelConfigProps {
+  imageGenerationSlot?: React.ReactNode;
   compact?: boolean;
   models: AIModelConfig[];
   defaultModels: DefaultModelsConfig;
@@ -35,6 +36,7 @@ interface DefaultModelConfigProps {
 
 export const DefaultModelConfig: React.FC<DefaultModelConfigProps> = ({
   compact = false,
+  imageGenerationSlot,
   models,
   defaultModels,
   loading,
@@ -203,6 +205,8 @@ export const DefaultModelConfig: React.FC<DefaultModelConfigProps> = ({
           size="sm"
         />
       </ConfigPageRow>
+
+      {imageGenerationSlot}
 
       <ConfigPageRow
         label={renderSlotLabel(

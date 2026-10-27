@@ -276,6 +276,7 @@ cargo test -p openbitfun-ai-adapters
 cargo test -p openbitfun-ai-adapters --lib opencode_catalog
 cargo test --locked -p openbitfun-ai-adapters --lib providers::opencode::tests
 cargo test -p openbitfun-ai-adapters --lib models_dev::tests
+cargo test -p openbitfun-ai-adapters --features image-generation --lib client::image_generation::tests
 cargo test -p openbitfun-ai-adapters --features subscription-auth subscription_auth
 cargo test --locked -p openbitfun-ai-adapters --features subscription-auth --lib subscription_auth::request_identity::tests::
 cargo test --locked -p openbitfun-ai-adapters --features subscription-auth --lib client::sse::tests::
@@ -328,3 +329,7 @@ a query failure or inventing zero usage. The ignored
 to verify billing and the production quota read for that exact in-app slot. It
 may refresh credentials and quota cache, prints only response field names/status,
 and sends no inference request. This does not verify remote-host behavior.
+
+The image-generation filter uses synthetic HTTP credentials. The ignored Codex
+probe requires a real in-app subscription login and generates a billed image;
+run it explicitly only when live provider validation is needed.

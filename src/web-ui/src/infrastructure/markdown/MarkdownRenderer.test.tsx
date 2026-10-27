@@ -1152,6 +1152,65 @@ Second paragraph.
     );
   });
 
+  it('groups conversation images across paragraphs and line breaks while preserving text and linked badges', async () => {
+    const content = 'Before\n\n![Landscape](data:image/png;base64,YQ==)\n\n![Portrait](data:image/png;base64,Yg==)\n![Third](data:image/png;base64,Yw==)\n\nAfter\n\n[![Badge](https://example.com/badge.png)](https://example.com)';
+    await act(async () => root.render(<MarkdownRenderer content={content} imageThumbnails />));
+    const galleries = container.querySelectorAll('.markdown-image-gallery');
+    expect(galleries).toHaveLength(1);
+    expect(galleries[0].querySelectorAll('.markdown-image-tile')).toHaveLength(3);
+    expect(galleries[0].classList.contains('markdown-image-gallery--single')).toBe(false);
+    expect([...container.querySelectorAll('.markdown-paragraph')].map(node => node.textContent)).toEqual(['Before', 'After', '']);
+    expect(container.querySelector('a img[alt="Badge"]')).not.toBeNull();
+    expect(container.querySelector('a img[alt="Badge"]')?.getAttribute('role')).toBeNull();
+    expect(container.querySelector('.markdown-renderer--thumbnails')).not.toBeNull();
+  });
+
+  it('keeps document images in their original paragraphs unless thumbnails are requested', async () => {
+    await act(async () => root.render(<MarkdownRenderer content={'![Document](data:image/png;base64,YQ==)'} />));
+    expect(container.querySelector('.markdown-image-gallery')).toBeNull();
+    expect(container.querySelector('.markdown-paragraph > img')).not.toBeNull();
+  });
+
+  it('opens the selected original image by keyboard and retains resolved images as the gallery streams', async () => {
+    const content = '![First](data:image/png;base64,YQ==)';
+    await act(async () => root.render(<MarkdownRenderer content={content} imageThumbnails isStreaming />));
+    const first = container.querySelector('img');
+    expect(container.querySelector('.markdown-image-gallery--single')).not.toBeNull();
+    await act(async () => root.render(<MarkdownRenderer content={`${content}\n\n![Second](data:image/png;base64,Yg==)`} imageThumbnails isStreaming />));
+    expect(container.querySelector('img')).toBe(first);
+    const second = container.querySelector<HTMLImageElement>('img[alt="Second"]')!;
+    expect(second.getAttribute('tabindex')).toBe('0');
+    await act(async () => second.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(document.querySelector('.image-lightbox img')?.getAttribute('src')).toBe('data:image/png;base64,Yg==');
+    await act(async () => document.querySelector<HTMLButtonElement>('.image-lightbox-close')?.click());
+    expect(document.querySelector('.image-lightbox')).toBeNull();
+  });
+
+  it('previews dispatch gallery bytes from the session reader without accessing the controller filesystem', async () => {
+    const read = vi.fn().mockResolvedValue('data:image/png;base64,dGFyZ2V0');
+    await act(async () => root.render(<MarkdownRenderer content={'![Target](/target/image.png)'} imageThumbnails
+      fileActionsViaCallbackOnly onImageRead={read} />));
+    expect(read).toHaveBeenCalledWith('/target/image.png');
+    expect(mocks.readFileContent).not.toHaveBeenCalled();
+    const image = container.querySelector<HTMLImageElement>('.markdown-image-tile img')!;
+    await act(async () => image.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true })));
+    expect(document.querySelector('.image-lightbox img')?.getAttribute('src')).toBe('data:image/png;base64,dGFyZ2V0');
+    await act(async () => activateSurface('peer:other-gallery-host'));
+    expect(document.querySelector('.image-lightbox')).toBeNull();
+  });
+
+  it('keeps failed session images retryable inside a thumbnail tile', async () => {
+    const read = vi.fn().mockRejectedValueOnce(new Error('target offline')).mockResolvedValueOnce('data:image/png;base64,b2s=');
+    await act(async () => root.render(<MarkdownRenderer content={'![Target](/target/retry.png)'} imageThumbnails
+      fileActionsViaCallbackOnly onImageRead={read} />));
+    const tile = container.querySelector('.markdown-image-tile')!;
+    expect(tile.querySelector('img')).toBeNull();
+    const retry = [...tile.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('common:retry'))!;
+    await act(async () => retry.click());
+    expect(read).toHaveBeenLastCalledWith('/target/retry.png', true);
+    expect(tile.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,b2s=');
+  });
+
   it('previews the resolved bytes of a markdown image and closes on the scrim or the close button', async () => {
     await act(async () => {
       root.render(

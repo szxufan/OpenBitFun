@@ -42,6 +42,7 @@
             "session-lifecycle": "Rename, archive, restore, delete, copy, fork, and export sessions",
             "model-mode-permissions": "Choose the model, work mode, memory mode, and permission mode per session",
             "creative-frontend-authoring": "Extend client UI and runtime capabilities in Creative mode",
+            "image-generation": "Generate images with the configured default image model",
             "turn-control": "Start, steer, interrupt, cancel, or recover an agent turn",
             "permission-mailbox": "Review and answer pending permission requests individually or in a batch",
             "history-search": "Page through, search, and backfill historical turns and session content",
@@ -221,6 +222,7 @@
             "customization": "Create customization drafts, preview them live, and apply, sync, or discard changes",
             "versions": "Inspect version history and roll back to an earlier release",
             "agent-authoring": "Let an agent initialize, author, and validate a Mini App",
+            "agent-operate-app": "Let an agent control a Mini App using its source and live interface",
             "agent-market-submit": "Let an agent submit a completed Mini App for market review when explicitly requested",
             "publishing": "Withdraw and review market releases, and render slide pages"
           }
@@ -467,7 +469,7 @@
               "available-models": "Let an agent inspect models available under the current configuration",
               "model-catalog": "Inspect models.dev catalog status, refresh it manually, and reveal its local cache",
               "advanced-request": "Add custom headers, request-body fields, and SSL behavior per provider",
-              "connection-test": "Test provider or model connectivity before saving and refresh the runtime client",
+              "connection-test": "Test model connections or image generation and refresh the runtime client",
               "model-pools": "Manage model pools, routing strategies, and session model selection"
             }
           },

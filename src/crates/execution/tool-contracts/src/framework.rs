@@ -2350,6 +2350,10 @@ pub fn miniapp_headless_agent_tool_restrictions() -> ToolRuntimeRestrictions {
             "Playbook is unavailable in MiniApp headless agent runs.",
         ),
         (
+            "MiniAppBrowser",
+            "MiniAppBrowser is unavailable in MiniApp headless agent runs: a MiniApp agent turn must not drive another MiniApp surface.",
+        ),
+        (
             "Cron",
             "Cron is unavailable in MiniApp headless agent runs.",
         ),
@@ -2756,6 +2760,7 @@ mod tests {
 
         assert!(!restrictions.is_tool_allowed("AskUserQuestion"));
         assert!(!restrictions.is_tool_allowed("ControlHub"));
+        assert!(!restrictions.is_tool_allowed("MiniAppBrowser"));
         assert!(!restrictions.is_tool_allowed("Cron"));
         assert!(restrictions.is_tool_allowed("AgentSpawn"));
         assert!(restrictions.is_tool_allowed("WebSearch"));

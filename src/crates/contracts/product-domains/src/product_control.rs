@@ -672,20 +672,6 @@ fn split_terms(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn is_subsequence(query: &str, candidate: &str) -> bool {
-    let mut query = query.chars();
-    let mut next = query.next();
-    for character in candidate.chars() {
-        if Some(character) == next {
-            next = query.next();
-            if next.is_none() {
-                return true;
-            }
-        }
-    }
-    next.is_none()
-}
-
 fn score_single_term(query: &str, field: &str) -> u32 {
     if field == query {
         return 100;
@@ -704,7 +690,9 @@ fn score_single_term(query: &str, field: &str) -> u32 {
         .iter()
         .filter_map(|word| word.chars().next())
         .collect();
-    if query.chars().count() > 1 && is_subsequence(query, &acronym) {
+    // Initials must be consecutive. Skipping arbitrary words makes long
+    // workflow prose spuriously match unrelated queries such as "pet".
+    if query.chars().count() > 1 && acronym.contains(query) {
         return 66;
     }
     0
@@ -1180,6 +1168,25 @@ mod tests {
             limit: None,
             source: ProductControlSource::Compatibility,
         }
+    }
+
+    #[test]
+    fn acronym_matches_require_consecutive_initials_instead_of_scattered_prose() {
+        assert!(score_text_match("gs", &["Global Search"]) > 0);
+        assert_eq!(
+            score_text_match(
+                "pet",
+                &["Publish the example after completing checks and tests"]
+            ),
+            0
+        );
+        assert_eq!(
+            score_text_match(
+                "mascot",
+                &["Move an app; select controls only when observed, then operate them"]
+            ),
+            0
+        );
     }
 
     #[test]

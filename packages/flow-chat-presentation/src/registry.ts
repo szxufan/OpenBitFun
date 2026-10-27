@@ -39,6 +39,7 @@ export const toolPresentationRegistry = {
   AgentList: { owner: 'standard', component: 'AgentRosterToolCard' },
   SessionHistory: { owner: 'standard', component: 'SessionHistoryToolCard' },
   analyze_image: { owner: 'standard', component: 'ImageAnalysisToolCard' },
+  generate_image: { owner: 'standard', component: 'ImageAnalysisToolCard' },
   GetTime: { owner: 'standard', component: 'TimeToolCard' },
   ListMCPResources: { owner: 'standard', component: 'McpResourceToolCard' },
   ReadMCPResource: { owner: 'standard', component: 'McpResourceToolCard' },

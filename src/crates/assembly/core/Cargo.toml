@@ -170,6 +170,7 @@ product-full = [
     "tools-browser-web",
     "tools-computer-use",
     "tools-image-analysis",
+    "tools-image-generation",
     "tools-miniapp",
     "tools-pages",
     "tools-creation",
@@ -377,6 +378,11 @@ tools-computer-use = [
 ]
 tools-image-analysis = [
     "openbitfun-tool-packs/image-analysis",
+]
+tools-image-generation = [
+    "openbitfun-tool-packs/image-generation",
+    "ai-adapter-runtime",
+    "openbitfun-ai-adapters/image-generation",
 ]
 tools-miniapp = [
     "dep:openbitfun-product-domains",

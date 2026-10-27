@@ -8,6 +8,8 @@ export interface GlobalConfig {
   terminal: TerminalConfig;
   workspace: WorkspaceConfig;
   ai: AIConfig;
+  /** Image/media services. Deliberately a sibling of `ai`, never a chapter of it. */
+  media: MediaConfig;
   tool_permissions: ToolPermissionConfig;
   memories: MemoriesConfig;
   schema_version: 1;
@@ -361,6 +363,61 @@ export interface DefaultModelsConfig {
   fast?: string | null;
   image_understanding?: string | null;
   speech_recognition?: string | null;
+}
+
+/**
+ * Wire request dialect of an image service.
+ *
+ * The dialect decides the endpoint path, body shape and result shape, so it is
+ * chosen explicitly instead of being inferred from the model name.
+ */
+/**
+ * Image request protocol.
+ *
+ * `chatgpt_codex` is the subscription route: it drives a chat model's
+ * `image_generation` tool over the provider's own backend and never touches the
+ * API-key image endpoint.
+ */
+export type ImageDialect = 'openai_images' | 'dashscope_native' | 'chatgpt_codex';
+
+/** Default generation parameters persisted per service. */
+export interface ImageGenerationParams {
+  /** Dialect-native size expression (`1024x1024` for OpenAI, `2048*2048` for DashScope). */
+  size?: string;
+  n?: number;
+  negative_prompt?: string;
+  quality?: string;
+  background?: string;
+  output_format?: string;
+  watermark?: boolean;
+  prompt_extend?: boolean;
+  seed?: number;
+}
+
+/** One independently configured image generation service. */
+export interface ImageServiceConfig {
+  id: string;
+  name: string;
+  dialect: ImageDialect;
+  /** Service root without the dialect endpoint path. */
+  base_url: string;
+  /** Full request URL override; replaces `base_url` + dialect path when set. */
+  request_url?: string;
+  model_name: string;
+  api_key: string;
+  auth?: AuthConfig;
+  enabled: boolean;
+  params: ImageGenerationParams;
+  custom_headers?: Record<string, string>;
+  custom_headers_mode?: CustomHeadersMode;
+  skip_ssl_verify?: boolean;
+}
+
+/** Media service configuration stored beside `ai`, not inside it. */
+export interface MediaConfig {
+  image_services: ImageServiceConfig[];
+  /** Service id used by `generate_image` when a call names no service. */
+  default_image_service?: string | null;
 }
 
 export type SubagentModelSelection =

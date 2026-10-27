@@ -2922,16 +2922,7 @@ Results: `{ok, domain, action, data? , error?: {code, message, hints}}`. Check o
                         // model never sees just invites endless retries with
                         // different params. Soft-degrade inside the envelope
                         // rather than erroring, so the turn is not broken.
-                        let text_only = !context.primary_model_supports_image_understanding();
-                        let no_multimodal_tool_output = !context
-                            .primary_model_facts()
-                            .multimodal_tool_output_supported();
-                        if text_only || no_multimodal_tool_output {
-                            let reason = if text_only {
-                                "primary_model_is_text_only"
-                            } else {
-                                "provider_no_multimodal_tool_output"
-                            };
+                        if let Some(reason) = context.image_observation_unavailable_reason() {
                             return Ok(vec![ToolResult::ok(
                                 json!({
                                     "success": false,

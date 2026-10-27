@@ -49,7 +49,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
   )];
 
   beforeAll(async () => {
-    await Promise.all((['settings', 'settings/models', 'settings/default-model', 'components'] as const).map(
+    await Promise.all((['settings', 'settings/models', 'settings/default-model', 'settings/media', 'components'] as const).map(
       namespace => i18nService.loadNamespace(namespace),
     ));
   });
@@ -59,6 +59,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     reads = new Map([
       'ai.models', 'ai.default_models', 'ai.proxy',
       'ai.stream_idle_timeout_secs', 'ai.stream_ttft_timeout_secs',
+      'media',
     ].map(path => [path, deferred()]));
     vi.spyOn(configManager, 'getOptionalConfig').mockImplementation(
       <T,>(path: string) => reads.get(path)!.promise as Promise<T | undefined>,
@@ -158,6 +159,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
 
   it('renders a warm model pool immediately without starting a read that could overwrite edits', () => {
     const values: Record<string, unknown> = {
+      media: { image_services: [] },
       'ai.models': [model], 'ai.default_models': { primary: model.id },
       'ai.proxy': { enabled: false, url: '', username: '', password: '' },
       'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
@@ -341,7 +343,11 @@ describe('ModelSettingsPage loading and provider actions', () => {
     for (const key of ['acquisition.noneConfigured', 'acquisition.noneImported', 'pool.empty']) {
       expect(container.textContent).not.toContain(copy(key));
     }
-    expect(selectors()).toHaveLength(4);
+    const defaultLabel = (key: string) => String(i18nService.getI18nInstance().t(key, { ns: 'settings/default-model' }));
+    expect(selectors().map(element => element.getAttribute('aria-label'))).toEqual([
+      'core.primary.label', 'core.fast.label', 'optional.capabilities.image_understanding.label',
+      'optional.capabilities.image_generation.label', 'optional.capabilities.speech_recognition.label',
+    ].map(defaultLabel));
     expect(selectors().every(element => element.disabled)).toBe(true);
     expect(button('actions.addModel').disabled).toBe(true);
     expect(button('acquisition.import').disabled).toBe(false);
@@ -355,6 +361,17 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(selectors()[0].disabled).toBe(false);
     expect(selectors()[0].textContent).toContain(model.model_name);
     expect(button('actions.addModel').disabled).toBe(false);
+    const imageSelector = container.querySelector<HTMLButtonElement>('[data-testid="image-service-default-select"] button[role="combobox"]')!;
+    expect(imageSelector.disabled).toBe(true);
+    const image = {
+      id: 'loading-image-service', name: 'Image service', dialect: 'openai_images',
+      base_url: 'https://images.example/v1', model_name: 'image-model', api_key: 'fixture-key',
+      enabled: true, params: { n: 1 },
+    };
+    await act(async () => { reads.get('media')!.resolve({ image_services: [image], default_image_service: image.id }); });
+    expect(imageSelector.disabled).toBe(false);
+    expect(imageSelector.textContent).toContain(image.name);
+    expect(selectors()[0].textContent).toContain(model.model_name);
   });
 
   it('isolates a failed model read, keeps network settings usable, and recovers through the section retry', async () => {

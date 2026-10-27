@@ -35,6 +35,7 @@ mod macos_window_chrome;
 #[cfg(target_os = "macos")]
 mod macos_window_close;
 mod miniapp_desktop;
+mod miniapp_web_host;
 
 // Keep one macro expansion: on macOS it emits a process-wide Info.plist symbol.
 fn desktop_context() -> tauri::Context<tauri::Wry> {
@@ -1136,6 +1137,7 @@ pub async fn run() {
             openbitfun_webdriver::maybe_start(app_handle.clone());
             builtin_browser_host::install(app_handle.clone());
             openbitfun_control_host::install(app_handle.clone());
+            miniapp_web_host::install(app_handle.clone());
             if !miniapp_background {
                 if let Err(error) = desktop_cards::install(&app_handle) {
                     log::warn!("Desktop cards unavailable: {}", error);
@@ -1492,10 +1494,13 @@ pub async fn run() {
             openbitfun_control_host::mark_openbitfun_control_surface_unready,
             openbitfun_control_host::product_control_invoke,
             openbitfun_control_host::report_openbitfun_control_result,
+            miniapp_web_host::mark_miniapp_web_surface_ready,
+            miniapp_web_host::report_miniapp_web_result,
             get_health_status,
             get_statistics,
             test_ai_connection,
             test_ai_config_connection,
+            test_image_generation_service,
             list_ai_models_by_config,
             list_subscription_accounts,
             list_subscription_account_instances,

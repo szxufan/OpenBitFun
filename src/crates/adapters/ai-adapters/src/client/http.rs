@@ -2,7 +2,8 @@ use crate::client::AIClient;
 use crate::types::ProxyConfig;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
-use reqwest::{Client, Proxy};
+use openbitfun_services_core::system_proxy::SystemProxy;
+use reqwest::{Client, ClientBuilder, NoProxy, Proxy};
 
 pub(crate) fn create_http_client(
     proxy_config: Option<ProxyConfig>,
@@ -30,27 +31,7 @@ pub(crate) fn create_http_client(
         );
     }
 
-    if let Some(proxy_cfg) = proxy_config {
-        if proxy_cfg.enabled && !proxy_cfg.url.is_empty() {
-            match build_proxy(&proxy_cfg) {
-                Ok(proxy) => {
-                    info!("Using proxy: {}", proxy_cfg.url);
-                    builder = builder.proxy(proxy);
-                }
-                Err(e) => {
-                    error!(
-                        "Proxy configuration failed: {}, proceeding without proxy",
-                        e
-                    );
-                    builder = builder.no_proxy();
-                }
-            }
-        } else {
-            builder = builder.no_proxy();
-        }
-    } else {
-        builder = builder.no_proxy();
-    }
+    builder = apply_proxy_policy(builder, proxy_config);
 
     match builder.build() {
         Ok(client) => client,
@@ -62,6 +43,67 @@ pub(crate) fn create_http_client(
             Client::new()
         }
     }
+}
+
+/// Resolve the transport proxy policy in priority order.
+///
+/// 1. An enabled proxy with an address is used as configured.
+/// 2. A configured address with the switch off means "connect directly"; the
+///    user turned the proxy off on purpose.
+/// 3. No configured address falls back to the operating system proxy. Many users
+///    reach providers only through a local proxy agent, and that setting lives in
+///    the OS rather than in this app.
+/// 4. Without any of the above the client keeps reqwest's default, which honours
+///    the `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY` environment variables.
+fn apply_proxy_policy(builder: ClientBuilder, proxy_config: Option<ProxyConfig>) -> ClientBuilder {
+    if let Some(proxy_cfg) = proxy_config {
+        let configured = !proxy_cfg.url.trim().is_empty();
+        if proxy_cfg.enabled && configured {
+            return match build_proxy(&proxy_cfg) {
+                Ok(proxy) => {
+                    info!("Using proxy: {}", proxy_cfg.url);
+                    builder.proxy(proxy)
+                }
+                Err(e) => {
+                    error!(
+                        "Proxy configuration failed: {}, proceeding without proxy",
+                        e
+                    );
+                    builder.no_proxy()
+                }
+            };
+        }
+        if configured {
+            info!("Proxy disabled by configuration, connecting directly");
+            return builder.no_proxy();
+        }
+    }
+
+    match openbitfun_services_core::system_proxy::detect() {
+        Some(system) => match system_proxy(&system) {
+            Some(proxy) => {
+                info!("Using operating system proxy: {}", system.url);
+                builder.proxy(proxy)
+            }
+            None => {
+                warn!(
+                    "Operating system proxy {} could not be applied, connecting directly",
+                    system.url
+                );
+                builder.no_proxy()
+            }
+        },
+        None => builder,
+    }
+}
+
+/// Build a reqwest proxy from an operating system setting.
+///
+/// Loopback targets always bypass the proxy so local model servers keep working.
+fn system_proxy(system: &SystemProxy) -> Option<Proxy> {
+    let proxy = Proxy::all(&system.url).ok()?;
+    let no_proxy = system.no_proxy.as_deref().and_then(NoProxy::from_string);
+    Some(proxy.no_proxy(no_proxy))
 }
 
 pub(crate) fn build_proxy(config: &ProxyConfig) -> Result<Proxy> {

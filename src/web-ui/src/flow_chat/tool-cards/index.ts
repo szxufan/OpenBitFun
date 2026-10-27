@@ -154,6 +154,7 @@ export const STANDARD_TOOL_CARD_ADAPTERS = {
   'AgentDelete': AgentDeleteToolCard,
   'SessionHistory': BuiltinToolCard,
   'analyze_image': BuiltinToolCard,
+  'generate_image': BuiltinToolCard,
   'GetTime': BuiltinToolCard,
   'ListMCPResources': BuiltinToolCard,
   'ReadMCPResource': BuiltinToolCard,

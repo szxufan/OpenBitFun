@@ -36,6 +36,8 @@ pub mod file_read_tool;
 pub mod file_write_tool;
 #[cfg(feature = "tools-creation")]
 pub mod frontend_workbench_tool;
+#[cfg(feature = "tools-image-generation")]
+pub mod generate_image_tool;
 #[cfg(feature = "tools-miniapp")]
 pub mod generative_ui_tool;
 #[cfg(feature = "tools-git")]
@@ -48,6 +50,8 @@ pub mod list_workspaces_tool;
 pub mod ls_tool;
 #[cfg(feature = "tools-mcp")]
 pub mod mcp_tools;
+#[cfg(feature = "tools-miniapp")]
+pub mod miniapp_browser;
 #[cfg(feature = "tools-miniapp")]
 pub mod miniapp_finalize_tool;
 #[cfg(feature = "tools-miniapp")]
@@ -111,6 +115,8 @@ pub use file_read_tool::FileReadTool;
 pub use file_write_tool::FileWriteTool;
 #[cfg(feature = "tools-creation")]
 pub use frontend_workbench_tool::FrontendWorkbenchTool;
+#[cfg(feature = "tools-image-generation")]
+pub use generate_image_tool::GenerateImageTool;
 #[cfg(feature = "tools-miniapp")]
 pub use generative_ui_tool::GenerativeUITool;
 #[cfg(feature = "tools-git")]
@@ -125,6 +131,8 @@ pub use ls_tool::LSTool;
 pub use mcp_tools::{
     GetMCPPromptTool, ListMCPPromptsTool, ListMCPResourcesTool, ReadMCPResourceTool,
 };
+#[cfg(feature = "tools-miniapp")]
+pub use miniapp_browser::MiniAppBrowserTool;
 #[cfg(feature = "tools-miniapp")]
 pub use miniapp_finalize_tool::FinalizeMiniAppTool;
 #[cfg(feature = "tools-miniapp")]

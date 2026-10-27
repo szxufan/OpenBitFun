@@ -617,7 +617,7 @@ fn presets() -> Value {
                     }
                 }
             },
-            "notes": "Command sources run locally with existing CLI auth (gh) and require user approval. This command is already written for the shell on this computer; keep its quoting style when you change the PR number or repository."
+            "notes": "Command sources run locally with existing CLI auth (gh) and require user approval only in Ask mode. This command is already written for the shell on this computer; keep its quoting style when you change the PR number or repository."
         },
         {
             "id": "repository-stats",
@@ -880,7 +880,7 @@ Paths are JSON Pointers (e.g. /current/temperature_2m) into the card data. With 
 
 Data sources (dataSource.kind):
 - http: url, optional headers, intervalSeconds (30-86400), parse json|text. Fetched from this computer.
-- command: shell command run locally on this computer with {shell}, intervalSeconds (30-86400), optional cwd (defaults to the local workspace) and timeoutSeconds (default 20, max 120), parse json|text. Requires user approval; not allowed for remote workspaces. Prefer CLIs that already hold credentials (gh, kubectl) over putting secrets in http headers. {command_guidance}
+- command: shell command run locally on this computer with {shell}, intervalSeconds (30-86400), optional cwd (defaults to the local workspace) and timeoutSeconds (default 20, max 120), parse json|text. The permission system requests approval only in Ask mode; Auto Approve and Full Access need no additional confirmation. Not allowed for remote workspaces. Prefer CLIs that already hold credentials (gh, kubectl) over putting secrets in http headers. {command_guidance}
 
 Workflow for command sources:
 1. Run the exact command once with ExecCommand and confirm it prints the JSON you plan to bind (card commands additionally skip shell profiles). {command_test_guidance}
@@ -1083,7 +1083,7 @@ Cards are shown only on this desktop. They are unavailable for remote mobile or 
     fn permission_intents(
         &self,
         input: &Value,
-        _context: &ToolUseContext,
+        context: &ToolUseContext,
     ) -> OpenBitFunResult<Vec<PermissionIntent>> {
         let Some(command) = command_source(input) else {
             return Ok(Vec::new());
@@ -1093,9 +1093,10 @@ Cards are shown only on this desktop. They are unavailable for remote mobile or 
             vec![format!("desktop-card:command:{command}")],
         );
         intent.save_resources.clear();
-        intent
-            .display_metadata
-            .insert("requiresFreshApproval".to_string(), Value::Bool(true));
+        intent.display_metadata.insert(
+            "requiresFreshApproval".to_string(),
+            Value::Bool(context.requires_fresh_approval()),
+        );
         intent.display_metadata.insert(
             "description".to_string(),
             Value::String(
@@ -1918,7 +1919,7 @@ mod tests {
     }
 
     #[test]
-    fn command_sources_always_require_fresh_approval() {
+    fn command_sources_require_fresh_approval_in_ask_mode() {
         let input = json!({
             "action": "create",
             "card": {

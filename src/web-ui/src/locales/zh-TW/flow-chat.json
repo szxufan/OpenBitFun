@@ -3025,6 +3025,7 @@
         "AgentDelete": "刪除子代理",
         "SessionHistory": "匯出工作階段歷史",
         "analyze_image": "分析圖片",
+        "generate_image": "生成圖片",
         "GetTime": "讀取時間",
         "ListMCPResources": "探索資源",
         "ReadMCPResource": "讀取資源",
@@ -3036,6 +3037,7 @@
         "FrontendWorkbench": "介面自訂",
         "FinalizeMiniApp": "更新小應用程式",
         "PublishMiniApp": "提交小應用程式審核",
+        "MiniAppBrowser": "操作小程式",
         "PublishAppearance": "提交外觀審核",
         "Playbook": "讀取操作流程",
         "DesktopCard": "小卡片"
@@ -3060,6 +3062,7 @@
         "includeToolInputs": "包含工具參數",
         "includeThinking": "包含思考",
         "model": "視覺模型",
+        "service": "服務",
         "dimensions": "圖片尺寸",
         "question": "分析問題",
         "analysis": "分析結果",
@@ -3283,6 +3286,7 @@
       "imageCurrent": "目前來源影像",
       "imageUnavailable": "無法預覽影像，可開啟記錄的路徑查看來源檔案。",
       "imageLoading": "正在讀取來源影像…",
+      "generatedImages": "已生成圖片：{{value}} 張",
       "hostUnavailable": "這筆記錄來自被派發工作的主機，請在該主機開啟資源；目前無法從本機跳轉。",
       "remoteLoopback": "這個回環位址屬於執行主機，請在該主機上開啟。",
       "desktopCard": {

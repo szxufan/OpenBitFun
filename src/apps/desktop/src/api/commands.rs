@@ -475,6 +475,14 @@ pub struct ListAIModelsByConfigRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TestImageGenerationServiceRequest {
+    /// Draft service, not necessarily saved yet.
+    pub service: openbitfun_core::service::config::types::ImageServiceConfig,
+    /// Optional subject override for the check prompt.
+    pub prompt: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct UpdateAppStatusRequest {
     pub status: String,
     pub message: Option<String>,
@@ -1236,6 +1244,35 @@ pub async fn test_ai_config_connection(
             Err(format!("Connection test failed: {}", e))
         }
     }
+}
+
+/// Runs one real generation against an image service draft so the settings page
+/// can confirm the dialect, credentials and endpoint actually work together.
+#[tauri::command]
+pub async fn test_image_generation_service(
+    request: TestImageGenerationServiceRequest,
+) -> Result<openbitfun_core::agentic::image_generation::ImageServiceTestOutcome, String> {
+    const DEFAULT_PROMPT: &str =
+        "A simple red circle centered on a plain white background, flat vector style";
+
+    let prompt = request
+        .prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+        .unwrap_or(DEFAULT_PROMPT);
+    let dialect = request.service.dialect;
+    let service_id = request.service.id.clone();
+
+    let outcome =
+        openbitfun_core::agentic::image_generation::test_service(&request.service, prompt).await;
+
+    info!(
+        "Image generation service test completed: service={}, dialect={:?}, success={}, elapsed={}ms",
+        service_id, dialect, outcome.success, outcome.elapsed_ms
+    );
+
+    Ok(outcome)
 }
 
 #[tauri::command]

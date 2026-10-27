@@ -129,7 +129,7 @@ pub const BUILTIN_APPS: &[BuiltinMiniAppBundle] = &[
     },
     BuiltinMiniAppBundle {
         id: "builtin-regex-playground",
-        version: 16,
+        version: 17,
         meta_json: include_str!("builtin/assets/regex-playground/meta.json"),
         html: include_str!("builtin/assets/regex-playground/index.html"),
         css: include_str!("builtin/assets/regex-playground/style.css"),

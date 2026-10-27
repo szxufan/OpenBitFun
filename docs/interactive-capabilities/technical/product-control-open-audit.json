@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "65f1a11c6d994c382da25f2b9ad995ad0f443a5d352c2eafa10a8b9bcbf849e5",
+  "catalogDigest": "bff6e24a5bc74bba63fcd2858d7ac58e028d6901e44aece40e5bd885f518f8af",
   "count": 216,
   "reasonCounts": {
     "externalAuth": 4,
@@ -2855,11 +2855,11 @@
     {
       "capabilityId": "setting.ai.models",
       "itemId": "connection-test",
-      "titleZh": "保存前测试供应商或模型连接并刷新运行时客户端",
-      "titleEn": "Test provider or model connectivity before saving and refresh the runtime client",
+      "titleZh": "测试模型连接或图像生成，并刷新运行时客户端",
+      "titleEn": "Test model connections or image generation and refresh the runtime client",
       "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“保存前测试供应商或模型连接并刷新运行时客户端”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Test provider or model connectivity before saving and refresh the runtime client” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
+      "reasonZh": "“测试模型连接或图像生成，并刷新运行时客户端”需要用户在配置表单中选择服务并主动发起；图像服务测试会实际生成图片并可能消耗额度，智能体只能打开对应设置入口。",
+      "reasonEn": "“Test model connections or image generation and refresh the runtime client” requires the user to select a configuration and start the test from its form; image-service tests generate an actual image and may consume quota, so the Agent can only open the settings entry.",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "ai.models"
@@ -2867,6 +2867,7 @@
       "evidence": [
         "command:test_ai_connection",
         "command:test_ai_config_connection",
+        "command:test_image_generation_service",
         "command:refresh_model_client"
       ]
     },

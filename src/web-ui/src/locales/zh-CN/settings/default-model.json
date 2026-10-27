@@ -32,7 +32,7 @@
         "description": "当主模型不支持图片输入时，用于分析图片和截图内容"
       },
       "image_generation": {
-        "label": "图像生成",
+        "label": "图像生成模型",
         "description": "根据文字描述生成图片"
       },
       "speech_recognition": {

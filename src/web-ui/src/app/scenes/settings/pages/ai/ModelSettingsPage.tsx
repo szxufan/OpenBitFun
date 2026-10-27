@@ -28,6 +28,9 @@ import {
   ConfigRetryState,
 } from '@/infrastructure/config/components/common';
 import DefaultModelConfig from '@/infrastructure/config/components/DefaultModelConfig';
+import { ImageGenerationAcquisitionRow, ImageGenerationDefaultSlot, ImageGenerationDialogs, ImageGenerationModelCard } from '@/infrastructure/config/components/image-generation/ImageGenerationSection';
+import { useImageGenerationSettings } from '@/infrastructure/config/components/image-generation/useImageGenerationSettings';
+import { matchesImageModel } from '@/infrastructure/config/components/image-generation/imageModels';
 import ModelTagsField from '@/infrastructure/config/components/ModelTagsField';
 import {
   configsNeedingAutoTest,
@@ -434,6 +437,7 @@ const ModelSettingsPage: React.FC = () => {
   const { t, i18n } = useI18n('settings/models');
   const { t: tDefault } = useI18n('settings/default-model');
   const { t: tComponents } = useI18n('components');
+  const { t: tMedia } = useI18n('settings/media');
   const subscriptionName = useCallback((account: SubscriptionAccount): string => {
     const labels: Record<SubscriptionProvider, string> = {
       codex: t('subscriptionAuth.products.codex'),
@@ -468,9 +472,10 @@ const ModelSettingsPage: React.FC = () => {
   const initialIdle = timeoutSeed.get<number | null>('ai.stream_idle_timeout_secs', null);
   const initialTtft = timeoutSeed.get<number | null>('ai.stream_ttft_timeout_secs', null);
   const [aiModels, setAiModels] = useState<AIModelConfigType[]>(modelSeed.get<AIModelConfigType[] | null>('ai.models', null) ?? []);
+  const imageSettings = useImageGenerationSettings();
   const [poolDefaults, setPoolDefaults] = useState<DefaultModelsConfig>(modelSeed.get<DefaultModelsConfig | null>('ai.default_models', null) ?? {});
   const [poolQuery, setPoolQuery] = useState('');
-  const [poolCapability, setPoolCapability] = useState<ModelCapability | ''>('');
+  const [poolCapability, setPoolCapability] = useState<ModelCapability | 'image_generation' | ''>('');
   const [poolProvider, setPoolProvider] = useState('');
   const [showTagSyncNotice, setShowTagSyncNotice] = useState(false);
   const [showSubscriptionManager, setShowSubscriptionManager] = useState(false);
@@ -2651,9 +2656,10 @@ const ModelSettingsPage: React.FC = () => {
         : undefined;
       providers.set(getPoolProviderKey(model), label || getProviderDisplayName(model));
     });
+    imageSettings.media.image_services.forEach(service => providers.set(`image:${service.dialect}`, tMedia(`dialect.${service.dialect === 'chatgpt_codex' ? 'chatgptCodex' : service.dialect === 'dashscope_native' ? 'dashscopeNative' : 'openaiImages'}.name`)));
     return [...providers].map(([value, label]) => ({ value, label }))
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [aiModels, importedSubscriptions]);
+  }, [aiModels, importedSubscriptions, imageSettings.media.image_services, tMedia]);
   const subscriptionModelCount = aiModels.filter(model => !!subscriptionProviderOf(model.auth)).length;
   const visiblePoolModels = useMemo(() => {
     const query = poolQuery.trim().toLowerCase();
@@ -2661,6 +2667,7 @@ const ModelSettingsPage: React.FC = () => {
       model.id === poolDefaults.primary ? 0 : model.id === poolDefaults.fast ? 1 : 2
     );
     return aiModels.filter(model => {
+      if (poolCapability === 'image_generation') return false;
       if (poolCapability && !getEffectiveModelCapabilities(model).includes(poolCapability)) return false;
       if (poolProvider && getPoolProviderKey(model) !== poolProvider) return false;
       const labels = poolRoles.filter(role => role.modelId && role.modelId === model.id).map(role => role.label);
@@ -2668,6 +2675,7 @@ const ModelSettingsPage: React.FC = () => {
         .join(' ').toLowerCase().includes(query);
     }).sort((a, b) => priority(a) - priority(b));
   }, [aiModels, poolQuery, poolCapability, poolProvider, poolRoles, poolDefaults]);
+  const visibleImageModels = imageSettings.media.image_services.filter(service => matchesImageModel(service, poolQuery, poolCapability, poolProvider));
 
   if (creationMode === 'selection') {
     return (
@@ -4723,6 +4731,7 @@ const ModelSettingsPage: React.FC = () => {
                   : !subscriptionLoadError && <span className="openbitfun-model-settings__pool-caption">{t('acquisition.noneImported')}</span>}
             </div>
           </ConfigPageRow>
+          <ImageGenerationAcquisitionRow settings={imageSettings} />
         </ConfigPageSection>
 
         <ConfigPageSection title={t('sections.selectionModes')}>
@@ -4767,6 +4776,7 @@ const ModelSettingsPage: React.FC = () => {
             )}>
             <div className="openbitfun-model-settings__pool-slots">
               <DefaultModelConfig compact models={aiModels} defaultModels={poolDefaults}
+                imageGenerationSlot={<ImageGenerationDefaultSlot settings={imageSettings} />}
                 loading={isConfigLoading} disabled={configLoadError} onDefaultModelsChange={setPoolDefaults} />
             </div>
             {hasSuspendedEditorDraft && (
@@ -4779,11 +4789,12 @@ const ModelSettingsPage: React.FC = () => {
                 onChange={event => setPoolQuery(event.target.value)} placeholder={t('pool.search')}
                 aria-label={t('pool.search')} />
               <Select size="sm" value={poolCapability} aria-label={t('pool.capabilityFilter')}
-                onValueChange={value => setPoolCapability(String(value) as ModelCapability | '')}
+                onValueChange={value => setPoolCapability(String(value) as ModelCapability | 'image_generation' | '')}
                 options={[
                   { value: '', label: t('pool.allCapabilities') },
                   { value: 'text_chat', label: t('capabilities.text_chat') },
                   { value: 'image_understanding', label: t('capabilities.image_understanding') },
+                  { value: 'image_generation', label: tMedia('title') },
                   { value: 'speech_recognition', label: t('capabilities.speech_recognition') },
                   { value: 'function_calling', label: t('capabilities.function_calling') },
                 ]} />
@@ -4794,12 +4805,19 @@ const ModelSettingsPage: React.FC = () => {
             </div>
             {!modelConfigReady ? (
               renderSectionLoadState(isConfigLoading ? 'loading' : 'error', loadConfig)
-            ) : aiModels.length > 0 ? (
+            ) : aiModels.length + imageSettings.media.image_services.length > 0 ? (
               <>
-                {visiblePoolModels.length > 0 ? (
+                {visiblePoolModels.length + visibleImageModels.length > 0 ? (
                   <div className="openbitfun-model-settings__pool-grid" data-openbitfun-component="model-settings"
                     data-openbitfun-part="collection" data-testid="settings-model-pool">
                     {visiblePoolModels.map(config => renderModelCollectionItem(config, 'card'))}
+                    {visibleImageModels.map(service => <ImageGenerationModelCard key={`image:${service.id}`} settings={imageSettings} service={service}
+                      actions={<ModelPoolCardActions modelLabel={service.name || service.model_name || 'ChatGPT'} enabled={service.enabled}
+                        disabled={imageSettings.saving || Boolean(imageSettings.testingId)}
+                        isTesting={imageSettings.testingId === service.id} connectionTestSupported={connectionTestSupported}
+                        testLabel={tMedia('wizard.test.billed')} onTest={() => void imageSettings.test(service)}
+                        onEdit={() => imageSettings.openEdit(service)} onDelete={() => void imageSettings.remove(service)}
+                        onEnabledChange={enabled => void imageSettings.toggle(service, enabled)} />} />)}
                   </div>
                 ) : (
                   <ConfigEmptyState icon={<Wifi aria-hidden="true" />} description={t('pool.noMatches')}
@@ -4923,6 +4941,8 @@ const ModelSettingsPage: React.FC = () => {
           </div>
         </Disclosure>
       </ConfigPageContent>
+
+      <ImageGenerationDialogs settings={imageSettings} />
 
       <Dialog open={showSubscriptionManager}
         className="openbitfun-model-settings__subscription-dialog"

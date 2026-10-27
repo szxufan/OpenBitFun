@@ -10,14 +10,6 @@ export function queryTokens(query) {
     .filter((token) => token.length >= 2 || CJK.test(token));
 }
 
-function isSubsequence(query, candidate) {
-  let queryIndex = 0;
-  for (let index = 0; index < candidate.length && queryIndex < query.length; index += 1) {
-    if (candidate[index] === query[queryIndex]) queryIndex += 1;
-  }
-  return queryIndex === query.length;
-}
-
 function scoreSingleTerm(query, field) {
   if (field === query) return 100;
   if (field.startsWith(query)) return 94;
@@ -25,7 +17,9 @@ function scoreSingleTerm(query, field) {
   if (words.some((word) => word.startsWith(query))) return 88;
   if (field.includes(query)) return 80;
   const acronym = words.map((word) => word[0]).join('');
-  return query.length > 1 && isSubsequence(query, acronym) ? 66 : 0;
+  // Match consecutive initials; arbitrary skipped words make long prose
+  // spuriously match unrelated capability names.
+  return query.length > 1 && acronym.includes(query) ? 66 : 0;
 }
 
 export function scoreTextMatch(query, fields) {

@@ -93,6 +93,7 @@ describe('tool card registry', () => {
       'AgentDelete',
       'SessionHistory',
       'analyze_image',
+      'generate_image',
       'GetTime',
       'ListMCPResources',
       'ReadMCPResource',

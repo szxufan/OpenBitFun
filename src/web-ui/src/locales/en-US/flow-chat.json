@@ -3025,6 +3025,7 @@
         "AgentDelete": "Delete agents",
         "SessionHistory": "Export history",
         "analyze_image": "Analyze image",
+        "generate_image": "Generate image",
         "GetTime": "Read time",
         "ListMCPResources": "Discover resources",
         "ReadMCPResource": "Read resource",
@@ -3036,6 +3037,7 @@
         "FrontendWorkbench": "Frontend customization",
         "FinalizeMiniApp": "Update Mini App",
         "PublishMiniApp": "Submit Mini App",
+        "MiniAppBrowser": "Operate Mini App",
         "PublishAppearance": "Submit Skin",
         "Playbook": "Read operation guide",
         "DesktopCard": "Desktop card"
@@ -3060,6 +3062,7 @@
         "includeToolInputs": "Include tool inputs",
         "includeThinking": "Include thinking",
         "model": "Vision model",
+        "service": "Service",
         "dimensions": "Image size",
         "question": "Question",
         "analysis": "Analysis",
@@ -3283,6 +3286,7 @@
       "imageCurrent": "Current source image",
       "imageUnavailable": "Image preview is unavailable. You can open the recorded path to inspect the source.",
       "imageLoading": "Loading source image…",
+      "generatedImages": "Images generated: {{value}}",
       "hostUnavailable": "This record belongs to a dispatched host. Open the resource on that host; local navigation is unavailable.",
       "remoteLoopback": "This loopback address belongs to the executing host. Open it on that host.",
       "desktopCard": {

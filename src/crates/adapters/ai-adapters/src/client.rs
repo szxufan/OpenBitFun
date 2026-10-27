@@ -7,6 +7,8 @@
 pub(crate) mod format;
 pub(crate) mod healthcheck;
 pub(crate) mod http;
+#[cfg(feature = "image-generation")]
+pub mod image_generation;
 pub(crate) mod quirks;
 mod request_capacity;
 pub(crate) mod response_aggregator;

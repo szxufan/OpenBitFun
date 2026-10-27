@@ -298,6 +298,15 @@ the visible local Desktop; they are unavailable on remote/Peer/headless surfaces
 MiniApp source operations use the installed product's lifecycle owner and
 preserve omitted source fields and existing app storage when updating.
 
+Agents operate MiniApps through `MiniAppBrowser` first: connect the current
+instance, use its declared state/actions when available, then its DOM/input
+controls. A missing semantic bridge does not by itself require desktop control.
+Readable frames advertising `element-position-click-v1` also accept clicks at
+normalized positions inside an observed element, including SVG/Canvas surfaces;
+older hosts retain ordinary element clicks. ComputerUse remains a fallback for
+a specific unsupported operation on the authorized host. Ordinary web pages use
+ControlHub, while native apps and OS dialogs use ComputerUse.
+
 1. **Don’t call Tauri APIs directly** in UI components; use the adapter layer.
 2. **Keep Web compatibility** in mind (some capabilities may not exist in browsers).
 3. **Prefer CSS variables** over hard-coded colors/sizes.
