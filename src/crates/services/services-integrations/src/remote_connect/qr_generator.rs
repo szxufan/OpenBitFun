@@ -24,6 +24,21 @@ impl QrGenerator {
         Ok(url.to_string())
     }
 
+    /// PSK pairing QR: like the device invitation, plus the out-of-band
+    /// pairing code. The code stays in the URL fragment, so the relay web app
+    /// receives it only through the scanning device's local navigation.
+    pub fn build_psk_pairing_url(
+        web_app_url: &str,
+        device_id: &str,
+        pairing_code: &str,
+    ) -> Result<String> {
+        let base = Self::build_device_url(web_app_url, device_id)?;
+        Ok(format!(
+            "{base}&k={}",
+            urlencoding::encode(pairing_code)
+        ))
+    }
+
     /// Generate a QR code as a base64-encoded PNG from a pre-built URL.
     pub fn generate_png_base64_from_url(url: &str) -> Result<String> {
         let code =

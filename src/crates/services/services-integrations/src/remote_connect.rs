@@ -19,6 +19,7 @@ pub mod host_stream_subscriber;
 mod lan;
 mod page_upload;
 pub mod pairing;
+pub mod psk_store;
 pub mod qr_generator;
 pub mod realtime_client;
 mod realtime_payload;

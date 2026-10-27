@@ -9,11 +9,12 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { subscribeOverlayInteraction, createOverlayPortal, OverflowText, ActionItem, Icon, Menu, MenuItem, MenuSection, MenuSeparator } from '@openbitfun/ui';
-import { Monitor, MonitorSmartphone, Loader2, Unplug } from 'lucide-react';
+import { Monitor, MonitorSmartphone, Loader2, Unplug, KeyRound } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { useNotification } from '@/shared/notification-system';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
+import { PeerPskPairingDialog } from '@/app/components/PeerPskPairingDialog/PeerPskPairingDialog';
 import { usePeerDeviceModeOptional } from './peerDeviceContextState';
 import { useAccountDeviceRoster, type DeviceRosterEntry } from './useAccountDeviceRoster';
 import { isDeviceBusy, subscribeDeviceActivity } from './deviceActivity';
@@ -35,6 +36,7 @@ export const DeviceSurfaceSwitcher: React.FC = () => {
 
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [pairingTarget, setPairingTarget] = useState<DeviceRosterEntry | null>(null);
   const latestSwitchRequestRef = useRef(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -272,13 +274,26 @@ export const DeviceSurfaceSwitcher: React.FC = () => {
                         {isCurrent && <Icon name="check-line" size="xs" aria-hidden="true" />}
                       </span>
                     )}
-                    actions={attached ? [{
-                      id: 'disconnect',
-                      label: t('accountLogin.deviceSwitcher.disconnectHint'),
-                      icon: <Unplug size={13} aria-hidden="true" />,
-                      disabled: switching,
-                      onClick: event => { void handleDisconnect(event, device); },
-                    }] : undefined}
+                    actions={[
+                      ...(attached ? [{
+                        id: 'disconnect',
+                        label: t('accountLogin.deviceSwitcher.disconnectHint'),
+                        icon: <Unplug size={13} aria-hidden="true" />,
+                        disabled: switching,
+                        onClick: (event: React.MouseEvent) => { void handleDisconnect(event, device); },
+                      }] : []),
+                      ...(!device.isLocal ? [{
+                        id: 'pair-psk',
+                        label: t('accountLogin.pskPairing.actionHint'),
+                        icon: <KeyRound size={13} aria-hidden="true" />,
+                        disabled: switching,
+                        onClick: (event: React.MouseEvent) => {
+                          event.stopPropagation();
+                          setOpen(false);
+                          setPairingTarget(device);
+                        },
+                      }] : []),
+                    ]}
                     onClick={() => {
                       if (selectable) void handleSelect(device);
                     }}
@@ -301,6 +316,15 @@ export const DeviceSurfaceSwitcher: React.FC = () => {
         </>,
         getAppearanceOverlayHost(),
       )}
+
+      <PeerPskPairingDialog
+        open={pairingTarget !== null}
+        onClose={() => setPairingTarget(null)}
+        offerTarget={pairingTarget ? {
+          deviceId: pairingTarget.deviceId,
+          deviceName: pairingTarget.deviceName,
+        } : null}
+      />
     </>
   );
 };

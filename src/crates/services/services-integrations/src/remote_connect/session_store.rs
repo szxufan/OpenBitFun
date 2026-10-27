@@ -44,6 +44,13 @@ fn session_store_directory() -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("cannot determine OpenBitFun home directory"))
 }
 
+/// Resolve the shared relay data directory (`<home>/relay-v1.0.0`). Sibling
+/// stores such as the PSK pairing vault live beside the session file so the
+/// test override covers them too.
+pub(crate) fn data_directory() -> Result<PathBuf> {
+    session_store_directory()
+}
+
 /// Resolve the persistent session file path.
 fn session_file_path() -> Result<PathBuf> {
     Ok(session_store_directory()?.join("account_session.enc"))

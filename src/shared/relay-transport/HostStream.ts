@@ -10,6 +10,10 @@ export const HOST_CATALOG_ID = '@host/catalog';
 export const HOST_STREAM_CHANGED_EVENT = 'host-stream-changed';
 export const REMOTE_CAPABILITY_HOST_STREAM_V1 = 'host_stream_v1';
 export const UNSUPPORTED_HOST_MESSAGE = 'The controlled device runs an older OpenBitFun version that does not support on-demand session streaming. Update OpenBitFun on that device to continue.';
+/** Mirrors `PAIRING_KEY_MISMATCH_MESSAGE` in `remote_connect/account.rs`: a
+ * PSK-paired exchange that fails to decrypt is a pairing problem, and falling
+ * back to the relay-directory key would undo the pairing's protection. */
+export const PSK_KEY_MISMATCH_MESSAGE = 'Peer pairing key mismatch: the paired PSK cannot decrypt this message. Complete pairing on both devices or remove the pairing.';
 /** Hosts keep hint subscriptions alive for 10 minutes; renew well before. */
 const KEEPALIVE_MS = 4 * 60 * 1000;
 

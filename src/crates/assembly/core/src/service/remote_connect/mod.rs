@@ -19,12 +19,20 @@ pub mod device {
     pub use openbitfun_services_integrations::remote_connect::device::*;
 }
 
+pub mod device_crypto {
+    pub use openbitfun_services_integrations::remote_connect::device_crypto::*;
+}
+
 pub mod encryption {
     pub use openbitfun_services_integrations::remote_connect::encryption::*;
 }
 
 pub mod pairing {
     pub use openbitfun_services_integrations::remote_connect::pairing::*;
+}
+
+pub mod psk_store {
+    pub use openbitfun_services_integrations::remote_connect::psk_store::*;
 }
 
 pub mod qr_generator {
@@ -1042,6 +1050,7 @@ impl RemoteConnectService {
         correlation_id: &str,
         encrypted_data: &str,
         nonce: &str,
+        key_id: Option<&str>,
     ) -> Result<()> {
         let client = self
             .device_relay_client
@@ -1050,7 +1059,7 @@ impl RemoteConnectService {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("device routing not connected"))?;
         client
-            .send_device_message(target_device_id, correlation_id, encrypted_data, nonce)
+            .send_device_message(target_device_id, correlation_id, encrypted_data, nonce, key_id)
             .await
     }
 
@@ -1065,6 +1074,7 @@ impl RemoteConnectService {
         correlation_id: &str,
         encrypted_data: &str,
         nonce: &str,
+        key_id: Option<&str>,
     ) -> Result<bool> {
         let _lifecycle = self.device_relay_lifecycle.lock().await;
         if *self.active_device_connection_id.read().await != Some(expected_connection_id) {
@@ -1078,7 +1088,7 @@ impl RemoteConnectService {
             .ok_or_else(|| anyhow::anyhow!("device routing not connected"))?;
         drop(_lifecycle);
         client
-            .send_device_message(target_device_id, correlation_id, encrypted_data, nonce)
+            .send_device_message(target_device_id, correlation_id, encrypted_data, nonce, key_id)
             .await?;
         Ok(true)
     }

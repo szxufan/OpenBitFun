@@ -103,6 +103,13 @@ export interface PeerHostCapabilities {
   readonly userQuestionInteraction?: boolean;
   readonly dialogQueueV1?: boolean;
   /**
+   * Host implements out-of-band PSK pairing (`peer_psk_confirm`, `key_id`
+   * envelopes). Gates the pairing UI: pairing a host without it would break
+   * the pairwise channel for that controller. Older hosts of both kinds
+   * predate the feature, so an absent field is treated as `false`.
+   */
+  readonly pskPairingV1?: boolean;
+  /**
    * Which kind of host answered `peer_mode_ping` (`"desktop"` | `"cli"`).
    * `null` = the host did not advertise `host_type` (even older host, or the
    * field is genuinely absent). Lets a controller resolve a `null` capability
@@ -209,6 +216,9 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   chatMcpCatalogV1: false,
   workspaceIdReferencesV1: false,
   userQuestionResponse: null,
+  // PSK pairing postdates the capability protocol; an unprobed or older host
+  // is gated off rather than optimistically offered a broken pairing.
+  pskPairingV1: false,
   // Host kind is unknown until the first `peer_mode_ping` resolves. Consumers
   // treat `null` optimistically. See PR #2428 round 5 #1.
   hostKind: null,
@@ -564,6 +574,7 @@ export class PeerConnectionManager {
       userQuestionResponse,
       userQuestionInteraction: caps?.user_question_interaction_v1 === true,
       dialogQueueV1: caps?.dialog_queue_v1 === true,
+      pskPairingV1: caps?.psk_pairing_v1 === true,
       hostKind,
     };
   }
@@ -814,6 +825,7 @@ function capabilitiesEqual(
     a.userQuestionResponse === b.userQuestionResponse &&
     a.userQuestionInteraction === b.userQuestionInteraction &&
     a.dialogQueueV1 === b.dialogQueueV1 &&
+    (a.pskPairingV1 ?? false) === (b.pskPairingV1 ?? false) &&
     a.hostKind === b.hostKind;
 }
 

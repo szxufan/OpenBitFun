@@ -4,7 +4,12 @@ import {
 } from '../../../shared/relay-transport/HostStream';
 /** Account directory plus the shared Socket.IO encrypted RPC transport. */
 import { AccountRealtime, type DeviceEventEnvelope } from '../../../shared/relay-transport/AccountRealtime';
-import { deriveDeviceMessageKey, encrypt, decrypt, fromB64 } from './E2EEncryption';
+import { PSK_KEY_MISMATCH_MESSAGE } from '../../../shared/relay-transport/HostStream';
+import {
+  deriveDeviceMessageKey, deriveDeviceMessageKeyPsk, encrypt, decrypt, fromB64, PSK_KEY_ID_PREFIX,
+} from './E2EEncryption';
+import { PeerPskStore } from './PeerPskStore';
+import { parsePskPairingCode } from './PskPairing';
 import { normalizeRelayUrl } from './pairingLink';
 
 export interface AccountIdentity {
@@ -189,7 +194,7 @@ export class RelayHttpClient {
     const target = this.getControlTargetSnapshot();
     if (!identity || envelope.sourceDeviceId !== target.deviceId) return;
     try {
-      const messageKey = await this.deviceMessageKey(identity, envelope.sourceDeviceId);
+      const messageKey = await this.receiverMessageKey(identity, envelope.sourceDeviceId, envelope.key_id);
       if (this.identity !== identity || !this.isControlTargetCurrent(target)) return;
       const plaintext = JSON.parse(await decrypt(messageKey, envelope.encrypted_data, envelope.nonce)) as { cmd?: unknown; event?: unknown; payload?: unknown };
       if (plaintext?.cmd !== 'device_event' || typeof plaintext.event !== 'string') return;
@@ -367,7 +372,10 @@ export class RelayHttpClient {
     for (const listener of this.directoryListeners) listener();
   }
 
-  /** Send a command encrypted with the two account devices' X25519 key agreement. */
+  /** Send a command encrypted with the two account devices' key agreement:
+   * the PSK-paired derivation once pairing is confirmed, the legacy X25519
+   * derivation otherwise. The envelope's optional `key_id` tells the receiver
+   * which derivation was used. */
   async sendDeviceRpc<T = any>(
     targetDeviceId: string,
     command: object,
@@ -375,10 +383,10 @@ export class RelayHttpClient {
   ): Promise<T> {
     const targetEpoch = this.controlTargetEpochValue;
     return this.withAccount(async (identity) => {
-      const messageKey = await this.deviceMessageKey(identity, targetDeviceId);
+      const selected = await this.senderMessageKey(identity, targetDeviceId);
       const plaintext = JSON.stringify(command);
       const { data: encData, nonce: encNonce } = await encrypt(
-        messageKey,
+        selected.key,
         plaintext,
       );
 
@@ -388,8 +396,10 @@ export class RelayHttpClient {
       const timeoutMs = options.timeoutMs ?? (options.retryable ? 20_000 : 130_000);
       const connection = this.realtime;
       if (!connection) throw new AccountIdentityChangedError();
-      const data = await connection.call<{ encrypted_data: string; nonce: string }>(targetDeviceId,
-        { encrypted_data: encData, nonce: encNonce }, {
+      const params: Record<string, string> = { encrypted_data: encData, nonce: encNonce };
+      if (selected.keyId) params.key_id = selected.keyId;
+      const data = await connection.call<{ encrypted_data: string; nonce: string; key_id?: string }>(targetDeviceId,
+        params, {
           timeoutMs,
           beforeSend: () => {
             if (identity.generation !== this.identityGeneration || targetEpoch !== this.controlTargetEpochValue) {
@@ -400,14 +410,30 @@ export class RelayHttpClient {
       if (identity.generation !== this.identityGeneration || targetEpoch !== this.controlTargetEpochValue) {
         throw new AccountIdentityChangedError();
       }
-      const decrypted = await decrypt(
-        messageKey,
-        data.encrypted_data,
-        data.nonce,
-      );
+      let decrypted: string;
+      try {
+        decrypted = await decrypt(
+          await this.receiverMessageKey(identity, targetDeviceId, data.key_id),
+          data.encrypted_data,
+          data.nonce,
+        );
+      } catch (error) {
+        // A paired exchange that cannot decrypt is a pairing problem; falling
+        // back to the legacy derivation would undo the pairing's protection.
+        throw new Error(data.key_id ? PSK_KEY_MISMATCH_MESSAGE : (error as Error).message);
+      }
       const parsed = JSON.parse(decrypted);
       if (parsed?.resp === 'error') {
         throw new Error(parsed.message || 'Remote error');
+      }
+      // A successful PSK decrypt is proof both sides hold the secret: promote
+      // a pending offer, whatever command traveled inside the envelope.
+      if (data.key_id?.startsWith(PSK_KEY_ID_PREFIX)) {
+        void PeerPskStore.markPaired(
+          this.relayUrl,
+          targetDeviceId,
+          data.key_id.slice(PSK_KEY_ID_PREFIX.length),
+        ).catch(() => undefined);
       }
       return parsed as T;
     }).catch((error) => {
@@ -416,9 +442,72 @@ export class RelayHttpClient {
     });
   }
 
-  /** Pairwise X25519-derived message key for one account device, cached briefly. */
-  private deviceMessageKey(identity: AccountIdentitySnapshot, targetDeviceId: string): Promise<Uint8Array> {
-    const cacheId = `${identity.generation}:${targetDeviceId}`;
+  /** Accept a PSK pairing code offered by another device: verify the offerer's
+   * directory key against the key embedded in the code, store the pairing,
+   * and confirm over a PSK-sealed RPC. The offerer promoting its offer after
+   * decrypting that envelope is the proof both sides hold the secret. */
+  async completePskPairing(code: string): Promise<{ peerDeviceId: string; pskId: string; confirmed: boolean }> {
+    const payload = parsePskPairingCode(code);
+    return this.withAccount(async (identity) => {
+      const peerPublic = await this.peerPublicKey(identity, payload.offererDeviceId);
+      const embedded = payload.offererPublicKey;
+      if (peerPublic.length !== embedded.length || !peerPublic.every((byte, i) => byte === embedded[i])) {
+        throw new Error('Pairing refused: the offerer\'s relay directory key does not match the pairing code. The directory may be tampered with.');
+      }
+      const entry = await PeerPskStore.store(this.relayUrl, payload.offererDeviceId, payload.psk, 'paired');
+      let confirmed = false;
+      try {
+        await this.sendDeviceRpc(payload.offererDeviceId, {
+          cmd: 'host_invoke',
+          command: 'peer_psk_confirm',
+          args: { psk_id: entry.pskId, controller_device_id: identity.deviceId },
+        }, { retryable: false });
+        confirmed = true;
+      } catch (error) {
+        console.warn('[RelayHttpClient] pairing stored, confirmation not acknowledged', error);
+      }
+      return { peerDeviceId: payload.offererDeviceId, pskId: entry.pskId, confirmed };
+    });
+  }
+
+  /** The key this controller seals with: PSK once pairing is `paired`,
+   * legacy while an offer is pending or no pairing exists. */
+  private async senderMessageKey(
+    identity: AccountIdentitySnapshot,
+    targetDeviceId: string,
+  ): Promise<{ key: Uint8Array; keyId?: string }> {
+    const pairing = PeerPskStore.lookup(this.relayUrl, targetDeviceId);
+    if (pairing?.status === 'paired') {
+      const peerPublic = await this.peerPublicKey(identity, targetDeviceId);
+      return {
+        key: deriveDeviceMessageKeyPsk(identity.masterKey, peerPublic, pairing.psk),
+        keyId: `${PSK_KEY_ID_PREFIX}${pairing.pskId}`,
+      };
+    }
+    return { key: await this.deviceMessageKey(identity, targetDeviceId) };
+  }
+
+  /** The key for a message a peer sealed. The envelope's `key_id` is the only
+   * authority for the derivation; absent means legacy even when a pairing
+   * exists, and a `key_id` without a matching stored pairing is a loud error. */
+  private async receiverMessageKey(
+    identity: AccountIdentitySnapshot,
+    targetDeviceId: string,
+    keyId: string | undefined,
+  ): Promise<Uint8Array> {
+    if (!keyId) return this.deviceMessageKey(identity, targetDeviceId);
+    const pskId = keyId.startsWith(PSK_KEY_ID_PREFIX) ? keyId.slice(PSK_KEY_ID_PREFIX.length) : null;
+    const pairing = PeerPskStore.lookup(this.relayUrl, targetDeviceId);
+    if (!pskId || !pairing || pairing.pskId !== pskId) {
+      throw new Error(PSK_KEY_MISMATCH_MESSAGE);
+    }
+    const peerPublic = await this.peerPublicKey(identity, targetDeviceId);
+    return deriveDeviceMessageKeyPsk(identity.masterKey, peerPublic, pairing.psk);
+  }
+
+  /** The peer's authenticated directory public key, cached briefly. */
+  private peerPublicKey(identity: AccountIdentitySnapshot, targetDeviceId: string): Promise<Uint8Array> {
+    const cacheId = `${identity.generation}:${targetDeviceId}:pub`;
     let cached = this.deviceMessageKeys.get(cacheId);
     if (!cached || cached.expires < Date.now()) {
       const key = (async () => {
@@ -433,7 +522,23 @@ export class RelayHttpClient {
         }
         const peer = await response.json();
         if (peer.device_id !== targetDeviceId) throw new Error('Relay returned a different device identity.');
-        return deriveDeviceMessageKey(identity.masterKey, fromB64(peer.public_key));
+        return fromB64(peer.public_key);
+      })();
+      cached = { expires: Date.now() + 60_000, key };
+      this.deviceMessageKeys.set(cacheId, cached);
+      key.catch(() => { if (this.deviceMessageKeys.get(cacheId) === cached) this.deviceMessageKeys.delete(cacheId); });
+    }
+    return cached.key;
+  }
+
+  /** Pairwise X25519-derived message key for one account device, cached briefly. */
+  private deviceMessageKey(identity: AccountIdentitySnapshot, targetDeviceId: string): Promise<Uint8Array> {
+    const cacheId = `${identity.generation}:${targetDeviceId}`;
+    let cached = this.deviceMessageKeys.get(cacheId);
+    if (!cached || cached.expires < Date.now()) {
+      const key = (async () => {
+        const peerPublic = await this.peerPublicKey(identity, targetDeviceId);
+        return deriveDeviceMessageKey(identity.masterKey, peerPublic);
       })();
       cached = { expires: Date.now() + 60_000, key };
       this.deviceMessageKeys.set(cacheId, cached);

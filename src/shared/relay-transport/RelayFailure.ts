@@ -19,10 +19,12 @@ export type RelayFailureKind =
   | 'client-outdated'
   /** The account session must be established again. */
   | 'auth'
+  /** A PSK-paired peer could not be decrypted; pairing must be completed or removed. */
+  | 'pairing-key-mismatch'
   | 'unknown';
 
 /** The next step a surface can offer for a failure. */
-export type RelayFailureAction = 'retry' | 'check-updates' | 'sign-in';
+export type RelayFailureAction = 'retry' | 'check-updates' | 'sign-in' | 'repair-pairing';
 
 /**
  * Machine-readable reason of a retired Relay version. Mirrors the Relay's own
@@ -51,6 +53,12 @@ const AUTH_MARKERS = [
   'relay auth error',
   'http 401',
   'http 403',
+];
+
+/** Substrings of the host-side pairing mismatch refusal. Mirrors
+ * `PAIRING_KEY_MISMATCH_MESSAGE` in `remote_connect/account.rs`. */
+const PAIRING_MISMATCH_MARKERS = [
+  'peer pairing key mismatch',
 ];
 
 /**
@@ -107,6 +115,11 @@ export function classifyRelayFailure(value: unknown): RelayFailureKind {
   if (OUTDATED_MARKERS.some(marker => message.includes(marker))) return 'client-outdated';
   if (status === 401 || status === 403) return 'auth';
   if (AUTH_MARKERS.some(marker => message.includes(marker))) return 'auth';
+  // A paired exchange that cannot decrypt is a pairing problem, never a
+  // network one; retrying the same envelope cannot repair it.
+  if (PAIRING_MISMATCH_MARKERS.some(marker => message.includes(marker))) {
+    return 'pairing-key-mismatch';
+  }
   // Retired versions answer 410 before authentication, so a 410 on an account
   // route is always "this Relay version is gone", never a stale device.
   if (status === 410) return 'relay-version-retired';
@@ -125,6 +138,8 @@ export function relayFailureAction(kind: RelayFailureKind): RelayFailureAction {
       return 'check-updates';
     case 'auth':
       return 'sign-in';
+    case 'pairing-key-mismatch':
+      return 'repair-pairing';
     default:
       return 'retry';
   }

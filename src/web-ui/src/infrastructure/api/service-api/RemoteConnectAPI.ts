@@ -533,7 +533,54 @@ class RemoteConnectAPIService {
     }
   }
 
+  async createPeerPskOffer(peerDeviceId: string, peerName?: string): Promise<PeerPskOffer> {
+    return this.adapter.request<PeerPskOffer>('peer_psk_offer_create', {
+      request: { peerDeviceId, peerName: peerName ?? null },
+    });
+  }
 
+  async completePeerPsk(code: string): Promise<PeerPskCompleteResult> {
+    return this.adapter.request<PeerPskCompleteResult>('peer_psk_complete', {
+      request: { code },
+    });
+  }
+
+  async removePeerPsk(peerDeviceId: string): Promise<boolean> {
+    return this.adapter.request<boolean>('peer_psk_remove', {
+      request: { peerDeviceId },
+    });
+  }
+
+  async listPeerPsks(): Promise<PeerPskStatusEntry[]> {
+    return this.adapter.request<PeerPskStatusEntry[]>('peer_psk_list', {});
+  }
+
+  onPeerPskStatusChanged(callback: (event: { peer_device_id: string; status: string; psk_id: string }) => void): () => void {
+    return api.listen('peer-psk-status-changed', callback);
+  }
+}
+
+/** Offer returned by `peer_psk_offer_create`; the code transfers out of band. */
+export interface PeerPskOffer {
+  code: string;
+  qrUrl: string;
+  pskId: string;
+}
+
+/** Result of completing a pairing code on this controller's host. */
+export interface PeerPskCompleteResult {
+  peerDeviceId: string;
+  pskId: string;
+  confirmed: boolean;
+}
+
+/** One stored pairing entry, without the secret. */
+export interface PeerPskStatusEntry {
+  peer_device_id: string;
+  psk_id: string;
+  status: 'offered' | 'paired';
+  created_at_unix: number;
+  peer_name: string | null;
 }
 
 export const remoteConnectAPI = new RemoteConnectAPIService();

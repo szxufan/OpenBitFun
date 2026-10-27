@@ -45,6 +45,7 @@ const RELAY_FAILURE_MESSAGE_KEY: Record<RelayFailureKind, string> = {
   'relay-version-retired': 'accountLogin.relayFailureVersionRetired',
   'client-outdated': 'accountLogin.relayFailureClientOutdated',
   auth: 'accountLogin.sessionExpired',
+  'pairing-key-mismatch': 'accountLogin.pskPairing.mismatchFailure',
   unknown: 'accountLogin.relayFailureUnknown',
 };
 

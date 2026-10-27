@@ -259,3 +259,15 @@ listener alone recovers an interaction emitted before attachment.
     replaces the capability, including when a host restarts on an older build.
     Once a copy is acknowledged, a metadata-read failure reports the created
     copy and asks for a list refresh; it must not replay the copy mutation.
+
+
+20. **PSK pairing must never silently downgrade.** The encrypted envelope's
+    optional `key_id` is the only authority for which derivation sealed a
+    message: absent means the legacy X25519 derivation even when a pairing is
+    stored, present means the PSK-paired derivation. A `key_id` envelope that
+    fails to decrypt surfaces `PAIRING_KEY_MISMATCH_MESSAGE`
+    (`pairing-key-mismatch` in `RelayFailure`) and is never retried under the
+    legacy key — that retry is the exact downgrade a key-swapping relay needs.
+    Host responses mirror the request's variant, and a successful PSK decrypt
+    from the peer promotes a pending pairing offer (see
+    `docs/architecture/peer-device-mode.md`, "Out-of-band PSK pairing").

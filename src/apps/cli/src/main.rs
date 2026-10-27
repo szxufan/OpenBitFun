@@ -26,6 +26,7 @@ mod mcp_import;
 mod model_selection;
 mod modes;
 mod peer_host;
+mod peer_pairing;
 mod plugin_diagnostics;
 mod plugin_host_activation;
 mod product_assembly;
@@ -384,6 +385,12 @@ enum Commands {
     Dispatch {
         #[command(subcommand)]
         action: DispatchAction,
+    },
+
+    /// Manage out-of-band PSK pairings with peer devices
+    Peer {
+        #[command(subcommand)]
+        action: peer_pairing::PeerPairingAction,
     },
 
     /// Start the OpenBitFun app server over stdio
@@ -1550,6 +1557,10 @@ async fn run_cli() -> Result<()> {
 
         Some(Commands::Dispatch { action }) => {
             root_handlers::handle_dispatch_action(action).await?;
+        }
+
+        Some(Commands::Peer { action }) => {
+            peer_pairing::run(action).await?;
         }
 
         Some(Commands::Server) => {

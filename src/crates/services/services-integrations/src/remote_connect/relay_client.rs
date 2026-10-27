@@ -90,11 +90,22 @@ pub enum RelayEvent {
         correlation_id: String,
         encrypted_data: String,
         nonce: String,
+        /// Present when the sender sealed with a PSK-paired derivation.
+        key_id: Option<String>,
     },
     DevicePresence {
         devices: Vec<DevicePresenceEntry>,
     },
 }
+/// Build the pairwise-encrypted wire envelope. `key_id` is included only for
+/// PSK-paired senders so pre-pairing peers keep receiving the legacy shape.
+fn envelope_params(encrypted_data: &str, nonce: &str, key_id: Option<&str>) -> serde_json::Value {
+    match key_id {
+        Some(id) => json!({"encrypted_data": encrypted_data, "nonce": nonce, "key_id": id}),
+        None => json!({"encrypted_data": encrypted_data, "nonce": nonce}),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionState {
     Disconnected,
@@ -373,6 +384,7 @@ impl RelayClient {
                         correlation_id: correlation,
                         encrypted_data: data.into(),
                         nonce: nonce.into(),
+                        key_id: value["params"]["key_id"].as_str().map(str::to_string),
                     })
                     .await
                     .is_ok()
@@ -401,6 +413,7 @@ impl RelayClient {
                             correlation_id: String::new(),
                             encrypted_data: data.into(),
                             nonce: nonce.into(),
+                            key_id: value["params"]["key_id"].as_str().map(str::to_string),
                         })
                         .await
                         .is_ok()
@@ -418,7 +431,8 @@ impl RelayClient {
         target: &str,
         encrypted_data: &str,
         nonce: &str,
-    ) -> Result<(String, String)> {
+        key_id: Option<&str>,
+    ) -> Result<(String, String, Option<String>)> {
         let sender = self
             .owner
             .lock()
@@ -429,7 +443,7 @@ impl RelayClient {
         let result = sender
             .call(
                 target,
-                json!({"encrypted_data":encrypted_data,"nonce":nonce}),
+                envelope_params(encrypted_data, nonce, key_id),
             )
             .await?;
         let data = result["encrypted_data"]
@@ -438,7 +452,8 @@ impl RelayClient {
         let nonce = result["nonce"]
             .as_str()
             .ok_or_else(|| anyhow!("RPC response missing nonce"))?;
-        Ok((data.into(), nonce.into()))
+        let key_id = result["key_id"].as_str().map(str::to_string);
+        Ok((data.into(), nonce.into(), key_id))
     }
     pub async fn send_device_message(
         &self,
@@ -446,6 +461,7 @@ impl RelayClient {
         correlation: &str,
         encrypted_data: &str,
         nonce: &str,
+        key_id: Option<&str>,
     ) -> Result<()> {
         let (sender, reply) = {
             let mut state = self.owner.lock().unwrap();
@@ -462,7 +478,7 @@ impl RelayClient {
             sender
                 .respond(
                     reply.id,
-                    json!({"encrypted_data":encrypted_data,"nonce":nonce}),
+                    envelope_params(encrypted_data, nonce, key_id),
                 )
                 .await
         } else {
@@ -472,7 +488,7 @@ impl RelayClient {
             sender
                 .event(
                     target,
-                    json!({"encrypted_data":encrypted_data,"nonce":nonce}),
+                    envelope_params(encrypted_data, nonce, key_id),
                 )
                 .await
         }

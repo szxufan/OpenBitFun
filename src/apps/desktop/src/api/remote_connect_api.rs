@@ -21,6 +21,7 @@ use openbitfun_events::AI_MODEL_CATALOG_UPDATED_EVENT;
 use openbitfun_services_integrations::remote_connect::account::{
     error_indicates_expired_token, validate_relay_base_url, DEVICE_KIND_DESKTOP,
 };
+use openbitfun_services_integrations::remote_connect::device_crypto;
 use openbitfun_services_integrations::remote_connect::{
     deploy_page_version_on_relay, join_relay_url, list_pages_from_relay,
     publish_page_content_on_relay,
@@ -491,7 +492,7 @@ async fn fanout_peer_device_event_current(item: PeerEventFanoutItem) {
         }
     };
     for target in targets {
-        let (encrypted_data, nonce) = match session
+        let sealed = match session
             .encrypt_for_peer(&relay_url, &target, &envelope)
             .await
         {
@@ -506,8 +507,9 @@ async fn fanout_peer_device_event_current(item: PeerEventFanoutItem) {
             &item.routing_owner,
             &target,
             &correlation_id,
-            &encrypted_data,
-            &nonce,
+            &sealed.data,
+            &sealed.nonce,
+            sealed.key_id.as_deref(),
         )
         .await
         {
@@ -593,6 +595,7 @@ async fn send_device_message_with_routing_lease(
     correlation_id: &str,
     encrypted_data: &str,
     nonce: &str,
+    key_id: Option<&str>,
 ) -> Result<(), String> {
     if !device_routing_owner_is_current(owner).await {
         return Err("device routing changed".to_string());
@@ -611,6 +614,7 @@ async fn send_device_message_with_routing_lease(
             correlation_id,
             encrypted_data,
             nonce,
+            key_id,
         )
         .await
         .map_err(|error| error.to_string())?;
@@ -621,11 +625,14 @@ async fn send_device_message_with_routing_lease(
 }
 
 /// Encrypt and send an RPC response (or error) back to the HTTP caller via relay.
+/// The response mirrors the derivation that decrypted the request, so a peer
+/// mid-pairing-transition always receives a key it can open.
 async fn send_rpc_envelope(
     owner: &DeviceRoutingOwner,
     session: &AccountSession,
     source_device_id: &str,
     correlation_id: &str,
+    mirror_key_id: Option<&str>,
     resp_value: serde_json::Value,
 ) -> bool {
     if !device_routing_owner_is_current(owner).await {
@@ -646,16 +653,17 @@ async fn send_rpc_envelope(
         return false;
     };
     match session
-        .encrypt_for_peer(&relay_url, source_device_id, &resp_json)
+        .encrypt_for_peer_variant(&relay_url, source_device_id, mirror_key_id, &resp_json)
         .await
     {
-        Ok((enc_resp, resp_nonce)) => {
+        Ok(sealed) => {
             match send_device_message_with_routing_lease(
                 owner,
                 source_device_id,
                 correlation_id,
-                &enc_resp,
-                &resp_nonce,
+                &sealed.data,
+                &sealed.nonce,
+                sealed.key_id.as_deref(),
             )
             .await
             {
@@ -678,6 +686,7 @@ async fn send_rpc_error(
     session: &AccountSession,
     source_device_id: &str,
     correlation_id: &str,
+    mirror_key_id: Option<&str>,
     message: impl Into<String>,
 ) {
     send_rpc_envelope(
@@ -685,6 +694,7 @@ async fn send_rpc_error(
         session,
         source_device_id,
         correlation_id,
+        mirror_key_id,
         serde_json::json!({
             "resp": "error",
             "message": message.into(),
@@ -2719,6 +2729,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                     correlation_id,
                     encrypted_data,
                     nonce,
+                    key_id,
                 } => {
                     match event_session
                         .decrypt_from_peer(
@@ -2726,6 +2737,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                             &source_device_id,
                             &encrypted_data,
                             &nonce,
+                            key_id.as_deref(),
                         )
                         .await
                     {
@@ -2852,6 +2864,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                     // path depends on them finishing in order.
                                     let rpc_owner = event_owner.clone();
                                     let rpc_session = event_session.clone();
+                                    let rpc_key_id = key_id.clone();
                                     let ping_generation = control_ping_generation(&rpc_owner);
                                     let ping_received_at = std::time::Instant::now();
                                     tokio::spawn(async move {
@@ -2894,6 +2907,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                                     &rpc_session,
                                                     &source_device_id,
                                                     &correlation_id,
+                                                    rpc_key_id.as_deref(),
                                                     resp_value,
                                                 )
                                                 .await;
@@ -2920,6 +2934,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                                     &rpc_session,
                                                     &source_device_id,
                                                     &correlation_id,
+                                                    rpc_key_id.as_deref(),
                                                     format!("RPC execute failed: {e}"),
                                                 )
                                                 .await;
@@ -2943,6 +2958,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                             &event_session,
                                             &source_device_id,
                                             &correlation_id,
+                                            key_id.as_deref(),
                                             format!("invalid RPC command: {e}"),
                                         )
                                         .await;
@@ -2966,6 +2982,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                     &event_session,
                                     &source_device_id,
                                     &correlation_id,
+                                    key_id.as_deref(),
                                     format!("failed to decrypt RPC request: {e}"),
                                 )
                                 .await;
@@ -3074,7 +3091,7 @@ pub async fn account_execute_on_device(
     if !device_routing_owner_is_current(&routing_owner).await {
         return Err("device routing changed".to_string());
     }
-    let (encrypted_data, nonce) = session
+    let sealed = session
         .encrypt_for_peer(&relay_url, &target_device_id, &envelope)
         .await
         .map_err(|e| format!("{e}"))?;
@@ -3084,8 +3101,9 @@ pub async fn account_execute_on_device(
         &routing_owner,
         &target_device_id,
         &correlation_id,
-        &encrypted_data,
-        &nonce,
+        &sealed.data,
+        &sealed.nonce,
+        sealed.key_id.as_deref(),
     )
     .await
 }
@@ -3253,6 +3271,196 @@ pub async fn account_device_rpc(
     Ok(response)
 }
 
+// ── PSK device pairing (out-of-band man-in-the-middle protection) ────────
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerPskOfferCreateRequest {
+    pub peer_device_id: String,
+    pub peer_name: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerPskOffer {
+    pub code: String,
+    pub qr_url: String,
+    pub psk_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerPskCompleteRequest {
+    pub code: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerPskCompleteResult {
+    pub peer_device_id: String,
+    pub psk_id: String,
+    /// The offerer acknowledged the confirmation RPC. `false` means the
+    /// pairing is stored locally and activates when the peer next answers;
+    /// re-entering the same code resends the confirmation.
+    pub confirmed: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerPskRemoveRequest {
+    pub peer_device_id: String,
+}
+
+/// Generate a pairing code for one peer device. The user transfers the code
+/// to the peer through a channel they trust; traffic keeps the legacy
+/// derivation until the peer confirms.
+#[tauri::command]
+pub async fn peer_psk_offer_create(
+    request: PeerPskOfferCreateRequest,
+) -> Result<PeerPskOffer, String> {
+    let peer_device_id = request.peer_device_id.trim().to_string();
+    if peer_device_id.is_empty() {
+        return Err("peer_device_id is required".to_string());
+    }
+    let (session, relay_url) = read_account_context().await?;
+    let identity = DeviceIdentity::from_current_machine().map_err(|e| format!("{e}"))?;
+    let psk = openbitfun_core::service::remote_connect::pairing::generate_psk();
+    let entry = openbitfun_core::service::remote_connect::psk_store::store_entry(
+        &relay_url,
+        &session.user_id,
+        &peer_device_id,
+        &psk,
+        openbitfun_core::service::remote_connect::psk_store::PeerPskStatus::Offered,
+        request.peer_name.as_deref(),
+    )
+    .map_err(|e| format!("{e}"))?;
+    let payload = openbitfun_core::service::remote_connect::pairing::PskPairingPayload {
+        psk,
+        offerer_device_id: identity.device_id.clone(),
+        offerer_public_key: device_crypto::public_key(&session.master_key),
+    };
+    let code = openbitfun_core::service::remote_connect::pairing::encode_psk_pairing_code(&payload)
+        .map_err(|e| format!("{e}"))?;
+    let qr_url = openbitfun_core::service::remote_connect::QrGenerator::build_psk_pairing_url(
+        &relay_url,
+        &identity.device_id,
+        &code,
+    )
+    .map_err(|e| format!("{e}"))?;
+    Ok(PeerPskOffer {
+        code,
+        qr_url,
+        psk_id: entry.psk_id,
+    })
+}
+
+/// Accept a pairing code from a peer. The offerer's public key embedded in the
+/// code must match the relay directory; a mismatch means the directory may be
+/// under a man-in-the-middle attack and the pairing is refused.
+#[tauri::command]
+pub async fn peer_psk_complete(
+    request: PeerPskCompleteRequest,
+) -> Result<PeerPskCompleteResult, String> {
+    let code = request.code.trim();
+    if code.is_empty() {
+        return Err("pairing code is required".to_string());
+    }
+    let payload =
+        openbitfun_core::service::remote_connect::pairing::parse_psk_pairing_code(code)
+            .map_err(|e| format!("invalid pairing code: {e}"))?;
+    let (session, relay_url) = read_account_context().await?;
+    let identity = DeviceIdentity::from_current_machine().map_err(|e| format!("{e}"))?;
+    let directory_key = session
+        .peer_public_key(&relay_url, &payload.offerer_device_id)
+        .await
+        .map_err(|e| format!("resolve offerer device key: {e}"))?;
+    if directory_key != payload.offerer_public_key {
+        return Err(
+            "Pairing refused: the offerer's relay directory key does not match the pairing code. \
+             The directory may be tampered with; do not complete this pairing."
+                .to_string(),
+        );
+    }
+    let entry = openbitfun_core::service::remote_connect::psk_store::store_entry(
+        &relay_url,
+        &session.user_id,
+        &payload.offerer_device_id,
+        &payload.psk,
+        openbitfun_core::service::remote_connect::psk_store::PeerPskStatus::Paired,
+        None,
+    )
+    .map_err(|e| format!("{e}"))?;
+    // Confirm through a PSK-sealed RPC: the offerer marking its offer paired
+    // after decrypting this envelope is the cryptographic proof both devices
+    // hold the secret. Failure leaves the pairing stored; it activates on the
+    // offerer's next PSK-sealed message.
+    let command_json = serde_json::json!({
+        "cmd": "host_invoke",
+        "command": "peer_psk_confirm",
+        "args": {
+            "psk_id": entry.psk_id,
+            "controller_device_id": identity.device_id,
+        }
+    })
+    .to_string();
+    let client = AccountClient::new();
+    let confirmed = match client
+        .device_rpc(
+            &relay_url,
+            &session,
+            &payload.offerer_device_id,
+            &command_json,
+        )
+        .await
+    {
+        Ok(_) => true,
+        Err(error) => {
+            log::warn!(
+                "PSK pairing stored, but confirmation to {} failed: {error}",
+                payload.offerer_device_id
+            );
+            false
+        }
+    };
+    Ok(PeerPskCompleteResult {
+        peer_device_id: payload.offerer_device_id,
+        psk_id: entry.psk_id,
+        confirmed,
+    })
+}
+
+/// Forget one peer pairing; traffic with that peer returns to the legacy
+/// derivation.
+#[tauri::command]
+pub async fn peer_psk_remove(request: PeerPskRemoveRequest) -> Result<bool, String> {
+    let peer_device_id = request.peer_device_id.trim().to_string();
+    if peer_device_id.is_empty() {
+        return Err("peer_device_id is required".to_string());
+    }
+    let (session, relay_url) = read_account_context().await?;
+    openbitfun_core::service::remote_connect::psk_store::remove_entry(
+        &relay_url,
+        &session.user_id,
+        &peer_device_id,
+    )
+    .map_err(|e| format!("{e}"))
+}
+
+/// Pairing entries for the logged-in account, without the secrets.
+#[tauri::command]
+pub async fn peer_psk_list(
+) -> Result<
+    Vec<openbitfun_core::service::remote_connect::psk_store::PeerPskListing>,
+    String,
+> {
+    let (session, relay_url) = read_account_context().await?;
+    openbitfun_core::service::remote_connect::psk_store::list_entries(
+        &relay_url,
+        &session.user_id,
+    )
+    .map_err(|e| format!("{e}"))
+}
+
 /// Result of an auto-sync operation, returned to the frontend.
 fn resolve_requested_local_workspace_path(workspace_path: Option<&str>) -> Result<String, String> {
     let requested = workspace_path
@@ -3335,6 +3543,68 @@ async fn execute_local_remote_command(
                 return serde_json::to_value(RemoteResponse::HostInvokeResult {
                     ok: true,
                     value: Some(value),
+                    error: None,
+                })
+                .map_err(|e| anyhow::anyhow!("serialize response: {e}"));
+            }
+            if command == "peer_psk_confirm" {
+                let generation = route.generation();
+                let (session, relay_url) = route
+                    .context(generation)
+                    .await
+                    .map_err(anyhow::Error::msg)?;
+                let psk_id = args.get("psk_id").and_then(|value| value.as_str());
+                let Some(psk_id) = psk_id.filter(|id| !id.is_empty()) else {
+                    return serde_json::to_value(RemoteResponse::HostInvokeResult {
+                        ok: false,
+                        value: None,
+                        error: Some("psk_id is required".to_string()),
+                    })
+                    .map_err(|e| anyhow::anyhow!("serialize response: {e}"));
+                };
+                // The confirming peer names itself; the wire source id is the
+                // fallback for controllers that omit it.
+                let completer_id = args
+                    .get("controller_device_id")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| source_device_id.to_string());
+                // Decryption already promoted a matching offer; this handler
+                // verifies the id, keeps the promotion idempotent, and tells
+                // the completing peer the offerer is now active.
+                use openbitfun_core::service::remote_connect::psk_store;
+                let matched = psk_store::lookup_entry(&relay_url, &session.user_id, &completer_id)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?
+                    .is_some_and(|entry| {
+                        entry.psk_id == psk_id
+                            && psk_store::mark_paired(
+                                &relay_url,
+                                &session.user_id,
+                                &completer_id,
+                                psk_id,
+                            )
+                            .unwrap_or(false)
+                    });
+                if !matched {
+                    return serde_json::to_value(RemoteResponse::HostInvokeResult {
+                        ok: false,
+                        value: None,
+                        error: Some("no matching pairing offer for this device".to_string()),
+                    })
+                    .map_err(|e| anyhow::anyhow!("serialize response: {e}"));
+                }
+                session.clear_peer_keys().await;
+                emit_account_event(
+                    "peer-psk-status-changed",
+                    serde_json::json!({
+                        "peer_device_id": completer_id,
+                        "status": "paired",
+                        "psk_id": psk_id,
+                    }),
+                );
+                return serde_json::to_value(RemoteResponse::HostInvokeResult {
+                    ok: true,
+                    value: Some(serde_json::json!({ "confirmed": true })),
                     error: None,
                 })
                 .map_err(|e| anyhow::anyhow!("serialize response: {e}"));

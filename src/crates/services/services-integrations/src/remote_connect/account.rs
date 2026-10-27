@@ -13,6 +13,29 @@ use crate::remote_connect::relay_http::{
 
 pub const MASTER_KEY_LEN: usize = 32;
 
+/// Decryption failed under the PSK-paired derivation the sender declared. A
+/// paired device must never silently fall back to the legacy derivation: the
+/// fallback is exactly what a key-swapping relay needs. Mirrors the shared
+/// TypeScript constant in `src/shared/relay-transport/HostStream.ts`.
+pub const PAIRING_KEY_MISMATCH_MESSAGE: &str = "Peer pairing key mismatch: the paired PSK cannot decrypt this message. Complete pairing on both devices or remove the pairing.";
+
+/// A sealed pairwise message. `key_id` is `Some` exactly when the PSK-paired
+/// derivation sealed the payload; the envelope carries it so the receiver
+/// knows which derivation to use without trying both.
+#[derive(Debug, Clone)]
+pub struct PeerSealedMessage {
+    pub data: String,
+    pub nonce: String,
+    pub key_id: Option<String>,
+}
+
+/// The derivation a sender selected for one peer.
+#[derive(Debug, Clone)]
+struct PeerCipherKey {
+    key: [u8; 32],
+    key_id: Option<String>,
+}
+
 /// A retired official deployment has its own credential database. Authenticate
 /// with the new deployment instead of replaying its token or deleting the record.
 ///
@@ -120,7 +143,10 @@ impl AccountSession {
         self.peer_keys.lock().await.clear();
     }
 
-    pub async fn peer_message_key(&self, relay_url: &str, device_id: &str) -> Result<[u8; 32]> {
+    /// The peer's authenticated X25519 public key from the relay directory.
+    /// Cached per endpoint; invalidation removes the cell so an older lookup
+    /// cannot refill it.
+    pub async fn peer_public_key(&self, relay_url: &str, device_id: &str) -> Result<[u8; 32]> {
         let endpoint = AccountClient::endpoint(
             relay_url,
             &format!("/api/devices/{}/key", urlencoding::encode(device_id)),
@@ -131,8 +157,7 @@ impl AccountSession {
             keys.entry(cache_id).or_default().clone()
         };
         // Only callers for this peer share initialization. No account-wide
-        // lock survives network IO. Failed/cancelled lookups can be retried;
-        // invalidation removes the cell so an older lookup cannot refill it.
+        // lock survives network IO. Failed/cancelled lookups can be retried.
         cell.get_or_try_init(|| async {
             let response = relay_http_client()
                 .get(endpoint)
@@ -151,12 +176,72 @@ impl AccountSession {
             if peer.device_id != device_id {
                 return Err(anyhow!("relay returned a different device identity"));
             }
-            let public = super::encryption::parse_public_key(&peer.public_key)?;
-            let key = device_crypto::derive_message_key(&self.master_key, &public)?;
-            Ok(key)
+            super::encryption::parse_public_key(&peer.public_key)
         })
         .await
         .copied()
+    }
+
+    async fn invalidate_peer_public_key(&self, relay_url: &str, device_id: &str) -> Result<()> {
+        let endpoint = AccountClient::endpoint(
+            relay_url,
+            &format!("/api/devices/{}/key", urlencoding::encode(device_id)),
+        )?;
+        self.peer_keys.lock().await.remove(endpoint.as_str());
+        Ok(())
+    }
+
+    /// The key this device uses to seal unsolicited traffic to one peer: the
+    /// PSK derivation once pairing is confirmed on both sides, the legacy
+    /// derivation otherwise (including while an offer awaits confirmation).
+    async fn sender_key(&self, relay_url: &str, device_id: &str) -> Result<PeerCipherKey> {
+        let public = self.peer_public_key(relay_url, device_id).await?;
+        if let Some(entry) = super::psk_store::lookup_entry(relay_url, &self.user_id, device_id)? {
+            if entry.status == super::psk_store::PeerPskStatus::Paired {
+                return Ok(PeerCipherKey {
+                    key: device_crypto::derive_message_key_psk(
+                        &self.master_key,
+                        &public,
+                        &entry.psk,
+                    )?,
+                    key_id: Some(format!(
+                        "{}{}",
+                        device_crypto::PSK_KEY_ID_PREFIX,
+                        entry.psk_id
+                    )),
+                });
+            }
+        }
+        Ok(PeerCipherKey {
+            key: device_crypto::derive_message_key(&self.master_key, &public)?,
+            key_id: None,
+        })
+    }
+
+    /// The key for a message one peer sealed. The envelope's `key_id` is the
+    /// only authority for which derivation was used: absent means legacy even
+    /// when this device already holds a pairing, so a peer that removed its
+    /// pairing keeps a working legacy path. A `key_id` without a matching
+    /// stored pairing is a loud error, never a legacy fallback.
+    async fn receiver_key(
+        &self,
+        relay_url: &str,
+        device_id: &str,
+        key_id: Option<&str>,
+    ) -> Result<[u8; 32]> {
+        let public = self.peer_public_key(relay_url, device_id).await?;
+        let Some(id) = key_id else {
+            return device_crypto::derive_message_key(&self.master_key, &public);
+        };
+        let Some(psk_id) = id.strip_prefix(device_crypto::PSK_KEY_ID_PREFIX) else {
+            return Err(anyhow!("unsupported device message key id: {id}"));
+        };
+        let entry = super::psk_store::lookup_entry(relay_url, &self.user_id, device_id)?
+            .ok_or_else(|| anyhow!("{PAIRING_KEY_MISMATCH_MESSAGE}"))?;
+        if entry.psk_id != psk_id {
+            return Err(anyhow!("{PAIRING_KEY_MISMATCH_MESSAGE}"));
+        }
+        device_crypto::derive_message_key_psk(&self.master_key, &public, &entry.psk)
     }
 
     pub async fn encrypt_for_peer(
@@ -164,9 +249,57 @@ impl AccountSession {
         relay_url: &str,
         device_id: &str,
         plaintext: &str,
-    ) -> Result<(String, String)> {
-        let key = self.peer_message_key(relay_url, device_id).await?;
-        super::encryption::encrypt_to_base64(&key, plaintext)
+    ) -> Result<PeerSealedMessage> {
+        let selected = self.sender_key(relay_url, device_id).await?;
+        let (data, nonce) = super::encryption::encrypt_to_base64(&selected.key, plaintext)?;
+        Ok(PeerSealedMessage {
+            data,
+            nonce,
+            key_id: selected.key_id,
+        })
+    }
+
+    /// The symmetric key for one peer under a specific envelope variant.
+    /// Public for host paths that seal structured payloads outside
+    /// [`AccountSession::encrypt_for_peer`].
+    pub async fn peer_envelope_key(
+        &self,
+        relay_url: &str,
+        device_id: &str,
+        key_id: Option<&str>,
+    ) -> Result<[u8; 32]> {
+        self.receiver_key(relay_url, device_id, key_id).await
+    }
+
+    /// Seal a reply with the same derivation that decrypted the request. Host
+    /// responses mirror the request's `key_id` (absent stays legacy) so the
+    /// pairing transition and one-sided removal never break a live exchange.
+    pub async fn encrypt_for_peer_variant(
+        &self,
+        relay_url: &str,
+        device_id: &str,
+        mirror_key_id: Option<&str>,
+        plaintext: &str,
+    ) -> Result<PeerSealedMessage> {
+        let (key, key_id) = match mirror_key_id {
+            Some(id) => (
+                self.receiver_key(relay_url, device_id, Some(id)).await?,
+                Some(id.to_string()),
+            ),
+            None => {
+                let public = self.peer_public_key(relay_url, device_id).await?;
+                (
+                    device_crypto::derive_message_key(&self.master_key, &public)?,
+                    None,
+                )
+            }
+        };
+        let (data, nonce) = super::encryption::encrypt_to_base64(&key, plaintext)?;
+        Ok(PeerSealedMessage {
+            data,
+            nonce,
+            key_id,
+        })
     }
 
     pub async fn decrypt_from_peer(
@@ -175,19 +308,36 @@ impl AccountSession {
         device_id: &str,
         data: &str,
         nonce: &str,
+        key_id: Option<&str>,
     ) -> Result<String> {
-        let key = self.peer_message_key(relay_url, device_id).await?;
+        if key_id.is_some() {
+            // A paired exchange that fails to decrypt reports the pairing
+            // mismatch loudly; the legacy derivation is never a fallback.
+            let key = self.receiver_key(relay_url, device_id, key_id).await?;
+            if let Ok(plaintext) = super::encryption::decrypt_from_base64(&key, data, nonce) {
+                // A successful PSK decrypt from the peer is itself proof both
+                // sides hold the secret: promote a pending offer, whatever
+                // command travels inside the envelope.
+                if let Some(id) = key_id
+                    .and_then(|id| id.strip_prefix(device_crypto::PSK_KEY_ID_PREFIX))
+                {
+                    let _ = super::psk_store::mark_paired(relay_url, &self.user_id, device_id, id);
+                }
+                return Ok(plaintext);
+            }
+            self.invalidate_peer_public_key(relay_url, device_id).await?;
+            let key = self.receiver_key(relay_url, device_id, key_id).await?;
+            return super::encryption::decrypt_from_base64(&key, data, nonce)
+                .map_err(|_| anyhow!("{PAIRING_KEY_MISMATCH_MESSAGE}"));
+        }
+        let key = self.receiver_key(relay_url, device_id, None).await?;
         match super::encryption::decrypt_from_base64(&key, data, nonce) {
             Ok(plaintext) => Ok(plaintext),
             Err(_) => {
                 // A device can rotate its private key while a controller is
                 // disconnected. Refresh its authenticated key once on failure.
-                let endpoint = AccountClient::endpoint(
-                    relay_url,
-                    &format!("/api/devices/{}/key", urlencoding::encode(device_id)),
-                )?;
-                self.peer_keys.lock().await.remove(endpoint.as_str());
-                let key = self.peer_message_key(relay_url, device_id).await?;
+                self.invalidate_peer_public_key(relay_url, device_id).await?;
+                let key = self.receiver_key(relay_url, device_id, None).await?;
                 super::encryption::decrypt_from_base64(&key, data, nonce)
             }
         }
@@ -715,7 +865,7 @@ impl AccountClient {
         plaintext_command: &str,
     ) -> Result<String> {
         // Encrypt for the authenticated target device
-        let (data, nonce) = session
+        let sealed = session
             .encrypt_for_peer(relay_url, target_device_id, plaintext_command)
             .await?;
         let cell = {
@@ -742,6 +892,7 @@ impl AccountClient {
                                 correlation_id,
                                 encrypted_data,
                                 nonce,
+                                key_id,
                             } if correlation_id.is_empty() => {
                                 // Stream hints arrive as encrypted DeviceEvents on
                                 // the controller transport; RPC requests to this
@@ -752,6 +903,7 @@ impl AccountClient {
                                         &source_device_id,
                                         &encrypted_data,
                                         &nonce,
+                                        key_id.as_deref(),
                                     )
                                     .await
                                 else {
@@ -788,12 +940,23 @@ impl AccountClient {
                 Ok::<_, anyhow::Error>(Arc::new(transport))
             })
             .await?;
-        let (encrypted_data, nonce) = transport
-            .request_device(target_device_id, &data, &nonce)
+        let (encrypted_data, nonce, key_id) = transport
+            .request_device(
+                target_device_id,
+                &sealed.data,
+                &sealed.nonce,
+                sealed.key_id.as_deref(),
+            )
             .await?;
         // Decrypt using the authenticated target device key
         session
-            .decrypt_from_peer(relay_url, target_device_id, &encrypted_data, &nonce)
+            .decrypt_from_peer(
+                relay_url,
+                target_device_id,
+                &encrypted_data,
+                &nonce,
+                key_id.as_deref(),
+            )
             .await
     }
 }
@@ -1160,14 +1323,14 @@ mod tests {
         let slow_session = session.clone();
         let slow_url = url.clone();
         let slow =
-            tokio::spawn(async move { slow_session.peer_message_key(&slow_url, "slow").await });
+            tokio::spawn(async move { slow_session.peer_public_key(&slow_url, "slow").await });
         timeout(Duration::from_secs(5), started_rx)
             .await
             .unwrap()
             .unwrap();
         timeout(
             Duration::from_secs(5),
-            session.peer_message_key(&url, "fast"),
+            session.peer_public_key(&url, "fast"),
         )
         .await
         .unwrap()
@@ -1230,5 +1393,130 @@ mod tests {
         ] {
             assert!(!is_retired_official_relay(endpoint), "{endpoint}");
         }
+    }
+
+    /// The envelope's `key_id` is the only authority for the derivation:
+    /// absent means legacy even when a pairing exists, present means the PSK
+    /// derivation, and a present id without a matching stored pairing is a
+    /// loud error that never falls back to the legacy key.
+    #[tokio::test]
+    async fn psk_envelope_dispatch_follows_key_id() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::remote_connect::session_store::set_session_store_directory_for_test(
+            dir.path().to_path_buf(),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let relay_url = format!("http://{}", listener.local_addr().unwrap());
+        let body = serde_json::json!({
+            "device_id": "host-1",
+            "public_key": device_crypto::public_key_base64(&[11u8; 32]),
+        })
+        .to_string();
+        let reply = format!(
+            "HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: {}
+Connection: close
+
+{}",
+            body.len(),
+            body
+        );
+        let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let mut request = [0u8; 4096];
+                if socket.read(&mut request).await.unwrap() == 0 {
+                    continue;
+                }
+                socket.write_all(reply.as_bytes()).await.unwrap();
+            }
+        });
+        let session = AccountSession::new("fixture".into(), "fixture".into(), [7u8; 32]);
+
+        // Unpaired traffic keeps the byte-identical legacy envelope.
+        let legacy = session
+            .encrypt_for_peer(&relay_url, "host-1", "legacy hello")
+            .await
+            .unwrap();
+        assert!(legacy.key_id.is_none());
+        assert_eq!(
+            session
+                .decrypt_from_peer(&relay_url, "host-1", &legacy.data, &legacy.nonce, None)
+                .await
+                .unwrap(),
+            "legacy hello"
+        );
+
+        // Confirming the pairing switches the sender to the PSK derivation.
+        let psk = [91u8; 32];
+        super::psk_store::store_entry(
+            &relay_url,
+            "fixture",
+            "host-1",
+            &psk,
+            super::psk_store::PeerPskStatus::Paired,
+            None,
+        )
+        .unwrap();
+        let paired = session
+            .encrypt_for_peer(&relay_url, "host-1", "paired hello")
+            .await
+            .unwrap();
+        assert_eq!(paired.key_id.as_deref(), Some("psk_v1:b95439ddd3dec598"));
+        assert_eq!(
+            session
+                .decrypt_from_peer(
+                    &relay_url,
+                    "host-1",
+                    &paired.data,
+                    &paired.nonce,
+                    paired.key_id.as_deref(),
+                )
+                .await
+                .unwrap(),
+            "paired hello"
+        );
+
+        // A mirrored legacy response stays decryptable while paired.
+        let mirrored = session
+            .encrypt_for_peer_variant(&relay_url, "host-1", None, "legacy response")
+            .await
+            .unwrap();
+        assert!(mirrored.key_id.is_none());
+        assert_eq!(
+            session
+                .decrypt_from_peer(&relay_url, "host-1", &mirrored.data, &mirrored.nonce, None)
+                .await
+                .unwrap(),
+            "legacy response"
+        );
+
+        // key_id is authoritative in both directions: a PSK payload cannot be
+        // opened as legacy, and a foreign id is a loud pairing mismatch.
+        assert!(
+            session
+                .decrypt_from_peer(&relay_url, "host-1", &paired.data, &paired.nonce, None)
+                .await
+                .is_err()
+        );
+        let mismatch = session
+            .decrypt_from_peer(
+                &relay_url,
+                "host-1",
+                &paired.data,
+                &paired.nonce,
+                Some("psk_v1:0000000000000000"),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            mismatch.to_string().contains("Peer pairing key mismatch"),
+            "unexpected error: {mismatch}"
+        );
+        server.abort();
     }
 }

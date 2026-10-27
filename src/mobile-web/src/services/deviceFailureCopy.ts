@@ -34,6 +34,8 @@ export function deviceFailurePresentation(
       return { key: 'devices.failureNetwork', action };
     case 'relay-unavailable':
       return { key: 'devices.failureRelayUnavailable', action };
+    case 'pairing-key-mismatch':
+      return { key: 'devices.failurePairingKeyMismatch', action };
     case 'auth':
       // The expired / absent account session keeps its existing sentence and flow.
       return { key: authKey, action };

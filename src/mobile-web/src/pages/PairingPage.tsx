@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MobileStatus } from '@openbitfun/ui/mobile';
 import PairingForm from '../components/PairingForm';
-import { accountDeviceIdFromHash, currentRelayUrl } from '../services/pairingLink';
+import { accountDeviceIdFromHash, currentRelayUrl, pskPairingCodeFromHash } from '../services/pairingLink';
 import { useI18n } from '../i18n';
 import { CloudAccountClient, type CloudAccountSession } from '../services/CloudAccountClient';
 import {
@@ -9,6 +9,7 @@ import {
   type BrowserAccountSnapshot, type BrowserAccountStore,
 } from '../services/BrowserAccountStore';
 import { RelayHttpClient } from '../services/RelayHttpClient';
+import { PeerPskStore } from '../services/PeerPskStore';
 import { RemoteSessionManager } from '../services/RemoteSessionManager';
 import { loadMobileNavigation, type PairedNavigation } from '../services/MobileNavigationStore';
 import { useMobileStore } from '../services/store';
@@ -62,6 +63,16 @@ const PairingPageContent: React.FC<PairingPageProps> = ({ onPaired }) => {
     onPairedRef.current(client, new RemoteSessionManager(client),
       navigation?.deviceId || targetDeviceId || undefined, { scope, restored: navigation },
       { store: accountStore, token: session.token });
+    // A PSK pairing invitation carries the out-of-band code in the fragment.
+    // Completing it verifies the offerer's directory key, stores the pairing,
+    // and confirms over the PSK-sealed channel; traffic already handed off
+    // switches derivations by the envelope rules, so this may run after.
+    const pairingCode = pskPairingCodeFromHash(window.location.hash);
+    if (pairingCode) {
+      void client.completePskPairing(pairingCode)
+        .then(result => console.info('[PairingPage] device pairing completed', result.peerDeviceId))
+        .catch(error => console.warn('[PairingPage] device pairing failed', error));
+    }
   };
 
   useEffect(() => {
@@ -70,6 +81,10 @@ const PairingPageContent: React.FC<PairingPageProps> = ({ onPaired }) => {
     const restore = async () => {
       const request = ++readGeneration;
       try {
+        // Existing pairings must be in memory before any pairwise RPC picks
+        // its derivation; failures degrade to the legacy path with a warning.
+        await PeerPskStore.load(window);
+        if (disposed || request !== readGeneration) return;
         const saved = await accountStore.read();
         try {
           if (disposed || request !== readGeneration || connected.current) return;

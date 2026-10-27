@@ -105,3 +105,16 @@ export function canQueryModelQuotaOnSurface(peerActive: boolean, capabilities: P
 export function canQueryGrokQuotaOnSurface(peerActive: boolean, capabilities: PeerHostCapabilities | null): boolean {
   return !peerActive || capabilities?.grokQuotaV1 === true;
 }
+
+/**
+ * Whether the rendered peer host can complete out-of-band PSK pairing. The
+ * pairing UI is offered only for hosts that advertised `psk_pairing_v1`:
+ * storing a pairing against an older host would switch this controller to a
+ * derivation the host cannot answer.
+ */
+export function canOfferPskPairingOnSurface(
+  peerActive: boolean,
+  capabilities: PeerHostCapabilities | null,
+): boolean {
+  return peerActive && capabilities?.pskPairingV1 === true;
+}

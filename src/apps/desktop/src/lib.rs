@@ -1916,6 +1916,10 @@ pub async fn run() {
             api::peer_host_invoke::peer_control_detach,
             api::peer_host_invoke::peer_mode_ping,
             api::peer_host_invoke::peer_controller_set_active,
+            api::remote_connect_api::peer_psk_offer_create,
+            api::remote_connect_api::peer_psk_complete,
+            api::remote_connect_api::peer_psk_remove,
+            api::remote_connect_api::peer_psk_list,
             // MiniApp API
             api::miniapp_api::list_miniapps,
             api::miniapp_api::get_miniapp,

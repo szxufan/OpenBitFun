@@ -36,12 +36,24 @@ export function currentRelayUrl(location: Pick<Location, 'origin' | 'pathname'> 
   return endpoint;
 }
 
-/** A target is resolved only through the authenticated device directory. */
+/** A target is resolved only through the authenticated device directory. A
+ * PSK pairing invitation may additionally carry the out-of-band pairing code
+ * (`k`); it stays in the fragment and is validated as Crockford-style text. */
 export function accountDeviceIdFromHash(hash: string): string | null {
   if (!hash.startsWith('#/pair?')) return null;
   const params = new URLSearchParams(hash.slice(7));
   const ids = params.getAll('did');
-  if (Array.from(params.keys()).some(key => key !== 'did') || ids.length !== 1
+  const extraKeys = Array.from(params.keys()).filter(key => key !== 'did' && key !== 'k');
+  if (extraKeys.length > 0 || ids.length !== 1
     || !/^[A-Za-z0-9_.-]{1,128}$/.test(ids[0]) || ['.', '..'].includes(ids[0])) return null;
+  const code = params.get('k');
+  if (code !== null && !/^[0-9A-Za-z-]{100,400}$/.test(code)) return null;
   return ids[0];
+}
+
+/** The out-of-band pairing code of a PSK pairing invitation, if present. */
+export function pskPairingCodeFromHash(hash: string): string | null {
+  if (!hash.startsWith('#/pair?')) return null;
+  if (accountDeviceIdFromHash(hash) === null) return null;
+  return new URLSearchParams(hash.slice(7)).get('k');
 }

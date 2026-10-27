@@ -5,11 +5,13 @@ import { io, type Socket } from 'socket.io-client';
 import { RpcPayload } from './RpcPayload';
 
 /** Encrypted `DeviceEvent` forwarded by the Relay from another account device.
- * The Relay sees only ciphertext; the owner decrypts with the pairwise key. */
+ * The Relay sees only ciphertext; the owner decrypts with the pairwise key.
+ * `key_id` is present exactly when the sender used the PSK-paired derivation. */
 export interface DeviceEventEnvelope {
   sourceDeviceId: string;
   encrypted_data: string;
   nonce: string;
+  key_id?: string;
 }
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'closed';
 export interface RealtimeOptions {
@@ -146,8 +148,9 @@ export class AccountRealtime {
 }
 
 function parseDeviceEvent(value: object): DeviceEventEnvelope | null {
-  const event = value as { sourceDeviceId?: unknown; params?: { encrypted_data?: unknown; nonce?: unknown } };
+  const event = value as { sourceDeviceId?: unknown; params?: { encrypted_data?: unknown; nonce?: unknown; key_id?: unknown } };
   if (typeof event.sourceDeviceId !== 'string' || !event.params || typeof event.params !== 'object'
     || typeof event.params.encrypted_data !== 'string' || typeof event.params.nonce !== 'string') return null;
-  return { sourceDeviceId: event.sourceDeviceId, encrypted_data: event.params.encrypted_data, nonce: event.params.nonce };
+  const keyId = typeof event.params.key_id === 'string' ? event.params.key_id : undefined;
+  return { sourceDeviceId: event.sourceDeviceId, encrypted_data: event.params.encrypted_data, nonce: event.params.nonce, ...(keyId ? { key_id: keyId } : {}) };
 }

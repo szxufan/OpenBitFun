@@ -18,8 +18,8 @@ use openbitfun_core::service::remote_connect::account_runtime::{
     BackgroundRoutingOwnerRetirementError,
 };
 use openbitfun_core::service::remote_connect::{
-    self, encryption, relay_client::RelayClient, relay_client::RelayEvent, session_store,
-    DeviceIdentity, RemoteServer,
+    self, relay_client::RelayClient, relay_client::RelayEvent, session_store, DeviceIdentity,
+    RemoteServer,
 };
 
 pub(crate) struct CliAccountRuntimeParts {
@@ -437,6 +437,7 @@ impl CliAccountRoutingHost {
                 correlation_id,
                 encrypted_data,
                 nonce,
+                key_id,
             } => {
                 let Ok((session, relay_url)) = runtime
                     .read_account_context_for_generation(account_generation)
@@ -452,7 +453,13 @@ impl CliAccountRoutingHost {
                     return;
                 }
                 let plaintext = match session
-                    .decrypt_from_peer(&relay_url, &source_device_id, &encrypted_data, &nonce)
+                    .decrypt_from_peer(
+                        &relay_url,
+                        &source_device_id,
+                        &encrypted_data,
+                        &nonce,
+                        key_id.as_deref(),
+                    )
                     .await
                 {
                     Ok(plaintext) => plaintext,
@@ -473,7 +480,7 @@ impl CliAccountRoutingHost {
                     "Device command received: source={source_device_id} corr={correlation_id}"
                 );
                 let peer_key = match session
-                    .peer_message_key(&relay_url, &source_device_id)
+                    .peer_envelope_key(&relay_url, &source_device_id, key_id.as_deref())
                     .await
                 {
                     Ok(key) => key,
@@ -521,11 +528,21 @@ impl CliAccountRoutingHost {
                         r#"{"resp":"error","message":"serialize failed"}"#.to_string()
                     })
                 });
-                let Ok((encrypted_response, response_nonce)) =
-                    encryption::encrypt_to_base64(&peer_key, &response_json)
-                else {
-                    tracing::warn!("Failed to encrypt RPC response");
-                    return;
+                // Responses mirror the derivation that decrypted the request.
+                let sealed = match session
+                    .encrypt_for_peer_variant(
+                        &relay_url,
+                        &source_device_id,
+                        key_id.as_deref(),
+                        &response_json,
+                    )
+                    .await
+                {
+                    Ok(sealed) => sealed,
+                    Err(error) => {
+                        tracing::warn!("Failed to encrypt RPC response: {error}");
+                        return;
+                    }
                 };
                 let reply_target = if source_device_id == "rpc" {
                     "rpc"
@@ -536,8 +553,9 @@ impl CliAccountRoutingHost {
                     .send_device_message(
                         reply_target,
                         &correlation_id,
-                        &encrypted_response,
-                        &response_nonce,
+                        &sealed.data,
+                        &sealed.nonce,
+                        sealed.key_id.as_deref(),
                     )
                     .await
                 {
@@ -806,7 +824,7 @@ impl openbitfun_core::service::remote_connect::host_stream::HostStreamNotifier
                     return;
                 }
             };
-            let (encrypted_data, nonce) = match lease
+            let sealed = match lease
                 .session
                 .encrypt_for_peer(&lease.relay_url, &target, &envelope)
                 .await
@@ -820,7 +838,13 @@ impl openbitfun_core::service::remote_connect::host_stream::HostStreamNotifier
             let correlation_id = uuid::Uuid::new_v4().to_string();
             if let Err(error) = lease
                 .relay_client
-                .send_device_message(&target, &correlation_id, &encrypted_data, &nonce)
+                .send_device_message(
+                    &target,
+                    &correlation_id,
+                    &sealed.data,
+                    &sealed.nonce,
+                    sealed.key_id.as_deref(),
+                )
                 .await
             {
                 tracing::debug!("Host stream hint to {target} failed: {error}");

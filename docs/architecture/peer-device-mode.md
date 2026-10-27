@@ -305,6 +305,61 @@ reloads; defaults are supplied only when absent or when explicitly reset.
 SSH `WorkspaceKind.Remote` remains a separate path (local session mirror + remote
 FS) and must not be mixed with Peer Device Mode.
 
+## Out-of-band PSK pairing
+
+Without pairing, the pairwise keys trust the relay's device directory: a
+malicious relay can swap directory public keys and relay-decrypt both sides.
+PSK pairing closes that gap with a 256-bit secret the user transfers between
+two devices through a channel they choose (QR photo, copied text). The secret
+is mixed into the HKDF input alongside the X25519 shared secret
+(`device_crypto::derive_message_key_psk`, domain salt
+`OpenBitFun Relay v1.1.0 device key psk`), so a key-swapping relay cannot
+derive either direction's message key — its interception becomes a visible
+decryption failure instead of silent plaintext access.
+
+Four wire rules hold the guarantee:
+
+1. **The legacy derivation is byte-identical.** Unpaired devices keep the
+   existing envelope and KDF; new and old clients interoperate unchanged.
+2. **A paired exchange never falls back.** An envelope whose `key_id` fails to
+   decrypt reports `PAIRING_KEY_MISMATCH_MESSAGE` (classified
+   `pairing-key-mismatch` by `RelayFailure`); retrying under the legacy key is
+   exactly the downgrade an attacker needs and does not happen.
+3. **`key_id` is the only authority for the derivation.** The optional
+   envelope field `key_id: "psk_v1:<psk-id>"` says the sender used the PSK
+   derivation; absent means legacy even when the receiver already holds a
+   pairing. Host responses mirror the request's variant
+   (`encrypt_for_peer_variant`), so the pairing transition and one-sided
+   removal never break a live exchange.
+4. **A successful PSK decrypt is the confirmation.** Only a holder of the
+   secret can produce one, so receiving any `key_id` envelope promotes a
+   pending offer; the explicit `peer_psk_confirm` HostInvoke (handled by the
+   desktop and CLI hosts) makes the same proof drive UI state.
+
+Pairing flow: device A generates a code (`psk_store` entry `offered`) encoding
+`psk + A's device id + A's public key + check bytes` in Crockford Base32; the
+user carries it to B (desktop dialog paste, mobile-web `#/pair?did=..&k=..`
+QR link, or `openbitfun peer pair --complete`). B compares the embedded public
+key with the directory value and refuses loudly on mismatch — the pairing-time
+MITM check — then stores the pairing (`paired`) and confirms. Removal is local
+and one-sided; traffic returns to the legacy derivation on the next envelope
+without `key_id`.
+
+Owners: KDF + codecs in `remote_connect::{device_crypto, pairing}`, encrypted
+per-peer vault `remote_connect/psk_store` (`relay-v1.0.0/psk_vault.*`),
+dispatch in `AccountSession::{sender_key, receiver_key}`, capability
+`psk_pairing_v1` in the Product Operation Registry, desktop Tauri commands
+`peer_psk_{offer_create,complete,remove,list}`, CLI `peer pair` subcommands,
+mobile-web `E2EEncryption.deriveDeviceMessageKeyPsk` + `PeerPskStore` +
+`RelayHttpClient.completePskPairing`. The relay service is unchanged: it still
+forwards opaque ciphertext and never sees a PSK.
+
+Residual risks, by design: the pairing code's confidentiality is the user's
+transfer channel; the relay can still deny service (drop or corrupt envelopes)
+— pairing converts silent interception into visible failure, not availability.
+Native mobile apps (Kotlin/HarmonyOS) have not ported the derivation and
+simply never pair; they keep the legacy path with every peer.
+
 ## Boundaries
 
 - Not SSH `WorkspaceKind.Remote` (local session mirror + remote FS).

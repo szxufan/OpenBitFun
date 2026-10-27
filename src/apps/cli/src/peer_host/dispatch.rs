@@ -124,9 +124,60 @@ async fn handle_control_plane(command: &str, args: Value) -> HostInvokeBridgeRes
             HostInvokeBridgeResult::ok_value(json!({ "detached": true }))
         }
         "peer_mode_ping" => HostInvokeBridgeResult::ok_value(peer_mode_ping_value()),
+        "peer_psk_confirm" => handle_psk_confirm(&args),
         other => HostInvokeBridgeResult::err(format!(
             "command '{other}' is registered as peer host control plane but this CLI build has no handler for it"
         )),
+    }
+}
+
+/// The completing device names itself in `controller_device_id`; the wire
+/// source id is the same device. Decryption of the PSK-sealed envelope is the
+/// cryptographic proof, so this handler only verifies the stored offer and
+/// promotes it.
+fn handle_psk_confirm(args: &Value) -> HostInvokeBridgeResult {
+    let Some(psk_id) = args
+        .get("psk_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    else {
+        return HostInvokeBridgeResult::err("psk_id is required");
+    };
+    let completer_id = parse_controller_device_id(args);
+    if completer_id.trim().is_empty() {
+        return HostInvokeBridgeResult::err("controller_device_id is required");
+    }
+    let Some((_token, user_id, _master_key, relay_url)) =
+        openbitfun_core::service::remote_connect::session_store::load_session()
+    else {
+        return HostInvokeBridgeResult::err("no account session on this host");
+    };
+    let matched = openbitfun_core::service::remote_connect::psk_store::lookup_entry(
+        &relay_url, &user_id, &completer_id,
+    )
+    .map_err(|error| format!("read pairing vault: {error}"))
+    .and_then(|entry| {
+        let Some(entry) = entry else {
+            return Ok(false);
+        };
+        if entry.psk_id != psk_id {
+            return Ok(false);
+        }
+        openbitfun_core::service::remote_connect::psk_store::mark_paired(
+            &relay_url,
+            &user_id,
+            &completer_id,
+            psk_id,
+        )
+        .map_err(|error| format!("update pairing vault: {error}"))
+    });
+    match matched {
+        Ok(true) => HostInvokeBridgeResult::ok_value(json!({ "confirmed": true })),
+        Ok(false) => {
+            HostInvokeBridgeResult::err("no matching pairing offer for this device")
+        }
+        Err(error) => HostInvokeBridgeResult::err(error),
     }
 }
 
@@ -160,6 +211,29 @@ pub(crate) fn handle_device_event_command() -> RemoteResponse {
 mod tests {
     use super::super::deny::{is_cli_unsupported_command, is_local_only_command};
     use super::*;
+
+    #[tokio::test]
+    async fn peer_psk_confirm_requires_ids_and_advertises_capability() {
+        let missing = handle_host_invoke("peer_psk_confirm", json!({ "psk_id": "abc" })).await;
+        match missing {
+            RemoteResponse::HostInvokeResult {
+                ok: false,
+                error: Some(message),
+                ..
+            } => assert!(message.contains("controller_device_id")),
+            other => panic!("unexpected response: {other:?}"),
+        }
+        let ping = handle_host_invoke("peer_mode_ping", json!({})).await;
+        match ping {
+            RemoteResponse::HostInvokeResult { value: Some(value), .. } => {
+                assert_eq!(
+                    value.pointer("/capabilities/psk_pairing_v1"),
+                    Some(&json!(true))
+                );
+            }
+            other => panic!("unexpected ping response: {other:?}"),
+        }
+    }
 
     #[tokio::test]
     async fn peer_mode_ping_returns_ok_peer_payload() {

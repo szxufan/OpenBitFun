@@ -1,0 +1,81 @@
+.peer-psk-pairing-dialog {
+  .peer-psk-pairing-dialog__section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-block: 8px;
+
+    + .peer-psk-pairing-dialog__section {
+      border-top: 1px solid var(--openbitfun-color-border-subtle);
+    }
+  }
+
+  .peer-psk-pairing-dialog__hint {
+    margin: 0;
+    color: var(--openbitfun-color-content-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .peer-psk-pairing-dialog__error {
+    margin: 0;
+    color: var(--openbitfun-color-status-danger-content);
+    font-size: 12px;
+  }
+
+  .peer-psk-pairing-dialog__ok {
+    margin: 0;
+    color: var(--openbitfun-color-status-success-content);
+    font-size: 12px;
+  }
+
+  .peer-psk-pairing-dialog__offer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .peer-psk-pairing-dialog__offer-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .peer-psk-pairing-dialog__psk-id {
+    font-size: 12px;
+    color: var(--openbitfun-color-content-secondary);
+  }
+
+  .peer-psk-pairing-dialog__code {
+    width: 100%;
+    min-height: 64px;
+    box-sizing: border-box;
+    resize: vertical;
+    font-family: monospace;
+    font-size: 12px;
+    padding: 8px;
+    border: 1px solid var(--openbitfun-color-border-subtle);
+    border-radius: 6px;
+    background: var(--openbitfun-color-surface-panel);
+    color: var(--openbitfun-color-content-primary);
+  }
+
+  .peer-psk-pairing-dialog__entry {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .peer-psk-pairing-dialog__entry-name {
+    flex: 1;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .peer-psk-pairing-dialog__entry-status {
+    font-size: 12px;
+    color: var(--openbitfun-color-content-secondary);
+  }
+}

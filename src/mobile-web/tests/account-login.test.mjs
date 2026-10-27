@@ -132,6 +132,45 @@ test('GitHub login registers the browser store key without generating another id
   }
 });
 
+test('psk pairing derivation and code mirror the Rust contract', async () => {
+  const encryption = await loadSource('../src/services/E2EEncryption.ts');
+  const pairingCodec = await loadSource('../src/services/PskPairing.ts');
+  const { deriveDeviceMessageKey, deriveDeviceMessageKeyPsk, pskKeyIdOf } = await import(encryption.url);
+  const { encodePskPairingCode, parsePskPairingCode } = await import(pairingCodec.url);
+  const { x25519 } = await import('@noble/curves/ed25519.js');
+  const alice = new Uint8Array(32).fill(7);
+  const bob = new Uint8Array(32).fill(11);
+  const psk = new Uint8Array(32).fill(91);
+  const alicePub = x25519.getPublicKey(alice);
+  const bobPub = x25519.getPublicKey(bob);
+  const sending = deriveDeviceMessageKeyPsk(alice, bobPub, psk);
+  const receiving = deriveDeviceMessageKeyPsk(bob, alicePub, psk);
+  // Pinned vector shared with `remote_connect/device_crypto.rs`.
+  assert.equal(Buffer.from(sending).toString('hex'), 'f55f939ca726bfae284fb0263acbadbd8b010f4ff5f7d47663f0a0706149c827');
+  assert.deepEqual(sending, receiving);
+  assert.notDeepEqual(sending, deriveDeviceMessageKey(alice, bobPub));
+  assert.notDeepEqual(sending, deriveDeviceMessageKeyPsk(alice, bobPub, new Uint8Array(32).fill(92)));
+  assert.equal(pskKeyIdOf(psk), 'b95439ddd3dec598');
+
+  const payload = {
+    psk,
+    offererDeviceId: '0123456789abcdef0123456789abcdef',
+    offererPublicKey: alicePub,
+  };
+  const code = encodePskPairingCode(payload);
+  // Pinned vector shared with `remote_connect/pairing.rs`.
+  assert.equal(code, '05DN-PPTV-BDDN-PPTV-BDDN-PPTV-BDDN-PPTV-BDDN-PPTV-BDDN-PPTV-BDDN-P093-8NKR-KAYD-XW0J-6HB7-H6NW-VVRK-QS7Y-NTQJ-0K3Z-TCTR-ZJE0-0WGR-G78Q-89W1-50H7-XHKM-YDZQ-ZTBV-DQDQ-TCAQ');
+  const parsed = parsePskPairingCode(code);
+  assert.equal(parsed.offererDeviceId, payload.offererDeviceId);
+  assert.deepEqual(parsed.psk, psk);
+  assert.deepEqual(parsed.offererPublicKey, alicePub);
+  const noisy = code.toLowerCase().replace(/-/g, ' ');
+  assert.equal(parsePskPairingCode(noisy).offererDeviceId, payload.offererDeviceId);
+  const flipped = code.replace('A', 'B');
+  assert.throws(() => parsePskPairingCode(flipped), /check failed|character/i);
+  assert.throws(() => parsePskPairingCode(code.slice(0, -8)), /length/i);
+});
+
 test('account UI entry precedes discovery and mounts no remote workspace surface', async () => {
   const pairing = await readFile(new URL('../src/pages/PairingPage.tsx', import.meta.url), 'utf8');
   const direct = pairing.slice(pairing.indexOf('const connect ='), pairing.indexOf('  useEffect('));
