@@ -144,54 +144,10 @@ extension MobileAppModel {
     }
 
     func loginAccount() {
-        if accountAuthorizationURL != nil {
-            openAccountAuthorization()
-            return
-        }
-        guard !accountBusy else { return }
-
-            invalidateTargetScopedFileTransfers()
-
-        if let operation = coreAdapter?.beginAccountOperation() {
-            invalidateRemoteTarget(for: operation)
-        } else {
-            accountGeneration &+= 1
-            remoteTargetEpoch &+= 1
-            committedRemoteCreate = nil
-        remoteLastAppliedAuthority = nil
-            remoteExpectedDeviceKey = nil
-            remoteConnected = false
-            pendingDirectorySession = nil
-            pendingDirectoryWorkspace = nil
-            pendingDirectoryRemoteDraft = nil
-            remoteCreateSubmitting = false
-            remoteCreateRequestID = nil
-            remoteCreateRequestEpoch = remoteTargetEpoch
-            remoteCreateRequestDeviceKey = nil
-            pendingRemoteWorkspaceCreate = nil
-            pendingRemoteAssistantCreate = false
-            remoteSessionSelected = false
-        }
-        accountBusy = true
-        accountFailureStage = nil
-        accountFailureCanRetry = false
-        coreErrorMessage = nil
-        coreAdapter?.loginAccount()
-    }
-
-    func openAccountAuthorization() {
-        guard let url = accountAuthorizationURL else { return }
-        UIApplication.shared.open(url) { [weak self] opened in
-            guard !opened else { return }
-            Task { @MainActor [weak self] in
-                guard let self, self.accountAuthorizationURL == url else { return }
-                self.coreErrorMessage = self.localized("无法打开授权页面，请重试。")
-            }
-        }
-    }
-
-    func notifyAuthorizationCallback() {
-        coreAdapter?.notifyAuthorizationCallback()
+        // Relay-local accounts sign in with an SMS-code form that iOS does
+        // not ship yet. Fail loudly instead of pretending a browser
+        // authorization flow still exists.
+        coreErrorMessage = localized("此版本暂不支持 iOS 登录。请使用 Android 应用或手机浏览器访问控制端。")
     }
 
     func retryAccountFailure() {
@@ -217,21 +173,7 @@ extension MobileAppModel {
         } else {
             accountDirectoryError = nil
         }
-        accountBusy = state is AccountUiStateSigningIn || state is AccountUiStateAuthorizing
-        let previousAuthorizationURL = accountAuthorizationURL
-        accountAuthorizationURL = (state as? AccountUiStateAuthorizing).flatMap { authorization in
-            guard var components = URLComponents(string: authorization.authorizationUrl) else { return nil }
-            if components.scheme == "https", components.host == "auth.openbitfun.com" {
-                var items = (components.queryItems ?? []).filter { $0.name != "locale" }
-                items.append(URLQueryItem(name: "locale", value: appLanguage.rawValue))
-                items.append(URLQueryItem(name: "returnTo", value: "openbitfun://auth/callback"))
-                components.queryItems = items
-            }
-            return components.url
-        }
-        if accountSheetOpen || accountLoginSurfaces > 0, let url = accountAuthorizationURL, url != previousAuthorizationURL {
-            openAccountAuthorization()
-        }
+        accountBusy = state is AccountUiStateSigningIn
         if let ready = state as? AccountUiStateReady {
             let readyTargetKey = ready.selectedDeviceId.map { "account:\($0)" }
             if let adapterTargetKey = coreAdapter?.currentRemoteTargetKey,

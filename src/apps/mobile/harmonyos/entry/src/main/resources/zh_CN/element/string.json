@@ -233,6 +233,66 @@
       "value": "操作太频繁，请稍后重试。"
     },
     {
+      "name": "account_errorInvalidRelay",
+      "value": "请输入有效的中继服务地址。"
+    },
+    {
+      "name": "account_errorInvalidPhone",
+      "value": "请输入正确的手机号。"
+    },
+    {
+      "name": "account_loginServerChecking",
+      "value": "正在检查服务器…"
+    },
+    {
+      "name": "account_loginServerUnsupported",
+      "value": "该服务器不支持手机号登录，请升级或更换中继服务。"
+    },
+    {
+      "name": "account_loginPhoneLabel",
+      "value": "手机号"
+    },
+    {
+      "name": "account_loginPhonePlaceholder",
+      "value": "输入手机号"
+    },
+    {
+      "name": "account_loginCodeLabel",
+      "value": "验证码"
+    },
+    {
+      "name": "account_loginCodePlaceholder",
+      "value": "输入 6 位验证码"
+    },
+    {
+      "name": "account_loginPasswordLabel",
+      "value": "密码"
+    },
+    {
+      "name": "account_loginPasswordPlaceholder",
+      "value": "输入账号密码"
+    },
+    {
+      "name": "account_loginSendCode",
+      "value": "获取验证码"
+    },
+    {
+      "name": "account_loginResendCode",
+      "value": "重新获取（{0}s）"
+    },
+    {
+      "name": "account_loginSendingCode",
+      "value": "正在发送…"
+    },
+    {
+      "name": "account_loginUsePassword",
+      "value": "使用密码登录"
+    },
+    {
+      "name": "account_loginUseCode",
+      "value": "使用验证码登录"
+    },
+    {
       "name": "home_welcome_login",
       "value": "登录账号"
     },
@@ -1246,11 +1306,11 @@
     },
     {
       "name": "remote_settings_accountLoginTitle",
-      "value": "使用邮箱或 GitHub 登录"
+      "value": "使用手机号登录"
     },
     {
       "name": "remote_settings_accountLoginBody",
-      "value": "使用邮箱或 GitHub 登录并连接自己的电脑。\\n任务和模型配置保留在被控电脑上。"
+      "value": "使用手机号登录并连接自己的电脑。\n任务和模型配置保留在被控电脑上。"
     },
     {
       "name": "remote_settings_loginServer",
@@ -1258,7 +1318,7 @@
     },
     {
       "name": "remote_settings_accountSignIn",
-      "value": "使用邮箱或 GitHub 登录"
+      "value": "登录"
     },
     {
       "name": "remote_settings_accountSigningIn",
@@ -2714,7 +2774,7 @@
     },
     {
       "name": "watchProvision_errors_noDesktop",
-      "value": "请先在手机上使用邮箱或 GitHub 登录，或连接已登录同一账号的桌面端。"
+      "value": "请先在手机上使用手机号登录，或连接已登录同一账号的桌面端。"
     },
     {
       "name": "watchProvision_errors_accountUnavailable",

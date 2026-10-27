@@ -114,6 +114,8 @@ export interface RemoteConnectStatus {
   }>;
   relay_connected: boolean;
   relay_url: string | null;
+  /** Relay the host resolves for the server method; absent on older hosts. */
+  server_relay_url?: string | null;
   active_method: RemoteConnectionMethod | null;
   clients: Array<{ id: string; name: string }>;
   bot_connected: string | null;

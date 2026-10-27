@@ -17,6 +17,23 @@ export function normalizeAccountRelayUrl(value: string): string {
   return local ? normalized : '';
 }
 
+/**
+ * A relay address the user typed into the sign-in form.
+ *
+ * Unlike a scanned link, this is deliberate first-party input, so any absolute
+ * http(s) origin is accepted: a self-hosted relay is not distinguishable from
+ * a hostile one by host, and the user is the one who chose it. Keep using
+ * `normalizeAccountRelayUrl` for untrusted carriers such as QR pairing data.
+ * Both return the same canonical form (trailing slashes stripped) or ''.
+ */
+export function normalizeManualRelayUrl(value: string): string {
+  const normalized = value.trim().replace(/\/+$/, '');
+  const match = /^(https?):\/\/(\[[0-9a-fA-F:]+\]|[0-9A-Za-z](?:[0-9A-Za-z-]*[0-9A-Za-z])?(?:\.[0-9A-Za-z](?:[0-9A-Za-z-]*[0-9A-Za-z])?)*)(?::([0-9]{1,5}))?(\/[^\s?#]*)?$/.exec(normalized);
+  if (!match) return '';
+  if (match[3] && (Number(match[3]) < 1 || Number(match[3]) > 65535)) return '';
+  return normalized;
+}
+
 /** Endpoint and target are hints; the account directory is the authority. */
 export function accountDeviceLink(value: string): AccountDeviceLink | undefined {
   const text = value.trim();

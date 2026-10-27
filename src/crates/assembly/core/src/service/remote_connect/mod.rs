@@ -113,8 +113,13 @@ impl Default for RemoteConnectConfig {
     fn default() -> Self {
         Self {
             lan_port: 9700,
-            openbitfun_server_url: openbitfun_product_domains::account::DEFAULT_RELAY_URL
-                .to_string(),
+            // Self-hosted deployments redirect the server method to their own
+            // relay through OPENBITFUN_RELAY_URL; an invalid override falls back
+            // to the official endpoint while the account paths report the error.
+            openbitfun_server_url: account::configured_relay_url().unwrap_or_else(|error| {
+                log::warn!("Ignoring invalid OPENBITFUN_RELAY_URL override: {error}");
+                openbitfun_product_domains::account::DEFAULT_RELAY_URL.to_string()
+            }),
             bot_feishu: None,
             bot_telegram: None,
             bot_weixin: None,

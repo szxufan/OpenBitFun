@@ -26,19 +26,25 @@
     <string name="settings_theme_light">Light</string>
     <string name="settings_theme_dark">Dark</string>
     <string name="account_title">Account</string>
-    <string name="account_login_title">Sign in with email or GitHub</string>
-    <string name="account_login_body">Sign in with email or GitHub to connect to your computers.\nTasks and model settings stay on the controlled computer.</string>
+    <string name="account_login_title">Sign in to OpenBitFun</string>
+    <string name="account_login_body">Sign in with your phone number to connect to your computers.\nTasks and model settings stay on the controlled computer.</string>
     <string name="account_login_server">Sign-in server</string>
-    <string name="account_username_placeholder">OpenBitFun username</string>
-    <string name="account_password_placeholder">OpenBitFun password</string>
-    <string name="account_relay_url_placeholder">Relay URL, for example https://relay.example.com</string>
+    <string name="account_relay_url_placeholder">https://relay.example.com</string>
+    <string name="account_phone_label">Phone number</string>
+    <string name="account_code_label">Verification code</string>
+    <string name="account_code_placeholder">6-digit code</string>
+    <string name="account_local_password_label">Account password</string>
+    <string name="account_send_code">Send code</string>
+    <string name="account_resend_code_in">Resend in %1$d s</string>
+    <string name="account_use_password_login">Sign in with password instead</string>
+    <string name="account_use_code_login">Sign in with verification code instead</string>
+    <string name="account_local_auth_unsupported">This sign-in server does not support phone-number sign-in. Update it, or connect to a server running the current OpenBitFun version.</string>
+    <string name="account_relay_unreachable">Could not reach the sign-in server. Check the address and your connection, then retry.</string>
     <string name="account_signing_in">Signing in…</string>
     <string name="account_connect">Connect</string>
     <string name="account_device_current_control">Controlling</string>
     <string name="account_relay_url">Relay URL</string>
-    <string name="account_username">Username</string>
-    <string name="account_password">Password</string>
-    <string name="account_sign_in">Sign in with email or GitHub</string>
+    <string name="account_sign_in">Sign in</string>
     <string name="account_sign_out">Sign out</string>
     <string name="account_offline">Offline</string>
     <string name="account_online">Online</string>
@@ -55,7 +61,7 @@
     <!-- The device currently being driven, followed by whether it is reachable. -->
     <string name="account_device_controlling">Controlling · %1$s</string>
     <string name="account_invalid_credentials">Sign-in details are invalid. Please sign in again.</string>
-    <string name="account_authentication">Your sign-in has expired. Sign in again with email or GitHub.</string>
+    <string name="account_authentication">Your sign-in has expired. Sign in again with your phone number.</string>
     <string name="account_rate_limited">Too many sign-in attempts. Try again later.</string>
     <string name="account_relay_unavailable">Sign-in is temporarily unavailable. Try again later.</string>
     <string name="account_network">Unable to connect. Check your connection and try again.</string>
@@ -319,7 +325,7 @@
     <string name="sidebar_untitled">Untitled session</string>
     <string name="sidebar_new_chat">Chat</string>
     <string name="sidebar_signed_out_new_chat">New chat</string>
-    <string name="sidebar_sign_in">Sign in with email or GitHub</string>
+    <string name="sidebar_sign_in">Sign in</string>
     <string name="shell_open_sidebar">Open sidebar</string>
     <string name="connection_connected">Connected</string>
     <string name="connection_reconnecting">Reconnecting</string>
@@ -413,7 +419,6 @@
     <string name="remote_settings_disconnect">Disconnect</string>
     <string name="remote_settings_reconnect">Reconnect</string>
     <string name="remote_settings_account_signed_in">Authenticated</string>
-    <string name="account_open_github">Open OpenBitFun authorization</string>
     <string name="chat_image_prepare_failed">This image could not be prepared. Choose another image.</string>
     <string name="harness_minimal">Minimal</string>
     <string name="harness_standard">Standard</string>
@@ -484,7 +489,6 @@
     <string name="miniapps_all">All apps</string>
     <string name="miniapps_offline">Available offline</string>
     <string name="miniapps_load_failed">Unable to load apps. Please retry.</string>
-    <string name="account_authorization_open_failed">Unable to open the authorization page. Please retry.</string>
     <string name="sidebar_legacy_workspace_catalog">Older device: showing recent workspaces</string>
     <string name="tool_edit_approval_input">Edit input</string>
     <string name="tool_hide_approval_input">Hide input</string>

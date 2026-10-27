@@ -140,16 +140,9 @@ final class MobileCoreAdapter {
         return (accountGeneration, remoteTargetEpoch)
     }
 
-    func loginAccount() {
-        desiredRemoteTarget = .accountRestore
-        hydrateAccountTargetOnBind = false
-        initialRemoteTargetSelectionOpen = false
-        account.dispatch(intent: AccountIntentLogin.shared)
-    }
-
-    func notifyAuthorizationCallback() {
-        account.notifyAuthorizationCallback()
-    }
+    // The credential-less GitHub login intent was removed with relay-local
+    // accounts; the iOS sign-in form is not ported yet and the account UI
+    // degrades loudly instead of dispatching anything.
 
     func selectAccountDevice(id: String) {
         pendingDirectoryReconciles.removeAll()

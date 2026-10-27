@@ -141,7 +141,10 @@ export struct AppSettingsSurface {
         onClose: this.actions.onSettings.close,
         onAccountSettled: this.actions.onSettings.accountSettled,
         cloudLogin: this.actions.onSettings.cloudLogin,
-        cloudCancelLogin: this.actions.onSettings.cloudCancelLogin
+        cloudCancelLogin: this.actions.onSettings.cloudCancelLogin,
+        cloudRelayUrl: this.actions.onSettings.cloudRelayUrl,
+        cloudProbeRelay: this.actions.onSettings.cloudProbeRelay,
+        cloudSmsSend: this.actions.onSettings.cloudSmsSend
       })
     } else {
       SettingsSheet({

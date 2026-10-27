@@ -5,22 +5,17 @@ import com.openbitfun.mobile.core.protocol.CommandStatus
 import com.openbitfun.mobile.core.protocol.RemoteCommand
 import com.openbitfun.mobile.core.transport.CloudAccountException
 import com.openbitfun.mobile.core.transport.CloudAccountFailure
-import com.openbitfun.mobile.core.transport.GitHubAuthorization
-import com.openbitfun.mobile.core.transport.GitHubAuthorizationPoll
-import com.openbitfun.mobile.core.transport.GitHubTokens
-import com.openbitfun.mobile.core.transport.TransportLog
+import com.openbitfun.mobile.core.transport.CloudAccountLocalAuthException
+import com.openbitfun.mobile.core.transport.LocalAccountUser
+import com.openbitfun.mobile.core.transport.LocalTokenPair
 import com.openbitfun.mobile.core.transport.RemoteCommandTransport
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.DeserializationStrategy
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
-import kotlin.test.assertFailsWith
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
@@ -29,101 +24,9 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AccountStoreTest {
-    /**
-     * The sign-in poll runs for the minutes the user spends in a browser and a
-     * mail app, which is where a phone most reliably drops a connection. A
-     * single failure there used to end the sign-in and send them back to the
-     * start, so the loop keeps asking until the window closes and stops early
-     * only for a refusal the relay actually meant.
-     */
-    @Test fun signInPollOutlastsNetworkFailuresButNotARefusal() = runTest {
-        val start = GitHubAuthorization("txn", "secret", "https://auth.openbitfun.com/sign-in#ticket=t", 9_999_999_999L, 3)
-
-        var attempts = 0
-        val token = AuthorizationPoll.awaitAccessToken(start, TransportLog.None, nowSeconds = { 0 }) {
-            attempts++
-            when (attempts) {
-                1 -> throw CloudAccountException(CloudAccountFailure.MALFORMED_RESPONSE)
-                2 -> throw CloudAccountException(CloudAccountFailure.NETWORK)
-                3 -> throw CloudAccountException(CloudAccountFailure.TIMEOUT)
-                4 -> throw CloudAccountException(CloudAccountFailure.RATE_LIMITED, 429)
-                5 -> GitHubAuthorizationPoll("pending")
-                else -> GitHubAuthorizationPoll("authorized", GitHubTokens("granted"))
-            }
-        }
-        assertEquals("granted", token)
-        assertEquals(6, attempts)
-
-        assertFailsWith<CloudAccountException> {
-            AuthorizationPoll.awaitAccessToken(start, TransportLog.None, nowSeconds = { 0 }) {
-                throw CloudAccountException(CloudAccountFailure.MALFORMED_RESPONSE, 400)
-            }
-        }
-
-        var refusals = 0
-        assertFailsWith<CloudAccountException> {
-            AuthorizationPoll.awaitAccessToken(start, TransportLog.None, nowSeconds = { 0 }) {
-                refusals++
-                throw CloudAccountException(CloudAccountFailure.AUTHENTICATION, 401)
-            }
-        }
-        assertEquals(1, refusals)
-
-        // A window that closed while every poll was failing is a network
-        // problem, and saying "authentication" would send the user looking in
-        // the wrong place.
-        var elapsed = 0L
-        val expired = assertFailsWith<CloudAccountException> {
-            AuthorizationPoll.awaitAccessToken(start.copy(expiresAt = 9L), TransportLog.None, nowSeconds = { elapsed }) {
-                elapsed += 3
-                throw CloudAccountException(CloudAccountFailure.NETWORK)
-            }
-        }
-        assertEquals(CloudAccountFailure.NETWORK, expired.failure)
-    }
-
-    @Test fun signInPollChecksImmediatelyAfterBrowserHandoff() = runTest {
-        val start = GitHubAuthorization("txn", "secret", "https://auth.openbitfun.com/sign-in#ticket=t", 100L, 30)
-        var firstPollAt = -1L
-        val token = AuthorizationPoll.awaitAccessToken(
-            start,
-            TransportLog.None,
-            nowSeconds = { testScheduler.currentTime / 1000L },
-        ) {
-            firstPollAt = testScheduler.currentTime
-            GitHubAuthorizationPoll("authorized", GitHubTokens("granted"))
-        }
-        assertEquals("granted", token)
-        assertEquals(0L, firstPollAt)
-    }
-
-    @Test fun signInPollWaitsInBackgroundAndResumesWhenForegroundReturns() = runTest {
-        val start = GitHubAuthorization("txn", "secret", "https://auth.openbitfun.com/sign-in#ticket=t", 100L, 30)
-        val foreground = MutableStateFlow(true)
-        var attempts = 0
-        val token = async {
-            AuthorizationPoll.awaitAccessToken(
-                start,
-                TransportLog.None,
-                nowSeconds = { 0 },
-                foreground = foreground,
-            ) {
-                attempts++
-                if (attempts == 1) GitHubAuthorizationPoll("pending")
-                else GitHubAuthorizationPoll("authorized", GitHubTokens("granted"))
-            }
-        }
-
-        runCurrent()
-        assertEquals(1, attempts)
-        foreground.value = false
-        advanceTimeBy(120_000)
-        runCurrent()
-        assertEquals(1, attempts)
-        foreground.value = true
-        advanceUntilIdle()
-        assertEquals("granted", token.await())
-        assertEquals(2, attempts)
+    /** The one sign-in call every test starts from: a phone plus its SMS code. */
+    private fun AccountStore.signIn(relayUrl: String = AccountDefaults.CLOUD_RELAY_URL) {
+        dispatch(AccountIntent.LocalLogin(relayUrl, "13800138000", "123456", null))
     }
 
     @Test fun cancelledLoginDirectoryCannotReviveAccountOrPersistSelectedDevice() = runTest {
@@ -133,7 +36,7 @@ class AccountStoreTest {
             var pending: kotlin.coroutines.Continuation<Unit>? = null
             backend.beforeList = { kotlin.coroutines.suspendCoroutine<Unit> { pending = it } }
             val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
-            store.dispatch(AccountIntent.Login); advanceUntilIdle()
+            store.signIn(); advanceUntilIdle()
             store.dispatch(AccountIntent.Logout)
             pending!!.resumeWith(if (failure == null) Result.success(Unit) else Result.failure(failure))
             advanceUntilIdle()
@@ -149,7 +52,7 @@ class AccountStoreTest {
             CloudAccountException(CloudAccountFailure.AUTHENTICATION))) {
             val secure = MemorySecureStore(); val backend = FakeAccountBackend()
             val first = AccountStore.create(this, backend, secure, "phone-1", "Android")
-            first.dispatch(AccountIntent.Login); advanceUntilIdle(); first.stop()
+            first.signIn(); advanceUntilIdle(); first.stop()
             var pending: kotlin.coroutines.Continuation<Unit>? = null
             backend.beforeList = { kotlin.coroutines.suspendCoroutine<Unit> { pending = it } }
             val restored = AccountStore.create(this, backend, secure, "phone-1", "Android")
@@ -167,7 +70,7 @@ class AccountStoreTest {
             CloudAccountException(CloudAccountFailure.AUTHENTICATION), IllegalStateException("Late failure"))) {
             val backend = FakeAccountBackend()
             val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
-            store.dispatch(AccountIntent.Login); advanceUntilIdle()
+            store.signIn(); advanceUntilIdle()
             var pending: kotlin.coroutines.Continuation<Unit>? = null
             backend.beforeList = { kotlin.coroutines.suspendCoroutine<Unit> { pending = it } }
             store.dispatch(AccountIntent.RefreshDevices); advanceUntilIdle()
@@ -181,14 +84,14 @@ class AccountStoreTest {
     @Test fun cancelledAuthenticationFailureCannotExpireReplacementLoginWithSameToken() = runTest {
         val backend = FakeAccountBackend()
         val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
-        store.dispatch(AccountIntent.Login); advanceUntilIdle()
+        store.signIn(); advanceUntilIdle()
         var pending: kotlin.coroutines.Continuation<Unit>? = null
         backend.beforeList = { kotlin.coroutines.suspendCoroutine<Unit> { pending = it } }
         store.dispatch(AccountIntent.RefreshDevices); advanceUntilIdle()
         store.dispatch(AccountIntent.Logout)
         backend.beforeList = null
         backend.userId = "replacement-user"
-        store.dispatch(AccountIntent.Login); advanceUntilIdle()
+        store.signIn(); advanceUntilIdle()
         val replacement = assertIs<AccountUiState.Ready>(store.state.value)
         pending!!.resumeWith(Result.failure(CloudAccountException(CloudAccountFailure.AUTHENTICATION)))
         advanceUntilIdle()
@@ -200,7 +103,7 @@ class AccountStoreTest {
         val changes = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 4)
         val backend = FakeAccountBackend().apply { directoryEvents = changes }
         val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
-        store.dispatch(AccountIntent.Login); advanceUntilIdle()
+        store.signIn(); advanceUntilIdle()
         val before = backend.listRequests
         backend.desktop2Online = true; changes.emit(Unit); advanceUntilIdle()
         assertEquals(before + 1, backend.listRequests)
@@ -211,11 +114,19 @@ class AccountStoreTest {
         assertEquals(before + 1, backend.listRequests)
     }
 
-    @Test fun oldOfficialRelayTokenIsRetainedButNeverSentToNewRelay() = runTest {
+    /**
+     * A session issued by one relay is never sent to another. The record is
+     * kept encrypted where it is, the configured relay stays as configured,
+     * and only a fresh sign-in brings the account back.
+     */
+    @Test fun sessionFromAnotherRelayIsRetainedButNeverSentToTheConfiguredRelay() = runTest {
         val secure = MemorySecureStore(); val backend = FakeAccountBackend()
         val first = AccountStore.create(this, backend, secure, "phone-1", "Android")
-        first.dispatch(AccountIntent.Login); advanceUntilIdle()
-        val old = secure.read("github_device_session_v1")!!.decodeToString().replace(AccountDefaults.CLOUD_RELAY_URL, "https://remote.openbitfun.com/v/retired")
+        first.signIn(); advanceUntilIdle(); first.stop()
+        // A record the user's configured relay did not issue (a version bump
+        // of the official relay, or a relay switch on another surface).
+        val old = secure.read("github_device_session_v1")!!.decodeToString()
+            .replace("\"relayUrl\":\"${AccountDefaults.CLOUD_RELAY_URL}\"", "\"relayUrl\":\"https://remote.openbitfun.com/v/retired\"")
         secure.write("github_device_session_v1", old.encodeToByteArray())
         val requests = backend.listRequests
         val restored = AccountStore.create(this, backend, secure, "phone-1", "Android")
@@ -224,9 +135,124 @@ class AccountStoreTest {
         assertEquals(AccountFailureReason.AUTHENTICATION, state.reason)
         assertEquals(requests, backend.listRequests)
         assertEquals(old, secure.read("github_device_session_v1")!!.decodeToString())
-        restored.dispatch(AccountIntent.Login); advanceUntilIdle()
+        restored.signIn(); advanceUntilIdle()
         assertEquals(AccountDefaults.CLOUD_RELAY_URL, backend.lastLoginRelay)
         assertIs<AccountUiState.Ready>(restored.state.value)
+    }
+
+    @Test
+    fun relaySwitchClearsTheSessionPersistsTheSettingAndRequiresFreshSignIn() = runTest {
+        val secure = MemorySecureStore(); val backend = FakeAccountBackend()
+        val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
+        store.signIn(); advanceUntilIdle()
+        assertTrue(assertIs<AccountUiState.Ready>(store.state.value).devices.isNotEmpty())
+
+        store.dispatch(AccountIntent.SelectRelay("https://custom.example.com"))
+        assertIs<AccountUiState.SignedOut>(store.state.value)
+        assertNull(store.createSessionStore(this))
+        assertEquals("https://custom.example.com", store.relayUrl.value)
+        assertEquals("https://custom.example.com", secure.read("account_relay_url_v1")!!.decodeToString())
+
+        // The retained record belongs to the previous relay and stays unusable.
+        val requests = backend.listRequests
+        val restored = AccountStore.create(this, backend, secure, "phone-1", "Android")
+        assertEquals("https://custom.example.com", restored.relayUrl.value)
+        restored.dispatch(AccountIntent.Restore); advanceUntilIdle()
+        assertEquals(AccountFailureReason.AUTHENTICATION, assertIs<AccountUiState.Failed>(restored.state.value).reason)
+        assertEquals(requests, backend.listRequests)
+
+        restored.signIn("https://custom.example.com"); advanceUntilIdle()
+        assertEquals("https://custom.example.com", backend.lastLoginRelay)
+        assertIs<AccountUiState.Ready>(restored.state.value)
+        assertEquals("https://custom.example.com", restored.relayUrl.value)
+    }
+
+    @Test
+    fun configuredRelayIsPersistedThroughSignInAndUnreadableSettingsKeepTheirBytes() = runTest {
+        val secure = MemorySecureStore(); val backend = FakeAccountBackend()
+        // The relay the user actually signs in against becomes the setting,
+        // so the record this login persists is the one a later restore expects.
+        val first = AccountStore.create(this, backend, secure, "phone-1", "Android")
+        first.signIn("https://custom.example.com"); advanceUntilIdle(); first.stop()
+        assertEquals("https://custom.example.com", secure.read("account_relay_url_v1")!!.decodeToString())
+
+        val restored = AccountStore.create(this, backend, secure, "phone-1", "Android")
+        restored.dispatch(AccountIntent.Restore); advanceUntilIdle()
+        assertEquals("https://custom.example.com", assertIs<AccountUiState.Ready>(restored.state.value).relayUrl)
+        assertEquals("https://custom.example.com", restored.relayUrl.value)
+
+        // An unparsable stored setting keeps the default without deleting the
+        // bytes; a newer build may still accept them.
+        secure.write("account_relay_url_v1", "not a url".encodeToByteArray())
+        val fallback = AccountStore.create(this, backend, secure, "phone-1", "Android")
+        assertEquals(AccountDefaults.CLOUD_RELAY_URL, fallback.relayUrl.value)
+        assertEquals("not a url", secure.read("account_relay_url_v1")!!.decodeToString())
+    }
+
+    /**
+     * An expired device token is not a sign-out when a refresh token is on
+     * record: the pair rotates, the SAME stored X25519 key re-registers, and
+     * the directory read the user asked for still arrives.
+     */
+    @Test fun expiredDeviceTokenIsSilentlyRenewedWithTheSameDeviceKey() = runTest {
+        val secure = MemorySecureStore(); val backend = FakeAccountBackend()
+        val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
+        store.signIn(); advanceUntilIdle()
+        val firstSecret = backend.loginSecrets.single()
+        val firstRefreshToken = backend.localPair.refreshToken
+
+        backend.rejectNextList = CloudAccountFailure.AUTHENTICATION
+        store.dispatch(AccountIntent.RefreshDevices); advanceUntilIdle()
+
+        val ready = assertIs<AccountUiState.Ready>(store.state.value)
+        assertEquals("desktop-1", ready.selectedDeviceId)
+        assertEquals(1, backend.refreshCalls)
+        assertEquals(firstRefreshToken, backend.lastRefreshToken)
+        assertEquals(2, backend.loginSecrets.size)
+        assertContentEquals(firstSecret, backend.loginSecrets[1])
+        // The renewed pair's access token — not the retired one — drove the exchange.
+        assertEquals("local-access-2", backend.loginAccessTokens.last())
+        // The renewed pair is what a later launch restores.
+        assertTrue(secure.read("github_device_session_v1")!!.decodeToString().contains("\"token-2\""))
+        assertTrue(secure.read("github_device_session_v1")!!.decodeToString().contains("\"refreshToken\":\"refresh-2\""))
+        store.stop()
+    }
+
+    @Test fun failedRenewalExpiresTheSessionAndPreservesTheStoredRecord() = runTest {
+        val secure = MemorySecureStore(); val backend = FakeAccountBackend()
+        val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
+        store.signIn(); advanceUntilIdle()
+        assertTrue(assertIs<AccountUiState.Ready>(store.state.value).devices.isNotEmpty())
+
+        val stored = secure.read("github_device_session_v1")!!.toList()
+        // A spent (expired or replayed) refresh token: renewal is impossible.
+        backend.rejectNextList = CloudAccountFailure.AUTHENTICATION
+        backend.refreshFailure = CloudAccountLocalAuthException(CloudAccountFailure.INVALID_CREDENTIALS, 401, "expired")
+        store.dispatch(AccountIntent.RefreshDevices); advanceUntilIdle()
+
+        val failed = assertIs<AccountUiState.Failed>(store.state.value)
+        assertEquals(AccountFailureReason.AUTHENTICATION, failed.reason)
+        assertEquals(1, backend.refreshCalls)
+        assertEquals(stored, secure.read("github_device_session_v1")?.toList())
+        assertEquals(0, secure.deleteCount)
+        assertNull(store.createSessionStore(this))
+        store.stop()
+    }
+
+    @Test
+    fun relayLocalRejectionSurfacesTheRelaySentenceVerbatim() = runTest {
+        val backend = FakeAccountBackend().apply {
+            localFailure = CloudAccountLocalAuthException(
+                CloudAccountFailure.AUTHENTICATION, 403, "registration is closed on this relay",
+            )
+        }
+        val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
+        store.signIn(); advanceUntilIdle()
+
+        val failed = assertIs<AccountUiState.Failed>(store.state.value)
+        assertEquals(AccountFailureReason.AUTHENTICATION, failed.reason)
+        assertEquals("registration is closed on this relay", failed.detail)
+        assertEquals(0, backend.exchangeCalls)
     }
 
     @Test
@@ -237,7 +263,7 @@ class AccountStoreTest {
             profileResult = com.openbitfun.mobile.core.transport.GitHubProfile(42, "octocat", "https://avatars.githubusercontent.com/u/42")
         }
         val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
         val ready = assertIs<AccountUiState.Ready>(store.state.value)
         assertEquals("42", ready.userId)
@@ -260,7 +286,7 @@ class AccountStoreTest {
             profileResult = com.openbitfun.mobile.core.transport.GitHubProfile(99, "other", null)
         }
         val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
         val ready = assertIs<AccountUiState.Ready>(store.state.value)
         assertEquals("42", ready.userId)
@@ -274,19 +300,20 @@ class AccountStoreTest {
         val backend = FakeAccountBackend()
         val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
 
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         val ready = assertIs<AccountUiState.Ready>(store.state.value)
         assertEquals("user-id", ready.userId)
         assertEquals("desktop-1", ready.selectedDeviceId)
         assertTrue(secure.read("github_device_session_v1")?.isNotEmpty() == true)
+        // The relay-local credentials the form collected never leak through
+        // the intent that carried them.
         assertFalse(
-            AccountIntent.Login
+            AccountIntent.LocalLogin(AccountDefaults.CLOUD_RELAY_URL, "13800138000", null, "top-secret-value")
                 .toString()
                 .contains("top-secret-value"),
         )
-
         val restored = AccountStore.create(this, backend, secure, "phone-1", "Android")
         restored.dispatch(AccountIntent.Restore)
         advanceUntilIdle()
@@ -296,7 +323,7 @@ class AccountStoreTest {
     @Test
     fun onlyControllableDevicesReachTheList() = runTest {
         val store = AccountStore.create(this, FakeAccountBackend(), MemorySecureStore(), "phone-1", "Android")
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         val ready = assertIs<AccountUiState.Ready>(store.state.value)
@@ -309,7 +336,7 @@ class AccountStoreTest {
     fun deviceSelectionAndLogoutUpdateSecureState() = runTest {
         val secure = MemorySecureStore()
         val store = AccountStore.create(this, FakeAccountBackend(), secure, "phone-1", "Android")
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         // Neither this device nor an offline one can become the control target.
@@ -328,7 +355,7 @@ class AccountStoreTest {
         val secure = MemorySecureStore()
         val backend = FakeAccountBackend().also { it.desktop2Online = true }
         val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
         assertEquals("desktop-1", assertIs<AccountUiState.Ready>(store.state.value).selectedDeviceId)
         val stored = secure.read("github_device_session_v1")!!.toList()
@@ -353,7 +380,7 @@ class AccountStoreTest {
     fun refreshPicksUpADesktopThatCameOnlineAndSurvivesFailing() = runTest {
         val backend = FakeAccountBackend()
         val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
         assertFalse(assertIs<AccountUiState.Ready>(store.state.value).devices.single { it.id == "desktop-2" }.online)
 
@@ -379,7 +406,7 @@ class AccountStoreTest {
     @Test fun coldRestorePublishesIdentityBeforeDirectoryWithoutGrantingTargetAuthority() = runTest {
         val secure = MemorySecureStore(); val backend = FakeAccountBackend()
         val first = AccountStore.create(this, backend, secure, "phone-1", "Android")
-        first.dispatch(AccountIntent.Login); advanceUntilIdle(); first.stop()
+        first.signIn(); advanceUntilIdle(); first.stop()
         val saved = secure.read("github_device_session_v1")!!
         var pending: kotlin.coroutines.Continuation<Unit>? = null
         backend.beforeList = { kotlin.coroutines.suspendCoroutine<Unit> { pending = it } }
@@ -405,7 +432,7 @@ class AccountStoreTest {
             val backend = FakeAccountBackend().apply { desktop2Online = true }
             val secure = MemorySecureStore()
             val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
-            store.dispatch(AccountIntent.Login); advanceUntilIdle()
+            store.signIn(); advanceUntilIdle()
             var pending: kotlin.coroutines.Continuation<Unit>? = null
             backend.beforeList = { kotlin.coroutines.suspendCoroutine<Unit> { pending = it } }
             store.dispatch(AccountIntent.RefreshDevices); advanceUntilIdle()
@@ -431,7 +458,7 @@ class AccountStoreTest {
     fun explicitDeviceStoresCoexistWithSelectedTargetStore() = runTest {
         val backend = FakeAccountBackend()
         val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         // The old single-target entry points still resolve the selected device.
@@ -456,7 +483,7 @@ class AccountStoreTest {
         assertNull(signedOut.createWorkspaceStore(this, "desktop-1"))
         assertTrue(backend.transportTargets.isEmpty())
 
-        signedOut.dispatch(AccountIntent.Login)
+        signedOut.signIn()
         advanceUntilIdle()
         assertNull(signedOut.createSessionStore(this, ""))
         assertNull(signedOut.createSessionStore(this, "phone-1"))
@@ -524,11 +551,36 @@ class AccountStoreTest {
     }
 
     @Test
+    fun legacyRecordWithoutRefreshTokenStillRestores() = runTest {
+        // A record written before relay-local accounts: no refresh token, so
+        // an expiry can only be answered with the sign-in form — but the
+        // session itself is as valid as it ever was.
+        val secure = MemorySecureStore(); val backend = FakeAccountBackend()
+        val first = AccountStore.create(this, backend, secure, "phone-1", "Android")
+        first.signIn(); advanceUntilIdle(); first.stop()
+        val legacy = secure.read("github_device_session_v1")!!.decodeToString()
+            .replace(",\"refreshToken\":\"refresh-1\"", "")
+        secure.write("github_device_session_v1", legacy.encodeToByteArray())
+
+        val restored = AccountStore.create(this, backend, secure, "phone-1", "Android")
+        restored.dispatch(AccountIntent.Restore); advanceUntilIdle()
+        assertEquals("desktop-1", assertIs<AccountUiState.Ready>(restored.state.value).selectedDeviceId)
+
+        // Without a refresh token, an expired session expires; the record survives.
+        val stored = secure.read("github_device_session_v1")!!.toList()
+        backend.rejectNextList = CloudAccountFailure.AUTHENTICATION
+        restored.dispatch(AccountIntent.RefreshDevices); advanceUntilIdle()
+        assertEquals(0, backend.refreshCalls)
+        assertEquals(AccountFailureReason.AUTHENTICATION, assertIs<AccountUiState.Failed>(restored.state.value).reason)
+        assertEquals(stored, secure.read("github_device_session_v1")?.toList())
+    }
+
+    @Test
     fun validRestoreDoesNotDeletePersistedSession() = runTest {
         val secure = MemorySecureStore()
         val backend = FakeAccountBackend()
         val first = AccountStore.create(this, backend, secure, "phone-1", "Android")
-        first.dispatch(AccountIntent.Login)
+        first.signIn()
         advanceUntilIdle()
         val raw = secure.read("github_device_session_v1")
 
@@ -542,16 +594,17 @@ class AccountStoreTest {
     }
 
     @Test
-    fun expiredRefreshRevokesCapabilitiesAndPreservesTheStoredRecord() = runTest {
+    fun expiredSessionWithoutRenewalRevokesCapabilitiesAndPreservesTheStoredRecord() = runTest {
         val secure = MemorySecureStore()
         val backend = FakeAccountBackend()
         val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
         assertTrue(assertIs<AccountUiState.Ready>(store.state.value).devices.isNotEmpty())
 
         val stored = secure.read("github_device_session_v1")!!.toList()
         backend.listFailure = CloudAccountFailure.AUTHENTICATION
+        backend.refreshFailure = CloudAccountException(CloudAccountFailure.NETWORK)
         store.dispatch(AccountIntent.RefreshDevices)
         advanceUntilIdle()
 
@@ -567,7 +620,7 @@ class AccountStoreTest {
         val backend = FakeAccountBackend().also { it.desktop1Online = false }
         val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
 
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         // Not this device as a consolation prize: the live account has ten
@@ -580,7 +633,7 @@ class AccountStoreTest {
         val backend = FakeAccountBackend().also { it.failure = CloudAccountFailure.AUTHENTICATION }
         val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
 
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         val failed = assertIs<AccountUiState.Failed>(store.state.value)
@@ -593,7 +646,7 @@ class AccountStoreTest {
         val backend = FakeAccountBackend().also { it.loginThrowable = IllegalStateException("crypto failed") }
         val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
 
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         val failed = assertIs<AccountUiState.Failed>(store.state.value)
@@ -606,7 +659,7 @@ class AccountStoreTest {
         val secure = MemorySecureStore(failWrites = true)
         val store = AccountStore.create(this, FakeAccountBackend(), secure, "phone-1", "Android")
 
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         val failed = assertIs<AccountUiState.Failed>(store.state.value)
@@ -620,7 +673,7 @@ class AccountStoreTest {
         val backend = FakeAccountBackend().also { it.listThrowable = IllegalStateException("transport failed") }
         val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
 
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         val ready = assertIs<AccountUiState.Ready>(store.state.value)
@@ -636,10 +689,12 @@ class AccountStoreTest {
             val backend = FakeAccountBackend().also { it.listFailure = transportReason }
             val store = AccountStore.create(this, backend, MemorySecureStore(), "phone-1", "Android")
 
-            store.dispatch(AccountIntent.Login)
+            store.signIn()
             advanceUntilIdle()
 
             if (transportReason == CloudAccountFailure.AUTHENTICATION) {
+                // The fresh pair's refresh token is rotated once and the retry
+                // is refused again; the session then expires.
                 val failed = assertIs<AccountUiState.Failed>(store.state.value)
                 assertEquals(AccountFailureReason.AUTHENTICATION, failed.reason)
                 assertFalse(failed.canRetry)
@@ -659,7 +714,7 @@ class AccountStoreTest {
         val backend = FakeAccountBackend().also { it.listFailure = CloudAccountFailure.TIMEOUT }
         val store = AccountStore.create(this, backend, secure, "phone-1", "Android")
 
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
         val readyBeforeRetry = assertIs<AccountUiState.Ready>(store.state.value)
         assertEquals(AccountFailureReason.TIMEOUT, readyBeforeRetry.refreshFailure)
@@ -687,7 +742,7 @@ class AccountStoreTest {
         secure.mutateBeforeWriteFailure = true
         val store = AccountStore.create(this, FakeAccountBackend(), secure, "phone-1", "Android")
 
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
 
         val failed = assertIs<AccountUiState.Failed>(store.state.value)
@@ -701,7 +756,7 @@ class AccountStoreTest {
     fun deleteFailureLogsOutInMemoryWithoutDestroyingStoredBytes() = runTest {
         val secure = MemorySecureStore()
         val store = AccountStore.create(this, FakeAccountBackend(), secure, "phone-1", "Android")
-        store.dispatch(AccountIntent.Login)
+        store.signIn()
         advanceUntilIdle()
         val stored = secure.read("github_device_session_v1")!!.toList()
         secure.failDeletes = true
@@ -719,7 +774,7 @@ class AccountStoreTest {
         val secure = MemorySecureStore()
         val backend = FakeAccountBackend()
         val first = AccountStore.create(this, backend, secure, "phone-1", "Android")
-        first.dispatch(AccountIntent.Login)
+        first.signIn()
         advanceUntilIdle()
         backend.listFailure = CloudAccountFailure.NETWORK
 
@@ -806,28 +861,67 @@ private class FakeAccountBackend : AccountBackend {
         return profileResult
     }
 
+    /** The relay-local pair a sign-in is granted; refresh rotation returns [refreshPair]. */
+    var localPair = LocalTokenPair(
+        accessToken = "local-access", refreshToken = "refresh-1",
+        accessExpiresAt = 1_000, refreshExpiresAt = 2_000,
+        user = LocalAccountUser(userId = "user-id", login = "user", phoneMasked = "138****0000", hasPassword = false),
+    )
+    var refreshPair = LocalTokenPair(
+        accessToken = "local-access-2", refreshToken = "refresh-2",
+        accessExpiresAt = 3_000, refreshExpiresAt = 4_000,
+        user = LocalAccountUser(userId = "user-id", login = "user", phoneMasked = "138****0000", hasPassword = false),
+    )
+    var refreshCalls = 0
+    var lastRefreshToken: String? = null
+    var refreshFailure: Throwable? = null
+    var localFailure: CloudAccountLocalAuthException? = null
+
+    override suspend fun relaySupportsLocalAuth(relayUrl: String): Boolean = true
+    override suspend fun smsSend(relayUrl: String, phone: String) {}
+
+    override suspend fun localLogin(relayUrl: String, phone: String, code: String?, password: String?): LocalTokenPair {
+        localFailure?.let { throw it }
+        return localPair
+    }
+
+    override suspend fun localRefresh(relayUrl: String, refreshToken: String): LocalTokenPair {
+        refreshCalls++
+        lastRefreshToken = refreshToken
+        refreshFailure?.let { throw it }
+        return refreshPair
+    }
+
     var failure: CloudAccountFailure? = null
     var loginThrowable: Throwable? = null
     var listFailure: CloudAccountFailure? = null
+    /** Rejects exactly the next device list with this failure, then clears. */
+    var rejectNextList: CloudAccountFailure? = null
     var listThrowable: Throwable? = null
     var desktop1Online: Boolean = true
     var desktop2Online: Boolean = false
     var settings: String? = null
     val transportTargets = mutableListOf<String>()
+    val loginSecrets = mutableListOf<ByteArray>()
+    val loginAccessTokens = mutableListOf<String>()
+    var exchangeCalls = 0
     override suspend fun login(
         relayUrl: String,
+        accessToken: String,
         deviceId: String,
         deviceName: String,
         deviceSecret: ByteArray,
-        onAuthorization: (String) -> Unit,
     ): AccountSessionData {
         lastLoginRelay = relayUrl
+        exchangeCalls++
+        loginSecrets += deviceSecret.copyOf()
+        loginAccessTokens += accessToken
         loginThrowable?.let { throw it }
         failure?.let { throw CloudAccountException(it) }
         return AccountSessionData(
-            "https://remote.openbitfun.com/v/1.0.2",
+            relayUrl,
             "user",
-            "token",
+            if (accessToken == refreshPair.accessToken) "token-2" else "token",
             userId,
             ByteArray(32) { it.toByte() },
             null,
@@ -838,6 +932,10 @@ private class FakeAccountBackend : AccountBackend {
     override suspend fun listDevices(session: AccountSessionData, selfDeviceId: String): List<AccountDeviceUi> {
         listRequests++
         beforeList?.invoke()
+        rejectNextList?.let { rejection ->
+            rejectNextList = null
+            throw CloudAccountException(rejection)
+        }
         listThrowable?.let { throw it }
         listFailure?.let { throw CloudAccountException(it) }
         // The shape the live account returns: this device, one of the user's

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ConnectionResult, RemoteConnectStatus, RemoteConnectionMethod } from '../api/service-api/RemoteConnectAPI';
-import { remoteNetworkMethod, selectRemoteNetworkConnection, invitationRelayUrl } from './remoteConnectionState';
+import { remoteNetworkMethod, selectRemoteNetworkConnection, invitationRelayUrl, serverRelayUrl } from './remoteConnectionState';
 
 const official = 'https://remote.openbitfun.com/v/1.0.2';
 const lan = 'http://192.168.1.2:9700';
@@ -60,5 +60,21 @@ describe('account device connection routes', () => {
     for (const suffix of ['room=old&pk=old', 'did=a&did=b', 'did=a&pk=old', 'did=']) {
       expect(invitationRelayUrl({ ...invitation(official), qr_url: `${official}/#/pair?${suffix}` })).toBe(null);
     }
+  });
+  it('resolves the server relay from the host override and falls back to the official endpoint', () => {
+    const selfHosted = 'https://relay.example.com/v/1.0.2';
+    expect(serverRelayUrl(null)).toBe(official);
+    expect(serverRelayUrl({ ...status(lan), server_relay_url: null })).toBe(official);
+    expect(serverRelayUrl({ ...status(lan), server_relay_url: selfHosted })).toBe(selfHosted);
+  });
+  it('classifies both the host override and a pre-override official connection as the server method', () => {
+    const selfHosted = 'https://relay.example.com/v/1.0.2';
+    const withoutMethod = (url: string): RemoteConnectStatus => ({ ...status(url), active_method: null });
+    // The host now resolves the override, but the persisted connection still
+    // points at the official relay; both stay on the server route.
+    expect(selectRemoteNetworkConnection({ ...withoutMethod(selfHosted), server_relay_url: selfHosted }).method).toBe('openbitfun_server');
+    expect(selectRemoteNetworkConnection({ ...withoutMethod(official), server_relay_url: selfHosted }).method).toBe('openbitfun_server');
+    expect(selectRemoteNetworkConnection({ ...withoutMethod(lan), server_relay_url: selfHosted }).method).toBe('lan');
+    expect(selectRemoteNetworkConnection(withoutMethod(official)).method).toBe('openbitfun_server');
   });
 });

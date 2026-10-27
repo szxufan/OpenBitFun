@@ -32,9 +32,13 @@ services:
       RELAY_DB_PATH: /app/data/relay.db
       RELAY_ROOM_WEB_DIR: /app/room-web
       RELAY_ASSET_STORE_MAX_BYTES: "1073741824"
-      RELAY_CORS_ALLOW_ORIGINS: https://remote.openbitfun.com,https://auth.openbitfun.com
-      RELAY_PAGE_PUBLIC_BASE_URL: https://remote.openbitfun.com/v/1.0.2
-      RELAY_PAGE_AUTH_BASE_URL: https://auth.openbitfun.com/v/1.0.2
+      # Self-hosted public origins: fill from the host environment or a
+      # relay-v1.env file. The two page base URLs must be set together on two
+      # distinct HTTPS origins; while unset, published Pages answer 503 and the
+      # relay serves same-origin clients only (empty CORS allowlist).
+      RELAY_CORS_ALLOW_ORIGINS: ${RELAY_CORS_ALLOW_ORIGINS:-}
+      RELAY_PAGE_PUBLIC_BASE_URL: ${RELAY_PAGE_PUBLIC_BASE_URL:-}
+      RELAY_PAGE_AUTH_BASE_URL: ${RELAY_PAGE_AUTH_BASE_URL:-}
       # Local account sign-in: Aliyun SMS delivery + registration gate.
       # Code sign-in is disabled (503) until the SMS variables are all set;
       # fill them from the host environment or a relay-v1.env file.

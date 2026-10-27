@@ -96,9 +96,8 @@ struct AccountLoginView: View {
             .frame(minHeight: MobileDesignGeometry.loginSheetBodyMinHeight, alignment: .top)
 
             ConnectionSheetFooter(
-                label: model.localized(model.accountAuthorizationURL != nil ? "打开 OpenBitFun 授权"
-                    : model.accountBusy ? "正在登录" : "使用邮箱或 GitHub 登录"),
-                elevated: false, primary: true, enabled: canLogin, onAction: model.loginAccount
+                label: model.localized("iOS 登录暂未开放"),
+                elevated: false, primary: true, enabled: false, onAction: model.loginAccount
             )
             .accessibilityIdentifier("account.login")
         }
@@ -164,9 +163,6 @@ struct AccountLoginView: View {
         .padding(.bottom, 44)
     }
 
-    private var canLogin: Bool {
-        !model.accountBusy || model.accountAuthorizationURL != nil
-    }
 }
 
 /// Compact identity card shared by the settings pages (Harmony

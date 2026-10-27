@@ -233,6 +233,66 @@
       "value": "Too many attempts. Try again later."
     },
     {
+      "name": "account_errorInvalidRelay",
+      "value": "Enter a valid relay address."
+    },
+    {
+      "name": "account_errorInvalidPhone",
+      "value": "Enter a valid phone number."
+    },
+    {
+      "name": "account_loginServerChecking",
+      "value": "Checking server…"
+    },
+    {
+      "name": "account_loginServerUnsupported",
+      "value": "This server does not support phone-number sign-in. Update it or choose another relay."
+    },
+    {
+      "name": "account_loginPhoneLabel",
+      "value": "Phone number"
+    },
+    {
+      "name": "account_loginPhonePlaceholder",
+      "value": "Phone number"
+    },
+    {
+      "name": "account_loginCodeLabel",
+      "value": "Verification code"
+    },
+    {
+      "name": "account_loginCodePlaceholder",
+      "value": "6-digit code"
+    },
+    {
+      "name": "account_loginPasswordLabel",
+      "value": "Password"
+    },
+    {
+      "name": "account_loginPasswordPlaceholder",
+      "value": "Account password"
+    },
+    {
+      "name": "account_loginSendCode",
+      "value": "Send code"
+    },
+    {
+      "name": "account_loginResendCode",
+      "value": "Resend ({0}s)"
+    },
+    {
+      "name": "account_loginSendingCode",
+      "value": "Sending…"
+    },
+    {
+      "name": "account_loginUsePassword",
+      "value": "Use password instead"
+    },
+    {
+      "name": "account_loginUseCode",
+      "value": "Use verification code instead"
+    },
+    {
       "name": "home_welcome_login",
       "value": "Sign in"
     },
@@ -1246,11 +1306,11 @@
     },
     {
       "name": "remote_settings_accountLoginTitle",
-      "value": "Sign in with email or GitHub"
+      "value": "Sign in with phone number"
     },
     {
       "name": "remote_settings_accountLoginBody",
-      "value": "Sign in with email or GitHub to connect to your computers.\\nTasks and model settings stay on the controlled computer."
+      "value": "Sign in with your phone number to connect to your computers.\nTasks and model settings stay on the controlled computer."
     },
     {
       "name": "remote_settings_loginServer",
@@ -1258,7 +1318,7 @@
     },
     {
       "name": "remote_settings_accountSignIn",
-      "value": "Sign in with email or GitHub"
+      "value": "Sign in"
     },
     {
       "name": "remote_settings_accountSigningIn",
@@ -2714,7 +2774,7 @@
     },
     {
       "name": "watchProvision_errors_noDesktop",
-      "value": "Sign in with email or GitHub on the phone, or connect a desktop signed in to the same account."
+      "value": "Sign in with your phone number on the phone, or connect a desktop signed in to the same account."
     },
     {
       "name": "watchProvision_errors_accountUnavailable",

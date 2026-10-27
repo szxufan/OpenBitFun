@@ -3,6 +3,12 @@ import type { ConnectionResult, RemoteConnectionMethod, RemoteConnectStatus } fr
 export type RemoteNetworkMethod = 'lan' | 'openbitfun_server';
 export const OFFICIAL_RELAY_URL = 'https://remote.openbitfun.com/v/1.0.2';
 
+/** The relay the host dials for the server method: the self-hosted override
+ *  when configured, the official endpoint otherwise (and on older hosts). */
+export function serverRelayUrl(status: RemoteConnectStatus | null | undefined): string {
+  return normalizeRelayUrl(status?.server_relay_url) ?? OFFICIAL_RELAY_URL;
+}
+
 export function remoteNetworkMethod(method: RemoteConnectionMethod | null | undefined): RemoteNetworkMethod | null {
   if (typeof method === 'object' && method !== null && 'lan' in method) return 'lan';
   return method === 'openbitfun_server' ? 'openbitfun_server' : null;
@@ -40,8 +46,12 @@ export function selectRemoteNetworkConnection(
   requestedMethod?: RemoteNetworkMethod,
 ) {
   const legacyUrl = normalizeRelayUrl(status?.relay_url);
+  // A persisted server-method URL may predate the self-hosted override, so
+  // both the resolved relay and the official endpoint classify as server.
   const legacyMethod = remoteNetworkMethod(status?.active_method)
-    ?? (legacyUrl ? legacyUrl === OFFICIAL_RELAY_URL ? 'openbitfun_server' : 'lan' : null);
+    ?? (legacyUrl
+      ? legacyUrl === serverRelayUrl(status) || legacyUrl === OFFICIAL_RELAY_URL ? 'openbitfun_server' : 'lan'
+      : null);
   const method = requestedMethod ?? remoteNetworkMethod(invitation?.method)
     ?? status?.connections?.find(route => route.relay_connected)?.method ?? legacyMethod;
   const route = status?.connections?.find(route => route.method === method);

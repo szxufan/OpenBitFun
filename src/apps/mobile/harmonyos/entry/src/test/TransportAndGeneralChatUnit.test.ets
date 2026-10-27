@@ -1,6 +1,6 @@
 import { ReadFileChunkResult } from '../main/ets/model/RemoteModels';
 import { GitHubAccountProfile, GitHubProfileLoader, normalizeGitHubProfile, readCachedGitHubProfile } from '../main/ets/services/GitHubAccountProfile';
-import { accountDeviceLink } from '../main/ets/services/AccountDeviceLink';
+import { accountDeviceLink, normalizeManualRelayUrl } from '../main/ets/services/AccountDeviceLink';
 import { describe, it, expect } from '@ohos/hypium';
 import { RemoteI18n } from '../main/ets/i18n/RemoteI18n';
 import { ChatSessionController, ChatSessionSnapshot } from '../main/ets/services/ChatSessionController';
@@ -98,8 +98,8 @@ import {
   CloudProvisionedDevice,
   CloudAccountRequestError,
   CloudAccountSession,
-  CloudAccountTransportError,
-  retryableAuthorizationPollError
+  LocalAccountTokens,
+  RelayLocalAuthUnsupportedError
 } from '../main/ets/services/CloudAccountClient';
 import {
   CloudAccountSessionStore,
@@ -431,6 +431,10 @@ class InMemoryCloudAccountSessionStore extends CloudAccountSessionStore {
   async init(_context: Context): Promise<void> {
   }
 
+  async deviceSecret(): Promise<Uint8Array> {
+    return new Uint8Array(32);
+  }
+
   async save(session: PersistedCloudAccountSession): Promise<void> {
     if (this.failSaves) {
       throw new Error('storage unavailable');
@@ -442,7 +446,7 @@ class InMemoryCloudAccountSessionStore extends CloudAccountSessionStore {
     if (this.failLoads) {
       throw new Error('keystore temporarily unavailable');
     }
-    return undefined;
+    return this.saved.length > 0 ? this.saved[this.saved.length - 1] : undefined;
   }
 
   async clear(): Promise<void> {
@@ -496,6 +500,86 @@ class ProvisioningFailureAccountClient extends TestCloudAccountClient {
   }
 }
 
+/**
+ * Stands in for the relay-local account routes behind an inline sign-in.
+ * `localRefresh` rotates the token pair exactly like the relay, so the
+ * expiry-recovery path can be driven end to end.
+ */
+class LocalAuthAccountClient extends TestCloudAccountClient {
+  localAuthSupported: boolean = true;
+  failFirstListWith401: boolean = false;
+  failRefresh: boolean = false;
+  readonly smsPhones: string[] = [];
+  readonly refreshTokens: string[] = [];
+  readonly exchangedAccessTokens: string[] = [];
+  loginPhone: string = '';
+  loginCode: string = '';
+  loginPassword: string = '';
+  private listCalls: number = 0;
+
+  async relaySupportsLocalAuth(_relayUrl: string): Promise<boolean> {
+    return this.localAuthSupported;
+  }
+
+  async smsSend(_relayUrl: string, phone: string): Promise<void> {
+    this.smsPhones.push(phone);
+  }
+
+  async localLogin(_relayUrl: string, phone: string, code: string = '', password: string = ''): Promise<LocalAccountTokens> {
+    this.loginPhone = phone;
+    this.loginCode = code;
+    this.loginPassword = password;
+    return {
+      accessToken: 'local-access-1',
+      accessExpiresAt: 100,
+      refreshToken: 'local-refresh-1',
+      refreshExpiresAt: 200,
+      user: { userId: 'local-user-1', login: 'local-login', phoneMasked: '138****0000', hasPassword: true }
+    };
+  }
+
+  async localRefresh(_relayUrl: string, refreshToken: string): Promise<LocalAccountTokens> {
+    this.refreshTokens.push(refreshToken);
+    if (this.failRefresh) {
+      throw new CloudAccountRequestError('session expired, sign in again', 401);
+    }
+    const round = this.refreshTokens.length + 1;
+    return {
+      accessToken: `local-access-${round}`,
+      accessExpiresAt: 100 + round,
+      refreshToken: `local-refresh-${round}`,
+      refreshExpiresAt: 200 + round,
+      user: { userId: 'local-user-1', login: 'local-login', phoneMasked: '138****0000', hasPassword: true }
+    };
+  }
+
+  async exchangeDeviceSession(
+    _relayUrl: string,
+    accessToken: string,
+    _deviceId: string,
+    _deviceSecret: Uint8Array
+  ): Promise<CloudAccountSession> {
+    this.exchangedAccessTokens.push(accessToken);
+    return {
+      token: `device-token-${this.exchangedAccessTokens.length}`,
+      userId: 'local-user-1',
+      masterKey: new Uint8Array(_deviceSecret)
+    };
+  }
+
+  async listDevices(
+    _relayUrl: string,
+    _session: CloudAccountSession,
+    _selfDeviceId: string = ''
+  ): Promise<CloudAccountDevice[]> {
+    this.listCalls += 1;
+    if (this.failFirstListWith401 && this.listCalls === 1) {
+      throw new CloudAccountRequestError('device token expired', 401);
+    }
+    return [{ deviceId: 'desk-a', deviceName: 'Desktop A', online: true }];
+  }
+}
+
 class TestGitHubProfileLoader implements GitHubProfileLoader {
   calls: number = 0;
   fail: boolean = false;
@@ -532,7 +616,6 @@ class AccountDeviceSwitchHarness {
   ) {
     this.sessionManager = sessionManager;
     const hooks: CloudAccountSettingsHooks = {
-      openAuthorization: async (_url: string): Promise<boolean> => true,
       deviceId: (): string => 'phone',
       remoteAvailable: (): boolean => true,
       invalidatePreview: (): void => {},
@@ -590,19 +673,24 @@ class AccountDeviceSwitchHarness {
 export default function transportAndGeneralChatUnitTest() {
   describe('Account device links', () => {
     /**
-     * The sign-in poll runs for the minutes the user spends in a browser and a
-     * mail app, which is where a phone most reliably drops a connection. A
-     * single failure there used to end the sign-in and send them back to the
-     * start, so a transport failure or a relay that is briefly unwilling has to
-     * cost one interval, while a refusal the relay meant still stops the loop.
+     * A relay address the user typed is deliberate first-party input: any
+     * absolute origin is fine, including a self-hosted public relay the strict
+     * scanned-link allow-list would refuse. Scanned links must keep resolving
+     * through that allow-list alone.
      */
-    it('keeps polling for sign-in through transport failures but not refusals', 0, () => {
-      expect(retryableAuthorizationPollError(new CloudAccountTransportError(2300007))).assertTrue();
-      expect(retryableAuthorizationPollError(new CloudAccountRequestError('too many polls', 429))).assertTrue();
-      expect(retryableAuthorizationPollError(new CloudAccountRequestError('relay down', 503))).assertTrue();
-      expect(retryableAuthorizationPollError(new CloudAccountRequestError('denied', 401))).assertFalse();
-      expect(retryableAuthorizationPollError(new CloudAccountRequestError('bad request', 400))).assertFalse();
-      expect(retryableAuthorizationPollError(new Error('unparseable relay response'))).assertFalse();
+    it('accepts typed relay addresses the scanned-link allow-list rejects', 0, () => {
+      expect(normalizeManualRelayUrl('https://relay.example.com')).assertEqual('https://relay.example.com');
+      expect(normalizeManualRelayUrl('https://relay.example.com/v/2.0.0/')).assertEqual('https://relay.example.com/v/2.0.0');
+      expect(normalizeManualRelayUrl('http://relay.lan:9700')).assertEqual('http://relay.lan:9700');
+      expect(normalizeManualRelayUrl('https://remote.openbitfun.com/v/1.0.2'))
+        .assertEqual('https://remote.openbitfun.com/v/1.0.2');
+    });
+    it('rejects typed relay addresses that are not absolute http(s) origins', 0, () => {
+      for (const candidate of ['', 'relay.example.com', 'ftp://relay.example.com',
+        'https://relay.example.com/?x=1', 'https://relay.example.com#f', 'https://relay.example.com:0/',
+        'javascript:alert(1)']) {
+        expect(normalizeManualRelayUrl(candidate)).assertEqual('');
+      }
     });
 
     it('uses the same device selector for official and LAN endpoints', 0, () => {
@@ -1267,6 +1355,126 @@ export default function transportAndGeneralChatUnitTest() {
       await harness.controller.initializeCloudAccount({} as Context);
 
       expect(harness.sessionStore.clears).assertEqual(0);
+    });
+
+    it('signs in inline with a verification code and persists the refresh token', 0, async () => {
+      const client = new LocalAuthAccountClient();
+      const harness = new AccountDeviceSwitchHarness(client, new ScriptedAccountSessionManager(), false);
+
+      const userId = await harness.controller.loginCloudAccount({
+        relayUrl: 'https://relay.example.com', phone: '13800000000', code: '123456'
+      });
+
+      expect(userId).assertEqual('local-user-1');
+      expect(client.loginPhone).assertEqual('13800000000');
+      expect(client.loginCode).assertEqual('123456');
+      expect(client.loginPassword).assertEqual('');
+      expect(client.exchangedAccessTokens.length).assertEqual(1);
+      expect(client.exchangedAccessTokens[0]).assertEqual('local-access-1');
+      expect(harness.sessionStore.saved.length).assertEqual(1);
+      expect(harness.sessionStore.saved[0].refreshToken).assertEqual('local-refresh-1');
+      expect(harness.sessionStore.saved[0].relayUrl).assertEqual('https://relay.example.com');
+      expect(harness.remoteState.accountUserId).assertEqual('local-user-1');
+      expect(harness.remoteState.accountUsername).assertEqual('local-login');
+    });
+
+    it('signs in with the optional password for accounts that set one', 0, async () => {
+      const client = new LocalAuthAccountClient();
+      const harness = new AccountDeviceSwitchHarness(client, new ScriptedAccountSessionManager(), false);
+
+      await harness.controller.loginCloudAccount({
+        relayUrl: 'http://192.168.1.10:9700', phone: '13800000000', password: 'secret'
+      });
+
+      expect(client.loginPassword).assertEqual('secret');
+      expect(client.loginCode).assertEqual('');
+      expect(client.exchangedAccessTokens.length).assertEqual(1);
+    });
+
+    it('rejects code and password together and relays without local accounts', 0, async () => {
+      const harness = new AccountDeviceSwitchHarness(new LocalAuthAccountClient(), new ScriptedAccountSessionManager(), false);
+      let message = '';
+      try {
+        await harness.controller.loginCloudAccount({
+          relayUrl: 'https://relay.example.com', phone: '13800000000', code: '123456', password: 'pw'
+        });
+      } catch (err) {
+        message = err instanceof Error ? err.message : String(err);
+      }
+      expect(message).assertEqual('Provide exactly one of verification code or password.');
+
+      const olderRelay = new LocalAuthAccountClient();
+      olderRelay.localAuthSupported = false;
+      const olderRelayHarness = new AccountDeviceSwitchHarness(olderRelay, new ScriptedAccountSessionManager(), false);
+      let unsupported = false;
+      try {
+        await olderRelayHarness.controller.loginCloudAccount({
+          relayUrl: 'https://relay.example.com', phone: '13800000000', code: '123456'
+        });
+      } catch (err) {
+        unsupported = err instanceof RelayLocalAuthUnsupportedError;
+      }
+      expect(unsupported).assertTrue();
+      expect(olderRelayHarness.remoteState.accountUserId).assertEqual('');
+    });
+
+    it('sends verification codes only to relays with local accounts', 0, async () => {
+      const client = new LocalAuthAccountClient();
+      const harness = new AccountDeviceSwitchHarness(client, new ScriptedAccountSessionManager(), false);
+
+      await harness.controller.sendCloudAccountCode('https://relay.example.com', '13800000000');
+      expect(client.smsPhones.length).assertEqual(1);
+      expect(client.smsPhones[0]).assertEqual('13800000000');
+
+      client.localAuthSupported = false;
+      let unsupported = false;
+      try {
+        await harness.controller.sendCloudAccountCode('https://relay.example.com', '13800000000');
+      } catch (err) {
+        unsupported = err instanceof RelayLocalAuthUnsupportedError;
+      }
+      expect(unsupported).assertTrue();
+      expect(client.smsPhones.length).assertEqual(1);
+    });
+
+    it('rotates an expired device token with the refresh token before expiring', 0, async () => {
+      const client = new LocalAuthAccountClient();
+      const harness = new AccountDeviceSwitchHarness(client, new ScriptedAccountSessionManager(), false);
+      await harness.controller.loginCloudAccount({
+        relayUrl: 'https://relay.example.com', phone: '13800000000', code: '123456'
+      });
+      client.failFirstListWith401 = true;
+
+      const devices = await harness.controller.listCloudAccountDevices();
+
+      expect(devices.length).assertEqual(1);
+      expect(client.refreshTokens.length).assertEqual(1);
+      expect(client.refreshTokens[0]).assertEqual('local-refresh-1');
+      expect(client.exchangedAccessTokens.length).assertEqual(2);
+      expect(client.exchangedAccessTokens[1]).assertEqual('local-access-2');
+      expect(harness.sessionStore.saved[harness.sessionStore.saved.length - 1].refreshToken)
+        .assertEqual('local-refresh-2');
+      expect(harness.remoteState.accountUserId).assertEqual('local-user-1');
+    });
+
+    it('falls back to sign-in when the refresh family itself expired', 0, async () => {
+      const client = new LocalAuthAccountClient();
+      const harness = new AccountDeviceSwitchHarness(client, new ScriptedAccountSessionManager(), false);
+      await harness.controller.loginCloudAccount({
+        relayUrl: 'https://relay.example.com', phone: '13800000000', code: '123456'
+      });
+      client.failRefresh = true;
+      client.failFirstListWith401 = true;
+
+      let reported = '';
+      try {
+        await harness.controller.listCloudAccountDevices();
+      } catch (err) {
+        reported = err instanceof Error ? err.message : String(err);
+      }
+
+      expect(reported).assertEqual(RemoteI18n.t('remote.settings.accountExpired'));
+      expect(harness.remoteState.accountUserId).assertEqual('');
     });
 
     it('reports provisioning refusals without falling back to password login', 0, async () => {

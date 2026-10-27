@@ -59,20 +59,9 @@ struct OpenBitFunApp: App {
                         if phase == .background { Self.coldStartProcessClaimed = true; coldStartConsumed = true; showStartupBrand = false; showColdStart = false }
                         model.handleScenePhase(phase)
                     }
-                    .onOpenURL { url in
-                        // The auth page redirects to this scheme after the
-                        // browser completes. The shared account poller is
-                        // already waiting; opening the URL brings this scene
-                        // foreground and the next poll is immediate.
-                        guard url.scheme == "openbitfun",
-                              url.host == "auth",
-                              url.path == "/callback",
-                              url.user == nil,
-                              url.password == nil,
-                              url.query == nil,
-                              url.fragment == nil else { return }
-                        model.notifyAuthorizationCallback()
-                    }
+                    // The browser-based account authorization callback
+                    // (openbitfun://auth/callback) belonged to the retired
+                    // GitHub sign-in flow and no longer has a handler.
                     .environment(\.locale, Locale(identifier: model.appLanguage.rawValue))
             }
         }

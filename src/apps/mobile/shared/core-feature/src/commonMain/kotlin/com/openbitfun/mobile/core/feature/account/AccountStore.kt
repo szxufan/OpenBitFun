@@ -2,6 +2,7 @@ package com.openbitfun.mobile.core.feature.account
 
 import com.openbitfun.mobile.core.feature.relay.HostCatalogNotice
 import com.openbitfun.mobile.core.feature.relay.hostCatalogObserver
+import com.openbitfun.mobile.core.transport.LocalTokenPair
 import com.openbitfun.mobile.core.transport.RemoteSessionStreamTransport
 import com.openbitfun.mobile.core.feature.CoreLog
 import com.openbitfun.mobile.core.feature.session.RemoteSessionStore
@@ -13,9 +14,11 @@ import com.openbitfun.mobile.core.transport.CloudAccountClient
 import com.openbitfun.mobile.core.transport.CloudAccountDevice
 import com.openbitfun.mobile.core.transport.CloudAccountException
 import com.openbitfun.mobile.core.transport.CloudAccountFailure
+import com.openbitfun.mobile.core.transport.CloudAccountLocalAuthException
 import com.openbitfun.mobile.core.transport.CloudAccountSession
 import com.openbitfun.mobile.core.transport.RemoteCommandTransport
 import com.openbitfun.mobile.core.transport.TransportLog
+import com.openbitfun.mobile.core.transport.normalizeConfiguredRelayUrl
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -24,7 +27,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,15 +46,38 @@ internal data class AccountSessionData(
     val masterKey: ByteArray,
     val targetDeviceId: String?,
     val targetDeviceName: String?,
+    /**
+     * The relay-local refresh token behind this session, or null on records
+     * written before relay-local accounts. Null means an expired device token
+     * can only be answered with the sign-in form.
+     */
+    val refreshToken: String? = null,
 )
 
 internal interface AccountBackend {
+    /** Whether this relay serves the relay-local phone-account contract. */
+    suspend fun relaySupportsLocalAuth(relayUrl: String): Boolean
+
+    /** Ask the relay to text a code; a 429 throws with the relay's cooldown. */
+    suspend fun smsSend(relayUrl: String, phone: String)
+
+    /** Sign in with a code or a password (exactly one) and return the pair. */
+    suspend fun localLogin(relayUrl: String, phone: String, code: String?, password: String?): LocalTokenPair
+
+    /** Rotate a refresh token; an expired or replayed token throws. */
+    suspend fun localRefresh(relayUrl: String, refreshToken: String): LocalTokenPair
+
+    /**
+     * The unchanged device exchange: a relay-local [accessToken], this
+     * install's stable X25519 key, and the account session it grants. The key
+     * must be reused across logins, never regenerated.
+     */
     suspend fun login(
         relayUrl: String,
+        accessToken: String,
         deviceId: String,
         deviceName: String,
         deviceSecret: ByteArray,
-        onAuthorization: (String) -> Unit,
     ): AccountSessionData
 
     /** [selfDeviceId] lets the transport drop this device's own row. */
@@ -77,7 +102,17 @@ public class AccountStore internal constructor(
     private val _state = MutableStateFlow<AccountUiState>(AccountUiState.Idle)
     public val state: StateFlow<AccountUiState> = _state.asStateFlow()
     private var session: AccountSessionData? = null
-    private var selectedRelayUrl: String = com.openbitfun.mobile.core.transport.DEFAULT_CLOUD_RELAY_URL
+
+    /**
+     * The relay this install signs in against: user-settable, persisted, and
+     * the endpoint a restored session must belong to. The default is the
+     * official relay; an unparsable or rejected stored value keeps the default
+     * rather than dropping the setting's bytes (a newer build may accept it).
+     */
+    private val _relayUrl = MutableStateFlow(initialConfiguredRelayUrl())
+    public val relayUrl: StateFlow<String> = _relayUrl.asStateFlow()
+    private var selectedRelayUrl: String get() = _relayUrl.value
+        set(value) { _relayUrl.value = value }
     private var catalogScope = CoroutineScope(scope.coroutineContext + kotlinx.coroutines.SupervisorJob())
     private fun closeCatalogs() { catalogScope.coroutineContext[Job]?.cancel(); catalogObservers.clear() }
     private val catalogObservers = mutableMapOf<String, Flow<HostCatalogNotice>>()
@@ -101,47 +136,54 @@ public class AccountStore internal constructor(
     /** Latest account membership snapshot, used to authorize explicit device stores. */
     private var controllableDevices: List<AccountDeviceUi> = emptyList()
     private var pendingInitialDeviceSelection = false
-    private val authorizationWakeups = kotlinx.coroutines.flow.MutableSharedFlow<Long>(extraBufferCapacity = 1)
-    private val authorizationResumes = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    private val authorizationForeground = kotlinx.coroutines.flow.MutableStateFlow(true)
-
-    init {
-        (backend as? CloudBackend)?.setAuthorizationWakeups(
-            authorizationWakeups,
-            authorizationResumes,
-            authorizationForeground,
-        )
-    }
 
     public fun resumeSessionStreams() { backend.resumeSessionStreams() }
 
-    /** Pause browser authorization polling while an OEM has backgrounded the app. */
-    public fun setForeground(value: Boolean) {
-        val wasForeground = authorizationForeground.value
-        authorizationForeground.value = value
-        if (value && !wasForeground) {
-            authorizationResumes.tryEmit(Unit)
-            authorizationWakeups.tryEmit(0L)
-        }
-    }
+    /**
+     * Whether [relayUrl] serves the relay-local sign-in contract. Throws on a
+     * relay that cannot be reached, so a caller can tell "unsupported" from
+     * "unreachable"; see [AccountBackend.relaySupportsLocalAuth].
+     */
+    public suspend fun relaySupportsLocalAuth(relayUrl: String): Boolean = backend.relaySupportsLocalAuth(relayUrl)
 
-    /** Wakes an in-flight browser authorization poll after a native deep link. */
-    public fun notifyAuthorizationCallback() {
-        authorizationWakeups.tryEmit(0L)
+    /**
+     * Ask [relayUrl] to text a sign-in code to [phone]. Form-scoped: it never
+     * touches account state, and every answer arrives as [SmsSendResult]
+     * rather than a transport exception.
+     */
+    public suspend fun sendSmsCode(relayUrl: String, phone: String): SmsSendResult = try {
+        backend.smsSend(relayUrl, phone)
+        SmsSendResult.Sent
+    } catch (rejected: CloudAccountLocalAuthException) {
+        if (rejected.statusCode == 429) {
+            SmsSendResult.Cooldown(
+                rejected.relayMessage,
+                rejected.retryAfterSeconds?.coerceIn(1, 3600)?.toInt() ?: SMS_RESEND_COOLDOWN_SECONDS,
+            )
+        } else {
+            SmsSendResult.Rejected(rejected.failure.toUiReason(), rejected.relayMessage)
+        }
+    } catch (error: CloudAccountException) {
+        SmsSendResult.Rejected(error.failure.toUiReason(), "")
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        SmsSendResult.Rejected(AccountFailureReason.MALFORMED_RESPONSE, "")
     }
 
     public fun dispatch(intent: AccountIntent) {
         when (intent) {
             AccountIntent.Restore -> restore()
-            AccountIntent.Login -> login()
+            is AccountIntent.LocalLogin -> login(intent.relayUrl, intent.phone, intent.code, intent.password)
             is AccountIntent.SelectRelay -> {
-                val endpoint = com.openbitfun.mobile.core.transport.normalizeAccountRelayUrl(intent.relayUrl) ?: return
-                if (session?.relayUrl != endpoint) {
+                val endpoint = normalizeConfiguredRelayUrl(intent.relayUrl) ?: return
+                if (session?.relayUrl != endpoint || selectedRelayUrl != endpoint) {
                     work?.cancel()
                     session?.masterKey?.fill(0)
                     session = null
                     controllableDevices = emptyList()
                     selectedRelayUrl = endpoint
+                    persistConfiguredRelayUrl(endpoint)
                     _state.value = AccountUiState.SignedOut
                 }
             }
@@ -254,16 +296,15 @@ public class AccountStore internal constructor(
                 )
                 return@launch
             }
-            if (restored.relayUrl.trimEnd('/').startsWith("https://remote.openbitfun.com/v/") &&
-                restored.relayUrl.trimEnd('/') != AccountDefaults.CLOUD_RELAY_URL) {
-                // Relay tokens belong to their issuing database. Keep the old encrypted
-                // record/cache, but require a fresh login before using the new endpoint.
-                selectedRelayUrl = AccountDefaults.CLOUD_RELAY_URL
+            if (restored.relayUrl != selectedRelayUrl) {
+                // Relay tokens belong to their issuing database. Keep the old
+                // encrypted record/cache, but require a fresh login before any
+                // byte of it is sent anywhere: the session stays expired until
+                // the user signs in against the configured relay.
                 expireSession(AccountFailureReason.AUTHENTICATION, AccountFailureStage.AUTHENTICATION)
                 return@launch
             }
             session = restored
-            selectedRelayUrl = restored.relayUrl
             // Local credential restoration and remote directory availability are
             // separate facts. Publish identity before any network wait, but grant
             // no target authority until an authenticated membership snapshot arrives.
@@ -281,11 +322,17 @@ public class AccountStore internal constructor(
         // supplied its device directory. No new transport is authorized here.
     }
 
-    private fun login() {
+    private fun login(relayUrl: String, phone: String, code: String?, password: String?) {
         pendingInitialDeviceSelection = false
         work?.cancel()
         _state.value = AccountUiState.SigningIn
         work = scope.launch {
+            val endpoint = normalizeConfiguredRelayUrl(relayUrl)
+            if (endpoint == null) {
+                failLogin(AccountFailureReason.MALFORMED_RESPONSE, AccountFailureStage.AUTHENTICATION)
+                return@launch
+            }
+            selectedRelayUrl = endpoint
             val deviceSecret = try {
                 secureStore.read(DEVICE_KEY)?.also { require(it.size == 32) }
                     ?: (session?.masterKey?.copyOf() ?: CloudAccountClient.generateDeviceSecret()).also {
@@ -295,15 +342,25 @@ public class AccountStore internal constructor(
                 failLogin(AccountFailureReason.SECURE_STORAGE, AccountFailureStage.SECURE_STORAGE)
                 return@launch
             }
-            val loginContext = currentCoroutineContext()
+            val pair = try {
+                backend.localLogin(endpoint, phone, code, password)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (rejected: CloudAccountLocalAuthException) {
+                currentCoroutineContext().ensureActive()
+                failLogin(rejected.failure.toUiReason(), AccountFailureStage.AUTHENTICATION, rejected.relayMessage)
+                return@launch
+            } catch (error: CloudAccountException) {
+                currentCoroutineContext().ensureActive()
+                failLogin(error.failure.toUiReason(), AccountFailureStage.AUTHENTICATION)
+                return@launch
+            } catch (_: Throwable) {
+                currentCoroutineContext().ensureActive()
+                failLogin(AccountFailureReason.MALFORMED_RESPONSE, AccountFailureStage.AUTHENTICATION)
+                return@launch
+            }
             val loggedIn = try {
-                backend.login(
-                    selectedRelayUrl,
-                    deviceId,
-                    deviceName,
-                    deviceSecret,
-                    { url -> if (loginContext.isActive) _state.value = AccountUiState.Authorizing(url) },
-                )
+                backend.login(endpoint, pair.accessToken, deviceId, deviceName, deviceSecret)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: CloudAccountException) {
@@ -320,20 +377,32 @@ public class AccountStore internal constructor(
             } finally {
                 deviceSecret.fill(0)
             }
+            val signIn = loggedIn.copy(
+                username = pair.user.login,
+                refreshToken = pair.refreshToken,
+            )
 
             currentCoroutineContext().ensureActive()
             controllableDevices = emptyList()
-            if (!persistLogin(loggedIn)) return@launch
-            session = loggedIn
+            // The relay the user actually signed in against becomes the
+            // configured relay, so the record this login persists is the one a
+            // later restore compares against.
+            persistConfiguredRelayUrl(signIn.relayUrl)
+            if (!persistLogin(signIn)) return@launch
+            session = signIn
             pendingInitialDeviceSelection = true
 
-            val devices = loadDevices(loggedIn) ?: return@launch
+            val devices = loadDevices(signIn) ?: return@launch
+            // A renewal inside loadDevices may have replaced the session; the
+            // selection below must extend whatever served the list, not the
+            // token the renewal already retired.
+            val active = session ?: return@launch
 
             // Never this device, even as a fallback: driving the phone from
             // the phone is what `canSelectAccountDevice` forbids, and a
             // target nothing can be asked of is worse than none at all.
             val preferred = AccountDevicePolicy.preferredTarget(devices, deviceId)
-            val selected = loggedIn.copy(
+            val selected = active.copy(
                 targetDeviceId = preferred?.id,
                 targetDeviceName = preferred?.name,
             )
@@ -344,8 +413,80 @@ public class AccountStore internal constructor(
         }
     }
 
+    /**
+     * One device-list read, renewing the session first when the relay rejects
+     * an expired token and a refresh token is on record. Only one rotation is
+     * attempted: a second rejection means the refresh token itself is spent,
+     * and the original failure propagates for the caller's expiry handling.
+     *
+     * [DirectoryRead.session] names the session that actually served the list
+     * — the same one passed in, or its renewal — because a successful renewal
+     * replaces [AccountStore.session] and the persisted record, and callers
+     * must extend that session, not the token the renewal retired.
+     */
+    private suspend fun listDevicesWithRenewal(current: AccountSessionData): DirectoryRead {
+        try {
+            return DirectoryRead(current, backend.listDevices(current, deviceId).also { currentCoroutineContext().ensureActive() })
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: CloudAccountException) {
+            currentCoroutineContext().ensureActive()
+            if (error.failure != CloudAccountFailure.AUTHENTICATION) throw error
+            val renewed = current.refreshToken
+                ?.takeIf(String::isNotBlank)
+                ?.let { renewExpiredSession(current) }
+                ?: throw error
+            currentCoroutineContext().ensureActive()
+            session = renewed
+            return DirectoryRead(renewed, backend.listDevices(renewed, deviceId))
+        }
+    }
+
+    /**
+     * Recovers an expired device token through the relay-local refresh token:
+     * rotate the pair, redo the device exchange with the SAME stored X25519
+     * key (reused, never regenerated), and persist the renewed session. Any
+     * failure returns null — the caller then keeps the expired-session
+     * handling, and the stored record stays exactly as it was.
+     */
+    private suspend fun renewExpiredSession(current: AccountSessionData): AccountSessionData? {
+        val refreshToken = current.refreshToken?.takeIf(String::isNotBlank) ?: return null
+        val pair = try {
+            backend.localRefresh(current.relayUrl, refreshToken)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return null
+        }
+        val deviceSecret = try {
+            secureStore.read(DEVICE_KEY)?.also { require(it.size == 32) } ?: return null
+        } catch (_: Throwable) {
+            return null
+        }
+        val renewed = try {
+            backend.login(current.relayUrl, pair.accessToken, deviceId, deviceName, deviceSecret)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return null
+        } finally {
+            deviceSecret.fill(0)
+        }
+        val updated = renewed.copy(
+            username = pair.user.login,
+            refreshToken = pair.refreshToken,
+            targetDeviceId = current.targetDeviceId,
+            targetDeviceName = current.targetDeviceName,
+        )
+        // persistLogin fails closed on a storage fault and publishes the
+        // secure-storage failure itself; a renewal that cannot be saved must
+        // not leave a live in-memory session the next launch cannot restore.
+        if (!persistLogin(updated)) return null
+        return updated
+    }
+
     private suspend fun loadDevices(current: AccountSessionData): List<AccountDeviceUi>? = try {
-        backend.listDevices(current, deviceId).also { currentCoroutineContext().ensureActive() }
+        listDevicesWithRenewal(current).devices.also { currentCoroutineContext().ensureActive() }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (error: CloudAccountException) {
@@ -371,11 +512,14 @@ public class AccountStore internal constructor(
         _state.value = AccountUiState.SigningIn
         work = scope.launch {
             val devices = loadDevices(current) ?: return@launch
-            val preferred = current.targetDeviceId
+            // A renewal inside loadDevices may have replaced the session; the
+            // retry extends whatever served the list.
+            val active = session ?: return@launch
+            val preferred = active.targetDeviceId
                 ?.let { selectedId -> devices.firstOrNull { it.id == selectedId } }
                 ?.takeIf { AccountDevicePolicy.canSelect(it, deviceId) }
                 ?: AccountDevicePolicy.preferredTarget(devices, deviceId)
-            val selected = current.copy(
+            val selected = active.copy(
                 targetDeviceId = preferred?.id,
                 targetDeviceName = preferred?.name,
             )
@@ -413,10 +557,10 @@ public class AccountStore internal constructor(
         }
     }
 
-    private fun failLogin(reason: AccountFailureReason, stage: AccountFailureStage) {
+    private fun failLogin(reason: AccountFailureReason, stage: AccountFailureStage, detail: String? = null) {
         session = null
         controllableDevices = emptyList()
-        _state.value = AccountUiState.Failed(reason, true, stage)
+        _state.value = AccountUiState.Failed(reason, true, stage, detail)
     }
 
     private fun selectDevice(targetId: String) {
@@ -447,10 +591,16 @@ public class AccountStore internal constructor(
         work?.cancel()
         _state.value = ready.copy(refreshing = true, refreshFailure = null)
         work = scope.launch {
+            // A renewal inside the request swaps the token; `served` names the
+            // session this refresh stands for, renewed or not, so the guards
+            // below compare against what actually served the list.
+            var served = current
             try {
-                val devices = backend.listDevices(current, deviceId)
+                val read = listDevicesWithRenewal(current)
+                val devices = read.devices
+                served = read.session
                 currentCoroutineContext().ensureActive()
-                if (session?.token == current.token && session?.relayUrl == current.relayUrl) {
+                if (session?.token == served.token && session?.relayUrl == served.relayUrl) {
                     val active = session!!
                     val selected = if (pendingInitialDeviceSelection) {
                         val preferred = AccountDevicePolicy.preferredTarget(devices, deviceId)
@@ -467,13 +617,13 @@ public class AccountStore internal constructor(
                 if (error.failure == CloudAccountFailure.AUTHENTICATION) {
                     expireSession(error.failure.toUiReason(), AccountFailureStage.DEVICE_LIST)
                 } else {
-                    publishRefreshFailure(current, error.failure.toUiReason())
+                    publishRefreshFailure(served, error.failure.toUiReason())
                 }
             } catch (_: Throwable) {
                 currentCoroutineContext().ensureActive()
-                publishRefreshFailure(current, AccountFailureReason.NETWORK)
+                publishRefreshFailure(served, AccountFailureReason.NETWORK)
             } finally {
-                if (currentCoroutineContext().isActive && directoryDirty && session?.token == current.token && session?.relayUrl == current.relayUrl) { directoryDirty = false; refreshDevices() }
+                if (currentCoroutineContext().isActive && directoryDirty && session?.token == served.token && session?.relayUrl == served.relayUrl) { directoryDirty = false; refreshDevices() }
             }
         }
     }
@@ -605,6 +755,13 @@ public class AccountStore internal constructor(
 
         private const val DEVICE_KEY = "relay_device_private_key_v1"
         private const val SESSION_KEY = "github_device_session_v1"
+        private const val CONFIGURED_RELAY_KEY = "account_relay_url_v1"
+
+        /** The relay's own cooldown window when a 429 carries no explicit one. */
+        internal const val SMS_RESEND_COOLDOWN_SECONDS = 60
+
+        /** The relay a fresh install signs in against; see [AccountDefaults]. */
+        private val DEFAULT_RELAY_URL = com.openbitfun.mobile.core.transport.DEFAULT_CLOUD_RELAY_URL
         private val JSON = Json { ignoreUnknownKeys = true }
 
         private fun encodeRecord(session: AccountSessionData): String = JSON.encodeToString(
@@ -616,6 +773,7 @@ public class AccountStore internal constructor(
                 masterKey = Base64.Default.encode(session.masterKey),
                 targetDeviceId = session.targetDeviceId,
                 targetDeviceName = session.targetDeviceName,
+                refreshToken = session.refreshToken,
             ),
         )
 
@@ -629,136 +787,71 @@ public class AccountStore internal constructor(
                 Base64.Default.decode(record.masterKey),
                 record.targetDeviceId,
                 record.targetDeviceName,
+                // Records written before relay-local accounts carry no refresh
+                // token; such a session simply renews by signing in again.
+                record.refreshToken?.takeIf(String::isNotBlank),
             )
         }
     }
-}
-
-/**
- * The sign-in poll loop, kept apart from its transport so it can be tested.
- *
- * The loop is the whole of the fix it carries: a poll that fails has to be
- * tried again rather than end the sign-in, and only this shape lets a test say
- * so without a relay to fail against.
- */
-internal object AuthorizationPoll {
-    /**
-     * Whether a failed poll should be tried again inside the sign-in window.
-     *
-     * Retry what the next tick could plausibly get past: a dropped connection,
-     * a timeout, a relay that is briefly unavailable, a rate limit that asks
-     * for exactly the wait the loop already does between polls, or a response
-     * that was truncated while an OEM froze and resumed the app. A malformed
-     * HTTP error from the relay still stops immediately.
-     */
-    fun retryable(failure: CloudAccountFailure, statusCode: Int? = null): Boolean = when (failure) {
-        CloudAccountFailure.NETWORK,
-        CloudAccountFailure.TIMEOUT,
-        CloudAccountFailure.RATE_LIMITED,
-        CloudAccountFailure.RELAY_UNAVAILABLE -> true
-        CloudAccountFailure.MALFORMED_RESPONSE -> statusCode == null
-        CloudAccountFailure.INVALID_CREDENTIALS,
-        CloudAccountFailure.AUTHENTICATION -> false
-    }
 
     /**
-     * Polls [poll] until the transaction is authorized, refused, or its window
-     * closes, and returns the access token it was granted.
-     *
-     * The window spans the minutes the user spends in a browser and a mail app,
-     * which is exactly when a phone drops a connection, hops networks, or
-     * sleeps its radio. Ending the sign-in on the first hiccup would send them
-     * back to the start for something the next tick fixes by itself, so a
-     * [retryable] failure only costs one interval. A window that ran out while
-     * every poll was failing surfaces that failure rather than
-     * [CloudAccountFailure.AUTHENTICATION]: the network is what the user can
-     * act on, and the transaction was never actually refused.
+     * Reads the persisted configured relay, keeping the official default on a
+     * missing, unreadable, or (for this build) unacceptable value. The stored
+     * bytes are left alone either way: an unparsable value may belong to a
+     * newer build, and deleting it would be data loss for a setting.
      */
-    suspend fun awaitAccessToken(
-        start: com.openbitfun.mobile.core.transport.GitHubAuthorization,
-        log: TransportLog,
-        nowSeconds: () -> Long = { kotlin.time.Clock.System.now().epochSeconds },
-        wake: kotlinx.coroutines.flow.Flow<Long> = kotlinx.coroutines.flow.flow { kotlinx.coroutines.awaitCancellation() },
-        foreground: kotlinx.coroutines.flow.Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true),
-        resumed: kotlinx.coroutines.flow.Flow<Unit> = emptyFlow(),
-        poll: suspend () -> com.openbitfun.mobile.core.transport.GitHubAuthorizationPoll,
-    ): String {
-        var lastTransient: CloudAccountException? = null
-        var firstPoll = true
-        var attempt = 0
-        while (nowSeconds() < start.expiresAt) {
-            foreground.first { it }
-            // Poll immediately after the browser handoff so a completed
-            // transaction is not held behind the normal server interval.
-            if (!firstPoll) {
-                kotlinx.coroutines.withTimeoutOrNull(start.pollIntervalSeconds.coerceIn(1, 30) * 1000L) {
-                    kotlinx.coroutines.flow.merge(wake.map { Unit }, resumed).first()
-                }
-            }
-            firstPoll = false
-            foreground.first { it }
-            attempt += 1
-            log.info("authorization poll attempt=$attempt")
-            val result = try {
-                poll()
-            } catch (cause: CloudAccountException) {
-                if (!retryable(cause.failure, cause.statusCode)) throw cause
-                lastTransient = cause
-                log.warn("account authorization poll retrying reason=${cause.failure}")
-                continue
-            }
-            lastTransient = null
-            log.info("authorization poll result status=${result.status} hasToken=${!result.tokens?.accessToken.isNullOrEmpty()}")
-            if (result.status == "authorized") {
-                val token = result.tokens?.accessToken
-                if (!token.isNullOrEmpty()) return token
-                break
-            }
-            if (result.status == "expired" || result.status == "denied") break
+    private fun initialConfiguredRelayUrl(): String = try {
+        secureStore.read(CONFIGURED_RELAY_KEY)?.decodeToString()?.let { stored -> normalizeConfiguredRelayUrl(stored) }
+    } catch (_: Throwable) {
+        null
+    } ?: DEFAULT_RELAY_URL
+
+    /**
+     * Best-effort persistence of the configured relay. The in-memory selection
+     * always moves; a store that cannot take the write only loses the setting
+     * across restarts, which never justifies failing an unrelated sign-in.
+     */
+    private fun persistConfiguredRelayUrl(endpoint: String) {
+        try {
+            secureStore.write(CONFIGURED_RELAY_KEY, endpoint.encodeToByteArray())
+        } catch (_: Throwable) {
+            // Intentionally silent; see the KDoc above.
         }
-        throw lastTransient ?: CloudAccountException(CloudAccountFailure.AUTHENTICATION)
     }
 }
+
+/** The session that produced a directory read, and the read itself. */
+private class DirectoryRead(val session: AccountSessionData, val devices: List<AccountDeviceUi>)
 
 private class CloudBackend(
     private val client: CloudAccountClient,
     private val log: TransportLog,
 ) : AccountBackend {
-    private var authorizationWakeups: kotlinx.coroutines.flow.Flow<Long> = emptyFlow()
-    private var authorizationResumes: kotlinx.coroutines.flow.Flow<Unit> = emptyFlow()
-    private var authorizationForeground: kotlinx.coroutines.flow.Flow<Boolean> = kotlinx.coroutines.flow.flowOf(true)
+    override suspend fun relaySupportsLocalAuth(relayUrl: String): Boolean = client.relaySupportsLocalAuth(relayUrl)
 
-    fun setAuthorizationWakeups(
-        wakeups: kotlinx.coroutines.flow.Flow<Long>,
-        resumes: kotlinx.coroutines.flow.Flow<Unit>,
-        foreground: kotlinx.coroutines.flow.Flow<Boolean>,
-    ) {
-        authorizationWakeups = wakeups
-        authorizationResumes = resumes
-        authorizationForeground = foreground
+    override suspend fun smsSend(relayUrl: String, phone: String) = client.smsSend(relayUrl, phone)
+
+    override suspend fun localLogin(relayUrl: String, phone: String, code: String?, password: String?): LocalTokenPair {
+        log.info("local sign-in started")
+        val pair = client.localLogin(relayUrl, phone, code, password)
+        log.info("local sign-in accepted")
+        return pair
+    }
+
+    override suspend fun localRefresh(relayUrl: String, refreshToken: String): LocalTokenPair {
+        val pair = client.localRefresh(relayUrl, refreshToken)
+        log.info("local session renewed")
+        return pair
     }
 
     override suspend fun login(
         relayUrl: String,
+        accessToken: String,
         deviceId: String,
         deviceName: String,
         deviceSecret: ByteArray,
-        onAuthorization: (String) -> Unit,
     ): AccountSessionData {
-        log.info("authorization flow started")
-        val start = client.startAuthorization(relayUrl)
-        log.info("authorization start received expiresAt=${start.expiresAt} pollInterval=${start.pollIntervalSeconds}s")
-        onAuthorization(start.authorizationUrl)
-        val token = AuthorizationPoll.awaitAccessToken(
-            start,
-            log,
-            poll = { client.pollAuthorization(relayUrl, start) },
-            wake = authorizationWakeups,
-            foreground = authorizationForeground,
-            resumed = authorizationResumes,
-        )
-        log.info("authorization poll completed")
-        val session = client.login(relayUrl, token, deviceId, deviceName, deviceSecret)
+        val session = client.login(relayUrl, accessToken, deviceId, deviceName, deviceSecret)
         log.info("account login response accepted")
         return AccountSessionData(
             relayUrl = relayUrl,
@@ -798,6 +891,11 @@ private data class AccountSessionRecord(
     val masterKey: String,
     val targetDeviceId: String?,
     val targetDeviceName: String?,
+    /**
+     * Absent on records written before relay-local accounts; tolerant both
+     * ways so an older build can still read a newer record.
+     */
+    val refreshToken: String? = null,
 )
 
 private fun CloudAccountFailure.toUiReason(): AccountFailureReason = when (this) {

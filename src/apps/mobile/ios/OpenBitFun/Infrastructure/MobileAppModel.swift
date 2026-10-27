@@ -106,7 +106,6 @@ final class MobileAppModel: ObservableObject {
     @Published var accountUserID: String?
     @Published var localDeviceID = ""
     @Published var accountBusy = false
-    @Published var accountAuthorizationURL: URL?
     @Published var accountFailureStage: String?
     @Published var accountFailureCanRetry = false
     @Published var accountDeviceName: String?

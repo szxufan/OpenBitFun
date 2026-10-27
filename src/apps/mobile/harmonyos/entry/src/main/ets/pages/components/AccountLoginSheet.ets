@@ -1,6 +1,7 @@
 import { PAGE_BG } from './Theme';
 import { OpenBitFunAccountLoginPage } from './OpenBitFunAccountLoginPage';
 import { SHEET_TOP_RADIUS } from './SheetLayout';
+import { LocalAccountCredential } from '../../services/CloudAccountClient';
 
 /**
  * Signed-out account request (settings mode 'account'). Settings itself is a
@@ -13,13 +14,22 @@ export struct AccountLoginSheet {
   /** Account login finished: return to the single settings page. */
   @Event onAccountSettled: () => void = () => {};
   @Event cloudCancelLogin: () => void = () => {};
-  @Event cloudLogin: () => Promise<string> = async (): Promise<string> => '';
+  @Event cloudRelayUrl: () => string = (): string => '';
+  @Event cloudProbeRelay: (relayUrl: string) => Promise<boolean> =
+    async (_relayUrl: string): Promise<boolean> => false;
+  @Event cloudSmsSend: (relayUrl: string, phone: string) => Promise<void> =
+    async (_relayUrl: string, _phone: string): Promise<void> => {};
+  @Event cloudLogin: (credential: LocalAccountCredential) => Promise<string> =
+    async (_credential: LocalAccountCredential): Promise<string> => '';
 
   build() {
     Stack() {
       OpenBitFunAccountLoginPage({
         cloudLogin: this.cloudLogin,
         cloudCancelLogin: this.cloudCancelLogin,
+        cloudRelayUrl: this.cloudRelayUrl,
+        cloudProbeRelay: this.cloudProbeRelay,
+        cloudSmsSend: this.cloudSmsSend,
         onClose: this.onClose,
         onLoginSuccess: this.onAccountSettled
       })

@@ -44,6 +44,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CloudAccountClientTest {
@@ -66,18 +67,202 @@ class CloudAccountClientTest {
         assertEquals(null, unsafeAvatar.githubProfile("42")?.avatarUrl)
     }
 
+    /**
+     * The capability probe decides by the answer, not by reachability: an
+     * older relay is a plain "unsupported", while a broken or unreachable one
+     * throws so the form can say which of the two it was.
+     */
     @Test
-    fun authorizationAcceptsTheIdentityAuthorityGithubUrlAndRejectsOtherDestinations() = runTest {
-        for (url in listOf("https://github.com/login/oauth/authorize?state=test", "https://auth.openbitfun.com/sign-in#ticket=test", "https://auth.openbitfun.com.evil.example/sign-in", "https://user@auth.openbitfun.com/sign-in", "https://auth.openbitfun.com:444/sign-in", "https://github.com.evil.example/login/oauth/authorize", "https://github.com/login", "https://user@github.com/login/oauth/authorize", "http://github.com/login/oauth/authorize")) {
-            val engine = MockEngine { json("""{"transactionId":"txn","transactionSecret":"secret","authorizationUrl":"$url","expiresAt":9999999999,"pollIntervalSeconds":3}""") }
-            val client = CloudAccountClient(relayHttpClient(engine))
-            if (url == "https://github.com/login/oauth/authorize?state=test" || url == "https://auth.openbitfun.com/sign-in#ticket=test") assertEquals(url, client.startAuthorization(DEFAULT_CLOUD_RELAY_URL).authorizationUrl)
-            else assertFailsWith<IllegalArgumentException> { client.startAuthorization(DEFAULT_CLOUD_RELAY_URL) }
+    fun relayLocalCapabilityProbeSeparatesUnsupportedFromUnreachable() = runTest {
+        fun clientOf(body: String, status: HttpStatusCode = HttpStatusCode.OK) =
+            CloudAccountClient(relayHttpClient(MockEngine { json(body, status) }))
+
+        assertTrue(clientOf("""{"capabilities":["local_auth_v1","other"]}""").relaySupportsLocalAuth(DEFAULT_CLOUD_RELAY_URL))
+        assertFalse(clientOf("""{"capabilities":["something_else"]}""").relaySupportsLocalAuth(DEFAULT_CLOUD_RELAY_URL))
+        assertFalse(clientOf("""{}""").relaySupportsLocalAuth(DEFAULT_CLOUD_RELAY_URL))
+        // Any 4xx is an older relay without the contract, not a failure.
+        assertFalse(clientOf("{}", HttpStatusCode.NotFound).relaySupportsLocalAuth(DEFAULT_CLOUD_RELAY_URL))
+
+        val broken = assertFailsWith<CloudAccountException> {
+            clientOf("upstream is down", HttpStatusCode.ServiceUnavailable).relaySupportsLocalAuth(DEFAULT_CLOUD_RELAY_URL)
         }
+        assertEquals(CloudAccountFailure.RELAY_UNAVAILABLE, broken.failure)
+
+        val offline = CloudAccountClient(relayHttpClient(MockEngine { throw java.io.IOException("network is gone") }))
+        assertEquals(CloudAccountFailure.NETWORK, assertFailsWith<CloudAccountException> {
+            offline.relaySupportsLocalAuth(DEFAULT_CLOUD_RELAY_URL)
+        }.failure)
     }
 
     @Test
-    fun githubLoginRegistersOnlyThePublicDeviceKey() = runTest {
+    fun smsSendPostsThePhoneAndSurfacesTheRelayCooldownVerbatim() = runTest {
+        val bodies = mutableListOf<String>()
+        val paths = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            if (!request.url.encodedPath.endsWith("/api/auth/local/sms/send")) {
+                error("unexpected path ${request.url.encodedPath}")
+            }
+            paths += request.url.encodedPath
+            bodies += request.text()
+            if (paths.size == 1) json("""{"status":"sent"}""", HttpStatusCode.Accepted)
+            // The relay's own cooldown answer, on the resend.
+            else json("""{"error":"Please wait before requesting another code","retry_after_secs":119}""", HttpStatusCode.TooManyRequests)
+        }
+        val client = CloudAccountClient(relayHttpClient(engine))
+        client.smsSend(DEFAULT_CLOUD_RELAY_URL, "13800138000")
+
+        val cooldown = assertFailsWith<CloudAccountLocalAuthException> {
+            client.smsSend(DEFAULT_CLOUD_RELAY_URL, "13800138000")
+        }
+        assertEquals(CloudAccountFailure.RATE_LIMITED, cooldown.failure)
+        assertEquals(429, cooldown.statusCode)
+        assertEquals("Please wait before requesting another code", cooldown.relayMessage)
+        assertEquals(119L, cooldown.retryAfterSeconds)
+        // The relay's own sentence is for the form; the exception text never
+        // repeats the tokens the request carries.
+        assertEquals(listOf("""{"phone":"13800138000"}""", """{"phone":"13800138000"}"""), bodies)
+        assertEquals(2, paths.size)
+        assertTrue(paths.all { it.endsWith("/api/auth/local/sms/send") })
+    }
+
+    @Test
+    fun localLoginSendsExactlyOneCredentialAndKeepsTheTypedPair() = runTest {
+        val bodies = mutableListOf<JsonObject>()
+        val engine = MockEngine { request ->
+            assertEquals("https://remote.openbitfun.com/v/1.0.2/api/auth/local/login", request.url.toString())
+            bodies += RelayJson.parseToJsonElement(request.text()).jsonObject
+            json("""{"accessToken":"access-1","refreshToken":"refresh-1","accessExpiresAt":1000,"refreshExpiresAt":2000,
+                "user":{"userId":"u-1","login":"alice","phoneMasked":"138****0001","hasPassword":true}}""")
+        }
+        val client = CloudAccountClient(relayHttpClient(engine))
+
+        val byCode = client.localLogin(DEFAULT_CLOUD_RELAY_URL, "13800138000", "123456", null)
+        val byPassword = client.localLogin(DEFAULT_CLOUD_RELAY_URL, "13800138000", null, "hunter2")
+
+        assertEquals(setOf("phone", "code"), bodies[0].keys)
+        assertEquals("123456", bodies[0]["code"]?.jsonPrimitive?.content)
+        assertEquals(setOf("phone", "password"), bodies[1].keys)
+        assertEquals("hunter2", bodies[1]["password"]?.jsonPrimitive?.content)
+        assertEquals("access-1", byCode.accessToken)
+        assertEquals("refresh-1", byCode.refreshToken)
+        assertEquals(1000L, byCode.accessExpiresAt)
+        assertEquals(2000L, byCode.refreshExpiresAt)
+        assertEquals("alice", byCode.user.login)
+        assertEquals("138****0001", byCode.user.phoneMasked)
+        assertTrue(byCode.user.hasPassword)
+        // A redacted shape: the pair prints without either token.
+        assertFalse(byCode.toString().contains("access-1"))
+    }
+
+    @Test
+    fun localLoginRejectsIncompletePairsAndBlankLoginsFallBackToTheUserId() = runTest {
+        val client = CloudAccountClient(relayHttpClient(MockEngine {
+            json("""{"accessToken":"access-1","accessExpiresAt":1,"refreshExpiresAt":2,"user":{"userId":"u-1"}}""")
+        }))
+        assertEquals(CloudAccountFailure.MALFORMED_RESPONSE, assertFailsWith<CloudAccountException> {
+            client.localLogin(DEFAULT_CLOUD_RELAY_URL, "13800138000", "123456", null)
+        }.failure)
+
+        val fallback = CloudAccountClient(relayHttpClient(MockEngine {
+            json("""{"accessToken":"a","refreshToken":"r","accessExpiresAt":1,"refreshExpiresAt":2,"user":{"userId":"u-1","login":"  "}}""")
+        }))
+        assertEquals("u-1", fallback.localLogin(DEFAULT_CLOUD_RELAY_URL, "13800138000", "123456", null).user.login)
+    }
+
+    /**
+     * A rejected local sign-in is quoted, not decoded: the cooldown, the
+     * closed registration, and an unconfigured SMS provider are the relay's
+     * sentences, and the failure kind only selects fallback copy.
+     */
+    @Test
+    fun localAuthRejectionsKeepTheRelaySentenceAndStatus() = runTest {
+        suspend fun rejection(status: HttpStatusCode, body: String): CloudAccountLocalAuthException =
+            assertFailsWith {
+                CloudAccountClient(relayHttpClient(MockEngine { json(body, status) }))
+                    .localLogin(DEFAULT_CLOUD_RELAY_URL, "13800138000", "123456", null)
+            }
+
+        val wrongCode = rejection(HttpStatusCode.Unauthorized, """{"error":"wrong code"}""")
+        assertEquals(CloudAccountFailure.INVALID_CREDENTIALS, wrongCode.failure)
+        assertEquals("wrong code", wrongCode.relayMessage)
+        assertNull(wrongCode.retryAfterSeconds)
+
+        val closed = rejection(HttpStatusCode.Forbidden, """{"error":"registration is closed on this relay"}""")
+        assertEquals(CloudAccountFailure.AUTHENTICATION, closed.failure)
+        assertEquals("registration is closed on this relay", closed.relayMessage)
+
+        val unconfigured = rejection(HttpStatusCode.ServiceUnavailable, "sms provider is not configured")
+        assertEquals(CloudAccountFailure.RELAY_UNAVAILABLE, unconfigured.failure)
+        // A non-JSON body still yields the status; wording is preferred, never required.
+        assertEquals("", unconfigured.relayMessage)
+
+        val badPhone = rejection(HttpStatusCode.BadRequest, "{}")
+        assertEquals(CloudAccountFailure.INVALID_CREDENTIALS, badPhone.failure)
+        assertEquals("", badPhone.relayMessage)
+    }
+
+    @Test
+    fun localRefreshRotatesThePairAndAnExpiredTokenIsSignInAgain() = runTest {
+        val bodies = mutableListOf<JsonObject>()
+        val engine = MockEngine { request ->
+            bodies += RelayJson.parseToJsonElement(request.text()).jsonObject
+            json("""{"accessToken":"access-2","refreshToken":"refresh-2","accessExpiresAt":3000,"refreshExpiresAt":4000,
+                "user":{"userId":"u-1","login":"alice","phoneMasked":"138****0001"}}""")
+        }
+        val client = CloudAccountClient(relayHttpClient(engine))
+        val pair = client.localRefresh(DEFAULT_CLOUD_RELAY_URL, "refresh-1")
+        assertEquals("refresh-2", pair.refreshToken)
+        assertEquals(setOf("refreshToken"), bodies.single().keys)
+
+        val expired = CloudAccountClient(relayHttpClient(MockEngine {
+            json("""{"error":"refresh token expired"}""", HttpStatusCode.Unauthorized)
+        }))
+        val rejected = assertFailsWith<CloudAccountLocalAuthException> {
+            expired.localRefresh(DEFAULT_CLOUD_RELAY_URL, "refresh-1")
+        }
+        assertEquals(CloudAccountFailure.INVALID_CREDENTIALS, rejected.failure)
+        assertEquals(401, rejected.statusCode)
+    }
+
+    @Test
+    fun localLoginRequiresExactlyOneCredential() = runTest {
+        val client = CloudAccountClient(relayHttpClient(MockEngine { json("{}") }))
+        assertFailsWith<IllegalArgumentException> { client.localLogin(DEFAULT_CLOUD_RELAY_URL, "13800138000", null, null) }
+        assertFailsWith<IllegalArgumentException> { client.localLogin(DEFAULT_CLOUD_RELAY_URL, "13800138000", "123456", "hunter2") }
+    }
+
+    /** Mainland-China mobile numbers, gated locally exactly like the relay does. */
+    @Test
+    fun phoneNormalizationMirrorsTheRelay() {
+        assertEquals("13800138000", normalizeAccountPhone("13800138000"))
+        assertEquals("13800138000", normalizeAccountPhone("+86 138-0013-8000"))
+        assertEquals("13800138000", normalizeAccountPhone("8613800138000"))
+        assertNull(normalizeAccountPhone("1380013800"))
+        assertNull(normalizeAccountPhone("23800138000"))
+        assertNull(normalizeAccountPhone("not-a-phone"))
+    }
+
+    /**
+     * The user-settable relay address: https anywhere, plain http only on a
+     * development host. The transport's own account paths accept the same
+     * strings, so a configured relay actually works end to end.
+     */
+    @Test
+    fun configuredRelayUrlAcceptsHttpsAnywhereAndPlainHttpOnlyOnDevelopmentHosts() {
+        assertEquals("https://relay.example.com", normalizeConfiguredRelayUrl("https://relay.example.com/"))
+        assertEquals("https://relay.example.com/v/1", normalizeConfiguredRelayUrl("https://relay.example.com/v/1"))
+        assertEquals(DEFAULT_CLOUD_RELAY_URL, normalizeConfiguredRelayUrl(DEFAULT_CLOUD_RELAY_URL))
+        assertEquals("http://192.168.1.2:9700", normalizeConfiguredRelayUrl("http://192.168.1.2:9700/"))
+        assertEquals("http://localhost:8080", normalizeConfiguredRelayUrl("http://localhost:8080"))
+        assertNull(normalizeConfiguredRelayUrl("http://relay.example.com"))
+        assertNull(normalizeConfiguredRelayUrl("https://user@relay.example.com"))
+        assertNull(normalizeConfiguredRelayUrl("https://relay.example.com?a=1"))
+        assertNull(normalizeConfiguredRelayUrl("ftp://relay.example.com"))
+        assertNull(normalizeConfiguredRelayUrl("not a url"))
+    }
+
+    @Test
+    fun deviceExchangeRegistersOnlyThePublicDeviceKey() = runTest {
         val bodies = mutableListOf<kotlinx.serialization.json.JsonObject>()
         val engine = MockEngine { request ->
             assertEquals("https://remote.openbitfun.com/v/1.0.2/api/auth/login", request.url.toString())
@@ -85,9 +270,9 @@ class CloudAccountClientTest {
             json("""{"token":"token-1","user_id":"123"}""")
         }
         val client = CloudAccountClient(relayHttpClient(engine))
-        val first = client.login(DEFAULT_CLOUD_RELAY_URL, "verified-identity", "device-1", "Android", ByteArray(32) { 7 })
-        val second = client.login(DEFAULT_CLOUD_RELAY_URL, "verified-identity", "device-2", "iOS", ByteArray(32) { 11 })
-        assertEquals("verified-identity", bodies[0]["access_token"]?.jsonPrimitive?.content)
+        val first = client.login(DEFAULT_CLOUD_RELAY_URL, "local-access-token", "device-1", "Android", ByteArray(32) { 7 })
+        val second = client.login(DEFAULT_CLOUD_RELAY_URL, "local-access-token", "device-2", "iOS", ByteArray(32) { 11 })
+        assertEquals("local-access-token", bodies[0]["access_token"]?.jsonPrimitive?.content)
         assertEquals(Base64.Default.encode(DeviceIdentity.publicKey(first.masterKey)), bodies[0]["public_key"]?.jsonPrimitive?.content)
         assertFalse(first.masterKey.contentEquals(second.masterKey))
         assertFalse(bodies[0].containsKey("password"))
@@ -457,5 +642,5 @@ private data class RemoteWorkspaceProbe(val path: String, val title: String)
 
 private suspend fun HttpRequestData.text(): String = body.toByteArray().decodeToString()
 
-private fun MockRequestHandleScope.json(body: String) =
-    respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
+private fun MockRequestHandleScope.json(body: String, status: HttpStatusCode = HttpStatusCode.OK) =
+    respond(body, status, headersOf(HttpHeaders.ContentType, "application/json"))

@@ -32,12 +32,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  meta:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Strip the tag prefix
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
   relay-archives:
     name: Relay and CLI archives
+    needs: [meta]
     uses: ./.github/workflows/linux-binaries.yml
     with:
       checkout_ref: ${{ github.ref_name }}
-      version: ${{ github.ref_name }}
+      version: ${{ needs.meta.outputs.version }}
       artifact_prefix: ${{ github.ref_name }}
       upload_artifacts: true
 
@@ -90,12 +102,12 @@ jobs:
 
   publish:
     name: Publish fork release
-    needs: [relay-archives, desktop-packages]
+    needs: [meta, relay-archives, desktop-packages]
     runs-on: ubuntu-latest
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/openbitfun-relay-server
       RELEASE_TAG: ${{ github.ref_name }}
-      RELEASE_VERSION: ${{ github.ref_name }}
+      RELEASE_VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:

@@ -178,7 +178,7 @@ public class CloudAccountClient internal constructor(
     private val realtime = MutableStateFlow<Connection?>(null)
 
     private fun connection(relayUrl: String, token: String): AccountRpcConnection {
-        val url = requireNotNull(normalizeAccountRelayUrl(relayUrl))
+        val url = requireNotNull(normalizeRelayEndpointUrl(relayUrl))
         while (true) {
             val current = realtime.value
             if (current != null && current.url == url && current.token == token) return current.socket
@@ -235,18 +235,73 @@ public class CloudAccountClient internal constructor(
             it.trim().lowercase()
         }
 
-    public suspend fun startAuthorization(relayUrl: String): GitHubAuthorization = request(
-        relayUrl, "/api/auth/github/start?methods=all", HttpMethod.Post,
-        JsonObject.serializer(), JsonObject(emptyMap()), GitHubAuthorization.serializer(), "", RELAY_DEFAULT_TIMEOUT_MS,
-    ).also {
-        val url = io.ktor.http.Url(it.authorizationUrl)
-        require(url.protocol.name == "https" && ((url.host == "github.com" && url.encodedPath == "/login/oauth/authorize") || (url.host == "auth.openbitfun.com" && url.encodedPath == "/sign-in")) && url.port == 443 && url.user == null && url.password == null)
+    /**
+     * Whether this relay serves the relay-local phone-account contract.
+     *
+     * A 2xx answer is decided by its `capabilities` list; any 4xx is an older
+     * relay that does not serve the contract, which reads as a plain `false`
+     * rather than an error. A 5xx answer or a network failure throws: the two
+     * ask for different UI ("temporarily unavailable" and "relay unreachable")
+     * and neither may be reported as "unsupported", which would tell the user
+     * to give up on a relay that merely needs a retry or a connection.
+     */
+    public suspend fun relaySupportsLocalAuth(relayUrl: String): Boolean {
+        val (status, text) = perform(relayUrl, "/api/info", HttpMethod.Get, null, "", RELAY_DEFAULT_TIMEOUT_MS)
+        if (status in 400..499) return false
+        if (status !in 200..299) throw statusFailure(status)
+        val capabilities = try {
+            withContext(processingDispatcher) {
+                RelayJson.parseToJsonElement(text).jsonObject["capabilities"]
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            throw CloudAccountException(CloudAccountFailure.MALFORMED_RESPONSE)
+        }
+        return capabilities is kotlinx.serialization.json.JsonArray &&
+            "local_auth_v1" in capabilities.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
     }
 
-    public suspend fun pollAuthorization(relayUrl: String, start: GitHubAuthorization): GitHubAuthorizationPoll = request(
-        relayUrl, "/api/auth/github/poll", HttpMethod.Post,
-        GitHubPollRequest.serializer(), GitHubPollRequest(start.transactionId, start.transactionSecret),
-        GitHubAuthorizationPoll.serializer(), "", RELAY_DEFAULT_TIMEOUT_MS,
+    /**
+     * Ask the relay to text a verification code to [phone].
+     *
+     * The relay remains the authority on phone shape and cooldown; a 429
+     * throws [CloudAccountLocalAuthException] carrying the relay's own sentence
+     * and [CloudAccountLocalAuthException.retryAfterSeconds], which the form
+     * must honor for its resend countdown.
+     */
+    public suspend fun smsSend(relayUrl: String, phone: String) {
+        localAuthRequest(
+            relayUrl, "/api/auth/local/sms/send",
+            SmsSendRequest.serializer(), SmsSendRequest(phone),
+        )
+    }
+
+    /**
+     * Sign in with an SMS code (registering the account on first use) or, for
+     * an account that set one, its password. Exactly one of [code] and
+     * [password] is sent.
+     */
+    public suspend fun localLogin(relayUrl: String, phone: String, code: String?, password: String?): LocalTokenPair {
+        require(code.isNullOrBlank() != password.isNullOrBlank()) { "Exactly one of code or password is required." }
+        return decodeLocalPair(
+            localAuthRequest(
+                relayUrl, "/api/auth/local/login",
+                LocalLoginRequest.serializer(), LocalLoginRequest(phone, code?.takeIf(String::isNotBlank), password?.takeIf(String::isNotBlank)),
+            ),
+        )
+    }
+
+    /**
+     * Rotate a refresh token into a fresh pair. A 401 (expired or replayed
+     * token) throws, and the caller must treat that as "sign in again" rather
+     * than retry.
+     */
+    public suspend fun localRefresh(relayUrl: String, refreshToken: String): LocalTokenPair = decodeLocalPair(
+        localAuthRequest(
+            relayUrl, "/api/auth/local/refresh",
+            LocalRefreshRequest.serializer(), LocalRefreshRequest(refreshToken),
+        ),
     )
 
     @OptIn(ExperimentalUuidApi::class)
@@ -390,7 +445,7 @@ public class CloudAccountClient internal constructor(
      */
     private val peerKeys = MutableStateFlow<Map<String, ByteArray>>(emptyMap())
     private suspend fun peerMessageKey(relayUrl: String, session: CloudAccountSession, target: String): ByteArray {
-        val cacheId = requireNotNull(normalizeAccountRelayUrl(relayUrl)) + "|" + session.userId + "|" + target
+        val cacheId = requireNotNull(normalizeRelayEndpointUrl(relayUrl)) + "|" + session.userId + "|" + target
         peerKeys.value[cacheId]?.let { return it }
         val peer = requestWithoutBody(relayUrl,
             "/api/devices/" + encodePathSegment(target) + "/key", HttpMethod.Get,
@@ -477,10 +532,70 @@ public class CloudAccountClient internal constructor(
         token: String,
         timeoutMs: Long,
     ): Response {
-        val authorizationPath = path.startsWith("/api/auth/github") || path == "/api/auth/login"
-        if (authorizationPath) log.info("account request started method=${method.value} path=$path")
+        val (status, text) = perform(relayUrl, path, method, body, token, timeoutMs)
+        if (status !in 200..299) {
+            log.warn("account request rejected path=$path status=$status")
+            throw statusFailure(status)
+        }
+        return try {
+            withContext(processingDispatcher) { RelayJson.decodeFromString(deserializer, text) }.also {
+                if (accountBreadcrumb(path)) log.info("account response decoded path=$path")
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (cause: Throwable) {
+            // The body itself is never logged: it carries whatever the desktop
+            // was asked for, and on this path that is the user's own sessions.
+            log.error("account response undecodable path=$path bytes=${text.length} ${decodeDetail(cause)}")
+            throw CloudAccountException(CloudAccountFailure.MALFORMED_RESPONSE, null, cause)
+        }
+    }
+
+    /**
+     * One relay-local auth round trip. Answers carry the relay's own sentences
+     * for the form, so a non-2xx status is turned into
+     * [CloudAccountLocalAuthException] with that wording (and the cooldown on a
+     * 429) instead of the generic status mapping [execute] applies.
+     */
+    private suspend fun <Request> localAuthRequest(
+        relayUrl: String,
+        path: String,
+        serializer: SerializationStrategy<Request>,
+        body: Request,
+    ): JsonObject {
+        val (status, text) = perform(
+            relayUrl, path, HttpMethod.Post,
+            withContext(processingDispatcher) { RelayJson.encodeToString(serializer, body) },
+            "", RELAY_DEFAULT_TIMEOUT_MS,
+        )
+        if (status !in 200..299) throw localAuthFailure(status, text)
+        return try {
+            withContext(processingDispatcher) { RelayJson.parseToJsonElement(text).jsonObject }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            log.error("account response undecodable path=$path bytes=${text.length}")
+            throw CloudAccountException(CloudAccountFailure.MALFORMED_RESPONSE)
+        }
+    }
+
+    /**
+     * Sends one request and returns its status and body text. Transport-level
+     * failures (offline, timeout) are normalized to [CloudAccountException]
+     * here so every caller reports them the same way.
+     */
+    private suspend fun perform(
+        relayUrl: String,
+        path: String,
+        method: HttpMethod,
+        body: String?,
+        token: String,
+        timeoutMs: Long,
+    ): Pair<Int, String> {
+        val breadcrumb = accountBreadcrumb(path)
+        if (breadcrumb) log.info("account request started method=${method.value} path=$path")
         val response = try {
-            client.request(requireNotNull(normalizeAccountRelayUrl(relayUrl)) + path) {
+            client.request(requireNotNull(normalizeRelayEndpointUrl(relayUrl)) + path) {
                 this.method = method
                 contentType(ContentType.Application.Json)
                 accept(ContentType.Application.Json)
@@ -498,24 +613,12 @@ public class CloudAccountClient internal constructor(
             throw CloudAccountException(CloudAccountFailure.NETWORK, null, cause)
         }
         val text = response.bodyAsText()
-        if (authorizationPath) log.info("account response received path=$path status=${response.status.value} bytes=${text.length}")
-        if (response.status.value !in 200..299) {
-            log.warn("account request rejected path=$path status=${response.status.value}")
-            throw statusFailure(response.status.value)
-        }
-        return try {
-            withContext(processingDispatcher) { RelayJson.decodeFromString(deserializer, text) }.also {
-                if (authorizationPath) log.info("account response decoded path=$path")
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (cause: Throwable) {
-            // The body itself is never logged: it carries whatever the desktop
-            // was asked for, and on this path that is the user's own sessions.
-            log.error("account response undecodable path=$path bytes=${text.length} ${decodeDetail(cause)}")
-            throw CloudAccountException(CloudAccountFailure.MALFORMED_RESPONSE, null, cause)
-        }
+        if (breadcrumb) log.info("account response received path=$path status=${response.status.value} bytes=${text.length}")
+        return response.status.value to text
     }
+
+    private fun accountBreadcrumb(path: String): Boolean =
+        path.startsWith("/api/auth/") || path == "/api/info"
 
     /** GitHub public metadata only: never attach the relay token or master key. */
     public suspend fun githubProfile(userId: String): GitHubProfile? {
@@ -608,24 +711,149 @@ private fun CloudAccountFailure.asRelayFailure(): RelayFailure = when (this) {
  */
 private const val HTTP_SERVER_ERROR = 500
 
+/** The account profile a relay-local sign-in returns with every token pair. */
 @Serializable
-public data class GitHubAuthorization(
-    public val transactionId: String,
-    public val transactionSecret: String,
-    public val authorizationUrl: String,
-    public val expiresAt: Long,
-    public val pollIntervalSeconds: Int,
+public data class LocalAccountUser public constructor(
+    public val userId: String,
+    public val login: String,
+    public val phoneMasked: String,
+    public val hasPassword: Boolean,
+)
+
+/**
+ * One relay-local access/refresh pair. The access token feeds the unchanged
+ * device exchange ([CloudAccountClient.login]); the refresh token renews it
+ * without a fresh SMS sign-in.
+ */
+@Serializable
+public data class LocalTokenPair public constructor(
+    public val accessToken: String,
+    public val refreshToken: String,
+    public val accessExpiresAt: Long,
+    public val refreshExpiresAt: Long,
+    public val user: LocalAccountUser,
 ) {
-    override fun toString(): String = "GitHubAuthorization(<redacted>)"
+    override fun toString(): String = "LocalTokenPair(<redacted>)"
 }
-@Serializable
-private data class GitHubPollRequest(val transactionId: String, val transactionSecret: String)
-@Serializable
-public data class GitHubAuthorizationPoll(public val status: String, public val tokens: GitHubTokens? = null)
-@Serializable
-public data class GitHubTokens(public val accessToken: String) {
-    override fun toString(): String = "GitHubTokens(<redacted>)"
+
+/**
+ * A relay-local auth answer the form must quote rather than map onto a reason
+ * code: a cooldown, a closed registration, an unconfigured SMS provider.
+ *
+ * Unlike [CloudAccountException.detail] — which is log-only — [relayMessage]
+ * is the relay's own user-facing sentence and is meant for the UI. It is
+ * echoed verbatim, never matched on, the same rule the paired transport
+ * applies to a desktop's rejection wording.
+ */
+public class CloudAccountLocalAuthException public constructor(
+    /** The closest [CloudAccountFailure] kind; selects fallback copy, never overrides [relayMessage]. */
+    public val failure: CloudAccountFailure,
+    public val statusCode: Int,
+    public val relayMessage: String,
+    /** Present on a 429: the relay's own cooldown in seconds. */
+    public val retryAfterSeconds: Long? = null,
+) : IllegalStateException(
+    "Relay-local auth request failed: HTTP $statusCode" + (relayMessage.takeIf(String::isNotEmpty)?.let { " ($it)" } ?: ""),
+) {
+    override fun toString(): String = "CloudAccountLocalAuthException(failure=$failure status=$statusCode retryAfterSeconds=$retryAfterSeconds)"
 }
+
+/**
+ * Normalizes a mainland-China mobile number for the relay-local account API.
+ *
+ * Mirrors the relay's own `normalize_phone` so a form can gate the send-code
+ * action locally; the relay re-validates and remains the authority.
+ */
+public fun normalizeAccountPhone(raw: String): String? {
+    val trimmed = raw.replace(Regex("[\\s-]+"), "")
+    val digits = when {
+        trimmed.startsWith("+86") -> trimmed.substring(3)
+        trimmed.startsWith("86") && trimmed.length == 13 -> trimmed.substring(2)
+        else -> trimmed
+    }
+    return digits.takeIf { Regex("^1[3-9]\\d{9}$").matches(it) }
+}
+
+@Serializable
+private data class SmsSendRequest(val phone: String)
+
+/** Exactly one of [code] / [password] is non-null; `explicitNulls = false` drops the other. */
+@Serializable
+private data class LocalLoginRequest(val phone: String, val code: String? = null, val password: String? = null)
+
+@Serializable
+private data class LocalRefreshRequest(val refreshToken: String)
+
+@Serializable
+private data class LocalAccountUserWire(
+    val userId: String? = null,
+    val login: String? = null,
+    val phoneMasked: String? = null,
+    val hasPassword: Boolean = false,
+)
+
+@Serializable
+private data class LocalTokenPairWire(
+    val accessToken: String? = null,
+    val refreshToken: String? = null,
+    val accessExpiresAt: Long? = null,
+    val refreshExpiresAt: Long? = null,
+    val user: LocalAccountUserWire? = null,
+)
+
+private fun decodeLocalPair(value: JsonObject): LocalTokenPair {
+    val wire = try {
+        RelayJson.decodeFromJsonElement(LocalTokenPairWire.serializer(), value)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        throw CloudAccountException(CloudAccountFailure.MALFORMED_RESPONSE)
+    }
+    val account = wire.user
+    val userId = account?.userId
+    if (wire.accessToken.isNullOrBlank() || wire.refreshToken.isNullOrBlank() ||
+        wire.accessExpiresAt == null || wire.refreshExpiresAt == null || userId.isNullOrBlank()
+    ) {
+        throw CloudAccountException(CloudAccountFailure.MALFORMED_RESPONSE)
+    }
+    return LocalTokenPair(
+        accessToken = wire.accessToken,
+        refreshToken = wire.refreshToken,
+        accessExpiresAt = wire.accessExpiresAt,
+        refreshExpiresAt = wire.refreshExpiresAt,
+        user = LocalAccountUser(
+            userId = userId,
+            login = account.login?.takeIf(String::isNotBlank) ?: userId,
+            phoneMasked = account.phoneMasked?.takeIf(String::isNotBlank) ?: "",
+            hasPassword = account.hasPassword,
+        ),
+    )
+}
+
+@Serializable
+private data class LocalAuthErrorWire(val error: String? = null, @SerialName("retry_after_secs") val retryAfterSecs: Long? = null)
+
+/**
+ * Turns a rejected relay-local auth answer into the exception the form reads.
+ * A body that is not JSON, or not the error shape, still yields the status:
+ * the relay's wording is preferred, never required.
+ */
+private fun localAuthFailure(status: Int, text: String): CloudAccountLocalAuthException {
+    val wire = try {
+        RelayJson.decodeFromString(LocalAuthErrorWire.serializer(), text)
+    } catch (_: Throwable) {
+        null
+    }
+    val failure = when (status) {
+        400, 401 -> CloudAccountFailure.INVALID_CREDENTIALS
+        403 -> CloudAccountFailure.AUTHENTICATION
+        429 -> CloudAccountFailure.RATE_LIMITED
+        in 500..599 -> CloudAccountFailure.RELAY_UNAVAILABLE
+        else -> CloudAccountFailure.MALFORMED_RESPONSE
+    }
+    return CloudAccountLocalAuthException(failure, status, wire?.error?.takeIf(String::isNotBlank) ?: "", wire?.retryAfterSecs?.takeIf { it > 0 })
+}
+
 @Serializable
 private data class LoginRequest(
     @SerialName("access_token") val accessToken: String,

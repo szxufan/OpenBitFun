@@ -10,6 +10,8 @@ const STORE_NAME: string = HarmonyUpgradeIdentityContract.CLOUD_ACCOUNT_STORE;
 const CIPHER_KEY: string = 'github_device_session_v1_cipher';
 const IV_KEY: string = 'github_device_session_v1_iv';
 const HUKS_ALIAS: string = HarmonyUpgradeIdentityContract.CLOUD_ACCOUNT_HUKS_ALIAS;
+/** Unsealed key: the relay address is a user preference, not a secret. */
+const SELECTED_RELAY_KEY: string = 'account_relay_url_v1';
 
 export interface PersistedCloudAccountSession {
   relayUrl: string;
@@ -17,6 +19,11 @@ export interface PersistedCloudAccountSession {
   token: string;
   userId: string;
   masterKey: string;
+  /**
+   * Relay-local refresh token. Absent on GitHub-era records, which must keep
+   * loading: those sessions simply cannot be refreshed in place.
+   */
+  refreshToken?: string;
   targetDeviceId?: string;
   targetDeviceName?: string;
 }
@@ -96,6 +103,26 @@ export class CloudAccountSessionStore {
 
   async save(session: PersistedCloudAccountSession): Promise<void> {
     await this.writeSealed(CIPHER_KEY, IV_KEY, JSON.stringify(session));
+  }
+
+  /** The relay address the sign-in form prefills; absent means the official default. */
+  async loadSelectedRelayUrl(): Promise<string | undefined> {
+    try {
+      const value = await this.requireStore().get(SELECTED_RELAY_KEY, '');
+      return typeof value === 'string' && value.length > 0 ? value : undefined;
+    } catch (err) {
+      throw OhosError.wrap('cloud account relay load', err);
+    }
+  }
+
+  async saveSelectedRelayUrl(relayUrl: string): Promise<void> {
+    try {
+      const store = this.requireStore();
+      await store.put(SELECTED_RELAY_KEY, relayUrl);
+      await store.flush();
+    } catch (err) {
+      throw OhosError.wrap('cloud account relay save', err);
+    }
   }
 
   async loadWatchProvisionIdentity(relayUrl: string, userId: string,

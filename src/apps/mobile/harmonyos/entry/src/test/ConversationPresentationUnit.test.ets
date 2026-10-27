@@ -1,5 +1,9 @@
 import { RemoteResponseMapper } from '../main/ets/services/RemoteResponseMapper';
 import { AccountLoginErrorPolicy } from '../main/ets/pages/policy/AccountLoginErrorPolicy';
+import {
+  CloudAccountRequestError,
+  RelayLocalAuthUnsupportedError
+} from '../main/ets/services/CloudAccountClient';
 import { describe, it, expect } from '@ohos/hypium';
 import { RemoteI18n } from '../main/ets/i18n/RemoteI18n';
 import { ChatComposerPolicy, ComposerPrimaryAction } from '../main/ets/services/ChatComposerPolicy';
@@ -841,6 +845,24 @@ export default function conversationPresentationUnitTest() {
         .assertEqual('remote.settings.accountLoginFailed');
       expect(AccountLoginErrorPolicy.messageKey({ statusCode: 500 } as LoginFailureFixture))
         .assertEqual('remote.settings.accountLoginFailed');
+    });
+    it('surfaces relay-authored refusals verbatim', 0, () => {
+      expect(AccountLoginErrorPolicy.relayMessage(new CloudAccountRequestError('invalid verification code', 401)))
+        .assertEqual('invalid verification code');
+      expect(AccountLoginErrorPolicy.relayMessage(new CloudAccountRequestError('registration is closed on this relay', 403)))
+        .assertEqual('registration is closed on this relay');
+      expect(AccountLoginErrorPolicy.relayMessage(new RelayLocalAuthUnsupportedError('unsupported copy')))
+        .assertEqual('unsupported copy');
+    });
+    it('keeps transport failures on the localized copy path', 0, () => {
+      expect(AccountLoginErrorPolicy.relayMessage(new Error('raw SDK JSON'))).assertEqual('');
+      expect(AccountLoginErrorPolicy.relayMessage({ code: 2300006 } as LoginFailureFixture)).assertEqual('');
+    });
+    it('reads the relay cooldown from rate-limit refusals only', 0, () => {
+      expect(AccountLoginErrorPolicy.retryAfterSecs(new CloudAccountRequestError('please wait', 429, 37))).assertEqual(37);
+      expect(AccountLoginErrorPolicy.retryAfterSecs(new CloudAccountRequestError('please wait', 429))).assertEqual(0);
+      expect(AccountLoginErrorPolicy.retryAfterSecs(new CloudAccountRequestError('denied', 401, 90))).assertEqual(90);
+      expect(AccountLoginErrorPolicy.retryAfterSecs(new Error('raw SDK JSON'))).assertEqual(0);
     });
   });
 

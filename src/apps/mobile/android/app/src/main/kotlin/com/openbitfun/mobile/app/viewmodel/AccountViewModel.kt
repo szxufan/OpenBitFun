@@ -8,9 +8,11 @@ import androidx.lifecycle.viewModelScope
 import com.openbitfun.mobile.app.platform.LogcatCoreLog
 import com.openbitfun.mobile.app.platform.LEGACY_MOBILE_DEVICE_NAMES
 import com.openbitfun.mobile.app.platform.deviceIdentity
+import com.openbitfun.mobile.core.feature.account.AccountDefaults
 import com.openbitfun.mobile.core.feature.account.AccountIntent
 import com.openbitfun.mobile.core.feature.account.AccountStore
 import com.openbitfun.mobile.core.feature.account.AccountUiState
+import com.openbitfun.mobile.core.feature.account.SmsSendResult
 import com.openbitfun.mobile.core.feature.account.create
 import com.openbitfun.mobile.core.feature.connection.ConnectionPhase
 import com.openbitfun.mobile.core.feature.session.RemoteSessionIntent
@@ -20,18 +22,53 @@ import com.openbitfun.mobile.core.feature.session.WorkspaceSessionDirectoryUiSta
 import com.openbitfun.mobile.core.feature.workspace.RemoteWorkspaceIntent
 import com.openbitfun.mobile.core.feature.workspace.RemoteWorkspaceStore
 import com.openbitfun.mobile.core.feature.workspace.RemoteWorkspaceUiState
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+/** What the sign-in form knows about the relay the address field names. */
+internal enum class LocalRelayReadiness { PROBING, READY, UNSUPPORTED, UNREACHABLE }
+
+/** An error the sign-in form can state without a screen of its own. */
+internal sealed interface LocalSignInError {
+    /** The relay's own sentence (cooldown, registration closed, SMS not configured). */
+    data class RelayMessage(val text: String) : LocalSignInError
+
+    /** A transport fact with established local copy. */
+    data class Reason(val reason: com.openbitfun.mobile.core.feature.account.AccountFailureReason) : LocalSignInError
+}
+
+/** The relay-local sign-in form; account-level facts stay in [AccountUiState]. */
+internal data class LocalSignInForm(
+    val relayUrl: String = "",
+    val phone: String = "",
+    val code: String = "",
+    val password: String = "",
+    val usePassword: Boolean = false,
+    val readiness: LocalRelayReadiness = LocalRelayReadiness.PROBING,
+    val sending: Boolean = false,
+    val cooldownSeconds: Int = 0,
+    val error: LocalSignInError? = null,
+) {
+    val normalizedPhone: String? get() = AccountDefaults.normalizePhone(phone)
+    val relayAddressValid: Boolean get() = AccountDefaults.normalizeRelayUrl(relayUrl) != null
+    val canSendCode: Boolean
+        get() = readiness == LocalRelayReadiness.READY && !sending && cooldownSeconds == 0 &&
+            normalizedPhone != null && !usePassword
+    val canSignIn: Boolean
+        get() = readiness == LocalRelayReadiness.READY && relayAddressValid &&
+            normalizedPhone != null && (if (usePassword) password.isNotBlank() else code.length == 6)
+}
 
 internal class AccountViewModel(application: Application) : AndroidViewModel(application) {
     private val completionNotifier = com.openbitfun.mobile.app.platform.TaskCompletionNotifier(application)
     private var foreground = true
     fun setBackground(value: Boolean) {
         LogcatCoreLog.info("account host visibility foreground=${!value}")
-        store.setForeground(!value)
         if (!value) store.resumeSessionStreams()
         foreground = !value
         completionNotifier.setBackground(value)
@@ -47,6 +84,136 @@ internal class AccountViewModel(application: Application) : AndroidViewModel(app
         LEGACY_MOBILE_DEVICE_NAMES,
     )
     val state: StateFlow<AccountUiState> = store.state
+    val relayUrl: StateFlow<String> = store.relayUrl
+
+    /** The local sign-in form's editable state and its relay probe. */
+    private val _signInForm = MutableStateFlow(LocalSignInForm())
+    val signInForm: StateFlow<LocalSignInForm> = _signInForm.asStateFlow()
+    private var probeJob: Job? = null
+    private var cooldownJob: Job? = null
+    private var probedRelayUrl: String? = null
+
+    init {
+        _signInForm.value = LocalSignInForm(relayUrl = store.relayUrl.value)
+        probeRelay(store.relayUrl.value)
+    }
+
+    fun updateSignInRelay(value: String) {
+        val current = _signInForm.value
+        _signInForm.value = current.copy(relayUrl = value, error = null)
+        val endpoint = AccountDefaults.normalizeRelayUrl(value) ?: return
+        if (endpoint != probedRelayUrl) {
+            _signInForm.value = _signInForm.value.copy(readiness = LocalRelayReadiness.PROBING)
+            probeJob?.cancel()
+            probeJob = viewModelScope.launch {
+                delay(RELAY_PROBE_SETTLE_MS)
+                probeRelay(endpoint)
+            }
+        }
+    }
+
+    fun updateSignInPhone(value: String) {
+        _signInForm.value = _signInForm.value.copy(phone = value.filter(Char::isDigit).take(13), error = null)
+    }
+
+    fun updateSignInCode(value: String) {
+        _signInForm.value = _signInForm.value.copy(code = value.filter(Char::isDigit).take(6), error = null)
+    }
+
+    fun updateSignInPassword(value: String) {
+        _signInForm.value = _signInForm.value.copy(password = value.take(128), error = null)
+    }
+
+    fun toggleSignInUsePassword() {
+        _signInForm.value = _signInForm.value.copy(usePassword = !_signInForm.value.usePassword, error = null)
+    }
+
+    /** Re-probes the current address; the UNREACHABLE state's way forward. */
+    fun retryRelayProbe() {
+        probeRelay(_signInForm.value.relayUrl)
+    }
+
+    private fun probeRelay(address: String) {
+        val endpoint = AccountDefaults.normalizeRelayUrl(address) ?: run {
+            _signInForm.value = _signInForm.value.copy(readiness = LocalRelayReadiness.UNSUPPORTED)
+            return
+        }
+        probedRelayUrl = endpoint
+        _signInForm.value = _signInForm.value.copy(readiness = LocalRelayReadiness.PROBING)
+        probeJob?.cancel()
+        probeJob = viewModelScope.launch {
+            val readiness = try {
+                if (store.relaySupportsLocalAuth(endpoint)) LocalRelayReadiness.READY else LocalRelayReadiness.UNSUPPORTED
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                LocalRelayReadiness.UNREACHABLE
+            }
+            if (probedRelayUrl == endpoint) {
+                _signInForm.value = _signInForm.value.copy(readiness = readiness)
+            }
+        }
+    }
+
+    fun sendSignInCode() {
+        val form = _signInForm.value
+        val phone = form.normalizedPhone ?: return
+        val endpoint = AccountDefaults.normalizeRelayUrl(form.relayUrl) ?: return
+        if (!form.canSendCode) return
+        _signInForm.value = form.copy(sending = true, error = null)
+        viewModelScope.launch {
+            when (val result = store.sendSmsCode(endpoint, phone)) {
+                SmsSendResult.Sent -> {
+                    _signInForm.value = _signInForm.value.copy(sending = false)
+                    startResendCountdown(SMS_RESEND_COOLDOWN_SECONDS)
+                }
+                is SmsSendResult.Cooldown -> {
+                    // The countdown honors the relay's own window; the message
+                    // is its sentence, quoted verbatim.
+                    _signInForm.value = _signInForm.value.copy(
+                        sending = false,
+                        cooldownSeconds = 0,
+                        error = LocalSignInError.RelayMessage(result.message),
+                    )
+                    startResendCountdown(result.retryAfterSeconds)
+                }
+                is SmsSendResult.Rejected -> _signInForm.value = _signInForm.value.copy(
+                    sending = false,
+                    error = if (result.message.isNotBlank()) LocalSignInError.RelayMessage(result.message)
+                    else LocalSignInError.Reason(result.reason),
+                )
+            }
+        }
+    }
+
+    private fun startResendCountdown(seconds: Int) {
+        cooldownJob?.cancel()
+        _signInForm.value = _signInForm.value.copy(cooldownSeconds = seconds)
+        cooldownJob = viewModelScope.launch {
+            var remaining = seconds
+            while (remaining > 0) {
+                delay(1_000)
+                remaining -= 1
+                _signInForm.value = _signInForm.value.copy(cooldownSeconds = remaining)
+            }
+        }
+    }
+
+    fun submitSignIn() {
+        val form = _signInForm.value
+        val phone = form.normalizedPhone ?: return
+        val endpoint = AccountDefaults.normalizeRelayUrl(form.relayUrl) ?: return
+        if (!form.canSignIn) return
+        store.dispatch(
+            AccountIntent.LocalLogin(
+                relayUrl = endpoint,
+                phone = phone,
+                code = form.code.takeIf { !form.usePassword && it.length == 6 },
+                password = form.password.takeIf { form.usePassword && it.isNotBlank() },
+            ),
+        )
+    }
+
     private val _remoteState = MutableStateFlow<RemoteSessionUiState>(RemoteSessionUiState.Idle)
     val remoteState: StateFlow<RemoteSessionUiState> = _remoteState.asStateFlow()
     private val _connectionPhase = MutableStateFlow(ConnectionPhase.IDLE)
@@ -81,11 +248,6 @@ internal class AccountViewModel(application: Application) : AndroidViewModel(app
 
     fun dispatch(intent: AccountIntent) {
         store.dispatch(intent)
-    }
-
-    fun notifyAuthorizationCallback() {
-        LogcatCoreLog.info("account authorization callback wakeup")
-        store.notifyAuthorizationCallback()
     }
 
     /** The handle General Chat reads the account's synced models through. */
@@ -175,11 +337,19 @@ internal class AccountViewModel(application: Application) : AndroidViewModel(app
 
     override fun onCleared() {
         bindTarget(null)
+        probeJob?.cancel()
+        cooldownJob?.cancel()
         store.stop()
         super.onCleared()
     }
 
     companion object {
+        /** Typing settles before a probe leaves, so one address is one request. */
+        private const val RELAY_PROBE_SETTLE_MS = 600L
+
+        /** The relay's own cooldown window for a resend; a 429 can extend it. */
+        private const val SMS_RESEND_COOLDOWN_SECONDS = 60
+
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(

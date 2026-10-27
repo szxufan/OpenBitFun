@@ -1,7 +1,7 @@
 import { HostSessionStream, HostSessionCallbacks, HostSessionSource, HostStreamHint, HostStreamPage, HostStreamReadRequest, HostStreamHintPlaintext, parseHostStreamHint } from './HostSessionStream';
 import { AccountRealtime } from './AccountRealtime';
 import { CLIENT_PROTOCOL_VERSION, clientVersion } from './ClientBuild';
-import { normalizeAccountRelayUrl, OFFICIAL_RELAY_URL } from './AccountDeviceLink';
+import { normalizeAccountRelayUrl, normalizeManualRelayUrl, OFFICIAL_RELAY_URL } from './AccountDeviceLink';
 import { http } from '@kit.NetworkKit';
 import { CloudAccountCrypto } from './CloudAccountCrypto';
 import { X25519 } from './X25519';
@@ -13,13 +13,6 @@ import { RemoteI18n } from '../i18n/RemoteI18n';
 import { CommandStatusResponse, EncryptedPayload, RemoteCommand } from '../model/RemoteModels';
 
 interface AccountAuthResponse { token: string; user_id: string; }
-interface GitHubStart {
-  transactionId: string; transactionSecret: string; authorizationUrl: string;
-  expiresAt: number; pollIntervalSeconds: number;
-}
-interface GitHubPollRequest { transactionId: string; transactionSecret: string; }
-interface GitHubTokens { accessToken: string; }
-interface GitHubPoll { status: string; tokens?: GitHubTokens; }
 interface LoginRequest {
   access_token: string; device_id: string; device_name: string; device_kind: string;
   public_key: string; request_id: string;
@@ -27,9 +20,52 @@ interface LoginRequest {
   clientVersion: string; clientProtocol: number;
 }
 interface PeerPublicKey { public_key: string; }
-interface RelayErrorResponse { error?: string; }
+/** Relay error body: `{"error": string, "retry_after_secs"?: number}` — snake_case, unlike the token payloads. */
+interface RelayErrorResponse { error?: string; retry_after_secs?: number; }
 /** `ephemeral` frame the relay forwards for a host's `DeviceEvent`; the body is ciphertext. */
 interface DeviceEventFrame { type?: string; sourceDeviceId?: string; params?: EncryptedPayload; }
+
+/** `GET /api/info`; only the capability list is read here. */
+interface RelayInfoWire { capabilities?: string[]; }
+interface SmsSendWireRequest { phone: string; }
+interface SmsSendWireResponse { status?: string; }
+/** Login body stays snake_case on the wire (`phone`/`code`/`password` are single-word anyway). */
+interface LocalLoginWireRequest { phone: string; code?: string; password?: string; }
+/** Refresh body is camelCase, matching the relay's `LocalRefreshRequest`. */
+interface LocalRefreshWireRequest { refreshToken: string; }
+interface LocalUserWire { userId?: string; login?: string; phoneMasked?: string; hasPassword?: boolean; }
+interface LocalTokenPairWire {
+  accessToken?: string; accessExpiresAt?: number;
+  refreshToken?: string; refreshExpiresAt?: number; user?: LocalUserWire;
+}
+
+/** Relay-local account identity as the relay reports it with a token pair. */
+export interface LocalAccountUser {
+  userId: string;
+  login: string;
+  phoneMasked: string;
+  hasPassword: boolean;
+}
+
+/** The relay-local token pair returned by sign-in and by every refresh. */
+export interface LocalAccountTokens {
+  accessToken: string;
+  accessExpiresAt: number;
+  refreshToken: string;
+  refreshExpiresAt: number;
+  user: LocalAccountUser;
+}
+
+/**
+ * An inline sign-in credential from the login form. Exactly one of
+ * `code`/`password` must carry a value; `localLogin` enforces that on the wire.
+ */
+export interface LocalAccountCredential {
+  relayUrl: string;
+  phone: string;
+  code?: string;
+  password?: string;
+}
 
 interface NetworkRequestFailure { code?: number; }
 
@@ -43,32 +79,26 @@ export class CloudAccountTransportError extends Error {
 
 export class CloudAccountRequestError extends Error {
   readonly statusCode: number;
+  /** Cooldown the relay attached to a 429, when it sent one. */
+  readonly retryAfterSecs?: number;
 
-  constructor(message: string, statusCode: number) {
+  constructor(message: string, statusCode: number, retryAfterSecs?: number) {
     super(message);
     this.name = 'CloudAccountRequestError';
     this.statusCode = statusCode;
+    this.retryAfterSecs = retryAfterSecs;
   }
 }
 
 /**
- * Whether a failed sign-in poll should be tried again inside the window.
- *
- * Retry what the next tick could plausibly get past: a transport failure, and
- * a relay that is rate limiting or briefly unavailable. Stop for anything the
- * relay meant — a rejected transaction stays rejected however long the phone
- * keeps asking.
- *
- * Kept in step with `shared/core-feature/.../AccountStore.kt`, which carries
- * the same decision for the Android and iOS clients.
+ * The relay does not advertise `local_auth_v1`, so the phone-number flows are
+ * not offered against it. The message is localized where it is thrown.
  */
-export function retryableAuthorizationPollError(err: Object): boolean {
-  if (err instanceof CloudAccountTransportError) return true;
-  if (err instanceof CloudAccountRequestError) {
-    const status: number = err.statusCode;
-    return status === 429 || (status >= 500 && status < 600);
+export class RelayLocalAuthUnsupportedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RelayLocalAuthUnsupportedError';
   }
-  return false;
 }
 
 export interface CloudAccountSession {
@@ -137,8 +167,11 @@ interface CloudAccountDeviceWire {
   compatible?: boolean;
 }
 
-/** Default OpenBitFun cloud relay used by the desktop account flow. */
+/** Default relay address for the account flow; the sign-in form makes it editable. */
 export const DEFAULT_CLOUD_RELAY_URL: string = OFFICIAL_RELAY_URL;
+
+/** Capability a relay advertises when `/api/auth/local/*` is live; see the relay's `routes/api.rs`. */
+const LOCAL_AUTH_CAPABILITY: string = 'local_auth_v1';
 
 /** Device kinds the relay accepts; mirrors `relay-service/src/db.rs::DEVICE_KINDS`. */
 const DEVICE_KIND_DESKTOP: string = 'desktop';
@@ -185,13 +218,43 @@ function isHostDeviceRow(device: CloudAccountDeviceWire, selfDeviceId: string): 
 /** Client for the current desktop relay account protocol. */
 interface DeviceKeyPair { privateKey: Uint8Array; publicKey: Uint8Array; }
 
+/**
+ * Canonical request base for a relay address. Scanned links and the official
+ * constant resolve through the strict allow-list; an address the user typed
+ * into the sign-in form is accepted from any origin (see
+ * `normalizeManualRelayUrl`).
+ */
+function accountRelayBase(relayUrl: string): string {
+  return normalizeAccountRelayUrl(relayUrl) || normalizeManualRelayUrl(relayUrl);
+}
+
+/** Validates a relay-local token-pair response; the relay owns the wire shape. */
+function toLocalTokens(wire: LocalTokenPairWire): LocalAccountTokens {
+  const user = wire.user;
+  if (!wire.accessToken || !wire.refreshToken || !user || !user.userId) {
+    throw new Error('Relay returned an incomplete local account response.');
+  }
+  return {
+    accessToken: wire.accessToken,
+    accessExpiresAt: typeof wire.accessExpiresAt === 'number' ? wire.accessExpiresAt : 0,
+    refreshToken: wire.refreshToken,
+    refreshExpiresAt: typeof wire.refreshExpiresAt === 'number' ? wire.refreshExpiresAt : 0,
+    user: {
+      userId: user.userId,
+      login: user.login || '',
+      phoneMasked: user.phoneMasked || '',
+      hasPassword: user.hasPassword === true
+    }
+  };
+}
+
 export class CloudAccountClient {
   private realtime?: AccountRealtime;
   private realtimeUrl: string = '';
   private realtimeToken: string = '';
 
   private connection(relayUrl: string, token: string): AccountRealtime {
-    const url = normalizeAccountRelayUrl(relayUrl);
+    const url = accountRelayBase(relayUrl);
     if (!url) throw new Error('Invalid Relay URL');
     if (this.realtime && this.realtimeUrl === url && this.realtimeToken === token) return this.realtime;
     this.realtime?.close();
@@ -231,138 +294,98 @@ export class CloudAccountClient {
 
   private readonly cipher: HarmonyRemoteCryptoCipher = new HarmonyRemoteCryptoCipher();
 
-  private authorizationGeneration: number = 0;
-  private authorizationForeground: boolean = true;
-  private authorizationForegroundWaiters: Array<() => void> = [];
+  /**
+   * Whether [relayUrl] advertises relay-local accounts (`local_auth_v1`).
+   *
+   * The login form probes before offering phone-number sign-in: an older relay
+   * 404s every `/api/auth/local/*` route, which must surface as an explicit
+   * unsupported state instead of a form whose every request fails.
+   */
+  async relaySupportsLocalAuth(relayUrl: string): Promise<boolean> {
+    const info = await this.request<RelayInfoWire>(relayUrl, '/api/info', 'GET', undefined, '', 15000);
+    return (info.capabilities || []).indexOf(LOCAL_AUTH_CAPABILITY) >= 0;
+  }
 
-  cancelAuthorization(): void {
-    this.authorizationGeneration++;
-    this.releaseAuthorizationForegroundWaiters();
+  /** Probes [relayUrl] and throws when the relay lacks the local-account capability. */
+  async requireLocalAuth(relayUrl: string): Promise<void> {
+    if (!await this.relaySupportsLocalAuth(relayUrl)) {
+      throw new RelayLocalAuthUnsupportedError(RemoteI18n.t('account.loginServerUnsupported'));
+    }
   }
 
   /**
-   * Browser authorization is a foreground interaction. HarmonyOS may suspend
-   * the page while the external browser is open, so do not start or continue
-   * relay polling until the page is visible again.
+   * `POST /api/auth/local/sms/send` — deliver a verification code to a phone.
+   *
+   * A 202 means the relay accepted the request; it deliberately never reveals
+   * whether the phone already owns an account. A 429 carries
+   * `retry_after_secs`, exposed on the thrown error so the resend countdown
+   * can honor the relay's own cooldown.
    */
-  setAuthorizationForeground(value: boolean): void {
-    if (this.authorizationForeground === value) return;
-    this.authorizationForeground = value;
-    this.releaseAuthorizationForegroundWaiters();
-  }
-
-  private releaseAuthorizationForegroundWaiters(): void {
-    const waiters = this.authorizationForegroundWaiters;
-    this.authorizationForegroundWaiters = [];
-    waiters.forEach((resolve: () => void): void => resolve());
-  }
-
-  private async waitForAuthorizationForeground(generation: number): Promise<boolean> {
-    if (generation !== this.authorizationGeneration) return false;
-    if (this.authorizationForeground) return true;
-    await new Promise<void>((resolve: () => void): void => {
-      this.authorizationForegroundWaiters.push(resolve);
-    });
-    return generation === this.authorizationGeneration && this.authorizationForeground;
+  async smsSend(relayUrl: string, phone: string): Promise<void> {
+    const body: SmsSendWireRequest = { phone };
+    await this.post<SmsSendWireResponse>(relayUrl, '/api/auth/local/sms/send', body);
   }
 
   /**
-   * Wait for the normal poll interval, but interrupt it when the page is
-   * backgrounded or foregrounded. A foreground transition therefore performs
-   * the next poll immediately instead of making the user wait for an old timer.
+   * `POST /api/auth/local/login` with exactly one of verification [code] or
+   * [password]. First use of a phone registers the account unless the relay
+   * closed registration; that refusal (403) and every other relay-authored
+   * error text travel verbatim in `CloudAccountRequestError.message`.
    */
-  private async waitForAuthorizationTick(generation: number, delayMs: number): Promise<boolean> {
-    if (!await this.waitForAuthorizationForeground(generation)) return false;
-    let timer: number = -1;
-    let finish: () => void = (): void => {};
-    await new Promise<void>((resolve: () => void): void => {
-      let settled: boolean = false;
-      finish = (): void => {
-        if (settled) return;
-        settled = true;
-        if (timer !== -1) clearTimeout(timer);
-        const index = this.authorizationForegroundWaiters.indexOf(finish);
-        if (index >= 0) this.authorizationForegroundWaiters.splice(index, 1);
-        resolve();
-      };
-      this.authorizationForegroundWaiters.push(finish);
-      timer = setTimeout(finish, delayMs);
-    });
-    if (generation !== this.authorizationGeneration) return false;
-    if (!this.authorizationForeground) return this.waitForAuthorizationForeground(generation);
-    return true;
+  async localLogin(relayUrl: string, phone: string, code: string = '', password: string = ''): Promise<LocalAccountTokens> {
+    const trimmedCode = code.trim();
+    const hasCode = trimmedCode.length > 0;
+    const hasPassword = password.length > 0;
+    if (hasCode === hasPassword) {
+      throw new Error('Provide exactly one of verification code or password.');
+    }
+    const body: LocalLoginWireRequest = { phone };
+    if (hasCode) body.code = trimmedCode; else body.password = password;
+    return toLocalTokens(await this.post<LocalTokenPairWire>(relayUrl, '/api/auth/local/login', body));
   }
 
-  async login(relayUrl: string, deviceId: string, openAuthorization: (url: string) => Promise<boolean>, deviceSecret: Uint8Array): Promise<CloudAccountSession> {
-    const generation = ++this.authorizationGeneration;
-    const startRequest: Record<string, string> = {};
-    const start = await this.post<GitHubStart>(relayUrl, '/api/auth/github/start?methods=all', startRequest);
-    if (generation !== this.authorizationGeneration) throw new Error('Sign-in cancelled.');
-    if (!start.authorizationUrl.startsWith('https://github.com/login/oauth/authorize?') && !/^https:\/\/auth\.openbitfun\.com\/sign-in#ticket=[A-Za-z0-9_-]+$/.test(start.authorizationUrl)) {
-      throw new Error('Untrusted account authorization URL.');
+  /**
+   * `POST /api/auth/local/refresh` — rotate the relay-local token pair.
+   *
+   * A 401 means the refresh family itself expired; the caller falls back to
+   * the sign-in form. The response user view matches `localLogin`.
+   */
+  async localRefresh(relayUrl: string, refreshToken: string): Promise<LocalAccountTokens> {
+    const body: LocalRefreshWireRequest = { refreshToken };
+    return toLocalTokens(await this.post<LocalTokenPairWire>(relayUrl, '/api/auth/local/refresh', body));
+  }
+
+  /**
+   * `POST /api/auth/login` — exchange a relay access token for this device's
+   * session.
+   *
+   * [deviceSecret] is the persisted X25519 device key and is never
+   * regenerated: the relay binds this phone's device row to that public key,
+   * so a fresh key would register a new device and strand the account's
+   * desktops. The returned master key aliases the same secret.
+   */
+  async exchangeDeviceSession(
+    relayUrl: string,
+    accessToken: string,
+    deviceId: string,
+    deviceSecret: Uint8Array
+  ): Promise<CloudAccountSession> {
+    if (deviceSecret.length !== 32) throw new Error('Invalid device identity.');
+    const keys: DeviceKeyPair = { privateKey: new Uint8Array(deviceSecret), publicKey: X25519.scalarMultBase(deviceSecret) };
+    const body: LoginRequest = {
+      access_token: accessToken, device_id: deviceId, device_name: 'HarmonyOS Phone',
+      device_kind: DEVICE_KIND_MOBILE, public_key: Encoding.bytesToBase64(keys.publicKey),
+      request_id: Encoding.randomId('').slice(1),
+      clientVersion: clientVersion(), clientProtocol: CLIENT_PROTOCOL_VERSION
+    };
+    try {
+      const auth = await this.post<AccountAuthResponse>(relayUrl, '/api/auth/login', body);
+      if (!auth.token || !auth.user_id) throw new Error('Invalid account identity.');
+      return { token: auth.token, userId: auth.user_id, masterKey: keys.privateKey };
+    } catch (err) {
+      keys.privateKey.fill(0);
+      throw OhosError.wrap('local sign-in', err);
     }
-    const authorizationUrl = start.authorizationUrl.replace(
-      '/sign-in#',
-      '/sign-in?returnTo=openbitfun%3A%2F%2Fauth%2Fcallback#'
-    );
-    if (!await openAuthorization(authorizationUrl)) throw new Error('Could not open account sign-in.');
-    const deadline = Math.min(start.expiresAt * 1000, Date.now() + 600000);
-    let lastTransient: Error | undefined = undefined;
-    let firstPoll = true;
-    while (Date.now() < deadline && generation === this.authorizationGeneration) {
-      if (!firstPoll) {
-        // Keep the return-to-app handoff responsive even when the relay's
-        // conservative interval is large; the next poll is bounded to 2s.
-        if (!await this.waitForAuthorizationTick(
-          generation,
-          Math.min(2, Math.max(1, start.pollIntervalSeconds)) * 1000,
-        )) break;
-      }
-      firstPoll = false;
-      if (!await this.waitForAuthorizationForeground(generation)) break;
-      const request: GitHubPollRequest = { transactionId: start.transactionId, transactionSecret: start.transactionSecret };
-      let poll: GitHubPoll;
-      try {
-        poll = await this.post<GitHubPoll>(relayUrl, '/api/auth/github/poll', request);
-      } catch (err) {
-        // The poll window spans the minutes the user spends in a browser and a
-        // mail app, which is exactly when a phone drops a connection, hops
-        // networks, or sleeps its radio. Ending the sign-in on the first hiccup
-        // would send them back to the start for something the next tick fixes
-        // by itself, so only a refusal the relay actually means stops the loop.
-        const failure = err as Error;
-        if (!retryableAuthorizationPollError(failure)) throw failure;
-        lastTransient = failure;
-        RemoteLogger.warn('account authorization poll retrying');
-        continue;
-      }
-      lastTransient = undefined;
-      if (!await this.waitForAuthorizationForeground(generation)) break;
-      if (poll.status === 'authorized' && poll.tokens?.accessToken) {
-        if (deviceSecret.length !== 32) throw new Error('Invalid device identity.');
-        const keys: DeviceKeyPair = { privateKey: new Uint8Array(deviceSecret), publicKey: X25519.scalarMultBase(deviceSecret) };
-        const body: LoginRequest = {
-          access_token: poll.tokens.accessToken, device_id: deviceId, device_name: 'HarmonyOS Phone',
-          device_kind: DEVICE_KIND_MOBILE, public_key: Encoding.bytesToBase64(keys.publicKey),
-          request_id: Encoding.randomId('').slice(1),
-          clientVersion: clientVersion(), clientProtocol: CLIENT_PROTOCOL_VERSION
-        };
-        try {
-          const auth = await this.post<AccountAuthResponse>(relayUrl, '/api/auth/login', body);
-          if (generation !== this.authorizationGeneration) throw new Error('Sign-in cancelled.');
-          if (!auth.token || !auth.user_id) throw new Error('Invalid account identity.');
-          return { token: auth.token, userId: auth.user_id, masterKey: keys.privateKey };
-        } catch (err) {
-          keys.privateKey.fill(0);
-          throw OhosError.wrap('GitHub sign-in', err);
-        }
-      }
-      if (poll.status === 'expired' || poll.status === 'denied') break;
-    }
-    // A window that ran out while every poll was failing is a network problem,
-    // not a rejected sign-in: report the one the user can act on.
-    if (lastTransient !== undefined) throw lastTransient;
-    throw new Error('GitHub sign-in expired or was cancelled.');
   }
 
   async provisionDevice(
@@ -561,7 +584,7 @@ export class CloudAccountClient {
     readTimeoutMs: number = 120000
   ): Promise<T> {
     const request = http.createHttp();
-    const base = normalizeAccountRelayUrl(relayUrl);
+    const base = accountRelayBase(relayUrl);
     if (!base) throw new Error('Invalid Relay URL');
     // Timed so the watch has something to be slow relative to. Phone and watch
     // reach the same relay and the same desktop, so a gap between them is the
@@ -597,13 +620,17 @@ export class CloudAccountClient {
         RemoteLogger.error(`relay request failed ${method} ${path} status=${response.responseCode} bytes=${bodyBytes}`);
         let message = response.responseCode === 413 ? RemoteI18n.t('errors.payloadTooLarge') :
           `Relay request failed (HTTP ${response.responseCode}).`;
+        let retryAfterSecs: number | undefined = undefined;
         try {
           const error = JSON.parse(text) as RelayErrorResponse;
           if (error.error) message = error.error;
+          if (typeof error.retry_after_secs === 'number' && error.retry_after_secs > 0) {
+            retryAfterSecs = Math.ceil(error.retry_after_secs);
+          }
         } catch (_err) {
           // Keep the status-based error when the relay did not return JSON.
         }
-        throw new CloudAccountRequestError(message, response.responseCode);
+        throw new CloudAccountRequestError(message, response.responseCode, retryAfterSecs);
       }
       return JSON.parse(text) as T;
     } catch (err) {

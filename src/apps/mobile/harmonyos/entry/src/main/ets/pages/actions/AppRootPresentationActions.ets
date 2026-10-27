@@ -1,6 +1,6 @@
 import { WorkspaceToolsIntent } from '../state/WorkspaceToolsState';
 import { RemotePermissionMode, RemoteSession } from '../../model/RemoteModels';
-import { CloudAccountDevice } from '../../services/CloudAccountClient';
+import { CloudAccountDevice, LocalAccountCredential } from '../../services/CloudAccountClient';
 import { ConversationIntent } from './ConversationIntent';
 import { AppRoute } from '../navigation/AppRouteContract';
 
@@ -81,7 +81,13 @@ export interface SettingsPresentationActions {
   readonly reconnect: () => void;
   readonly openAccount: () => void;
   readonly cloudCancelLogin: () => void;
-  readonly cloudLogin: () => Promise<string>;
+  /** Relay address the sign-in form prefills (user preference, official default). */
+  readonly cloudRelayUrl: () => string;
+  /** Probes a relay for the relay-local account capability before the form opens. */
+  readonly cloudProbeRelay: (relayUrl: string) => Promise<boolean>;
+  /** Requests an SMS verification code; a 429 carries the relay cooldown on the thrown error. */
+  readonly cloudSmsSend: (relayUrl: string, phone: string) => Promise<void>;
+  readonly cloudLogin: (credential: LocalAccountCredential) => Promise<string>;
   readonly cloudLogout: () => Promise<void>;
   readonly cloudListDevices: () => Promise<CloudAccountDevice[]>;
   readonly cloudSelectDevice: (device: CloudAccountDevice) => Promise<void>;
@@ -127,7 +133,10 @@ export function emptyAppRootPresentationActions(): AppRootPresentationActions {
       close: () => {}, accountSettled: () => {}, disconnect: () => {}, clearPairing: () => {},
       reconnect: () => {}, openAccount: () => {},
       cloudCancelLogin: () => {},
-      cloudLogin: async () => '', cloudLogout: async () => {},
+      cloudRelayUrl: () => '',
+      cloudProbeRelay: async () => false,
+      cloudSmsSend: async () => {},
+      cloudLogin: async (_credential: LocalAccountCredential) => '', cloudLogout: async () => {},
       cloudListDevices: async () => [], cloudSelectDevice: async () => {},
       getPermissionMode: async () => 'ask',
       setPermissionMode: async (mode: RemotePermissionMode) => mode,

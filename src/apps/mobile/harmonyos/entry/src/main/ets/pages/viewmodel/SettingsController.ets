@@ -1,5 +1,5 @@
 import { GitHubAccountProfile, GitHubProfileLoader } from '../../services/GitHubAccountProfile';
-import { normalizeAccountRelayUrl, OFFICIAL_RELAY_URL } from '../../services/AccountDeviceLink';
+import { normalizeAccountRelayUrl, normalizeManualRelayUrl } from '../../services/AccountDeviceLink';
 import { RemoteI18n } from '../../i18n/RemoteI18n';
 import { stampRemoteSessionsDevice } from '../../services/RemoteSessionIdentity';
 import {
@@ -9,7 +9,9 @@ import {
   CloudAccountDevice,
   CloudAccountRequestError,
   CloudAccountSession,
-  isDeviceControllable
+  isDeviceControllable,
+  LocalAccountCredential,
+  LocalAccountTokens
 } from '../../services/CloudAccountClient';
 import { CloudAccountSessionStore, PersistedCloudAccountSession } from '../../services/CloudAccountSessionStore';
 import { ConnectionErrorPolicy } from '../../services/ConnectionErrorPolicy';
@@ -22,7 +24,6 @@ import { RemotePageState } from '../state/RemotePageState';
 
 export interface CloudAccountSettingsHooks {
   readonly deviceId: () => string;
-  readonly openAuthorization: (url: string) => Promise<boolean>;
   readonly remoteAvailable: () => boolean;
   readonly invalidatePreview: () => void;
   readonly invalidateRemoteActivity: () => void;
@@ -68,6 +69,10 @@ export class SettingsController {
   private cloudSession?: CloudAccountSession;
   private cloudRelayUrl: string = '';
   private selectedRelayUrl: string = DEFAULT_CLOUD_RELAY_URL;
+  /** Relay-local refresh token for the active session; empty for legacy records. */
+  private cloudRefreshToken: string = '';
+  /** Coalesces concurrent expiry-triggered refreshes into one relay round trip. */
+  private cloudTokenRefresh?: Promise<boolean>;
   private accountLoginVersion: number = 0;
   /** Account login identity; pairing projections must never overwrite it. */
   private cloudAccountUsername: string = '';
@@ -99,8 +104,77 @@ export class SettingsController {
   private async initializeCloudAccountInternal(context: Context): Promise<void> {
     const cloud = this.requireCloud();
     await cloud.sessionStore.init(context);
+    await this.restoreSelectedRelayPreference();
     await this.restoreCloudAccountSession();
     void this.refreshCloudAccountProfile();
+  }
+
+  /**
+   * Restores the user-settable relay address (official default when absent).
+   * A read failure keeps the default: the address is a preference, never a
+   * reason to lose the session restore that follows.
+   */
+  private async restoreSelectedRelayPreference(): Promise<void> {
+    try {
+      const saved = await this.requireCloud().sessionStore.loadSelectedRelayUrl();
+      if (!saved) {
+        return;
+      }
+      const endpoint = normalizeAccountRelayUrl(saved) || normalizeManualRelayUrl(saved);
+      if (endpoint) {
+        this.selectedRelayUrl = endpoint;
+      }
+    } catch (err) {
+      RemoteLogger.warn(`cloud account relay preference load failed: ${String(err)}`);
+    }
+  }
+
+  /** The relay address the sign-in form prefills. */
+  cloudAccountRelayUrl(): string {
+    return this.selectedRelayUrl;
+  }
+
+  /**
+   * Whether [relayUrl] can host relay-local accounts. The login form probes
+   * before offering SMS sign-in; an older relay must show an unsupported
+   * state instead of a form whose every request would 404.
+   */
+  async probeCloudRelay(relayUrl: string): Promise<boolean> {
+    const endpoint = this.resolveRelayEndpoint(relayUrl);
+    return this.requireCloud().client.relaySupportsLocalAuth(endpoint);
+  }
+
+  /**
+   * Requests an SMS verification code for [phone] from the configured relay.
+   * Refuses relays without the local-account capability before any code can
+   * be requested. A 429 carries the relay's cooldown on the thrown error.
+   */
+  async sendCloudAccountCode(relayUrl: string, phone: string): Promise<void> {
+    const cloud = this.requireCloud();
+    const endpoint = this.resolveRelayEndpoint(relayUrl);
+    const trimmedPhone = phone.trim();
+    if (trimmedPhone.length === 0) {
+      throw new Error(RemoteI18n.t('account.errorInvalidPhone'));
+    }
+    await cloud.client.requireLocalAuth(endpoint);
+    await cloud.client.smsSend(endpoint, trimmedPhone);
+  }
+
+  /** Accepts the strict allow-list (links, official) and user-typed addresses alike. */
+  private resolveRelayEndpoint(relayUrl: string): string {
+    const endpoint = normalizeAccountRelayUrl(relayUrl) || normalizeManualRelayUrl(relayUrl);
+    if (!endpoint) throw new Error('Invalid Relay URL');
+    return endpoint;
+  }
+
+  private rememberSelectedRelay(endpoint: string): void {
+    if (endpoint === this.selectedRelayUrl) {
+      return;
+    }
+    this.selectedRelayUrl = endpoint;
+    void this.requireCloud().sessionStore.saveSelectedRelayUrl(endpoint).catch((err: Object): void => {
+      RemoteLogger.warn(`cloud account relay preference save failed: ${String(err)}`);
+    });
   }
 
   hasCloudAccountSession(): boolean {
@@ -174,13 +248,26 @@ export class SettingsController {
     const endpoint = normalizeAccountRelayUrl(relayUrl);
     if (!endpoint) throw new Error('Invalid Relay URL');
     if (this.cloudRelayUrl !== endpoint) {
+      // Relay credentials are database-scoped: switching relays ends the
+      // current session and requires a fresh sign-in against the new relay.
       this.teardownCloudAccountProjection(this.requireCloud());
-      this.selectedRelayUrl = endpoint;
+      this.rememberSelectedRelay(endpoint);
     }
   }
 
-  async loginCloudAccount(): Promise<string> {
-    const relayUrl = this.selectedRelayUrl;
+  /**
+   * Signs in with a relay-local credential (SMS code or, for accounts that
+   * set one, password), then exchanges the resulting access token for this
+   * device's session using the SAME persisted device key.
+   */
+  async loginCloudAccount(credential: LocalAccountCredential): Promise<string> {
+    const relayUrl = this.resolveRelayEndpoint(credential.relayUrl);
+    const phone = credential.phone.trim();
+    const code = (credential.code || '').trim();
+    const password = credential.password || '';
+    if ((code.length > 0) === (password.length > 0)) {
+      throw new Error('Provide exactly one of verification code or password.');
+    }
     const generation = ++this.accountLoginVersion;
     const cloud = this.requireCloud();
     if (this.cloudInitialization) {
@@ -195,26 +282,36 @@ export class SettingsController {
       throw err instanceof Error ? err : new Error(String(err));
     }
     if (generation !== this.accountLoginVersion) { deviceSecret.fill(0); throw new Error('Account login cancelled'); }
+    let tokens: LocalAccountTokens;
     let session: CloudAccountSession;
     try {
-      session = await cloud.client.login(relayUrl, cloud.hooks.deviceId(), cloud.hooks.openAuthorization, deviceSecret);
-    } finally { deviceSecret.fill(0); }
+      await cloud.client.requireLocalAuth(relayUrl);
+      tokens = await cloud.client.localLogin(relayUrl, phone, code, password);
+      if (generation !== this.accountLoginVersion) throw new Error('Account login cancelled');
+      // The exchange keeps the persisted device key; the returned master key
+      // is a copy, so zeroing the caller's buffer afterwards is safe.
+      session = await cloud.client.exchangeDeviceSession(
+        relayUrl, tokens.accessToken, cloud.hooks.deviceId(), deviceSecret);
+    } finally {
+      deviceSecret.fill(0);
+    }
     if (generation !== this.accountLoginVersion) {
       session.masterKey.fill(0);
       throw new Error('Account login cancelled');
     }
-    const username = session.userId;
+    const username = tokens.user.login || tokens.user.phoneMasked || session.userId;
     this.clearPreferredCloudTarget();
     this.applyCloudAccountSession(session, relayUrl, username);
+    this.cloudRefreshToken = tokens.refreshToken;
+    this.rememberSelectedRelay(relayUrl);
     try {
       await cloud.sessionStore.save({
-        relayUrl: relayUrl.trim(), username: username.trim(), token: session.token, userId: session.userId,
-        masterKey: Encoding.bytesToBase64(session.masterKey)
+        relayUrl: relayUrl, username: username, token: session.token, userId: session.userId,
+        masterKey: Encoding.bytesToBase64(session.masterKey), refreshToken: tokens.refreshToken
       });
     } catch (err) {
       RemoteLogger.warn(`cloud account session persistence failed: ${String(err)}`);
     }
-    void this.refreshCloudAccountProfile();
     RemoteLogger.info('cloud account session active, refreshing account devices');
     RemoteLogger.info(`cloud account login success user=${session.userId}`);
     return session.userId;
@@ -232,12 +329,8 @@ export class SettingsController {
     this.startPresencePolling(0);
   }
 
-  cancelCloudLogin(): void { this.cloud?.client.cancelAuthorization(); }
-
-  /** Keep browser authorization polling aligned with the page lifecycle. */
-  setAuthorizationForeground(value: boolean): void {
-    this.cloud?.client.setAuthorizationForeground(value);
-  }
+  /** Invalidates an in-flight inline sign-in when the login page goes away. */
+  cancelCloudLogin(): void { this.accountLoginVersion += 1; }
 
   async logoutCloudAccount(): Promise<void> {
     this.cancelCloudLogin();
@@ -430,21 +523,24 @@ export class SettingsController {
   }
 
   async listCloudAccountDevices(): Promise<CloudAccountDevice[]> {
-    const cloud = this.requireCloud();
     const session = this.cloudSession;
     if (!session || this.cloudRelayUrl.length === 0) {
       return [];
     }
     try {
-      const devices = await cloud.client.listDevices(this.cloudRelayUrl, session, cloud.hooks.deviceId());
-      if (this.cloudSession !== session) throw new Error('Account changed while loading devices');
-      this.accountDevices = devices;
-      this.lastAccountDevicesAt = Date.now();
-      cloud.hooks.onAccountDevices(devices);
-      return devices;
+      return await this.fetchAndPublishAccountDevices();
     } catch (err) {
       if (this.cloudSession !== session) throw new Error('Account changed while loading devices');
       if (err instanceof CloudAccountRequestError && err.statusCode === 401) {
+        // The device token may simply have expired; rotate it with the
+        // relay-local refresh token before declaring the account expired.
+        if (await this.refreshCloudAccountTokens()) {
+          try {
+            return await this.fetchAndPublishAccountDevices();
+          } catch (_retryErr) {
+            // Fall through: the rotated token was refused too.
+          }
+        }
         await this.expireCloudAccountSession();
         throw new Error(RemoteI18n.t('remote.settings.accountExpired'));
       }
@@ -453,6 +549,90 @@ export class SettingsController {
         throw new Error(RemoteI18n.t('remote.settings.deviceUnavailable'));
       }
       throw new Error(err instanceof Error ? err.message : RemoteI18n.t('remote.settings.deviceLoadFailed'));
+    }
+  }
+
+  private async fetchAndPublishAccountDevices(): Promise<CloudAccountDevice[]> {
+    const cloud = this.requireCloud();
+    const session = this.cloudSession;
+    if (!session || this.cloudRelayUrl.length === 0) {
+      return [];
+    }
+    const devices = await cloud.client.listDevices(this.cloudRelayUrl, session, cloud.hooks.deviceId());
+    if (this.cloudSession !== session) throw new Error('Account changed while loading devices');
+    this.accountDevices = devices;
+    this.lastAccountDevicesAt = Date.now();
+    cloud.hooks.onAccountDevices(devices);
+    return devices;
+  }
+
+  /**
+   * Rotates an expired device session with the relay-local refresh token.
+   *
+   * `localRefresh` mints a fresh access token for the same relay account, and
+   * the device exchange rebinds this phone with the SAME persisted device key
+   * — the relay recognizes the device by that key, so regenerating it would
+   * orphan the account's desktops. Any failure returns false and the caller
+   * falls back to the sign-in form. Concurrent expiry signals coalesce into
+   * one relay round trip.
+   */
+  private refreshCloudAccountTokens(): Promise<boolean> {
+    if (!this.cloudTokenRefresh) {
+      this.cloudTokenRefresh = this.performCloudAccountTokenRefresh()
+        .finally((): void => { this.cloudTokenRefresh = undefined; });
+    }
+    return this.cloudTokenRefresh;
+  }
+
+  private async performCloudAccountTokenRefresh(): Promise<boolean> {
+    const cloud = this.requireCloud();
+    const previous = this.cloudSession;
+    const relayUrl = this.cloudRelayUrl;
+    const refreshToken = this.cloudRefreshToken;
+    if (!previous || relayUrl.length === 0 || refreshToken.length === 0) {
+      return false;
+    }
+    try {
+      const tokens = await cloud.client.localRefresh(relayUrl, refreshToken);
+      const deviceSecret = await cloud.sessionStore.deviceSecret();
+      let session: CloudAccountSession;
+      try {
+        session = await cloud.client.exchangeDeviceSession(
+          relayUrl, tokens.accessToken, cloud.hooks.deviceId(), deviceSecret);
+      } finally {
+        deviceSecret.fill(0);
+      }
+      if (this.cloudSession !== previous) {
+        // Another login or teardown settled while the refresh was in flight.
+        session.masterKey.fill(0);
+        return false;
+      }
+      if (session.userId !== previous.userId) {
+        session.masterKey.fill(0);
+        throw new Error('Relay returned a mismatched account identity.');
+      }
+      const username = tokens.user.login || tokens.user.phoneMasked || session.userId;
+      this.cloudRefreshToken = tokens.refreshToken;
+      this.applyCloudAccountSession(session, relayUrl, username);
+      try {
+        await cloud.sessionStore.save({
+          relayUrl: relayUrl,
+          username: username,
+          token: session.token,
+          userId: session.userId,
+          masterKey: Encoding.bytesToBase64(session.masterKey),
+          refreshToken: tokens.refreshToken,
+          targetDeviceId: this.preferredTargetDeviceId,
+          targetDeviceName: this.preferredTargetDeviceName
+        });
+      } catch (err) {
+        RemoteLogger.warn(`cloud account session persistence failed: ${String(err)}`);
+      }
+      RemoteLogger.info('cloud account session refreshed after token expiry');
+      return true;
+    } catch (err) {
+      RemoteLogger.warn(`cloud account token refresh failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
   }
 
@@ -537,10 +717,19 @@ export class SettingsController {
   }
 
   async handleRemoteConnectionError(err: Object): Promise<boolean> {
-    const remoteState = this.requireCloud().remoteState;
+    const cloud = this.requireCloud();
+    const remoteState = cloud.remoteState;
     if (remoteState.controlTargetType !== 'account_device' ||
       !(err instanceof CloudAccountRequestError) || err.statusCode !== 401) {
       return false;
+    }
+    if (await this.refreshCloudAccountTokens()) {
+      // The token rotated; the stale transport is dropped so the next
+      // reconnect dials with the fresh session instead of repeating the 401.
+      cloud.sessionManager.reset();
+      remoteState.setConnectionState('reconnecting');
+      remoteState.setStatusText(RemoteI18n.t('remote.settings.deviceConnecting'));
+      return true;
     }
     await this.expireCloudAccountSession();
     remoteState.setStatusText(RemoteI18n.t('remote.settings.accountExpired'));
@@ -644,7 +833,8 @@ export class SettingsController {
         RemoteLogger.info(`stale device switch failure ignored device=${deviceId}`);
         return;
       }
-      if (err instanceof CloudAccountRequestError && err.statusCode === 401) {
+      if (err instanceof CloudAccountRequestError && err.statusCode === 401 &&
+        !await this.refreshCloudAccountTokens()) {
         await this.expireCloudAccountSession();
       }
       cloud.remoteState.clearControlTarget();
@@ -719,6 +909,12 @@ export class SettingsController {
     const session = this.cloudSession;
     const loader = cloud.profileLoader;
     if (!session || !loader) return;
+    if (!/^[1-9][0-9]*$/.test(session.userId)) {
+      // Relay-local accounts carry their display identity in the token pair
+      // (`login`/`phoneMasked`); only legacy GitHub-era numeric ids have a
+      // public profile to fetch.
+      return;
+    }
     const version = this.accountLoginVersion;
     const isCurrent = (): boolean => this.cloudSession === session && this.accountLoginVersion === version;
     const apply = (profile: GitHubAccountProfile): void => {
@@ -755,12 +951,13 @@ export class SettingsController {
       if (!persisted) {
         return;
       }
-      if (/^https:\/\/remote\.openbitfun\.com\/v\/[^/]+\/?$/.test(persisted.relayUrl) && persisted.relayUrl.replace(/\/+$/, '') !== OFFICIAL_RELAY_URL) {
-        // Relay credentials are database-scoped; never replay an older credential at a new endpoint.
-        this.selectedRelayUrl = OFFICIAL_RELAY_URL;
-        this.cloudRelayUrl = OFFICIAL_RELAY_URL;
-        // Saved profile identity is not authentication against the current relay.
-        // Keep the encrypted record and display name, but expose the sign-in entry.
+      const persistedRelay = normalizeAccountRelayUrl(persisted.relayUrl) || normalizeManualRelayUrl(persisted.relayUrl);
+      if (!persistedRelay || persistedRelay !== this.selectedRelayUrl) {
+        // Relay credentials are database-scoped; never replay a credential at a
+        // different endpoint. This covers an upgraded official relay, a
+        // user-settable relay that changed since the last sign-in, and an
+        // unreadable address the same way: keep the encrypted record and
+        // display name, but expose the sign-in entry again.
         cloud.remoteState.setAccountUserId('');
         cloud.remoteState.setAccountUsername(persisted.username || persisted.userId);
         cloud.remoteState.setStatusText(RemoteI18n.t('remote.settings.relayReauthorizationRequired'));
@@ -772,7 +969,8 @@ export class SettingsController {
         userId: persisted.userId,
         masterKey: Encoding.base64ToBytes(persisted.masterKey)
       };
-      this.applyCloudAccountSession(session, persisted.relayUrl, persisted.username || session.userId);
+      this.cloudRefreshToken = (persisted.refreshToken || '').trim();
+      this.applyCloudAccountSession(session, persistedRelay, persisted.username || session.userId);
       this.restorePersistedControlTarget(persisted);
     } catch (err) {
       RemoteLogger.warn(`cloud account restore failed: ${err instanceof Error ? err.message : 'unknown error'}`);
@@ -837,6 +1035,7 @@ export class SettingsController {
     this.cloudSession?.masterKey.fill(0);
     this.cloudSession = undefined;
     this.cloudRelayUrl = '';
+    this.cloudRefreshToken = '';
     this.cloudAccountUsername = '';
     this.clearPreferredCloudTarget();
     this.accountDevices = [];
@@ -917,7 +1116,7 @@ export class SettingsController {
     if (!session || this.cloudRelayUrl.length === 0) {
       return;
     }
-    await cloud.sessionStore.save({
+    const record: PersistedCloudAccountSession = {
       relayUrl: this.cloudRelayUrl,
       username: this.cloudAccountUsername || session.userId,
       token: session.token,
@@ -925,7 +1124,13 @@ export class SettingsController {
       masterKey: Encoding.bytesToBase64(session.masterKey),
       targetDeviceId: deviceId.trim(),
       targetDeviceName: deviceName.trim() || deviceId.trim()
-    });
+    };
+    // Keep the refresh token attached to the session record; dropping it here
+    // would make the next expiry unrefreshable for relay-local accounts.
+    if (this.cloudRefreshToken.length > 0) {
+      record.refreshToken = this.cloudRefreshToken;
+    }
+    await cloud.sessionStore.save(record);
   }
 
   private requireCloud(): CloudAccountSettingsDependencies {

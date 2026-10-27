@@ -92,17 +92,17 @@ class MobileScreenTest {
     fun accountEntryWorksFromWelcomeOrDrawer() {
         if (!hasDrawerEntry()) {
             composeRule.onNodeWithText(text(R.string.welcome_login)).performClick()
-            composeRule.onNode(hasText(text(R.string.account_login_title)) and hasClickAction()).assertIsDisplayed()
+            composeRule.onNodeWithText(text(R.string.account_login_title)).assertIsDisplayed()
             return
         }
         openDrawer()
         composeRule.onNodeWithTag(SIDEBAR_TEST_TAG).assertIsDisplayed()
 
-        val signedOut = composeRule.onAllNodesWithText(text(R.string.account_login_title))
+        val signedOut = composeRule.onAllNodesWithText(text(R.string.sidebar_sign_in))
             .fetchSemanticsNodes()
             .isNotEmpty()
         if (signedOut) {
-            composeRule.onNodeWithText(text(R.string.account_login_title)).performClick()
+            composeRule.onNodeWithText(text(R.string.sidebar_sign_in)).performClick()
             waitForText(text(R.string.account_login_title))
         } else {
             // The account is embedded in settings: the gear is the way to it,

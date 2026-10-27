@@ -49,7 +49,7 @@ import { systemAPI } from '@/infrastructure/api/service-api/SystemAPI';
 import { api } from '@/infrastructure/api/service-api/ApiClient';
 import { useAccountLoginState } from '@/infrastructure/account/useAccountLoginState';
 import { remoteConnectStatusSource, useRemoteConnectStatus } from '@/infrastructure/remote-connect/remoteConnectStatus';
-import { isDeviceInvitation, invitationRelayUrl, OFFICIAL_RELAY_URL, remoteNetworkMethod, selectRemoteNetworkConnection, type RemoteNetworkMethod } from '@/infrastructure/remote-connect/remoteConnectionState';
+import { isDeviceInvitation, invitationRelayUrl, remoteNetworkMethod, selectRemoteNetworkConnection, serverRelayUrl, type RemoteNetworkMethod } from '@/infrastructure/remote-connect/remoteConnectionState';
 import { useNotification } from '@/shared/notification-system';
 import { copyTextToClipboard } from '@/shared/utils/textSelection';
 import { AccountPanel } from './AccountPanel';
@@ -990,7 +990,7 @@ export const RemoteConnectDialog: React.FC<RemoteConnectDialogProps> = ({
     const invitation = connectionOwner === 'network' ? connectionResult : null;
     const relayUrl = invitationRelayUrl(invitation)
       ?? (networkConnection.method === networkTab ? networkConnection.relayUrl : null)
-      ?? (networkTab === 'openbitfun_server' ? OFFICIAL_RELAY_URL : selectedLanIp ? `http://${selectedLanIp}:9700` : '');
+      ?? (networkTab === 'openbitfun_server' ? serverRelayUrl(status) : selectedLanIp ? `http://${selectedLanIp}:9700` : '');
     return <RemoteNetworkConnections
       status={status}
       method={networkTab}

@@ -1,6 +1,5 @@
 package com.openbitfun.mobile.app
 
-import android.content.Intent
 import android.os.Bundle
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.background
@@ -46,13 +45,11 @@ class MainActivity : ComponentActivity() {
     private var showColdStart by mutableStateOf(false)
     private var allowColdStart by mutableStateOf(false)
     private var showWelcomeNavigationProtection by mutableStateOf(true)
-    private var authorizationCallbackPending = false
     override fun onCreate(savedInstanceState: Bundle?) {
         AppLocaleController.applySaved(this)
         super.onCreate(savedInstanceState)
         LogcatCoreLog.initialize(applicationContext)
-        LogcatCoreLog.info("activity onCreate callback=${isAuthorizationCallbackIntent(intent)}")
-        authorizationCallbackPending = isAuthorizationCallbackIntent(intent)
+        LogcatCoreLog.info("activity onCreate")
         val coldStartCandidate = !processLaunchClaimed
             && !intent.getBooleanExtra(DESIGN_PREVIEW_EXTRA, false)
         processLaunchClaimed = true
@@ -128,21 +125,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        LogcatCoreLog.info("activity onStart callbackPending=$authorizationCallbackPending")
+        LogcatCoreLog.info("activity onStart")
         if (!intent.getBooleanExtra(DESIGN_PREVIEW_EXTRA, false)) {
             accountModel().setBackground(false)
-            if (authorizationCallbackPending) {
-                authorizationCallbackPending = false
-                accountModel().notifyAuthorizationCallback()
-            }
         }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        LogcatCoreLog.info("activity onNewIntent action=${intent.action} callback=${isAuthorizationCallbackIntent(intent)}")
-        if (isAuthorizationCallbackIntent(intent)) accountModel().notifyAuthorizationCallback()
+        LogcatCoreLog.info("activity onNewIntent action=${intent.action}")
     }
 
     override fun onStop() {
@@ -156,16 +148,6 @@ class MainActivity : ComponentActivity() {
 
     private fun accountModel() = androidx.lifecycle.ViewModelProvider(this,
         com.openbitfun.mobile.app.viewmodel.AccountViewModel.Factory)[com.openbitfun.mobile.app.viewmodel.AccountViewModel::class.java]
-
-    private fun isAuthorizationCallbackIntent(intent: Intent): Boolean {
-        val uri = intent.data ?: return false
-        return intent.action == Intent.ACTION_VIEW &&
-            uri.scheme == "openbitfun" &&
-            uri.authority == "auth" &&
-            uri.path == "/callback" &&
-            uri.query == null &&
-            uri.fragment == null
-    }
 
     private companion object {
         var processLaunchClaimed = false

@@ -25,7 +25,7 @@ import { ConnectionErrorPolicy } from '../../services/ConnectionErrorPolicy';
 import { ConnectionStatusPresenter } from '../../services/ConnectionStatusPresenter';
 import { ImagePickerService } from '../../services/ImagePickerService';
 import { MobileIdentityStore } from '../../services/MobileIdentityStore';
-import { CloudAccountClient, CloudAccountDevice } from '../../services/CloudAccountClient';
+import { CloudAccountClient, CloudAccountDevice, LocalAccountCredential } from '../../services/CloudAccountClient';
 import { GitHubAccountProfileClient } from '../../services/GitHubAccountProfile';
 import { CloudAccountSessionStore } from '../../services/CloudAccountSessionStore';
 import { RemoteActivityLifecycleController } from '../../services/RemoteActivityLifecycleController';
@@ -664,12 +664,6 @@ export abstract class AppRootRuntimeComposition {
         remoteState: this.remotePageState,
         hooks: {
           deviceId: (): string => this.remoteConnectionController.getDeviceId(),
-          openAuthorization: async (url: string): Promise<boolean> => {
-            const localizedUrl = url.includes('https://auth.openbitfun.com/sign-in')
-              ? url.replace('/sign-in?', `/sign-in?locale=${encodeURIComponent(RemoteI18n.language())}&`)
-              : url;
-            return this.host.openExternalLink ? await this.host.openExternalLink(localizedUrl) : false;
-          },
           remoteAvailable: (): boolean => this.remoteConnectionController.ensureAvailable(),
           invalidatePreview: (): void => this.filePreviewController.invalidate(),
           invalidateRemoteActivity: (): void => this.remoteActivityViewModel.invalidate(),
@@ -906,9 +900,15 @@ export abstract class AppRootRuntimeComposition {
       reconnect: (): void => { this.reconnect(); },
       openAccount: (): void => { this.appShellState.openSettings('account'); },
       cloudCancelLogin: (): void => this.settingsController.cancelCloudLogin(),
-      cloudLogin: async (): Promise<string> => {
-        const user = await this.settingsController.loginCloudAccount();
-        // Returning from authorization can show the page before the account
+      cloudRelayUrl: (): string => this.settingsController.cloudAccountRelayUrl(),
+      cloudProbeRelay: async (relayUrl: string): Promise<boolean> =>
+        this.settingsController.probeCloudRelay(relayUrl),
+      cloudSmsSend: async (relayUrl: string, phone: string): Promise<void> => {
+        await this.settingsController.sendCloudAccountCode(relayUrl, phone);
+      },
+      cloudLogin: async (credential: LocalAccountCredential): Promise<string> => {
+        const user = await this.settingsController.loginCloudAccount(credential);
+        // Returning from the login form can show the page before the account
         // session is saved. Start listening after login completes as well.
         await this.startWatchProvisioning();
         const pending = this.pendingAccountDeviceId;

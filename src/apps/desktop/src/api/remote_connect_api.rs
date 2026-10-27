@@ -1697,6 +1697,10 @@ pub struct RemoteConnectStatusResponse {
     pub connections: Vec<RelayConnectionStatus>,
     pub relay_connected: bool,
     pub relay_url: Option<String>,
+    /// The relay the `openbitfun_server` method resolves to after the
+    /// OPENBITFUN_RELAY_URL override; surfaces self-hosted endpoints to the UI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_relay_url: Option<String>,
     pub active_method: Option<ConnectionMethod>,
     pub clients: Vec<openbitfun_services_integrations::remote_connect::RemoteControlClient>,
     pub bot_connected: Option<String>,
@@ -2146,10 +2150,14 @@ pub async fn remote_connect_status() -> Result<RemoteConnectStatusResponse, Stri
         .await
         .map(|(_, clients, _)| clients)
         .unwrap_or_default();
+    // An invalid override already logs at config resolution; account sign-in
+    // reports it, so the status keeps the official fallback for the UI.
+    let server_relay_url = configured_relay_url().ok();
     Ok(RemoteConnectStatusResponse {
         connections,
         relay_connected,
         relay_url,
+        server_relay_url,
         active_method: service.active_method().await,
         clients,
         bot_connected: service.bot_connected_info().await,

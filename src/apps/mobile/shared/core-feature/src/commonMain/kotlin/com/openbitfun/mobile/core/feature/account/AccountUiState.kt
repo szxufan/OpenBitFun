@@ -41,7 +41,6 @@ public sealed interface AccountUiState {
     public data object Restoring : AccountUiState
     public data object SignedOut : AccountUiState
     public data object SigningIn : AccountUiState
-    public data class Authorizing(public val authorizationUrl: String) : AccountUiState
     public data class Ready public constructor(
         public val userId: String,
         public val relayUrl: String,
@@ -100,12 +99,64 @@ public sealed interface AccountUiState {
         public val reason: AccountFailureReason,
         public val canRetry: Boolean,
         public val stage: AccountFailureStage,
-    ) : AccountUiState
+        /**
+         * The relay's own sentence for a rejected relay-local sign-in, or null
+         * when [reason]'s usual copy already says everything.
+         *
+         * Echoed verbatim to the user, never matched on: a cooldown length, a
+         * closed registration, and an unconfigured SMS provider are the relay's
+         * facts to state, and this field is how they reach the form without a
+         * reason code per relay sentence.
+         */
+        public val detail: String?,
+    ) : AccountUiState {
+        /** Preserve callers created before relay-local sign-in added the detail. */
+        public constructor(reason: AccountFailureReason, canRetry: Boolean, stage: AccountFailureStage) :
+            this(reason, canRetry, stage, null)
+    }
+}
+
+/**
+ * One answer to a send-code request, already free of transport types so the
+ * form layer never needs a module below this seam.
+ */
+public sealed interface SmsSendResult {
+    /** The relay accepted the request and texted the code. */
+    public data object Sent : SmsSendResult
+
+    /**
+     * The relay refused with a cooldown. [message] is its own sentence, shown
+     * verbatim; [retryAfterSeconds] is the cooldown the resend control must
+     * honor.
+     */
+    public data class Cooldown(public val message: String, public val retryAfterSeconds: Int) : SmsSendResult
+
+    /**
+     * Any other refusal. [reason] selects local copy; [message] is the relay's
+     * own sentence when it gave one, and takes precedence over that copy.
+     */
+    public data class Rejected(public val reason: AccountFailureReason, public val message: String) : SmsSendResult
 }
 
 public sealed interface AccountIntent {
     public data object Restore : AccountIntent
-    public data object Login : AccountIntent
+
+    /**
+     * Sign in (registering on first use) against one relay: [phone] plus
+     * exactly one of an SMS [code] or a [password]. A successful sign-in also
+     * adopts [relayUrl] as the configured relay, so the session that lands is
+     * the one a later restore expects.
+     */
+    public data class LocalLogin public constructor(
+        public val relayUrl: String,
+        public val phone: String,
+        public val code: String?,
+        public val password: String?,
+    ) : AccountIntent {
+        /** A credential travels in this intent; it never travels in a log. */
+        override fun toString(): String = "LocalLogin(relayUrl=$relayUrl, phone=$phone, code=${if (code == null) "null" else "<redacted>"}, password=${if (password == null) "null" else "<redacted>"})"
+    }
+
     public data class SelectRelay(public val relayUrl: String) : AccountIntent
     public data class SelectDevice public constructor(public val deviceId: String) : AccountIntent
 
