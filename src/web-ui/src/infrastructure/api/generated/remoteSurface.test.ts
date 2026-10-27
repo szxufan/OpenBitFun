@@ -68,9 +68,9 @@ describe('remote surface generated bindings', () => {
   it('keeps controller-owned anchors local on every surface', () => {
     for (const command of [
       'account_login',
-      'account_github_start',
-      'account_github_poll',
-      'account_github_info',
+      'account_sms_send',
+      'account_refresh_relogin',
+      'account_set_password',
       'account_logout',
       'peer_mode_ping',
       'dispatch_submit',

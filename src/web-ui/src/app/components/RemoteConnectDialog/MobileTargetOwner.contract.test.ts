@@ -100,10 +100,12 @@ describe('mobile control-target UI ownership contracts', () => {
     expect(devicesSource).toContain('client.controlTargetEpoch === expectedTargetEpoch');
     expect(devicesSource).toContain('expectedTargetEpoch = client.controlTargetEpoch;');
 
-    expect(pairingSource).toContain('generation.current === attempt && !controller.signal.aborted && !connected.current');
+    // The browser-popup sign-in is gone with relay-local accounts, so there is
+    // no AbortController anymore; ownership fencing is the generation counter
+    // plus the one-shot connect guard, checked after every await.
+    expect(pairingSource).toContain('const isCurrent = () => generation.current === attempt && !connected.current;');
     expect(pairingSource).toContain('if (!isCurrent()) return;');
-    expect(pairingSource).toContain('accountStore.saveSession(browser, candidate, isCurrent)');
-    expect(pairingSource).toContain('pending.current?.abort()');
+    expect(pairingSource).toContain('accountStore.saveSession(browser, candidate, isCurrent, pair.refreshToken)');
   });
 
   it('restores from the browser store while retaining scoped legacy readers for migration', () => {
