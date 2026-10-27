@@ -123,6 +123,11 @@ jobs:
     if: ${{ !cancelled() && needs.build-impact.outputs.rust_required != 'false' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    # ubuntu-latest (24.04) ships leptonica 1.84 headers whose environ.h
+    # uses C11 atomic types, but leptonica-sys 0.4.9's bindgen invocation
+    # does not preinclude <stdatomic.h>, so binding generation fails with
+    # "unknown type name 'atomic_int'". Preincluding it restores the parse.
+    BINDGEN_EXTRA_CLANG_ARGS: ${{ runner.os == 'Linux' && '-include stdatomic.h' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -196,6 +201,11 @@ jobs:
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
+      # ubuntu-latest (24.04) ships leptonica 1.84 headers whose environ.h
+      # uses C11 atomic types, but leptonica-sys 0.4.9's bindgen invocation
+      # does not preinclude <stdatomic.h>, so binding generation fails with
+      # "unknown type name 'atomic_int'". Preincluding it restores the parse.
+      BINDGEN_EXTRA_CLANG_ARGS: ${{ runner.os == 'Linux' && '-include stdatomic.h' || '' }}
     strategy:
       fail-fast: false
       matrix:
