@@ -1336,36 +1336,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const smartView = isNativeModelSelection && routing.available && (smartPreviewScope === modelSelectionScopeKey || (!poolId && routing.mode === 'smart'));
   const smartModeDescription = !routing.available ? t('modelSelector.routing.notOpen') : routing.status?.issue
     ? t('modelSelector.routing.configurationIssue') : t('modelSelector.modes.smartSummary');
-  const handleRoutingMode = async (mode: 'manual' | 'smart', keepSmartView = false) => {
-    try {
-      if (mode === 'smart' && !routing.available) return false;
-      // Inspect unavailable smart mode without changing the host's active strategy.
-      if (mode === 'smart' && (!routing.status || !routing.status.ready)) {
-        setSmartPreviewScope(modelSelectionScopeKey);
-        closePanel(true);
-        return false;
-      }
-      if (mode === 'smart' && poolId && !await handleSelectModel('primary')) return false;
-      if (mode === 'smart' && !currentModelMode) {
-        manualModelRef.current = { scopeKey: modelSelectionScopeKey, modelId: currentNativeModelId };
-        setRecentManualModel(modelSelectionScopeKey, currentNativeModelId);
-      }
-      const selected = routing.status ? await routing.select(mode) : mode === 'manual';
-      if (selected && deviceSurfaceScope.isCurrent() && modelSelectionScopeRef.current === modelSelectionScopeKey) {
-        setSmartPreviewScope(keepSmartView ? modelSelectionScopeKey : null);
-        closePanel(true);
-      }
-      return selected;
-    }
-    catch (error) {
-      if (deviceSurfaceScope.isCurrent()) {
-        notificationService.error(t('modelSelector.routing.saveFailed'));
-        log.warn('Failed to update model routing strategy', { error });
-        void routing.refresh();
-      }
-      return false;
-    }
-  };
   const currentModelMode = isNativeModelSelection && poolId ? 'pool' : isNativeModelSelection && routing.mode === 'smart' ? 'smart' : null;
   const settingsModelMode = smartView ? 'smart' : currentModelMode;
   // Configuration previews do not change the host's active selection.
@@ -1614,9 +1584,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     activeSession?.workspacePath,
     acpClientId,
     currentMode,
-    currentModelMode,
     poolId,
-    currentNativeModelId,
     defaultModels,
     disabled,
     externalSelection,
@@ -1624,7 +1592,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     loading,
     modelSelectionScopeKey,
     persistSharedModeDefault,
-    isNativeModelSelection,
     routing.pending,
     reasoningLoading,
     recentPresetForModel,
@@ -1635,13 +1602,48 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     activeSession?.workspaceId,
   ]);
 
-  const handleSelectModelFromMenu = async (modelId: string) => {
+  const handleRoutingMode = useCallback(async (mode: 'manual' | 'smart', keepSmartView = false) => {
+    try {
+      if (mode === 'smart' && !routing.available) return false;
+      // Inspect unavailable smart mode without changing the host's active strategy.
+      if (mode === 'smart' && (!routing.status || !routing.status.ready)) {
+        setSmartPreviewScope(modelSelectionScopeKey);
+        closePanel(true);
+        return false;
+      }
+      if (mode === 'smart' && poolId && !await handleSelectModel('primary')) return false;
+      if (mode === 'smart' && !currentModelMode) {
+        manualModelRef.current = { scopeKey: modelSelectionScopeKey, modelId: currentNativeModelId };
+        setRecentManualModel(modelSelectionScopeKey, currentNativeModelId);
+      }
+      const selected = routing.status ? await routing.select(mode) : mode === 'manual';
+      if (selected && deviceSurfaceScope.isCurrent() && modelSelectionScopeRef.current === modelSelectionScopeKey) {
+        setSmartPreviewScope(keepSmartView ? modelSelectionScopeKey : null);
+        closePanel(true);
+      }
+      return selected;
+    }
+    catch (error) {
+      if (deviceSurfaceScope.isCurrent()) {
+        notificationService.error(t('modelSelector.routing.saveFailed'));
+        log.warn('Failed to update model routing strategy', { error });
+        void routing.refresh();
+      }
+      return false;
+    }
+  }, [closePanel, currentModelMode, currentNativeModelId, deviceSurfaceScope,
+    handleSelectModel, modelSelectionScopeKey, poolId, routing,
+    setSmartPreviewScope, t]);
+
+  const handleSelectModelFromMenu = useCallback(async (modelId: string) => {
     if (isNativeModelSelection && routing.mode === 'smart' && !await handleRoutingMode('manual')) return false;
     const selected = await handleSelectModel(modelId);
     if (modelSelectionScopeRef.current !== modelSelectionScopeKey) return false;
     if (selected && hasSettingsPanel) { setSmartPreviewScope(null); closePanel(true); }
     return selected;
-  };
+  }, [closePanel, handleRoutingMode, handleSelectModel, hasSettingsPanel,
+    isNativeModelSelection, modelSelectionScopeKey, routing.mode]);
+
 
   const handleConfigureRoleModel = useCallback(async (role: ModelRole, modelId: string) => {
     if (!canConfigureNativeDefaults || disabled || loading || reasoningLoading
