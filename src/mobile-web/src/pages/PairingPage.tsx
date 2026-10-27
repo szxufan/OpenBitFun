@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { MobileStatus } from '@openbitfun/ui/mobile';
-import PairingForm from '../components/PairingForm';
+import PairingForm, { type LocalAuthCapability, type LocalLoginMode } from '../components/PairingForm';
 import { accountDeviceIdFromHash, currentRelayUrl, pskPairingCodeFromHash } from '../services/pairingLink';
 import { useI18n } from '../i18n';
-import { CloudAccountClient, type CloudAccountSession } from '../services/CloudAccountClient';
+import {
+  CloudAccountClient, CloudAccountRequestError, type CloudAccountSession,
+} from '../services/CloudAccountClient';
 import {
   BrowserAccountChangedError, BrowserAccountStorageError, getBrowserAccountStore, releaseBrowserAccount,
   type BrowserAccountSnapshot, type BrowserAccountStore,
@@ -22,18 +24,22 @@ interface PairingPageProps {
 
 function routeKey(): string { return `${window.location.pathname}${window.location.hash}`; }
 
+/** Mirrors the relay-enforced cooldown between two SMS sends. */
+const SMS_RESEND_COOLDOWN_SECS = 60;
+
 const PairingPageContent: React.FC<PairingPageProps> = ({ onPaired }) => {
   const { t } = useI18n();
   const relayUrl = currentRelayUrl();
   const accountStore = getBrowserAccountStore(relayUrl);
   const [restoring, setRestoring] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [capability, setCapability] = useState<LocalAuthCapability>('probing');
+  const [mode, setMode] = useState<LocalLoginMode>('code');
+  const [cooldown, setCooldown] = useState(0);
   const generation = useRef(0);
   const connected = useRef(false);
-  const loginRevision = useRef<number | null>(null);
-  const pending = useRef<AbortController | null>(null);
-  const popup = useRef<Window | null>(null);
   const onPairedRef = useRef(onPaired);
   onPairedRef.current = onPaired;
   const targetDeviceId = accountDeviceIdFromHash(window.location.hash) || undefined;
@@ -48,8 +54,6 @@ const PairingPageContent: React.FC<PairingPageProps> = ({ onPaired }) => {
     if (!session || connected.current) return;
     connected.current = true;
     generation.current += 1;
-    pending.current?.abort();
-    popup.current?.close();
     const controllerDeviceId = saved.controllerDeviceId;
     const client = new RelayHttpClient(relayUrl, { ...session, deviceId: controllerDeviceId });
     const store = useMobileStore.getState();
@@ -90,16 +94,8 @@ const PairingPageContent: React.FC<PairingPageProps> = ({ onPaired }) => {
           if (disposed || request !== readGeneration || connected.current) return;
           if (saved.session) {
             connect(saved, true);
-          } else {
-            // A sign-out in another tab also cancels an already-open OAuth popup.
-            if (loginRevision.current !== null && loginRevision.current !== saved.revision) {
-              generation.current += 1;
-              pending.current?.abort(); popup.current?.close();
-              pending.current = null;
-              loginRevision.current = null;
-              setBusy(false);
-            }
-            if (saved.lastChange === 'expired') setError(t('pairing.accountSessionExpired'));
+          } else if (saved.lastChange === 'expired') {
+            setError(t('pairing.accountSessionExpired'));
           }
         } finally { releaseBrowserAccount(saved); }
       } catch (cause) {
@@ -114,31 +110,66 @@ const PairingPageContent: React.FC<PairingPageProps> = ({ onPaired }) => {
       disposed = true;
       unsubscribe();
       generation.current += 1;
-      pending.current?.abort();
-      popup.current?.close();
     };
     // Each route owns its restore/subscription lifecycle. StrictMode's first
     // async restore is fenced by disposal before it can hand off a connection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountStore]);
 
-  const signIn = async () => {
-    if (pending.current || connected.current || restoring) return;
-    // Open synchronously in the user gesture so the browser permits the popup.
-    const width = Math.min(480, window.screen.availWidth);
-    const height = Math.min(720, window.screen.availHeight);
-    const left = Math.max(0, window.screenX + (window.outerWidth - width) / 2);
-    const top = Math.max(0, window.screenY + (window.outerHeight - height) / 2);
-    const authWindow = window.open('about:blank', '_blank',
-      `popup=yes,width=${width},height=${height},left=${Math.round(left)},top=${Math.round(top)},resizable=yes,scrollbars=yes`);
-    if (!authWindow) { setError(t('pairing.allowSignInPopup')); return; }
-    // Keep the opener relationship: Chrome otherwise refuses cross-origin close()
-    // and focus(). CloudAccountClient only navigates to the trusted auth endpoints.
-    popup.current = authWindow;
+  // The local form follows the Relay's own capability contract: an older Relay
+  // must answer with an explicit unsupported state, not a form that fails late.
+  useEffect(() => {
+    let disposed = false;
+    new CloudAccountClient(relayUrl).supportsLocalAuth()
+      .then(supported => { if (!disposed) setCapability(supported ? 'ready' : 'unsupported'); })
+      .catch(() => { if (!disposed) setCapability('unreachable'); });
+    return () => { disposed = true; };
+  }, [relayUrl]);
+
+  // One-second resend countdown, started by a successful send or a 429 answer.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setTimeout(() => setCooldown(value => value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [cooldown]);
+
+  const smsErrorCopy = (cause: unknown) => (cause instanceof CloudAccountRequestError && cause.status === 503
+    ? t('pairing.smsUnavailable')
+    : friendlyError(cause));
+
+  const loginErrorCopy = (cause: unknown, usingPassword: boolean) => {
+    if (cause instanceof CloudAccountRequestError) {
+      if (cause.status === 401) return usingPassword ? t('pairing.credentialsRejected') : t('pairing.codeRejected');
+      if (cause.status === 403) return t('pairing.registrationClosed');
+    }
+    return friendlyError(cause);
+  };
+
+  const sendCode = async (phone: string) => {
+    if (sending || busy || connected.current || restoring) return;
     const attempt = ++generation.current;
-    const controller = new AbortController();
-    const isCurrent = () => generation.current === attempt && !controller.signal.aborted && !connected.current;
-    pending.current = controller;
+    setSending(true); setError(null);
+    try {
+      await new CloudAccountClient(relayUrl).smsSend(phone);
+      if (generation.current === attempt) setCooldown(SMS_RESEND_COOLDOWN_SECS);
+    } catch (cause) {
+      if (generation.current !== attempt) return;
+      if (cause instanceof CloudAccountRequestError && cause.status === 429) {
+        const seconds = Math.max(1, Math.min(cause.retryAfterSeconds ?? SMS_RESEND_COOLDOWN_SECS, 3600));
+        setCooldown(seconds);
+        setError(t('pairing.tooManyAttempts', { seconds }));
+        return;
+      }
+      setError(smsErrorCopy(cause));
+    } finally {
+      if (generation.current === attempt) setSending(false);
+    }
+  };
+
+  const signIn = async (phone: string, credentials: { code: string } | { password: string }) => {
+    if (busy || connected.current || restoring) return;
+    const attempt = ++generation.current;
+    const isCurrent = () => generation.current === attempt && !connected.current;
     setBusy(true); setError(null);
     const account = new CloudAccountClient(relayUrl);
     let browser: BrowserAccountSnapshot | null = null;
@@ -148,17 +179,18 @@ const PairingPageContent: React.FC<PairingPageProps> = ({ onPaired }) => {
       browser = await accountStore.read();
       if (!isCurrent()) return;
       if (browser.session) { connect(browser, true); return; }
-      loginRevision.current = browser.revision;
-      const accessToken = await account.authorize(authWindow, controller.signal);
+      // The relay-local pair authorizes the browser controller; the device
+      // exchange then registers the SAME stored X25519 key as before.
+      const pair = await account.localLogin(phone, credentials);
       if (!isCurrent()) return;
-      candidate = await account.login(accessToken, browser.controllerDeviceId, browser.privateKey);
+      candidate = await account.login(pair.accessToken, browser.controllerDeviceId, browser.privateKey);
       if (!isCurrent()) return;
-      const saved = await accountStore.saveSession(browser, candidate, isCurrent);
+      const saved = await accountStore.saveSession(browser, candidate, isCurrent, pair.refreshToken);
       committed = true;
       try { if (isCurrent()) connect(saved, false); }
       finally { releaseBrowserAccount(saved); }
     } catch (cause) {
-      if (isCurrent()) setError(friendlyError(cause));
+      if (isCurrent()) setError(loginErrorCopy(cause, 'password' in credentials));
     } finally {
       if (candidate) {
         if (!committed) {
@@ -169,19 +201,8 @@ const PairingPageContent: React.FC<PairingPageProps> = ({ onPaired }) => {
         candidate.masterKey.fill(0);
       }
       if (browser) releaseBrowserAccount(browser);
-      authWindow.close();
-      if (generation.current === attempt) {
-        setBusy(false); pending.current = null; loginRevision.current = null;
-      }
+      if (generation.current === attempt) setBusy(false);
     }
-  };
-
-  const cancel = () => {
-    generation.current += 1;
-    pending.current?.abort(); popup.current?.close();
-    pending.current = null;
-    loginRevision.current = null;
-    setBusy(false);
   };
 
   return <div className="pairing-page"><div className="pairing-page__shell">
@@ -191,10 +212,10 @@ const PairingPageContent: React.FC<PairingPageProps> = ({ onPaired }) => {
     </div>
     <section className="pairing-page__panel">
       {restoring ? <MobileStatus loading title={t('pairing.restoringAccount')} />
-        : <PairingForm busy={busy} error={error} onSignIn={() => void signIn()} onCancel={cancel} onFocus={() => {
-          if (popup.current && !popup.current.closed) popup.current.focus();
-          else { cancel(); void signIn(); }
-        }} />}
+        : <PairingForm mode={mode} capability={capability} busy={busy} sending={sending}
+          cooldown={cooldown} error={error} onSwitchMode={setMode}
+          onSendCode={phone => void sendCode(phone)}
+          onSubmit={(phone, credentials) => void signIn(phone, credentials)} />}
     </section>
   </div></div>;
 };

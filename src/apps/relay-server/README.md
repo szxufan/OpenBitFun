@@ -1,16 +1,16 @@
 # OpenBitFun Relay Server
 
-The official Relay connects devices signed in to the same GitHub identity.
-GitHub identity is shared with the marketplaces. Users sign in
-from OpenBitFun; they do not create a Relay account or deploy a server.
+The Relay connects devices signed in to the same relay-local account. Accounts
+are created on the Relay itself with an SMS verification code (Aliyun SMS);
+an optional password can be set afterwards. Users sign in from OpenBitFun;
+they do not deploy the server themselves.
 
 The official endpoint is `https://remote.openbitfun.com/v/1.0.2`. This release is deployed with
 its own process, database, assets, and reverse-proxy location. An existing
 `/relay` deployment remains on its existing binary and data directory.
 
 The Relay forwards opaque encrypted messages. Each device generates an X25519
-private key locally and registers its public key after GitHub identity
-verification. Peers obtain public keys through the authenticated same-account
+private key locally and registers its public key after account sign-in. Peers obtain public keys through the authenticated same-account
 directory and derive an AES-GCM key with X25519 and HKDF-SHA256. The Relay does
 not receive device private keys or upload copies of settings and sessions.
 Sessions and files are read from the owning online device on demand.
@@ -23,11 +23,14 @@ public-key lookup, RPC and presence all use the selected Relay endpoint.
 The two modes differ only in endpoint and host startup; no device traffic is
 forwarded from the local Relay to the official Relay.
 
-Both modes verify GitHub identity through `auth.openbitfun.com`, so signing in
-requires internet access. An invitation contains only the selected endpoint
-and device id (`/#/pair?did=<device-id>`); scanning it grants no authority.
-The controller must sign in and resolve that id in its same-account directory.
-Anonymous room pairing and tunnel-provider startup have been removed.
+Both modes authenticate relay-local accounts: users register and sign in with
+an SMS verification code delivered through Aliyun SMS (an optional password can
+be set afterwards). No external identity service is contacted, but SMS
+delivery requires the Aliyun credentials below. An invitation contains only
+the selected endpoint and device id (`/#/pair?did=<device-id>`); scanning it
+grants no authority. The controller must sign in and resolve that id in its
+same-account directory. Anonymous room pairing and tunnel-provider startup
+have been removed.
 
 SSH and Docker workspace connections remain independent of Relay login.
 
@@ -45,19 +48,21 @@ Relay URL. A private Relay therefore needs a matching client build.
    `services/AccountDeviceLink.ets`; update the HarmonyOS account-link parser too.
    Search for `https://remote.openbitfun.com/v/1.0.2` to verify every runtime
    reference and corresponding test before building your distribution.
-3. Decide who owns identity. You can retain the official GitHub identity
-   authority, or run the [shared identity service](../../../deploy/miniapp-market/README.md)
-   with your own GitHub OAuth application. For an independent authority, change
-   `IDENTITY_ME_URL` in `relay-service/src/identity.rs` and
-   `DEFAULT_ACCOUNT_API_URL` in `services-integrations/src/account_identity/mod.rs`
-   together, and adapt the market sign-in links and callback/completion host.
-   `OPENBITFUN_ACCOUNT_API_URL` overrides the desktop/CLI identity API for
-   development; the previous `OPENBITFUN_MINIAPP_MARKET_API_URL` alias remains
-   readable. Relay never accepts an identity authority from a client request.
+3. Accounts are owned by this relay itself. Configure Aliyun SMS delivery with
+   the `RELAY_SMS_*` variables (see Configuration) so phone verification works;
+   until then code sign-in answers `503` and only password login on accounts
+   that already set a password remains possible. Set `RELAY_LOCAL_REGISTRATION=closed`
+   to stop new phone numbers from self-registering, then create accounts with
+   `relay-admin add-user --phone <number> --password-stdin`. The desktop and
+   CLI reach this relay through the `OPENBITFUN_RELAY_URL` environment
+   variable (HTTPS required; plain HTTP only on loopback or private
+   addresses).
 4. Use separate persistent data and asset directories, configure exact browser
-   CORS origins, then put the service behind your own TLS reverse proxy. Build
-   and exercise two devices using the same GitHub identity before distributing
-   your fork. The public web controller must come from that matching build.
+   CORS origins, then put the service behind your own TLS reverse proxy:
+   verification codes and passwords travel in request bodies. Build and
+   exercise two devices signing in with the same phone number before
+   distributing your fork. The public web controller must come from that
+   matching build.
 
 The scripts remain in this directory: `deploy.sh` deploys on the machine where
 it runs, `common.sh` contains Docker/health helpers, and `mirror.sh` and
@@ -65,8 +70,11 @@ it runs, `common.sh` contains Docker/health helpers, and `mirror.sh` and
 `bash deploy.sh --help` first. For fork code use
 `bash deploy.sh --build-from-source --global-mirror`; the default image path
 pulls a published upstream release, so it will not include your modifications.
-An empty account database is normal: successful GitHub verification creates an
-identity. Do not run retired `add-user` or password-reset commands.
+An empty account database is normal: the first successful SMS-code sign-in
+creates the account. `relay-admin` manages local accounts: `list-users`,
+`delete-user --phone|--username`, `add-user --phone <number> --password-stdin`
+(for closed-registration relays), and `set-password --phone <number>
+--password-stdin` (revokes the account's sessions).
 
 The legacy script uses its own Compose project and defaults. For a fresh
 versioned deployment, prefer the isolated [v1 Compose project](../../../deploy/relay-v1/README.md)
@@ -82,8 +90,9 @@ shared HTTP/WebSocket implementation lives in `src/crates/services/relay-service
 
 Set `RELAY_DB_PATH` to a persistent SQLite database before starting the service.
 Startup fails if it is missing; anonymous public relay mode is unsupported.
-The service validates OpenBitFun access tokens against the fixed GitHub identity
-authority at `https://auth.openbitfun.com/api/v1/me`.
+Account sign-in is verified entirely against the relay's own database; no
+external identity authority is contacted. Configure the `RELAY_SMS_*` variables
+(see Configuration) so SMS-code sign-in can deliver codes.
 
 ```bash
 cargo build --release -p openbitfun-relay-server
@@ -96,9 +105,10 @@ Use the isolated [v1 Compose project](../../../deploy/relay-v1/README.md).
 Set `RELAY_LISTEN_ADDR=127.0.0.1:19702` with host networking so the service can
 verify the immediate loopback proxy peer. Invalid listener values fail startup.
 Expose only the TLS reverse proxy. Keep the database and asset paths distinct from older deployments.
-`relay-admin` supports listing and explicitly deleting accounts; GitHub login
-creates identities. Password provisioning, password reset, and user-entered
-Relay server URLs are retired.
+`relay-admin` supports listing and deleting accounts, creating accounts for
+closed-registration relays (`add-user --phone --password-stdin`), and setting
+or replacing an account's optional password (`set-password --phone
+--password-stdin`, which revokes that account's sessions).
 
 ## Public-service resource controls
 
@@ -112,8 +122,9 @@ They are implemented in the shared Relay service, not in the agent loop.
 | Concurrent HTTP API requests | 2,048; overload returns 503 |
 | Body read / API handler | 15 seconds / 130 seconds |
 | HTTP request rate | 6,000/minute per source IP, and per account on the device API; overload returns 429 |
-| GitHub authorization start / poll | 10 / 120 per minute per IP |
-| Identity verification | 10 attempts/minute per IP; 3-second connect and 5-second response timeout; 64 concurrent outbound requests |
+| SMS code requests | 5 per minute per IP; 60-second resend cooldown and a 10-per-day cap per phone |
+| Local sign-in | 10 attempts/minute per IP; five attempts per code; exponential account lockout after repeated password failures |
+| Refresh rotation | 30 per minute per IP; replaying a rotated token revokes its family |
 | WebSocket connections | 4,096 active sockets per Relay process; a further handshake is rejected with `connection capacity exceeded` |
 | WebSocket connect / heartbeat | Namespace connect must finish within 15 seconds; ping every 15 seconds with a 45-second pong timeout; 30-second acknowledgement lifetime |
 | WebSocket frames | 256 KiB per message; larger encrypted bodies use the short-lived HTTP payload lane |
@@ -210,9 +221,12 @@ location and process.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /health`, `GET /api/info` | Health and service version |
-| `POST /api/auth/github/start`, `/api/auth/github/poll` | Browser GitHub authorization |
-| `POST /api/auth/login` | Exchange verified identity for a keyed device credential |
+| `GET /health`, `GET /api/info` | Health, service version, capabilities (`local_auth_v1`) |
+| `POST /api/auth/local/sms/send` | Deliver an SMS verification code (rate-limited, uniform response) |
+| `POST /api/auth/local/login` | Sign in (and register on first use) with an SMS code, or with the optional password |
+| `POST /api/auth/local/refresh` | Rotate a refresh token into a new access/refresh pair |
+| `POST /api/auth/local/password` | Set or change the caller's optional password |
+| `POST /api/auth/login` | Exchange a local access token for a keyed device credential |
 | `POST /api/auth/logout` | Revoke a credential |
 | `POST /api/auth/delegate` | Issue a separately keyed, restricted controller credential |
 | `POST /api/auth/provision-device` | Authorized SSH host bootstrap |
@@ -361,6 +375,24 @@ new client and server together under a separate versioned relay prefix.
 `RELAY_ASSET_STORE_MAX_BYTES`, and `RELAY_CORS_ALLOW_ORIGINS` are operator
 settings. `RELAY_PAGE_PUBLIC_BASE_URL` and `RELAY_PAGE_AUTH_BASE_URL` must be set
 together and use distinct origins when protected Pages are deployed.
+
+Local account sign-in adds:
+
+| Variable | Purpose |
+|---|---|
+| `RELAY_SMS_ALIYUN_ACCESS_KEY_ID` / `RELAY_SMS_ALIYUN_ACCESS_KEY_SECRET` | Aliyun RAM credentials for SMS delivery |
+| `RELAY_SMS_ALIYUN_SIGN_NAME` | Approved Aliyun SMS signature |
+| `RELAY_SMS_ALIYUN_TEMPLATE_CODE` | Template code; the template must take a `${code}` parameter |
+| `RELAY_SMS_CODE_SECRET` | Local HMAC key for digesting verification codes at rest |
+| `RELAY_LOCAL_REGISTRATION` | `open` (default) allows SMS-code self-registration; `closed` restricts sign-in to existing accounts |
+| `RELAY_SMS_ENDPOINT` | Optional test override pointing delivery at a mock server |
+
+Code sign-in answers `503` until the four required SMS variables are set.
+Abuse controls: per-IP rate limits, a 60-second resend cooldown, a per-phone
+daily cap, a five-attempt budget per code, five-minute code lifetime, and a
+uniform send response that never reveals whether a phone is registered.
+`relay-admin set-password` rotation revokes the account's local sign-in
+tokens; replaying a rotated refresh token revokes its whole token family.
 
 ## Verification
 

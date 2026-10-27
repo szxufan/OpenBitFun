@@ -1,4 +1,5 @@
-//! GitHub identity exchange for versioned OpenBitFun Relay device sessions.
+//! Local account sign-in (SMS verification codes, optional password) and the
+//! keyed device-session exchange for versioned OpenBitFun Relay clients.
 
 use axum::extract::{ConnectInfo, State};
 use axum::http::{header, HeaderMap, StatusCode};
@@ -8,18 +9,72 @@ use chrono::Utc;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-use crate::db::{AuthToken, DeviceMetadata, DeviceRow, UserRow};
+use crate::db::{
+    AuthToken, DeviceMetadata, DeviceRow, LocalAuthToken, SmsCode, SmsCodeCheck, SmsSend, UserRow,
+};
 use crate::routes::api::AppState;
+use crate::sms;
 
 /// Max login attempts per IP per minute (across all accounts — stops
 /// credential-stuffing where one IP tries many usernames).
 const MAX_LOGIN_ATTEMPTS_PER_MIN: usize = 10;
+/// Max SMS send requests per IP per minute.
+const MAX_SMS_SEND_PER_MIN: usize = 5;
+/// Max local refresh rotations per IP per minute.
+const MAX_LOCAL_REFRESH_PER_MIN: usize = 30;
 /// Max challenge requests per IP per minute (stops bulk salt harvesting).
 const MAX_RATE_LIMIT_BUCKETS: usize = 50_000;
 const MAX_DEVICE_ID_BYTES: usize = 128;
 const MAX_DEVICE_NAME_BYTES: usize = 256;
+const MIN_PASSWORD_BYTES: usize = 8;
+const MAX_PASSWORD_BYTES: usize = 128;
+
+/// Operator registration gate: `RELAY_LOCAL_REGISTRATION=closed` limits
+/// sign-in to phone numbers that already own an account.
+pub const ENV_LOCAL_REGISTRATION: &str = "RELAY_LOCAL_REGISTRATION";
+
+/// Everything the local-auth routes need from the operator environment, in
+/// one object so tests can inject a fully controlled copy through an
+/// `Extension`. Production resolves it once per process.
+pub struct LocalAuthEnvironment {
+    /// Aliyun delivery backend. `None` disables code sign-in with an explicit
+    /// 503; password login keeps working.
+    pub transport: Option<Arc<dyn sms::SmsTransport>>,
+    /// HMAC key for code digests. `None` together with a transport is a
+    /// configuration error and also fails closed.
+    pub code_secret: Option<String>,
+    pub registration_closed: bool,
+}
+
+impl LocalAuthEnvironment {
+    fn from_env() -> Self {
+        let secret = sms::code_secret().cloned();
+        let transport = sms::SmsConfig::from_env()
+            .filter(|_| secret.is_some())
+            .map(|config| {
+                Arc::new(sms::AliyunSmsTransport::new(config)) as Arc<dyn sms::SmsTransport>
+            });
+        Self {
+            transport,
+            code_secret: secret,
+            registration_closed: std::env::var(ENV_LOCAL_REGISTRATION)
+                .map(|value| value.trim().eq_ignore_ascii_case("closed"))
+                .unwrap_or(false),
+        }
+    }
+}
+
+fn local_auth(injected: Option<Extension<Arc<LocalAuthEnvironment>>>) -> Arc<LocalAuthEnvironment> {
+    static ENV: OnceLock<Arc<LocalAuthEnvironment>> = OnceLock::new();
+    injected
+        .map(|environment| environment.0)
+        .unwrap_or_else(|| {
+            ENV.get_or_init(|| Arc::new(LocalAuthEnvironment::from_env()))
+                .clone()
+        })
+}
 
 fn valid_bounded_text(value: &str, max_bytes: usize) -> bool {
     !value.trim().is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
@@ -210,88 +265,479 @@ fn err(error: &str, status: StatusCode) -> (StatusCode, Json<ErrorResponse>) {
     )
 }
 
-fn identity_verifier(
-    injected: Option<&crate::identity::IdentityVerifier>,
-) -> Result<&crate::identity::IdentityVerifier, (StatusCode, Json<ErrorResponse>)> {
-    static VERIFIER: OnceLock<Result<crate::identity::IdentityVerifier, String>> = OnceLock::new();
-    if let Some(verifier) = injected {
-        return Ok(verifier);
+fn err_retry(
+    error: &str,
+    status: StatusCode,
+    retry_after_secs: i64,
+) -> (StatusCode, Json<ErrorResponse>) {
+    (
+        status,
+        Json(ErrorResponse {
+            error: error.to_string(),
+            retry_after_secs: Some(retry_after_secs),
+        }),
+    )
+}
+
+// ── Local account: password hashing ─────────────────────────────────────
+
+/// Argon2id PHC string. SMS-code accounts may never set a password; those
+/// that do store only this digest. Shared with relay-admin provisioning.
+pub(crate) fn hash_password(password: &str) -> Option<String> {
+    use argon2::password_hash::{PasswordHasher, SaltString};
+    let salt: [u8; 16] = rand::random();
+    let salt = SaltString::encode_b64(&salt).ok()?;
+    argon2::Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .ok()
+        .map(|hash| hash.to_string())
+}
+
+fn verify_password(stored_phc: &str, password: &str) -> bool {
+    use argon2::password_hash::{PasswordHash, PasswordVerifier};
+    PasswordHash::new(stored_phc).ok().is_some_and(|parsed| {
+        argon2::Argon2::default()
+            .verify_password(password.as_bytes(), &parsed)
+            .is_ok()
+    })
+}
+
+/// Run one Argon2 verification against a throwaway hash so "no such account"
+/// and "wrong password" cost the same time. The digest is generated once per
+/// process; its plaintext is irrelevant.
+fn burn_password_verify(password: &str) {
+    static DUMMY: OnceLock<String> = OnceLock::new();
+    let dummy = DUMMY.get_or_init(|| hash_password("timing-equalizer").unwrap_or_default());
+    if !dummy.is_empty() {
+        let _ = verify_password(dummy, password);
     }
-    VERIFIER
-        .get_or_init(|| {
-            crate::identity::IdentityVerifier::new()
-                .map_err(|_| "initialization failed".to_string())
-        })
-        .as_ref()
-        .map_err(|_| {
-            err(
-                "identity service unavailable",
-                StatusCode::SERVICE_UNAVAILABLE,
-            )
-        })
+}
+
+// ── Local account: request / response types ─────────────────────────────
+
+#[derive(Deserialize)]
+pub struct SmsSendRequest {
+    pub phone: String,
+}
+
+#[derive(Deserialize)]
+pub struct LocalLoginRequest {
+    pub phone: String,
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalUserView {
+    pub user_id: String,
+    pub login: String,
+    pub phone_masked: String,
+    pub has_password: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalLoginResponse {
+    pub access_token: String,
+    pub access_expires_at: i64,
+    pub refresh_token: String,
+    pub refresh_expires_at: i64,
+    pub user: LocalUserView,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GithubPollRequest {
-    transaction_id: String,
-    transaction_secret: String,
+pub struct LocalRefreshRequest {
+    pub refresh_token: String,
 }
 
-#[derive(Default, serde::Deserialize)]
-pub(crate) struct LoginMethods {
-    methods: Option<String>,
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetPasswordRequest {
+    pub new_password: String,
 }
 
-pub(crate) async fn github_start(
-    axum::extract::Query(query): axum::extract::Query<LoginMethods>,
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SmsSendResponse {
+    pub status: &'static str,
+}
+
+fn local_user_view(user: &UserRow, phone_masked: String) -> LocalUserView {
+    LocalUserView {
+        user_id: user.user_id.clone(),
+        login: user.username.clone(),
+        phone_masked,
+        has_password: user.password_hash.is_some(),
+    }
+}
+
+/// `POST /api/auth/local/sms/send` — deliver a verification code to a phone.
+///
+/// The response never reveals whether the phone owns an account. Rate and
+/// cooldown rejections are the only distinguishable outcomes, and they apply
+/// identically to known and unknown numbers.
+pub(crate) async fn local_sms_send(
     State(state): State<AppState>,
     connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
-    verifier: Option<Extension<crate::identity::IdentityVerifier>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    environment: Option<Extension<Arc<LocalAuthEnvironment>>>,
+    Json(body): Json<SmsSendRequest>,
+) -> Result<(StatusCode, Json<SmsSendResponse>), (StatusCode, Json<ErrorResponse>)> {
     let ip = client_ip(
         &headers,
         connect_info.map(|Extension(ConnectInfo(addr))| addr),
     );
     if !state
         .login_rate_limiter
-        .check_and_record("github-start", &ip, 10, None)
+        .check_and_record("sms-send", &ip, MAX_SMS_SEND_PER_MIN, None)
     {
+        return Err(err_retry(
+            "too many code requests",
+            StatusCode::TOO_MANY_REQUESTS,
+            60,
+        ));
+    }
+    let Some(phone) = crate::db::normalize_phone(&body.phone) else {
+        return Err(err("invalid phone number", StatusCode::BAD_REQUEST));
+    };
+    let db = state.db.as_ref();
+    if SmsSend::sent_within(db, &phone, crate::db::SMS_RESEND_COOLDOWN_SECS)
+        .await
+        .unwrap_or(true)
+    {
+        return Err(err_retry(
+            "please wait before requesting another code",
+            StatusCode::TOO_MANY_REQUESTS,
+            crate::db::SMS_RESEND_COOLDOWN_SECS,
+        ));
+    }
+    let day_start = Utc::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .map(|midnight| midnight.and_utc().timestamp())
+        .unwrap_or_else(|| Utc::now().timestamp());
+    let sent_today = SmsSend::count_since(db, &phone, day_start)
+        .await
+        .unwrap_or(i64::MAX);
+    if sent_today >= crate::db::SMS_DAILY_CAP_PER_PHONE {
+        return Err(err_retry(
+            "daily code limit reached",
+            StatusCode::TOO_MANY_REQUESTS,
+            3600,
+        ));
+    }
+    let environment = local_auth(environment);
+    let Some(transport) = environment.transport.clone() else {
         return Err(err(
-            "too many sign-in attempts",
+            "sms delivery is not configured",
+            StatusCode::SERVICE_UNAVAILABLE,
+        ));
+    };
+    let Some(secret) = environment.code_secret.clone() else {
+        tracing::error!("SMS transport resolved without a code secret");
+        return Err(err(
+            "sms delivery is not configured",
+            StatusCode::SERVICE_UNAVAILABLE,
+        ));
+    };
+    let code = sms::generate_code();
+    let digest = sms::code_digest(&secret, &phone, &code);
+    let expires_at = Utc::now().timestamp() + crate::db::SMS_CODE_TTL_SECS;
+    if let Err(error) = SmsCode::replace(db, &phone, &digest, expires_at).await {
+        tracing::error!("Failed to store SMS code: {error}");
+        return Err(err("internal error", StatusCode::INTERNAL_SERVER_ERROR));
+    }
+    if let Err(error) = transport.send(&phone, &code).await {
+        tracing::warn!(
+            "SMS delivery to {} failed: {error}",
+            crate::db::mask_phone(&phone)
+        );
+        return Err(err("code delivery failed", StatusCode::BAD_GATEWAY));
+    }
+    if let Err(error) = SmsSend::record(db, &phone).await {
+        tracing::warn!("Failed to record SMS send: {error}");
+    }
+    tracing::info!(
+        phone = %crate::db::mask_phone(&phone),
+        "Verification code sent for local sign-in"
+    );
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(SmsSendResponse { status: "sent" }),
+    ))
+}
+
+/// `POST /api/auth/local/login` — sign in with an SMS code (registering the
+/// phone on first use when registration is open) or, for accounts that set
+/// one, with the optional password. Exactly one of `code`/`password` must be
+/// present. Both paths return the same local token pair shape.
+pub(crate) async fn local_login(
+    State(state): State<AppState>,
+    connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
+    environment: Option<Extension<Arc<LocalAuthEnvironment>>>,
+    Json(body): Json<LocalLoginRequest>,
+) -> Result<Json<LocalLoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let ip = client_ip(
+        &headers,
+        connect_info.map(|Extension(ConnectInfo(addr))| addr),
+    );
+    if !state.login_rate_limiter.check_and_record(
+        "local-login",
+        &ip,
+        MAX_LOGIN_ATTEMPTS_PER_MIN,
+        None,
+    ) {
+        return Err(err(
+            "too many login attempts",
             StatusCode::TOO_MANY_REQUESTS,
         ));
     }
-    identity_verifier(verifier.as_ref().map(|v| &v.0))?
-        .start_auth(query.methods.as_deref() == Some("all"))
+    let Some(phone) = crate::db::normalize_phone(&body.phone) else {
+        return Err(err("invalid phone number", StatusCode::BAD_REQUEST));
+    };
+    let environment = local_auth(environment);
+    let db = state.db.as_ref();
+    let user = match (body.code.as_deref(), body.password.as_deref()) {
+        (Some(code), None) => sms_code_login(db, &environment, &phone, code).await?,
+        (None, Some(password)) => password_login(db, &phone, password).await?,
+        _ => {
+            return Err(err(
+                "provide exactly one of code or password",
+                StatusCode::BAD_REQUEST,
+            ))
+        }
+    };
+    // An unknown phone only reaches this point through the code path (which
+    // registers it when allowed); the password path resolves an existing row.
+    let user = match user {
+        Some(user) => user,
+        None => {
+            if environment.registration_closed {
+                return Err(err(
+                    "registration is closed on this relay",
+                    StatusCode::FORBIDDEN,
+                ));
+            }
+            UserRow::create_local_with_phone(db, &phone)
+                .await
+                .map_err(|error| {
+                    tracing::error!("Local account creation failed: {error}");
+                    err("internal error", StatusCode::INTERNAL_SERVER_ERROR)
+                })?
+        }
+    };
+    let pair = LocalAuthToken::issue_pair(db, &user.user_id)
         .await
-        .map(Json)
-        .map_err(|status| err("GitHub sign-in could not be started", status))
+        .map_err(|error| {
+            tracing::error!("Local token issue failed: {error}");
+            err("internal error", StatusCode::INTERNAL_SERVER_ERROR)
+        })?;
+    let masked = crate::db::mask_phone(&phone);
+    tracing::info!(user_id = %user.user_id, "Local account sign-in");
+    Ok(Json(LocalLoginResponse {
+        access_token: pair.access_token,
+        access_expires_at: pair.access_expires_at,
+        refresh_token: pair.refresh_token,
+        refresh_expires_at: pair.refresh_expires_at,
+        user: local_user_view(&user, masked),
+    }))
 }
 
-pub(crate) async fn github_poll(
+/// Returns `None` when the phone is verified but unregistered — the caller
+/// decides whether registration may create the account.
+async fn sms_code_login(
+    db: &sqlx::SqlitePool,
+    environment: &LocalAuthEnvironment,
+    phone: &str,
+    code: &str,
+) -> Result<Option<UserRow>, (StatusCode, Json<ErrorResponse>)> {
+    if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(err("invalid verification code", StatusCode::UNAUTHORIZED));
+    }
+    let Some(secret) = environment.code_secret.as_deref() else {
+        return Err(err(
+            "sms delivery is not configured",
+            StatusCode::SERVICE_UNAVAILABLE,
+        ));
+    };
+    let digest = sms::code_digest(secret, phone, code);
+    match SmsCode::check_and_consume(db, phone, &digest)
+        .await
+        .map_err(|error| {
+            tracing::error!("SMS code check failed: {error}");
+            err("internal error", StatusCode::INTERNAL_SERVER_ERROR)
+        })? {
+        SmsCodeCheck::Accepted => UserRow::find_by_phone(db, phone).await.map_err(|error| {
+            tracing::error!("Phone lookup failed: {error}");
+            err("internal error", StatusCode::INTERNAL_SERVER_ERROR)
+        }),
+        SmsCodeCheck::Rejected { attempts_left } => {
+            Err(err("verification code incorrect", StatusCode::UNAUTHORIZED)).map_err(
+                |(status, mut body)| {
+                    body.retry_after_secs = Some(attempts_left.max(0));
+                    (status, body)
+                },
+            )
+        }
+        SmsCodeCheck::Denied => Err(err(
+            "verification code invalid or expired",
+            StatusCode::UNAUTHORIZED,
+        )),
+    }
+}
+
+/// Password login for accounts that opted into one. Unknown phone, missing
+/// password, and wrong password share one response so the endpoint cannot be
+/// used to enumerate registered numbers.
+async fn password_login(
+    db: &sqlx::SqlitePool,
+    phone: &str,
+    password: &str,
+) -> Result<Option<UserRow>, (StatusCode, Json<ErrorResponse>)> {
+    let generic = || err("invalid phone or password", StatusCode::UNAUTHORIZED);
+    let Some(user) = UserRow::find_by_phone(db, phone).await.map_err(|error| {
+        tracing::error!("Phone lookup failed: {error}");
+        err("internal error", StatusCode::INTERNAL_SERVER_ERROR)
+    })?
+    else {
+        // Burn comparable CPU so timing cannot separate "no account" from
+        // "wrong password".
+        burn_password_verify(password);
+        return Err(generic());
+    };
+    let now = Utc::now().timestamp();
+    if user.locked_until > now {
+        return Err(err_retry(
+            "account temporarily locked",
+            StatusCode::LOCKED,
+            user.locked_until - now,
+        ));
+    }
+    let Some(stored) = user.password_hash.as_deref() else {
+        burn_password_verify(password);
+        return Err(generic());
+    };
+    if verify_password(stored, password) {
+        UserRow::clear_password_failures(db, &user.user_id)
+            .await
+            .map_err(|_| err("internal error", StatusCode::INTERNAL_SERVER_ERROR))?;
+        Ok(Some(user))
+    } else {
+        let deadline = UserRow::record_password_failure(db, &user.user_id)
+            .await
+            .unwrap_or(0);
+        if deadline > 0 {
+            return Err(err_retry(
+                "invalid phone or password",
+                StatusCode::LOCKED,
+                deadline - now,
+            ));
+        }
+        Err(generic())
+    }
+}
+
+/// `POST /api/auth/local/refresh` — rotate a refresh token into a fresh
+/// access/refresh pair. Replaying an already-rotated refresh token revokes
+/// its whole family: both the thief and the victim sign in again.
+pub(crate) async fn local_refresh(
     State(state): State<AppState>,
     connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
-    verifier: Option<Extension<crate::identity::IdentityVerifier>>,
-    Json(body): Json<GithubPollRequest>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    Json(body): Json<LocalRefreshRequest>,
+) -> Result<Json<LocalLoginResponse>, (StatusCode, Json<ErrorResponse>)> {
     let ip = client_ip(
         &headers,
         connect_info.map(|Extension(ConnectInfo(addr))| addr),
     );
-    if !state
-        .login_rate_limiter
-        .check_and_record("github-poll", &ip, 120, None)
-    {
-        return Err(err("too many sign-in polls", StatusCode::TOO_MANY_REQUESTS));
+    if !state.login_rate_limiter.check_and_record(
+        "local-refresh",
+        &ip,
+        MAX_LOCAL_REFRESH_PER_MIN,
+        None,
+    ) {
+        return Err(err(
+            "too many refresh attempts",
+            StatusCode::TOO_MANY_REQUESTS,
+        ));
     }
-    identity_verifier(verifier.as_ref().map(|v| &v.0))?
-        .poll_auth(&body.transaction_id, &body.transaction_secret)
+    let db = state.db.as_ref();
+    let Some(pair) = LocalAuthToken::rotate_refresh(db, &body.refresh_token)
         .await
-        .map(Json)
-        .map_err(|status| err("GitHub sign-in could not be checked", status))
+        .map_err(|error| {
+            tracing::error!("Local refresh failed: {error}");
+            err("internal error", StatusCode::INTERNAL_SERVER_ERROR)
+        })?
+    else {
+        return Err(err(
+            "session expired, sign in again",
+            StatusCode::UNAUTHORIZED,
+        ));
+    };
+    let user = UserRow::find_by_user_id(db, &pair.user_id)
+        .await
+        .map_err(|_| err("internal error", StatusCode::INTERNAL_SERVER_ERROR))?
+        .ok_or_else(|| err("session expired, sign in again", StatusCode::UNAUTHORIZED))?;
+    let phone = phone_for_user(db, &user.user_id).await;
+    Ok(Json(LocalLoginResponse {
+        access_token: pair.access_token,
+        access_expires_at: pair.access_expires_at,
+        refresh_token: pair.refresh_token,
+        refresh_expires_at: pair.refresh_expires_at,
+        user: local_user_view(&user, phone.unwrap_or_else(|| "***".to_string())),
+    }))
+}
+
+/// `POST /api/auth/local/password` — set or change the caller's optional
+/// password. Authenticated by a local access token, so the caller proved the
+/// SMS code first. Other sessions' refresh tokens are revoked; the current
+/// family stays signed in.
+pub(crate) async fn local_set_password(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SetPasswordRequest>,
+) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
+    let Some(access_token) = extract_bearer_token(&headers) else {
+        return Err(err("Sign in to continue", StatusCode::UNAUTHORIZED));
+    };
+    let password = body.new_password.trim();
+    if password.len() < MIN_PASSWORD_BYTES || password.len() > MAX_PASSWORD_BYTES {
+        return Err(err("password must be 8-128 bytes", StatusCode::BAD_REQUEST));
+    }
+    let Some(hash) = hash_password(password) else {
+        return Err(err("internal error", StatusCode::INTERNAL_SERVER_ERROR));
+    };
+    let db = state.db.as_ref();
+    let Some(token) = LocalAuthToken::find_access(db, &access_token)
+        .await
+        .map_err(|_| err("internal error", StatusCode::INTERNAL_SERVER_ERROR))?
+    else {
+        return Err(err("Sign in to continue", StatusCode::UNAUTHORIZED));
+    };
+    UserRow::set_password_hash(db, &token.user_id, &hash)
+        .await
+        .map_err(|_| err("internal error", StatusCode::INTERNAL_SERVER_ERROR))?;
+    LocalAuthToken::revoke_user_refresh_except_family(db, &token.user_id, &token.family_id)
+        .await
+        .map_err(|_| err("internal error", StatusCode::INTERNAL_SERVER_ERROR))?;
+    tracing::info!(user_id = %token.user_id, "Local account password updated");
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn phone_for_user(db: &sqlx::SqlitePool, user_id: &str) -> Option<String> {
+    let phone =
+        sqlx::query_as::<_, (String,)>("SELECT phone FROM phone_identities WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_optional(db)
+            .await
+            .ok()?
+            .map(|row| row.0)?;
+    Some(crate::db::mask_phone(&phone))
 }
 
 pub(crate) async fn verify_identity_credentials(
@@ -299,7 +745,6 @@ pub(crate) async fn verify_identity_credentials(
     peer_addr: Option<SocketAddr>,
     headers: &HeaderMap,
     access_token: &str,
-    injected_verifier: Option<&crate::identity::IdentityVerifier>,
 ) -> Result<UserRow, (StatusCode, Json<ErrorResponse>)> {
     let db = state.db.as_ref();
     if !state.login_rate_limiter.check_and_record(
@@ -313,37 +758,26 @@ pub(crate) async fn verify_identity_credentials(
             StatusCode::TOO_MANY_REQUESTS,
         ));
     }
-    let verifier = identity_verifier(injected_verifier)?;
-    let identity = verifier.verify(access_token).await.map_err(|status| {
-        err(
-            if status == StatusCode::UNAUTHORIZED {
-                "Sign in to continue"
-            } else {
-                "identity service unavailable"
-            },
-            status,
-        )
-    })?;
-    UserRow::upsert_verified(
-        db,
-        &identity
-            .identity_id()
-            .ok_or_else(|| err("Unsupported account identity", StatusCode::UNAUTHORIZED))?,
-        &identity.login,
-    )
-    .await
-    .map_err(|error| {
-        tracing::error!("Identity persistence failed: {error}");
-        err("internal error", StatusCode::INTERNAL_SERVER_ERROR)
-    })
+    let Some(token) = LocalAuthToken::find_access(db, access_token)
+        .await
+        .map_err(|_| err("internal error", StatusCode::INTERNAL_SERVER_ERROR))?
+    else {
+        return Err(err("Sign in to continue", StatusCode::UNAUTHORIZED));
+    };
+    UserRow::find_by_user_id(db, &token.user_id)
+        .await
+        .map_err(|error| {
+            tracing::error!("Account lookup failed: {error}");
+            err("internal error", StatusCode::INTERNAL_SERVER_ERROR)
+        })?
+        .ok_or_else(|| err("Sign in to continue", StatusCode::UNAUTHORIZED))
 }
 
-/// Exchange a shared OpenBitFun GitHub session for a device-scoped relay token.
+/// Exchange a local account session for a device-scoped relay token.
 pub(crate) async fn login(
     State(state): State<AppState>,
     connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
-    verifier: Option<Extension<crate::identity::IdentityVerifier>>,
     Json(body): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, Json<ErrorResponse>)> {
     let metadata = DeviceMetadata {
@@ -370,7 +804,6 @@ pub(crate) async fn login(
         connect_info.map(|Extension(ConnectInfo(addr))| addr),
         &headers,
         &body.access_token,
-        verifier.as_ref().map(|v| &v.0),
     )
     .await?;
     let db = state.db.as_ref();
@@ -693,6 +1126,8 @@ mod tests {
     use crate::MemoryAssetStore;
     use axum::body::{to_bytes, Body};
     use axum::http::{header, Request};
+    use std::future::Future;
+    use std::pin::Pin;
     use std::sync::Arc;
     use tower::ServiceExt;
 
@@ -769,36 +1204,64 @@ mod tests {
             .unwrap()
     }
 
+    /// A recording transport so tests can read the delivered code.
+    struct RecordingTransport(std::sync::Mutex<Vec<(String, String)>>);
+    impl RecordingTransport {
+        fn new() -> Arc<Self> {
+            Arc::new(Self(std::sync::Mutex::new(Vec::new())))
+        }
+        fn last_code(&self, phone: &str) -> String {
+            self.0
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .find(|(sent_phone, _)| sent_phone == phone)
+                .map(|(_, code)| code.clone())
+                .unwrap()
+        }
+    }
+    impl crate::sms::SmsTransport for RecordingTransport {
+        fn send<'a>(
+            &'a self,
+            phone: &'a str,
+            code: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+            Box::pin(async move {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push((phone.to_string(), code.to_string()));
+                Ok(())
+            })
+        }
+    }
+
+    fn local_env(
+        transport: Arc<RecordingTransport>,
+        registration_closed: bool,
+    ) -> Arc<LocalAuthEnvironment> {
+        Arc::new(LocalAuthEnvironment {
+            transport: Some(transport),
+            code_secret: Some("test-secret".to_string()),
+            registration_closed,
+        })
+    }
+
+    async fn provision_local_account(db: &DbPool, phone: &str) -> (String, String) {
+        let user = UserRow::create_local_with_phone(db, phone).await.unwrap();
+        let pair = LocalAuthToken::issue_pair(db, &user.user_id).await.unwrap();
+        (pair.access_token, user.user_id)
+    }
+
     #[tokio::test]
-    async fn github_login_uses_verified_id_and_preserves_device_key_on_reconnect() {
+    async fn local_login_binds_devices_to_the_access_tokens_account_and_preserves_device_key_on_reconnect(
+    ) {
         let (app, db, _) = setup_app().await;
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}/me", listener.local_addr().unwrap());
-        let authority = axum::Router::new().route(
-            "/me",
-            axum::routing::get(|headers: HeaderMap| async move {
-                if headers
-                    .get(header::AUTHORIZATION)
-                    .and_then(|h| h.to_str().ok())
-                    != Some("Bearer shared-account-token")
-                {
-                    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({})));
-                }
-                (
-                    StatusCode::OK,
-                    Json(serde_json::json!({"user":{"githubId":123,"login":"github-user"}})),
-                )
-            }),
-        );
-        let task = tokio::spawn(async move {
-            axum::serve(listener, authority).await.unwrap();
-        });
-        let app = app.layer(Extension(
-            crate::identity::IdentityVerifier::with_url(&url).unwrap(),
-        ));
+        let (access_token, user_id) = provision_local_account(&db, "13800000001").await;
         let public_key = BASE64.encode([9u8; 32]);
         let request = serde_json::json!({
-            "access_token":"shared-account-token", "user_id":"attacker-chosen-id",
+            "access_token":access_token, "user_id":"attacker-chosen-id",
             "device_id":"new-device", "device_name":"Laptop", "device_kind":"desktop",
             "public_key":public_key, "request_id":uuid::Uuid::new_v4().to_string(),
         });
@@ -806,7 +1269,7 @@ mod tests {
         assert_eq!(first.status(), StatusCode::OK);
         let first: serde_json::Value =
             serde_json::from_slice(&to_bytes(first.into_body(), 16384).await.unwrap()).unwrap();
-        assert_eq!(first["user_id"], "123");
+        assert_eq!(first["user_id"], user_id);
         let second = post_json(&app, "/api/auth/login", "", request.clone()).await;
         let second: serde_json::Value =
             serde_json::from_slice(&to_bytes(second.into_body(), 16384).await.unwrap()).unwrap();
@@ -821,7 +1284,8 @@ mod tests {
                 .status(),
             StatusCode::OK
         );
-        sqlx::query("UPDATE devices SET device_alias='Independent' WHERE user_id='123'")
+        sqlx::query("UPDATE devices SET device_alias='Independent' WHERE user_id = ?")
+            .bind(&user_id)
             .execute(&*db)
             .await
             .unwrap();
@@ -831,15 +1295,15 @@ mod tests {
                 .status(),
             StatusCode::OK
         );
-        let rows = DeviceRow::list_by_user(&db, "123").await.unwrap();
+        let rows = DeviceRow::list_by_user(&db, &user_id).await.unwrap();
         assert_eq!(rows[0].device_alias.as_deref(), Some("Independent"));
         assert_eq!(rows[0].device_model.as_deref(), Some("Model"));
         assert_eq!(rows[0].device_os.as_deref(), Some("Linux"));
         assert_eq!(rows[0].device_os_version.as_deref(), Some("6"));
-        DeviceRow::upsert(&db, "new-device", "123", "Laptop", None, None)
+        DeviceRow::upsert(&db, "new-device", &user_id, "Laptop", None, None)
             .await
             .unwrap();
-        let devices = DeviceRow::list_by_user(&db, "123").await.unwrap();
+        let devices = DeviceRow::list_by_user(&db, &user_id).await.unwrap();
         assert_eq!(devices[0].public_key.as_deref(), Some(public_key.as_str()));
         let mut invalid = request;
         invalid["access_token"] = serde_json::json!("expired");
@@ -850,7 +1314,10 @@ mod tests {
                 .status(),
             StatusCode::UNAUTHORIZED
         );
-        assert_eq!(DeviceRow::list_by_user(&db, "123").await.unwrap().len(), 1);
+        assert_eq!(
+            DeviceRow::list_by_user(&db, &user_id).await.unwrap().len(),
+            1
+        );
         assert_eq!(
             post_json(
                 &app,
@@ -862,38 +1329,315 @@ mod tests {
             .status(),
             StatusCode::NOT_FOUND
         );
-        task.abort();
+        // The GitHub authority routes are gone; old clients get a clear 404.
+        assert_eq!(
+            post_json(&app, "/api/auth/github/start", "", serde_json::json!({}))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            post_json(&app, "/api/auth/github/poll", "", serde_json::json!({}))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn sms_code_signs_in_registers_on_first_use_and_rotates_refresh_tokens() {
+        let (app, db, _) = setup_app().await;
+        let transport = RecordingTransport::new();
+        let app = app.layer(Extension(local_env(transport.clone(), false)));
+
+        let invalid_phone = post_json(
+            &app,
+            "/api/auth/local/sms/send",
+            "",
+            serde_json::json!({"phone": "not-a-phone"}),
+        )
+        .await;
+        assert_eq!(invalid_phone.status(), StatusCode::BAD_REQUEST);
+        let sent = post_json(
+            &app,
+            "/api/auth/local/sms/send",
+            "",
+            serde_json::json!({"phone": "+86 138 0000 0002"}),
+        )
+        .await;
+        assert_eq!(sent.status(), StatusCode::ACCEPTED);
+
+        let wrong = post_json(
+            &app,
+            "/api/auth/local/login",
+            "",
+            serde_json::json!({"phone":"13800000002", "code":"000000"}),
+        )
+        .await;
+        assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+
+        let code = transport.last_code("13800000002");
+        let login = post_json(
+            &app,
+            "/api/auth/local/login",
+            "",
+            serde_json::json!({"phone":"13800000002", "code": code}),
+        )
+        .await;
+        assert_eq!(login.status(), StatusCode::OK);
+        let login: serde_json::Value =
+            serde_json::from_slice(&to_bytes(login.into_body(), 16384).await.unwrap()).unwrap();
+        let user_id = login["user"]["userId"].as_str().unwrap().to_string();
+        assert!(user_id.starts_with("local-"));
+        assert_eq!(login["user"]["phoneMasked"], "138****0002");
+        assert_eq!(login["user"]["hasPassword"], false);
+        let refresh = login["refreshToken"].as_str().unwrap().to_string();
+        let access = login["accessToken"].as_str().unwrap().to_string();
+
+        // Local tokens are stored only as digests, never in plaintext.
+        let stored: Vec<String> = sqlx::query_as("SELECT token_hash FROM local_auth_tokens")
+            .fetch_all(&*db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row: (String,)| row.0)
+            .collect();
+        assert!(!stored
+            .iter()
+            .any(|hash| hash == &access || hash == &refresh));
+
+        // The same code cannot be consumed twice.
+        let replay = post_json(
+            &app,
+            "/api/auth/local/login",
+            "",
+            serde_json::json!({"phone":"13800000002", "code": code}),
+        )
+        .await;
+        assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+
+        // Refresh rotation issues a new pair for the same account.
+        let rotated = post_json(
+            &app,
+            "/api/auth/local/refresh",
+            "",
+            serde_json::json!({"refreshToken": refresh}),
+        )
+        .await;
+        assert_eq!(rotated.status(), StatusCode::OK);
+        let rotated: serde_json::Value =
+            serde_json::from_slice(&to_bytes(rotated.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(rotated["user"]["userId"], user_id);
+        let new_refresh = rotated["refreshToken"].as_str().unwrap().to_string();
+
+        // Replaying the rotated token revokes the whole family.
+        let replayed = post_json(
+            &app,
+            "/api/auth/local/refresh",
+            "",
+            serde_json::json!({"refreshToken": refresh}),
+        )
+        .await;
+        assert_eq!(replayed.status(), StatusCode::UNAUTHORIZED);
+        let revoked = post_json(
+            &app,
+            "/api/auth/local/refresh",
+            "",
+            serde_json::json!({"refreshToken": new_refresh}),
+        )
+        .await;
+        assert_eq!(revoked.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn closed_registration_signs_in_known_phones_and_refuses_new_ones() {
+        let (app, db, _) = setup_app().await;
+        let transport = RecordingTransport::new();
+        let app = app.layer(Extension(local_env(transport.clone(), true)));
+        provision_local_account(&db, "13800000003").await;
+
+        for phone in ["13800000003", "13800000004"] {
+            let sent = post_json(
+                &app,
+                "/api/auth/local/sms/send",
+                "",
+                serde_json::json!({"phone": phone}),
+            )
+            .await;
+            assert_eq!(sent.status(), StatusCode::ACCEPTED);
+        }
+        let known = post_json(
+            &app,
+            "/api/auth/local/login",
+            "",
+            serde_json::json!({"phone":"13800000003", "code": transport.last_code("13800000003")}),
+        )
+        .await;
+        assert_eq!(known.status(), StatusCode::OK);
+        let unknown = post_json(
+            &app,
+            "/api/auth/local/login",
+            "",
+            serde_json::json!({"phone":"13800000004", "code": transport.last_code("13800000004")}),
+        )
+        .await;
+        assert_eq!(unknown.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn passwords_are_optional_and_lock_after_repeated_failures() {
+        let (app, _db, _) = setup_app().await;
+        let transport = RecordingTransport::new();
+        let app = app.layer(Extension(local_env(transport.clone(), false)));
+
+        post_json(
+            &app,
+            "/api/auth/local/sms/send",
+            "",
+            serde_json::json!({"phone":"13800000005"}),
+        )
+        .await;
+        let login = post_json(
+            &app,
+            "/api/auth/local/login",
+            "",
+            serde_json::json!({"phone":"13800000005", "code": transport.last_code("13800000005")}),
+        )
+        .await;
+        assert_eq!(login.status(), StatusCode::OK);
+        let login: serde_json::Value =
+            serde_json::from_slice(&to_bytes(login.into_body(), 16384).await.unwrap()).unwrap();
+        let access = login["accessToken"].as_str().unwrap().to_string();
+        assert_eq!(login["user"]["hasPassword"], false);
+
+        // Password login on a passwordless account shares one generic error.
+        let no_password = post_json(
+            &app,
+            "/api/auth/local/login",
+            "",
+            serde_json::json!({"phone":"13800000005", "password":"whatever1"}),
+        )
+        .await;
+        assert_eq!(no_password.status(), StatusCode::UNAUTHORIZED);
+
+        // Set a password with the access token.
+        let too_short = post_json(
+            &app,
+            "/api/auth/local/password",
+            &access,
+            serde_json::json!({"newPassword":"short"}),
+        )
+        .await;
+        assert_eq!(too_short.status(), StatusCode::BAD_REQUEST);
+        let set = post_json(
+            &app,
+            "/api/auth/local/password",
+            &access,
+            serde_json::json!({"newPassword":"correct horse"}),
+        )
+        .await;
+        assert_eq!(set.status(), StatusCode::NO_CONTENT);
+
+        let wrong = post_json(
+            &app,
+            "/api/auth/local/login",
+            "",
+            serde_json::json!({"phone":"13800000005", "password":"wrong-password"}),
+        )
+        .await;
+        assert_eq!(wrong.status(), StatusCode::UNAUTHORIZED);
+        let right = post_json(
+            &app,
+            "/api/auth/local/login",
+            "",
+            serde_json::json!({"phone":"13800000005", "password":"correct horse"}),
+        )
+        .await;
+        assert_eq!(right.status(), StatusCode::OK);
+        let right: serde_json::Value =
+            serde_json::from_slice(&to_bytes(right.into_body(), 16384).await.unwrap()).unwrap();
+        assert_eq!(right["user"]["hasPassword"], true);
+
+        // Repeated failures lock the account with a retry hint.
+        let mut locked = None;
+        for _ in 0..5 {
+            locked = Some(
+                post_json(
+                    &app,
+                    "/api/auth/local/login",
+                    "",
+                    serde_json::json!({"phone":"13800000005", "password":"wrong-password"}),
+                )
+                .await,
+            );
+        }
+        let locked = locked.unwrap();
+        assert_eq!(locked.status(), StatusCode::LOCKED);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(locked.into_body(), 16384).await.unwrap()).unwrap();
+        assert!(body["retry_after_secs"]
+            .as_i64()
+            .is_some_and(|secs| secs > 0));
+    }
+
+    #[tokio::test]
+    async fn sms_send_is_cooldown_and_daily_capped_per_phone() {
+        let (app, db, _) = setup_app().await;
+        let transport = RecordingTransport::new();
+        let app = app.layer(Extension(local_env(transport.clone(), false)));
+        let send = |app: &axum::Router| {
+            let app = app.clone();
+            async move {
+                post_json(
+                    &app,
+                    "/api/auth/local/sms/send",
+                    "",
+                    serde_json::json!({"phone":"13800000006"}),
+                )
+                .await
+            }
+        };
+        assert_eq!(send(&app).await.status(), StatusCode::ACCEPTED);
+        let cooldown = send(&app).await;
+        assert_eq!(cooldown.status(), StatusCode::TOO_MANY_REQUESTS);
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(cooldown.into_body(), 16384).await.unwrap()).unwrap();
+        assert!(body["retry_after_secs"]
+            .as_i64()
+            .is_some_and(|secs| secs > 0));
+
+        // Saturate the daily cap with sends back-dated one hour, then clear
+        // only the cooldown row so the cap is the sole remaining limit.
+        let hour_ago = chrono::Utc::now().timestamp() - 3600;
+        for _ in 0..crate::db::SMS_DAILY_CAP_PER_PHONE {
+            sqlx::query("INSERT INTO sms_sends (phone, sent_at) VALUES ('13800000006', ?)")
+                .bind(hour_ago)
+                .execute(&*db)
+                .await
+                .unwrap();
+        }
+        sqlx::query("DELETE FROM sms_sends WHERE phone = '13800000006' AND sent_at > ?")
+            .bind(hour_ago + 1)
+            .execute(&*db)
+            .await
+            .unwrap();
+        assert!(!crate::db::SmsSend::sent_within(
+            &db,
+            "13800000006",
+            crate::db::SMS_RESEND_COOLDOWN_SECS
+        )
+        .await
+        .unwrap());
+        let capped = send(&app).await;
+        assert_eq!(capped.status(), StatusCode::TOO_MANY_REQUESTS);
     }
 
     #[tokio::test]
     async fn login_records_and_clears_the_client_build() {
         let (app, db, _) = setup_app().await;
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}/me", listener.local_addr().unwrap());
-        let authority = axum::Router::new().route(
-            "/me",
-            axum::routing::get(|headers: HeaderMap| async move {
-                if headers
-                    .get(header::AUTHORIZATION)
-                    .and_then(|h| h.to_str().ok())
-                    != Some("Bearer shared-account-token")
-                {
-                    return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({})));
-                }
-                (
-                    StatusCode::OK,
-                    Json(serde_json::json!({"user":{"githubId":123,"login":"github-user"}})),
-                )
-            }),
-        );
-        let task = tokio::spawn(async move {
-            axum::serve(listener, authority).await.unwrap();
-        });
-        let app = app.layer(Extension(
-            crate::identity::IdentityVerifier::with_url(&url).unwrap(),
-        ));
+        let (access_token, user_id) = provision_local_account(&db, "13800000007").await;
         let base = serde_json::json!({
-            "access_token":"shared-account-token",
+            "access_token":access_token,
             "device_id":"new-device", "device_name":"Laptop", "device_kind":"desktop",
             "public_key":BASE64.encode([9u8; 32]),
             "request_id":uuid::Uuid::new_v4().to_string(),
@@ -906,7 +1650,10 @@ mod tests {
                 .status(),
             StatusCode::OK
         );
-        let row = DeviceRow::list_by_user(&db, "123").await.unwrap().remove(0);
+        let row = DeviceRow::list_by_user(&db, &user_id)
+            .await
+            .unwrap()
+            .remove(0);
         assert!(row.client_version.is_none());
         assert!(row.client_protocol.is_none());
 
@@ -920,7 +1667,10 @@ mod tests {
                 .status(),
             StatusCode::OK
         );
-        let row = DeviceRow::list_by_user(&db, "123").await.unwrap().remove(0);
+        let row = DeviceRow::list_by_user(&db, &user_id)
+            .await
+            .unwrap()
+            .remove(0);
         assert_eq!(row.client_version.as_deref(), Some("1.4.0"));
         assert_eq!(row.client_protocol_u32(), Some(7));
 
@@ -932,7 +1682,10 @@ mod tests {
                 .status(),
             StatusCode::OK
         );
-        let row = DeviceRow::list_by_user(&db, "123").await.unwrap().remove(0);
+        let row = DeviceRow::list_by_user(&db, &user_id)
+            .await
+            .unwrap()
+            .remove(0);
         assert!(row.client_version.is_none());
         assert!(row.client_protocol.is_none());
 
@@ -945,9 +1698,11 @@ mod tests {
                 .status(),
             StatusCode::OK
         );
-        let row = DeviceRow::list_by_user(&db, "123").await.unwrap().remove(0);
+        let row = DeviceRow::list_by_user(&db, &user_id)
+            .await
+            .unwrap()
+            .remove(0);
         assert!(row.client_version.is_none());
-        task.abort();
     }
 
     #[tokio::test]

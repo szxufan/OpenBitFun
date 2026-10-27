@@ -89,47 +89,186 @@ test('online selection preserves exact QR targeting and supports later device av
   assert.equal(selectAccountDevice([reconnected, online], 'browser', offline.device_id), reconnected);
 });
 
-test('GitHub login registers the browser store key without generating another identity', async () => {
+/**
+ * Loads the transpiled CloudAccountClient with a scripted `fetch`; the caller
+ * gets the client module plus every recorded request. `fetch` and `window`
+ * are restored when the returned promise settles.
+ */
+async function withLocalClient(handler) {
   const encryption = await loadSource('../src/services/E2EEncryption.ts');
-  const { deriveDeviceMessageKey } = await import(encryption.url);
-  const { x25519 } = await import('@noble/curves/ed25519.js');
-  const authModule = await loadSource('../src/services/CloudAccountClient.ts', { './E2EEncryption': encryption.url, './pairingLink': links.url, ...clientBuildImports });
-  const { CloudAccountClient } = await import(authModule.url);
+  const authModule = await loadSource('../src/services/CloudAccountClient.ts', {
+    './E2EEncryption': encryption.url, './pairingLink': links.url, ...clientBuildImports,
+  });
+  const loaded = await import(authModule.url);
   const originalFetch = globalThis.fetch;
   const originalWindow = globalThis.window;
   const requests = [];
   globalThis.window = { setTimeout, clearTimeout };
-  const browserPrivateKey = new Uint8Array(32).fill(7);
   globalThis.fetch = async (url, options) => {
-    assert.equal(url, 'https://remote.openbitfun.com/v/1.0.2/api/auth/login');
-    const body = JSON.parse(options.body);
-    requests.push(body);
-    assert.equal(body.access_token, 'verified-github-token');
-    assert.equal(body.device_id, 'browser');
-    assert.equal(body.password_hash, undefined);
-    // The login body reports this client's build so the Relay can gate control
-    // compatibility instead of treating the browser as a legacy client.
-    assert.equal(body.clientProtocol, CLIENT_PROTOCOL_VERSION);
-    assert.equal(body.clientVersion, CLIENT_VERSION);
-    assert.equal(Buffer.from(body.public_key, 'base64').length, 32);
-    return Response.json({ token: 'test-account-token', user_id: '101' });
+    const body = options?.body ? JSON.parse(options.body) : null;
+    requests.push({ url: String(url), body });
+    return handler(String(url), body);
   };
-  try {
-    const first = await new CloudAccountClient('https://remote.openbitfun.com/v/1.0.2').login('verified-github-token', 'browser', browserPrivateKey);
-    const second = await new CloudAccountClient('https://remote.openbitfun.com/v/1.0.2').login('verified-github-token', 'browser', browserPrivateKey);
-    assert.equal(first.userId, '101');
-    assert.deepEqual(first.masterKey, second.masterKey);
-    assert.equal(requests[0].public_key, requests[1].public_key);
-    assert.deepEqual(Buffer.from(requests[0].public_key, 'base64'), Buffer.from(x25519.getPublicKey(first.masterKey)));
-    assert.deepEqual(deriveDeviceMessageKey(first.masterKey, x25519.getPublicKey(second.masterKey)),
-      deriveDeviceMessageKey(second.masterKey, x25519.getPublicKey(first.masterKey)));
-    assert.throws(() => deriveDeviceMessageKey(first.masterKey, new Uint8Array(32)));
-    assert.equal(Buffer.from(deriveDeviceMessageKey(new Uint8Array(32).fill(7), x25519.getPublicKey(new Uint8Array(32).fill(11)))).toString('hex'), '6e8f5da837e91e9ddb09c5aa7dee229e731fc94499d29d10dcf5f1437193f56c');
-  } finally {
+  const restore = () => {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;
-  }
+  };
+  const client = new loaded.CloudAccountClient('https://remote.openbitfun.com/v/1.0.2');
+  return {
+    client, requests, restore,
+    CloudAccountRequestError: loaded.CloudAccountRequestError,
+    CloudAccountTransportError: loaded.CloudAccountTransportError,
+    normalizeAccountPhone: loaded.normalizeAccountPhone,
+  };
+}
+
+const localPairBody = {
+  accessToken: 'local-access-1',
+  accessExpiresAt: 1893456000,
+  refreshToken: 'local-refresh-1',
+  refreshExpiresAt: 1896048000,
+  user: { userId: 'local-abc123', login: 'user-abc123', phoneMasked: '138****0002', hasPassword: false },
+};
+
+test('phone sign-in sends the code, exchanges it locally, then registers the stored device key', async () => {
+  const { x25519 } = await import('@noble/curves/ed25519.js');
+  const browserPrivateKey = new Uint8Array(32).fill(7);
+  const exchanges = [];
+  const { client, requests, normalizeAccountPhone, restore } = await withLocalClient((url, body) => {
+    if (url.endsWith('/api/auth/local/sms/send')) {
+      assert.deepEqual(body, { phone: '13800000002' });
+      return Response.json({ status: 'sent' }, { status: 202 });
+    }
+    if (url.endsWith('/api/auth/local/login')) {
+      assert.deepEqual(body, { phone: '13800000002', code: '123456' });
+      assert.equal('password' in body, false, 'code sign-in must not also send a password');
+      return Response.json(localPairBody);
+    }
+    if (url.endsWith('/api/auth/login')) {
+      exchanges.push(body);
+      return Response.json({ token: 'device-token-1', user_id: 'local-abc123' });
+    }
+    throw new Error(`Unexpected request ${url}`);
+  });
+  try {
+    // Form-local normalization mirrors the Relay, so the phone crosses the wire normalized.
+    assert.equal(normalizeAccountPhone('+86 138-0000-0002'), '13800000002');
+    await client.smsSend('13800000002');
+    const pair = await client.localLogin('13800000002', { code: '123456' });
+    assert.equal(pair.refreshToken, 'local-refresh-1');
+    assert.equal(pair.user.phoneMasked, '138****0002');
+    assert.equal(pair.user.hasPassword, false);
+    const first = await client.login(pair.accessToken, 'browser', browserPrivateKey);
+    const second = await client.login(pair.accessToken, 'browser', browserPrivateKey);
+    assert.equal(first.userId, 'local-abc123');
+    assert.deepEqual(first.masterKey, second.masterKey);
+    for (const body of exchanges) {
+      assert.equal(body.access_token, 'local-access-1');
+      assert.equal(body.device_id, 'browser');
+      assert.equal(body.password_hash, undefined);
+      assert.equal(body.clientProtocol, CLIENT_PROTOCOL_VERSION);
+      assert.equal(body.clientVersion, CLIENT_VERSION);
+      assert.equal(Buffer.from(body.public_key, 'base64').length, 32);
+    }
+    assert.equal(exchanges[0].public_key, exchanges[1].public_key, 'the stored X25519 key is never regenerated');
+    assert.deepEqual(Buffer.from(exchanges[0].public_key, 'base64'), Buffer.from(x25519.getPublicKey(first.masterKey)));
+    assert.equal(requests[0].url.endsWith('/api/auth/local/sms/send'), true);
+  } finally { restore(); }
+});
+
+test('password sign-in sends exactly one credential and surfaces relay refusals', async () => {
+  const { client, requests, CloudAccountRequestError, restore } = await withLocalClient(url => {
+    if (url.endsWith('/api/auth/local/login')) {
+      return Response.json({ error: 'invalid code or password' }, { status: 401 });
+    }
+    throw new Error(`Unexpected request ${url}`);
+  });
+  const attempt = client.localLogin('13800000002', { password: 'fixture-password' });
+  assert.deepEqual(requests[0].body, { phone: '13800000002', password: 'fixture-password' });
+  assert.equal('code' in requests[0].body, false, 'password sign-in must not also send a code');
+  await assert.rejects(attempt, error => error instanceof CloudAccountRequestError
+    && error.status === 401 && error.message === 'invalid code or password' && error.retryAfterSeconds === null);
+  restore();
+});
+
+test('an SMS cooldown answer carries the relay retry window', async () => {
+  const { client, CloudAccountRequestError, restore } = await withLocalClient(url => {
+    if (url.endsWith('/api/auth/local/sms/send')) {
+      return Response.json(
+        { error: 'please wait before requesting another code', retry_after_secs: 42 },
+        { status: 429 },
+      );
+    }
+    throw new Error(`Unexpected request ${url}`);
+  });
+  await assert.rejects(client.smsSend('13800000002'), error => error instanceof CloudAccountRequestError
+    && error.status === 429 && error.retryAfterSeconds === 42
+    && error.message === 'please wait before requesting another code');
+  restore();
+});
+
+test('the local form follows the relay capability contract', async () => {
+  const { client, CloudAccountTransportError, restore } = await withLocalClient(() => {
+    throw new Error('Unexpected request');
+  });
+  try {
+    let answer = { capabilities: ['device_alias_v1'] };
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => answer });
+    assert.equal(await client.supportsLocalAuth(), false, 'a relay without local_auth_v1 is an old relay');
+    answer = { capabilities: ['device_alias_v1', 'local_auth_v1'] };
+    assert.equal(await client.supportsLocalAuth(), true);
+    globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({}) });
+    assert.equal(await client.supportsLocalAuth(), false, 'a relay without /api/info is an old relay');
+    globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+    await assert.rejects(client.supportsLocalAuth(), error => error instanceof CloudAccountTransportError
+      && error.message === 'Could not reach the account service.');
+  } finally { restore(); }
+});
+
+test('local answers must be complete and refresh replays are definitive', async () => {
+  const { client, requests, CloudAccountRequestError, CloudAccountTransportError, restore } = await withLocalClient(url => {
+    if (url.endsWith('/api/auth/local/login')) return Response.json({ accessToken: 'local-access-1' });
+    if (url.endsWith('/api/auth/local/refresh')) return Response.json({ error: 'refresh token expired' }, { status: 401 });
+    throw new Error(`Unexpected request ${url}`);
+  });
+  try {
+    await assert.rejects(client.localLogin('13800000002', { code: '123456' }),
+      error => error instanceof CloudAccountTransportError && /incomplete/.test(error.message));
+    await assert.rejects(client.localRefresh('local-refresh-1'), error => error instanceof CloudAccountRequestError
+      && error.status === 401);
+    assert.deepEqual(requests[1].body, { refreshToken: 'local-refresh-1' });
+  } finally { restore(); }
+
+  const rotation = await withLocalClient(url => {
+    if (url.endsWith('/api/auth/local/refresh')) {
+      return Response.json({ ...localPairBody, accessToken: 'local-access-2', refreshToken: 'local-refresh-2' });
+    }
+    throw new Error(`Unexpected request ${url}`);
+  });
+  try {
+    const rotated = await rotation.client.localRefresh('local-refresh-1');
+    assert.equal(rotated.accessToken, 'local-access-2');
+    assert.equal(rotated.refreshToken, 'local-refresh-2');
+  } finally { rotation.restore(); }
+});
+
+test('phone normalization mirrors the relay contract', async () => {
+  const encryption = await loadSource('../src/services/E2EEncryption.ts');
+  const authModule = await loadSource('../src/services/CloudAccountClient.ts', {
+    './E2EEncryption': encryption.url, './pairingLink': links.url, ...clientBuildImports,
+  });
+  const { normalizeAccountPhone } = await import(authModule.url);
+  for (const [raw, expected] of [
+    ['13800000002', '13800000002'],
+    ['+8613800000002', '13800000002'],
+    ['8613800000002', '13800000002'],
+    ['+86 138-0000-0002', '13800000002'],
+    [' 13800000002 ', '13800000002'],
+  ]) assert.equal(normalizeAccountPhone(raw), expected);
+  for (const invalid of [
+    '1380000002', '23800000002', '12800000002', '1380000000a', 'abc', '', '+86138000000021', '0861380000000',
+  ]) assert.equal(normalizeAccountPhone(invalid), null, `${invalid} must not normalize`);
 });
 
 test('psk pairing derivation and code mirror the Rust contract', async () => {
@@ -175,7 +314,7 @@ test('account UI entry precedes discovery and mounts no remote workspace surface
   const pairing = await readFile(new URL('../src/pages/PairingPage.tsx', import.meta.url), 'utf8');
   const direct = pairing.slice(pairing.indexOf('const connect ='), pairing.indexOf('  useEffect('));
   assert.doesNotMatch(direct, /saveSession|saveCloudAccountSession/, 'restoring account state must not republish a new login');
-  assert.match(pairing, /accountStore\.saveSession\(browser, candidate, isCurrent\)/);
+  assert.match(pairing, /accountStore\.saveSession\(browser, candidate, isCurrent, pair\.refreshToken\)/);
   assert.match(direct, /store\.setControlTarget\(null\)/);
   assert.match(direct, /onPairedRef\.current/);
   assert.doesNotMatch(direct, /listDevices\(|sendDeviceRpc\(|\.online|throw new Error/);
@@ -190,6 +329,25 @@ test('account UI entry precedes discovery and mounts no remote workspace surface
   assert.ok(devices.indexOf('await client.sendDeviceRpc') < devices.indexOf('client.setTargetDeviceId(d.device_id)'));
 });
 
+test('sign-in is an inline phone form gated by the relay capability probe', async () => {
+  const page = await readFile(new URL('../src/pages/PairingPage.tsx', import.meta.url), 'utf8');
+  const form = await readFile(new URL('../src/components/PairingForm.tsx', import.meta.url), 'utf8');
+  const client = await readFile(new URL('../src/services/CloudAccountClient.ts', import.meta.url), 'utf8');
+  // The GitHub/email popup flow and its trust anchors are gone for good.
+  for (const source of [page, form, client]) {
+    assert.doesNotMatch(source, /window\.open|about:blank|auth\.openbitfun\.com|github\.com|\/api\/auth\/github\//);
+  }
+  assert.match(page, /supportsLocalAuth\(\)/, 'the relay contract is probed before the form goes live');
+  assert.match(form, /localAuthUnsupported/, 'an old relay shows an explicit unsupported state');
+  assert.match(form, /resendCodeIn/);
+  assert.match(form, /usePasswordLogin/);
+  assert.match(form, /useCodeLogin/);
+  // A refused rotation keeps the expired-session semantics: sign in again.
+  const app = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  assert.match(app, /recoverExpiredAccountSession/);
+  assert.match(app, /clearSession\(token, 'expired'\)/);
+});
+
 test('alias editing replaces the device row instead of repeating its name', async () => {
   const devices = await readFile(new URL('../src/pages/DevicesPage.tsx', import.meta.url), 'utf8');
   const start = devices.indexOf('{editingId === d.device_id ? (');
@@ -202,54 +360,6 @@ test('alias editing replaces the device row instead of repeating its name', asyn
   assert.match(editingBranch, /devices-page__alias-editor/);
   assert.match(editingBranch, /devices\.saveAlias/);
 });
-
-test('authorization follows the central GitHub OAuth URL and rejects lookalike destinations', async () => {
-  const encryption = await loadSource('../src/services/E2EEncryption.ts');
-  const authModule = await loadSource('../src/services/CloudAccountClient.ts', { './E2EEncryption': encryption.url, './pairingLink': links.url, ...clientBuildImports });
-  const { CloudAccountClient } = await import(authModule.url);
-  const previous = { fetch: globalThis.fetch, window: globalThis.window, setTimeout: globalThis.setTimeout };
-  globalThis.window = { setTimeout: previous.setTimeout, clearTimeout };
-  globalThis.setTimeout = callback => { queueMicrotask(callback); return 0; };
-  try {
-    for (const authorizationUrl of [
-      'https://github.com/login/oauth/authorize?state=test',
-      'https://auth.openbitfun.com/sign-in#ticket=test',
-      'https://auth.openbitfun.com.evil.example/sign-in',
-      'https://user@auth.openbitfun.com/sign-in',
-      'https://auth.openbitfun.com/other',
-      'https://github.com.attacker.example/login/oauth/authorize',
-      'https://github.com/login', 'https://user@github.com/login/oauth/authorize',
-      'http://github.com/login/oauth/authorize',
-    ]) {
-      let polls = 0;
-      globalThis.fetch = async url => {
-        if (url.endsWith('/start?methods=all')) return Response.json({
-          transactionId: 'txn', transactionSecret: 'secret', authorizationUrl,
-          expiresAt: Date.now() / 1000 + 60, pollIntervalSeconds: 3,
-        });
-        polls++;
-        return Response.json({ status: 'authorized', tokens: { accessToken: 'verified' } });
-      };
-      const popup = { location: { href: 'about:blank' } };
-      const result = new CloudAccountClient('https://remote.openbitfun.com/v/1.0.2').authorize(popup, new AbortController().signal);
-      if (authorizationUrl === 'https://github.com/login/oauth/authorize?state=test' || authorizationUrl === 'https://auth.openbitfun.com/sign-in#ticket=test') {
-        assert.equal(await result, 'verified');
-        assert.equal(popup.location.href, authorizationUrl.startsWith('https://auth.openbitfun.com') ? authorizationUrl.replace('/sign-in#', '/sign-in?locale=en-US#') : authorizationUrl);
-        assert.equal(polls, 1);
-      } else {
-        await assert.rejects(result, /Untrusted/);
-        assert.equal(popup.location.href, 'about:blank');
-        assert.equal(polls, 0);
-      }
-    }
-  } finally {
-    globalThis.fetch = previous.fetch;
-    globalThis.setTimeout = previous.setTimeout;
-    if (previous.window === undefined) delete globalThis.window;
-    else globalThis.window = previous.window;
-  }
-});
-
 
 test('official and local invitations share strict device-only targeting', async () => {
   const { currentRelayUrl, pairingRelayUrl, accountDeviceIdFromHash } = await import(links.url);
@@ -275,7 +385,7 @@ const githubModule = await loadSource('../src/services/GitHubAccountProfile.ts')
 const { loadGitHubAccountProfile, normalizeGitHubProfile } = await import(githubModule.url);
 const githubUser = { id: 123, login: 'example', avatar_url: 'https://avatars.githubusercontent.com/u/123' };
 
-test('GitHub public profile validates stable identity and never forwards account credentials', async () => {
+test('legacy numeric GitHub profiles keep their public metadata contract', async () => {
   assert.throws(() => normalizeGitHubProfile('124', githubUser));
   assert.equal(normalizeGitHubProfile('123', { ...githubUser, avatar_url: 'https://other.example/avatar' }).avatarUrl, '');
   const profiles = [];
@@ -286,6 +396,16 @@ test('GitHub public profile validates stable identity and never forwards account
     return { ok: true, json: async () => githubUser };
   });
   assert.equal(profiles[0].login, 'example');
+});
+
+test('relay-local account ids degrade to the letter avatar without any request', async () => {
+  // Local accounts are `local-<hex>`; only numeric GitHub ids resolve avatars.
+  for (const userId of ['local-0123456789abcdef', 'local-']) {
+    const applied = [];
+    await loadGitHubAccountProfile(userId, p => applied.push(p), new AbortController().signal, null,
+      async () => { throw new Error('relay-local ids must never reach the GitHub profile service'); });
+    assert.deepEqual(applied, []);
+  }
 });
 
 test('GitHub cached profiles survive refresh failure and fresh cache avoids a request', async () => {
@@ -381,104 +501,4 @@ test('tab navigation preserves explicit disconnect and migrates only a matching 
   assert.deepEqual(loadMobileNavigation({ ...scope, controllerDeviceId: 'browser-a' }, storage), {
     deviceId: 'desktop-a', disconnected: true, session: undefined,
   });
-});
-
-const encryptionStub = `data:text/javascript;base64,${Buffer.from(
-  'export const toB64 = (bytes) => Buffer.from(bytes).toString("base64");',
-).toString('base64')}`;
-const accountClient = await loadSource('../src/services/CloudAccountClient.ts', {
-  './E2EEncryption': encryptionStub,
-  './pairingLink': links.url,
-  ...clientBuildImports,
-});
-const {
-  CloudAccountClient, CloudAccountRequestError, CloudAccountTransportError,
-  retryableAuthorizationPollError,
-} = await import(accountClient.url);
-
-test('a sign-in poll retries what the next tick can fix and stops at what the relay meant', () => {
-  for (const retryable of [
-    new CloudAccountTransportError('Account request timed out.'),
-    new CloudAccountRequestError('Slow down.', 429),
-    new CloudAccountRequestError('Relay is restarting.', 503),
-  ]) assert.equal(retryableAuthorizationPollError(retryable), true);
-  for (const fatal of [
-    new CloudAccountRequestError('Unknown transaction.', 404),
-    new CloudAccountRequestError('Bad secret.', 401),
-    new Error('Untrusted account authorization URL.'),
-  ]) assert.equal(retryableAuthorizationPollError(fatal), false);
-});
-
-/**
- * Drives authorize() against a scripted relay on a virtual clock: every wait
- * returns at once and advances the poll window by what it asked to sleep, so
- * the whole five-minute window plays out inside the test. The last scripted
- * answer repeats for as long as the window lasts.
- */
-async function runAuthorization(pollAnswers) {
-  const realSetTimeout = globalThis.setTimeout;
-  const realNow = Date.now;
-  const previousWindow = globalThis.window;
-  const previousFetch = globalThis.fetch;
-  let clock = realNow();
-  const start = {
-    transactionId: 'tx-1', transactionSecret: 'secret-1',
-    authorizationUrl: 'https://github.com/login/oauth/authorize?client_id=x',
-    expiresAt: Math.floor(clock / 1000) + 300, pollIntervalSeconds: 5,
-  };
-  const polls = [];
-  Date.now = () => clock;
-  globalThis.setTimeout = (fn, ms) => { clock += ms ?? 0; return realSetTimeout(fn, 0); };
-  globalThis.window = { setTimeout: () => 0, clearTimeout: () => {} };
-  globalThis.fetch = async (url) => {
-    if (String(url).includes('/start')) {
-      return { ok: true, status: 200, text: async () => JSON.stringify(start) };
-    }
-    const answer = pollAnswers[Math.min(polls.length, pollAnswers.length - 1)];
-    polls.push(answer);
-    if (answer.throws) throw answer.throws;
-    return {
-      ok: (answer.httpStatus ?? 200) < 400,
-      status: answer.httpStatus ?? 200,
-      text: async () => JSON.stringify(answer.body ?? {}),
-    };
-  };
-  try {
-    const client = new CloudAccountClient('http://localhost:8787');
-    const outcome = await client
-      .authorize({ location: { href: '' } }, new AbortController().signal)
-      .then((token) => ({ token }), (error) => ({ error }));
-    return { ...outcome, polls };
-  } finally {
-    Date.now = realNow;
-    globalThis.setTimeout = realSetTimeout;
-    globalThis.window = previousWindow;
-    globalThis.fetch = previousFetch;
-  }
-}
-
-test('a dropped connection mid-sign-in is retried instead of ending the attempt', async () => {
-  const flaky = await runAuthorization([
-    { throws: new TypeError('Failed to fetch') },
-    { httpStatus: 503, body: { error: 'Relay is restarting.' } },
-    { body: { status: 'authorized', tokens: { accessToken: 'token-1' } } },
-  ]);
-  assert.equal(flaky.token, 'token-1');
-  assert.equal(flaky.polls.length, 3);
-
-  const refused = await runAuthorization([{ httpStatus: 401, body: { error: 'Bad secret.' } }]);
-  assert.equal(refused.token, undefined);
-  assert.equal(refused.error.status, 401);
-  assert.equal(refused.polls.length, 1);
-
-  const denied = await runAuthorization([{ body: { status: 'denied' } }]);
-  assert.match(denied.error.message, /Sign-in expired\. Try again\./);
-  assert.equal(denied.polls.length, 1);
-
-  // A window that ran out while every poll was failing is a network problem,
-  // and must not be reported as a sign-in the user let expire.
-  const offline = await runAuthorization([{ throws: new TypeError('Failed to fetch') }]);
-  assert.ok(offline.error instanceof CloudAccountTransportError);
-  assert.equal(offline.error.message, 'Could not reach the account service.');
-  assert.equal(offline.polls.length, 60);
 });

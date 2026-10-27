@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Card, Icon, IconButton, OverflowText, StatusPill } from '@openbitfun/ui';
 import { ChevronLeft, ChevronRight, MonitorSmartphone } from 'lucide-react';
-import type { AccountIdentitySnapshot } from '@/infrastructure/account-identity';
+import type { RelayAccountSnapshot } from '@/infrastructure/account-identity';
 import { isDeviceControllable, refreshDeviceDirectory, useDeviceDirectory } from '@/infrastructure/account/deviceDirectory';
 import { deviceDisplayName, deviceMetadataLabel, remoteConnectAPI, type DeviceInfo } from '@/infrastructure/api/service-api/RemoteConnectAPI';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
@@ -16,7 +16,7 @@ function openDeviceManagement() {
   window.dispatchEvent(new CustomEvent('openbitfun:open-remote-connect', { detail: { group: 'account' } }));
 }
 
-export function OverviewDevicesSection({ identity }: { identity: AccountIdentitySnapshot }) {
+export function OverviewDevicesSection({ identity }: { identity: RelayAccountSnapshot }) {
   const { t } = useI18n('scenes/personal-overview');
   const directory = useDeviceDirectory();
   const peer = usePeerDeviceModeOptional();

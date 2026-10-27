@@ -38,6 +38,12 @@ vi.mock('@/infrastructure/api/service-api/RemoteConnectAPI', async importOrigina
     getLanNetworkInfo: vi.fn().mockResolvedValue({ local_ip: '192.168.1.2', available_ips: [{ ip: '192.168.1.2', interface_name: 'en0' }] }),
     getDeviceInfo: vi.fn().mockResolvedValue({ device_id: 'desktop', device_name: 'Workstation', mac_address: '' }),
     accountGetCredentialHint: vi.fn().mockResolvedValue({ username: 'sora', relay_url: 'https://relay.example.test/remote/a' }),
+    // The relay account service reads the host session on subscribe.
+    accountStatus: () => Promise.resolve(
+      boundary.loggedIn
+        ? { logged_in: true, user_id: 'sora' }
+        : { logged_in: false, user_id: null },
+    ),
   },
 }));
 vi.mock('@/shared/utils/textSelection', () => ({ copyTextToClipboard: boundary.copyText }));

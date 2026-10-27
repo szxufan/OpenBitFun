@@ -1,6 +1,5 @@
 //! API layer module
 
-pub mod account_identity_api;
 pub mod acp_client_api;
 pub mod agentic_api;
 pub mod app_state;

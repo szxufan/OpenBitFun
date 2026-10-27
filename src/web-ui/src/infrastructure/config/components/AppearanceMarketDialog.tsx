@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, PackageCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { confirmDialog } from '@/infrastructure/confirm-dialog';
-import { AccountIdentityControls } from '@/features/market-account';
+import { useMarketAccountIdentity } from '@/features/market-account';
 import {
   appearanceMarketAPI,
   type AppearanceMarketBrowseRequest,
@@ -35,7 +35,6 @@ import {
   useAppearance,
   type AppearanceCatalogEntry,
 } from '@/infrastructure/appearance';
-import { useAccountIdentity } from '@/infrastructure/account-identity';
 import { notificationService } from '@/shared/notification-system';
 import { getVersionInfo } from '@/shared/utils/version';
 import {
@@ -105,7 +104,8 @@ function requiresNewerOpenBitFun(minimum: string): boolean {
 
 export function AppearanceMarketDialog({ isOpen, onClose }: AppearanceMarketDialogProps) {
   const { t } = useTranslation('settings/appearance');
-  const account = useAccountIdentity();
+  // Market browsing stays anonymous; submissions/review stay gated off.
+  const account = useMarketAccountIdentity();
   const {
     appearances,
     selectedAppearanceId,
@@ -169,8 +169,7 @@ export function AppearanceMarketDialog({ isOpen, onClose }: AppearanceMarketDial
   }, [isOpen, loadPage, view]);
 
   useEffect(() => {
-    if ((view === 'submissions' && !account.me)
-      || (view === 'review' && !account.me?.isAdmin)) {
+    if ((view === 'submissions' || view === 'review') && !account.me) {
       setView('browse');
     }
   }, [account.me, view]);
@@ -463,7 +462,6 @@ export function AppearanceMarketDialog({ isOpen, onClose }: AppearanceMarketDial
           <DialogTitle>{t('package.market.title')}</DialogTitle>
         </DialogHeading>
         <DialogHeaderActions>
-          <AccountIdentityControls />
           <DialogClose />
         </DialogHeaderActions>
       </DialogHeader>
@@ -504,7 +502,7 @@ export function AppearanceMarketDialog({ isOpen, onClose }: AppearanceMarketDial
               {t('package.market.views.submissions')}
             </NavigationPanelItem>
           )}
-          {account.me?.isAdmin && (
+          {account.me && (
             <NavigationPanelItem
               type="button"
               labelBehavior="static"

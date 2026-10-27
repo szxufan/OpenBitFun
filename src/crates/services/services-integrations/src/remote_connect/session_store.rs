@@ -24,6 +24,15 @@ fn session_store_directory_override() -> &'static RwLock<Option<PathBuf>> {
 /// Redirects session, local-key, and credential-hint files for integration
 /// tests. Tests must use this instead of changing HOME or touching real login
 /// state shared by Desktop and CLI.
+/// Serializes tests that redirect the global store directory. The override
+/// is process-global, so parallel tests would otherwise read each other's
+/// redirected paths mid-flight.
+#[cfg(test)]
+pub(crate) fn test_store_guard() -> &'static std::sync::Mutex<()> {
+    static GUARD: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    GUARD.get_or_init(|| std::sync::Mutex::new(()))
+}
+
 pub fn set_session_store_directory_for_test(path: PathBuf) {
     let mut override_path = session_store_directory_override()
         .write()
@@ -86,6 +95,19 @@ pub fn save_session_with_device(
     relay_url: &str,
     device_id: Option<&str>,
 ) -> Result<()> {
+    save_session_with_device_and_refresh(token, user_id, master_key, relay_url, device_id, None)
+}
+
+/// Persist the session together with a relay-local refresh token so the next
+/// device-token expiry can renew silently instead of re-prompting.
+pub fn save_session_with_device_and_refresh(
+    token: &str,
+    user_id: &str,
+    master_key: &[u8; 32],
+    relay_url: &str,
+    device_id: Option<&str>,
+    refresh_token: Option<&str>,
+) -> Result<()> {
     let payload = crate::remote_persistence::AccountSessionRecord {
         token: token.to_string(),
         user_id: user_id.to_string(),
@@ -94,6 +116,10 @@ pub fn save_session_with_device(
         device_id: device_id
             .map(str::trim)
             .filter(|id| !id.is_empty())
+            .map(str::to_string),
+        refresh_token: refresh_token
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
             .map(str::to_string),
     };
     crate::remote_persistence::write_current_account_session(
@@ -111,6 +137,7 @@ pub struct LoadedSession {
     pub master_key: [u8; 32],
     pub relay_url: String,
     pub device_id: Option<String>,
+    pub refresh_token: Option<String>,
 }
 
 /// Load and decrypt the session from disk.
@@ -131,6 +158,7 @@ pub fn load_session_detailed() -> Result<Option<LoadedSession>> {
         master_key: payload.master_key,
         relay_url: payload.relay_url,
         device_id: payload.device_id,
+        refresh_token: payload.refresh_token,
     }))
 }
 

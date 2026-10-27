@@ -32,6 +32,14 @@ services:
       - RELAY_DB_PATH=/app/data/openbitfun_relay.db
       - RELAY_PAGE_PUBLIC_BASE_URL=${RELAY_PAGE_PUBLIC_BASE_URL:-}
       - RELAY_PAGE_AUTH_BASE_URL=${RELAY_PAGE_AUTH_BASE_URL:-}
+      # Local account sign-in: Aliyun SMS delivery + registration gate.
+      # Code sign-in is disabled (503) until the SMS variables are all set.
+      - RELAY_SMS_ALIYUN_ACCESS_KEY_ID=${RELAY_SMS_ALIYUN_ACCESS_KEY_ID:-}
+      - RELAY_SMS_ALIYUN_ACCESS_KEY_SECRET=${RELAY_SMS_ALIYUN_ACCESS_KEY_SECRET:-}
+      - RELAY_SMS_ALIYUN_SIGN_NAME=${RELAY_SMS_ALIYUN_SIGN_NAME:-}
+      - RELAY_SMS_ALIYUN_TEMPLATE_CODE=${RELAY_SMS_ALIYUN_TEMPLATE_CODE:-}
+      - RELAY_SMS_CODE_SECRET=${RELAY_SMS_CODE_SECRET:-}
+      - RELAY_LOCAL_REGISTRATION=${RELAY_LOCAL_REGISTRATION:-open}
     volumes:
       - ./static:/app/static:ro
       - room-web:/app/room-web

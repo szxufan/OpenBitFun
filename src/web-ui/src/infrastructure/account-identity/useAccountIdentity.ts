@@ -1,15 +1,16 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { accountIdentityService } from './AccountIdentityService';
+import { relayAccountService } from './RelayAccountService';
 
+/** Observe the relay-local account session (SMS/password sign-in). */
 export function useAccountIdentity() {
   const snapshot = useSyncExternalStore(
-    listener => accountIdentityService.subscribe(listener),
-    () => accountIdentityService.getSnapshot(),
-    () => accountIdentityService.getSnapshot(),
+    listener => relayAccountService.subscribe(listener),
+    () => relayAccountService.getSnapshot(),
+    () => relayAccountService.getSnapshot(),
   );
 
   useEffect(() => {
-    void accountIdentityService.initialize();
+    void relayAccountService.initialize();
   }, []);
 
   return snapshot;

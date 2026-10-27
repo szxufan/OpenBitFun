@@ -48,11 +48,11 @@ RELEASE_CHANNEL="${OPENBITFUN_RELEASE_CHANNEL:-stable}"
 case "$RELEASE_CHANNEL" in
   stable)
     CHANNEL_PATH=""
-    GITHUB_RELEASE_ROOT="https://github.com/GCWing/OpenBitFun/releases/latest/download"
+    GITHUB_RELEASE_ROOT="https://github.com/szxufan/OpenBitFun/releases/latest/download"
     ;;
   beta)
     CHANNEL_PATH="/beta"
-    GITHUB_RELEASE_ROOT="https://github.com/GCWing/OpenBitFun/releases/download/channel-v1-beta"
+    GITHUB_RELEASE_ROOT="https://github.com/szxufan/OpenBitFun/releases/download/channel-v1-beta"
     ;;
   *)
     echo "Unsupported OPENBITFUN_RELEASE_CHANNEL: $RELEASE_CHANNEL" >&2
@@ -62,7 +62,7 @@ esac
 GITHUB_LATEST_JSON_URL="${GITHUB_RELEASE_ROOT}/latest-v1.json"
 GITHUB_LINUX_BINARIES_URL="${GITHUB_RELEASE_ROOT}/linux-binaries-v1.json"
 GITHUB_RELAY_IMAGE_URL="${GITHUB_RELEASE_ROOT}/relay-image.json"
-OPENBITFUN_BASE_URL="https://openbitfun.com/release${CHANNEL_PATH}"
+OPENBITFUN_BASE_URL="https://iso.mylinkpi.cn/obf/release${CHANNEL_PATH}"
 # The mirror deliberately lives outside the website checkout. It used to be
 # OpenBitFun-Website/dist/release, but `npm run build` empties dist/, so every
 # website deploy silently deleted the mirrored installers and manifests —

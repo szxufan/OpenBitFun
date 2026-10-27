@@ -1,29 +1,43 @@
-import { generateRequestId, type CloudAccountSession } from './CloudAccountClient';
+import { CloudAccountClient, generateRequestId, type CloudAccountSession } from './CloudAccountClient';
 import { deserializeCloudAccountSession, type StoredCloudAccountSession } from './CloudAccountSessionStore';
 import { fromB64, generateKeyPair, toB64 } from './E2EEncryption';
 import { migrateMobileNavigationController } from './MobileNavigationStore';
 import { pairingRelayUrl } from './pairingLink';
+import type { RelayHttpClient } from './RelayHttpClient';
 
 const DATABASE = 'openbitfun-mobile-account';
 const ACCOUNTS = 'accounts';
 const CHANGE_CHANNEL = 'openbitfun.mobile.account.changed';
 const LEGACY_SESSION_KEY = 'openbitfun.mobile.account_session.v2';
+/** v1 records predate relay-local accounts and carry no refresh token. */
+const RECORD_VERSION = 2;
+
+interface BrowserAccountSessionRecord {
+  token: string;
+  userId: string;
+  /** Relay-local refresh token; `null` on records written before local auth. */
+  refreshToken?: string | null;
+}
 
 interface BrowserAccountRecord {
-  version: 1;
+  version: number;
   relayUrl: string;
   controllerDeviceId: string;
   privateKey: string;
   revision: number;
-  session: { token: string; userId: string } | null;
+  session: BrowserAccountSessionRecord | null;
   lastChange?: 'signed-out' | 'expired';
+}
+
+export interface StoredBrowserSession extends CloudAccountSession {
+  refreshToken: string | null;
 }
 
 export interface BrowserAccountSnapshot {
   controllerDeviceId: string;
   privateKey: Uint8Array;
   revision: number;
-  session: CloudAccountSession | null;
+  session: StoredBrowserSession | null;
   lastChange?: 'signed-out' | 'expired';
 }
 
@@ -43,17 +57,25 @@ export function releaseBrowserAccount(snapshot: BrowserAccountSnapshot): void {
   snapshot.session?.masterKey.fill(0);
 }
 
+function isValidSessionRecord(value: unknown): boolean {
+  const session = value as BrowserAccountSessionRecord | null;
+  return !!session
+    && typeof session.token === 'string' && !!session.token.trim()
+    && typeof session.userId === 'string' && !!session.userId.trim()
+    // Tolerant read: v1 records and foreign writers omit the refresh token.
+    && (session.refreshToken === undefined || session.refreshToken === null
+      || typeof session.refreshToken === 'string');
+}
+
 function validateRecord(value: unknown, relayUrl: string): BrowserAccountRecord {
   const record = value as BrowserAccountRecord | null;
   try {
-    if (!record || record.version !== 1 || record.relayUrl !== relayUrl
+    if (!record || (record.version !== 1 && record.version !== RECORD_VERSION) || record.relayUrl !== relayUrl
       || typeof record.controllerDeviceId !== 'string'
       || !/^[A-Za-z0-9_.-]{1,128}$/.test(record.controllerDeviceId)
       || typeof record.privateKey !== 'string'
       || !Number.isSafeInteger(record.revision) || record.revision < 0
-      || (record.session !== null && (!record.session
-        || typeof record.session.token !== 'string' || !record.session.token.trim()
-        || typeof record.session.userId !== 'string' || !record.session.userId.trim()))) {
+      || (record.session !== null && record.session !== undefined && !isValidSessionRecord(record.session))) {
       throw new Error('Invalid record');
     }
     const key = fromB64(record.privateKey);
@@ -70,7 +92,9 @@ function snapshot(record: BrowserAccountRecord): BrowserAccountSnapshot {
     controllerDeviceId: record.controllerDeviceId,
     privateKey,
     revision: record.revision,
-    session: record.session ? { ...record.session, masterKey: privateKey.slice() } : null,
+    session: record.session
+      ? { ...record.session, refreshToken: record.session.refreshToken ?? null, masterKey: privateKey.slice() }
+      : null,
     lastChange: record.lastChange,
   };
 }
@@ -180,12 +204,12 @@ export class BrowserAccountStore {
       if (!current || (current.revision === 0 && legacy)) {
         let candidate: BrowserAccountRecord;
         if (legacy) {
-          candidate = { version: 1, relayUrl: this.relayUrl,
+          candidate = { version: RECORD_VERSION, relayUrl: this.relayUrl,
             controllerDeviceId: legacy.controllerDeviceId, privateKey: toB64(legacy.session.masterKey),
-            revision: 1, session: { token: legacy.session.token, userId: legacy.session.userId } };
+            revision: 1, session: { token: legacy.session.token, userId: legacy.session.userId, refreshToken: null } };
         } else {
           const keys = await generateKeyPair();
-          candidate = { version: 1, relayUrl: this.relayUrl,
+          candidate = { version: RECORD_VERSION, relayUrl: this.relayUrl,
             controllerDeviceId: generateRequestId(), privateKey: toB64(keys.privateKey),
             revision: 0, session: null };
           keys.privateKey.fill(0);
@@ -203,14 +227,15 @@ export class BrowserAccountStore {
 
   async saveSession(
     expected: BrowserAccountSnapshot, session: CloudAccountSession, isCurrent: () => boolean = () => true,
+    refreshToken: string | null = null,
   ): Promise<BrowserAccountSnapshot> {
     const current = await this.transaction('readwrite', value => {
       if (!isCurrent() || !value || value.revision !== expected.revision || value.controllerDeviceId !== expected.controllerDeviceId) {
         throw new BrowserAccountChangedError();
       }
       if (value.privateKey !== toB64(session.masterKey)) throw new BrowserAccountStorageError('invalid');
-      return { ...value, revision: value.revision + 1, lastChange: undefined,
-        session: { token: session.token, userId: session.userId } };
+      return { ...value, version: RECORD_VERSION, revision: value.revision + 1, lastChange: undefined,
+        session: { token: session.token, userId: session.userId, refreshToken } };
     });
     return snapshot(current!);
   }
@@ -271,6 +296,48 @@ export class BrowserAccountStore {
 }
 
 const stores = new Map<string, BrowserAccountStore>();
+
+/**
+ * Recover an expired device token through the relay-local refresh token:
+ * rotate the pair, redo the device exchange with the SAME controller identity
+ * (the stored X25519 key is reused, never regenerated), commit the new session,
+ * and adopt its token on the live client in place so open pages keep working.
+ *
+ * `adopt` is called with the renewed token immediately before the record
+ * commits, so listeners woken by the commit compare against the new session
+ * instead of reading the rotation as a foreign login. Returns false when the
+ * record carries no refresh token or the Relay refuses the rotation; callers
+ * then keep the existing expired-session handling.
+ */
+export async function recoverExpiredAccountSession(
+  store: BrowserAccountStore,
+  client: RelayHttpClient,
+  expiredToken: string,
+  adopt: (renewedToken: string) => void,
+): Promise<boolean> {
+  const snapshot = await store.read();
+  try {
+    const session = snapshot.session;
+    if (!session || session.token !== expiredToken || !session.refreshToken) return false;
+    const account = new CloudAccountClient(store.relayUrl);
+    const pair = await account.localRefresh(session.refreshToken);
+    const renewed = await account.login(pair.accessToken, snapshot.controllerDeviceId, snapshot.privateKey);
+    // A competing tab that already changed the record keeps its own sign-in;
+    // this rotation is then simply dropped by the revision check below.
+    adopt(renewed.token);
+    const saved = await store.saveSession(snapshot, renewed, () => true, pair.refreshToken);
+    try {
+      client.rotateAccountToken(renewed.token);
+    } finally { releaseBrowserAccount(saved); }
+    return true;
+  } catch (error) {
+    console.warn('[BrowserAccountStore] relay-local session refresh failed', error);
+    return false;
+  } finally {
+    releaseBrowserAccount(snapshot);
+  }
+}
+
 export function getBrowserAccountStore(relayUrl: string): BrowserAccountStore {
   const normalized = pairingRelayUrl(relayUrl);
   if (!normalized) throw new Error('Invalid Relay URL');

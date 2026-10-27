@@ -35,6 +35,15 @@ services:
       RELAY_CORS_ALLOW_ORIGINS: https://remote.openbitfun.com,https://auth.openbitfun.com
       RELAY_PAGE_PUBLIC_BASE_URL: https://remote.openbitfun.com/v/1.0.2
       RELAY_PAGE_AUTH_BASE_URL: https://auth.openbitfun.com/v/1.0.2
+      # Local account sign-in: Aliyun SMS delivery + registration gate.
+      # Code sign-in is disabled (503) until the SMS variables are all set;
+      # fill them from the host environment or a relay-v1.env file.
+      RELAY_SMS_ALIYUN_ACCESS_KEY_ID: ${RELAY_SMS_ALIYUN_ACCESS_KEY_ID:-}
+      RELAY_SMS_ALIYUN_ACCESS_KEY_SECRET: ${RELAY_SMS_ALIYUN_ACCESS_KEY_SECRET:-}
+      RELAY_SMS_ALIYUN_SIGN_NAME: ${RELAY_SMS_ALIYUN_SIGN_NAME:-}
+      RELAY_SMS_ALIYUN_TEMPLATE_CODE: ${RELAY_SMS_ALIYUN_TEMPLATE_CODE:-}
+      RELAY_SMS_CODE_SECRET: ${RELAY_SMS_CODE_SECRET:-}
+      RELAY_LOCAL_REGISTRATION: ${RELAY_LOCAL_REGISTRATION:-open}
       RUST_LOG: info
     volumes:
       - /srv/openbitfun-relay-v1.0.2/data:/app/data

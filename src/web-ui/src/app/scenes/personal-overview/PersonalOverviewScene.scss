@@ -25,6 +25,21 @@
     padding: 16px configLayout.$config-page-content-inline-padding 0;
   }
 
+  // Relay-account chip rendered by OverviewAccountButton: letter avatar,
+  // masked phone, direct sign-out.
+  .overview-account {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--openbitfun-space-2);
+
+    &__name {
+      color: var(--openbitfun-color-content-primary);
+      font-size: var(--openbitfun-type-body-sm-font-size);
+      user-select: text;
+    }
+  }
+
   &__section-action {
     padding-inline: var(--openbitfun-space-3);
     border-color: transparent;

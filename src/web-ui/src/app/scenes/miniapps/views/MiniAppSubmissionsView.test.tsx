@@ -24,11 +24,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/infrastructure/i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }));
-vi.mock('@/infrastructure/account-identity', () => ({
-  useAccountIdentity: () => ({
+vi.mock('@/features/market-account', () => ({
+  AccountIdentityControls: () => null,
+  useMarketAccountIdentity: () => ({
     resolved: true,
     status: mocks.signedIn ? 'signed-in' : 'signed-out',
-    me: mocks.signedIn ? { user: { accountId: mocks.accountId } } : null,
+    me: mocks.signedIn ? { user: { id: mocks.accountId } } : null,
   }),
 }));
 vi.mock('@/infrastructure/contexts/WorkspaceContext', () => ({ useCurrentWorkspace: () => ({ workspace: {} }) }));
@@ -86,17 +87,15 @@ afterEach(() => {
 });
 
 describe('MiniApp submission navigation', () => {
-  it('places sign-in in the signed-out empty state and keeps the top-right area empty', async () => {
+  it('explains the anonymous dead end without a sign-in affordance', async () => {
     mocks.signedIn = false;
     await act(async () => root.render(<MiniAppSubmissionsView />));
     expect(container.querySelector('.miniapp-gallery-pane__account-actions button')).toBeNull();
     const emptyState = container.querySelector('.miniapp-submissions__history-empty')!;
     expect(emptyState.textContent).toContain('market.submissions.signInRequired');
-    const signIn = emptyState.querySelector<HTMLButtonElement>('button')!;
-    expect(signIn.textContent).toContain('market.signIn');
+    // The market account entry is disabled; no dialog can open from here.
+    expect(emptyState.querySelector('button')).toBeNull();
     expect(mocks.listSubmissions).not.toHaveBeenCalled();
-    await act(async () => signIn.click());
-    expect(dialog()?.textContent).toContain('market.account.dialogTitle');
   });
 
   it('starts with the submitted list and an explicit submit button', async () => {

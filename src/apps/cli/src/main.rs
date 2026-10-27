@@ -21,6 +21,7 @@ mod diagnostics;
 mod dispatch;
 mod hook_import;
 mod logging;
+mod login_cli;
 mod management;
 mod mcp_import;
 mod model_selection;
@@ -369,6 +370,25 @@ enum Commands {
         /// Only report whether a newer version exists
         #[arg(long)]
         check: bool,
+    },
+
+    /// Sign in to the OpenBitFun relay account (SMS code or password)
+    ///
+    /// Interactive terminals prompt for the phone number and the credential.
+    /// Non-TTY contexts read the phone number and SMS code from stdin lines,
+    /// and the password from --password or OPENBITFUN_ACCOUNT_PASSWORD.
+    Login {
+        /// Phone number of the account (prompts when omitted)
+        #[arg(long)]
+        phone: Option<String>,
+
+        /// 6-digit SMS verification code; skips requesting a new code
+        #[arg(long, conflicts_with = "password")]
+        code: Option<String>,
+
+        /// Account password; also read from OPENBITFUN_ACCOUNT_PASSWORD
+        #[arg(long)]
+        password: Option<String>,
     },
 
     /// Manage the always-on account device host daemon
@@ -1541,6 +1561,19 @@ async fn run_cli() -> Result<()> {
 
         Some(Commands::Update { check }) => {
             self_update::run_manual(check).await?;
+        }
+
+        Some(Commands::Login {
+            phone,
+            code,
+            password,
+        }) => {
+            login_cli::run_login(login_cli::LoginCommandInput {
+                phone,
+                code,
+                password,
+            })
+            .await?;
         }
 
         Some(Commands::Daemon { action }) => match action {

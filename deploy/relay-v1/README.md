@@ -24,18 +24,25 @@ peers. Keep the range list synchronized with the WAF control plane. Raise
 `worker_connections` to 8192 and retain a file descriptor limit of at least
 16384; validate with `nginx -t` before a graceful reload.
 
-Published Pages use the existing official Relay address:
-`https://remote.openbitfun.com/v/1.0.2/p/{github_username}/{slug}`.
-Compose sets this public base URL and the separate sign-in base URL
-`https://auth.openbitfun.com/v/1.0.2`. Users do not configure domains.
-Install the versioned Pages sign-in locations from
-[`nginx-auth.openbitfun.com.conf`](../miniapp-market/nginx-auth.openbitfun.com.conf)
-in the existing auth server as well. Keep its marketplace sign-in routes intact.
-These locations forward only Page sign-in and GitHub start/poll endpoints to
-Relay, preserve the auth Host, and omit query strings from access logs.
-The Page callback and published content remain on the remote origin.
+Published Pages use this deployment's public address:
+`https://<your-relay-host>/<prefix>/p/{handle}/{slug}`, where `{handle}` is the
+account's generated `u-xxxxxx` username (never the phone number). Compose reads
+`RELAY_PAGE_PUBLIC_BASE_URL` and `RELAY_PAGE_AUTH_BASE_URL` from the host
+environment or a `relay-v1.env` file; they must be set together on two distinct
+HTTPS origins (the auth origin hosts only the trusted Page login page). Users
+do not configure domains.
+Reverse-proxy locations must forward the local account endpoints
+(`/api/auth/local/*`) and the Page sign-in endpoints (`/api/page-auth`, `/p`)
+to Relay, preserve the Host header, and omit query strings from access logs.
+Verification codes and passwords travel in request bodies, so serve everything
+through TLS. Configure Aliyun SMS delivery (`RELAY_SMS_ALIYUN_*`,
+`RELAY_SMS_CODE_SECRET`) before enabling code sign-in; set
+`RELAY_LOCAL_REGISTRATION=closed` and provision accounts with `relay-admin
+add-user --phone <number> --password-stdin` to run an invite-only relay.
 
-Both base URLs are required: missing configuration returns an explicit 503.
+Both base URLs are required when Pages are deployed: missing configuration
+returns an explicit 503 on the Pages endpoints. The account endpoints work
+without them.
 After changing the environment, recreate only `relay-v1` with the verified
 existing image (`docker compose up -d --no-build relay-v1`), validate Nginx,
 and gracefully reload it. Verify publish and deploy through an authenticated

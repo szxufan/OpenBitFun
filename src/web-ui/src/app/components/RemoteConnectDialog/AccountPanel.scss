@@ -60,6 +60,9 @@
   &__identity-line {
     @include surface.card-row;
     flex-direction: row;
+    // The optional password editor keeps the identity line readable on
+    // narrow surfaces instead of overflowing the card.
+    flex-wrap: wrap;
 
     > :first-child {
       flex-shrink: 0;
@@ -107,6 +110,49 @@
   &__actions {
     @include surface.row-trailing;
     margin-inline-start: auto;
+  }
+
+  // ---------- Relay-local sign-in form ----------
+
+  &__login-form {
+    display: flex;
+    flex: 1 1 260px;
+    min-width: 0;
+    flex-direction: column;
+    gap: var(--openbitfun-space-3);
+    align-items: stretch;
+  }
+
+  // The verification code and its send action share one row.
+  &__login-code-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--openbitfun-space-2);
+  }
+
+  &__login-field {
+    width: 100%;
+    min-width: 0;
+
+    &--code {
+      flex: 1 1 auto;
+      width: auto;
+    }
+  }
+
+  &__password-editor {
+    display: flex;
+    flex: 1 1 200px;
+    min-width: 0;
+    align-items: center;
+    gap: var(--openbitfun-space-2);
+    margin-inline-start: auto;
+  }
+
+  &__password-input {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   // ---------- Devices ----------

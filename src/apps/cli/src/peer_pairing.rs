@@ -57,11 +57,7 @@ fn load_pairing_context() -> Result<PairingContext> {
         }
     };
     Ok(PairingContext {
-        session: AccountSession::new(
-            loaded.token,
-            loaded.user_id,
-            loaded.master_key,
-        ),
+        session: AccountSession::new(loaded.token, loaded.user_id, loaded.master_key),
         relay_url: loaded.relay_url,
         device_id,
     })
@@ -187,10 +183,7 @@ async fn list() -> Result<()> {
                 PeerPskStatus::Paired => "paired ",
             },
             entry.psk_id,
-            entry
-                .peer_name
-                .as_deref()
-                .unwrap_or_default(),
+            entry.peer_name.as_deref().unwrap_or_default(),
         );
     }
     Ok(())
@@ -200,12 +193,9 @@ async fn remove(peer_device_id: &str) -> Result<()> {
     let peer_device_id = peer_device_id.trim();
     anyhow::ensure!(!peer_device_id.is_empty(), "--peer is required");
     let context = load_pairing_context()?;
-    let removed = psk_store::remove_entry(
-        &context.relay_url,
-        &context.session.user_id,
-        peer_device_id,
-    )
-    .context("update pairing vault")?;
+    let removed =
+        psk_store::remove_entry(&context.relay_url, &context.session.user_id, peer_device_id)
+            .context("update pairing vault")?;
     if removed {
         println!("Removed pairing with {peer_device_id}; traffic uses the relay-directory key.");
     } else {

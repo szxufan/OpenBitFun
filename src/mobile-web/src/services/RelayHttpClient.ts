@@ -130,6 +130,27 @@ export class RelayHttpClient {
     for (const listener of this.ownerListeners) listener({ kind, epoch: this.accountEpochValue, userId: identity.userId });
   }
 
+  /**
+   * Swap the account token in place after a relay-local refresh: same user,
+   * same controller device, so no owner change is announced and the selected
+   * control target survives. Work still in flight under the previous token
+   * fails with `AccountIdentityChangedError`, exactly like a replacement.
+   */
+  rotateAccountToken(token: string): void {
+    const identity = this.identity;
+    if (!identity || !token.trim()) throw new Error('Relay returned an invalid account identity.');
+    if (identity.token === token) return;
+    this.realtime?.close();
+    this.realtime = null;
+    this.identity = { ...identity, token, generation: ++this.identityGeneration };
+    this.realtime = new AccountRealtime({ url: this.relayUrl, token });
+    const notifyDirectory = () => { for (const listener of this.directoryListeners) listener(); };
+    this.realtime.onDeviceDirectoryChanged(notifyDirectory);
+    this.realtime.onReconnect(notifyDirectory);
+    this.realtime.onDeviceEvent(envelope => { void this.receiveDeviceEvent(envelope); });
+    this.deviceMessageKeys.clear();
+  }
+
   resetConnectionIdentity(): void {
     this.realtime?.close();
     this.realtime = null;

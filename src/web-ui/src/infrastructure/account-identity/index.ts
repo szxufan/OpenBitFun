@@ -1,2 +1,2 @@
-export * from './AccountIdentityService';
+export * from './RelayAccountService';
 export * from './useAccountIdentity';

@@ -91,6 +91,10 @@ pub(crate) async fn server_info_for_host(host_version: &'static str) -> Json<Ser
             // Clients must ask before using it: an older Relay rejects the
             // unknown kind outright, which would fail the whole login.
             "device_kind_cli_v1",
+            // Relay-local accounts: SMS-code sign-in/registration plus the
+            // optional-password and refresh-token endpoints under
+            // `/api/auth/local/*`. Older clients keep the GitHub flow's 404s.
+            "local_auth_v1",
         ],
     })
 }

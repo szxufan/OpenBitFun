@@ -23,8 +23,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { AlertTriangle, Camera, Loader2 } from 'lucide-react';
 import { GalleryEmpty, GalleryLayout, GalleryPageHeader } from '@/app/components/GalleryLayout';
 import { useI18n } from '@/infrastructure/i18n';
-import { AccountIdentityControls } from '@/features/market-account';
-import { useAccountIdentity } from '@/infrastructure/account-identity';
+import { AccountIdentityControls, useMarketAccountIdentity } from '@/features/market-account';
 import { systemAPI } from '@/infrastructure/api/service-api/SystemAPI';
 import {
   miniAppMarketAPI,
@@ -79,7 +78,9 @@ const MiniAppSubmissionsView: React.FC<MiniAppSubmissionsViewProps> = ({ tabs, r
   const notification = useNotification();
   const { workspace } = useCurrentWorkspace();
   const { openScene, activateScene, openTabs } = useSceneManager();
-  const { me, resolved: authResolved } = useAccountIdentity();
+  // Market account entry is disabled; submissions stay an anonymous dead end
+  // until the market gains a relay-local account surface.
+  const { me, resolved: authResolved } = useMarketAccountIdentity();
   const [apps, setApps] = useState<MiniAppMeta[]>([]);
   const [submissions, setSubmissions] = useState<MarketSubmission[]>([]);
   const [selectedAppId, setSelectedAppId] = useState('');
@@ -172,7 +173,7 @@ const MiniAppSubmissionsView: React.FC<MiniAppSubmissionsViewProps> = ({ tabs, r
     };
     // Identity changes reload this account-owned workspace from the shared vault.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authResolved, me?.user.accountId, me?.user.githubId]);
+  }, [authResolved, me?.user.id]);
 
   function selectApp(app: MiniAppMeta) {
     setSelectedAppId(app.id);

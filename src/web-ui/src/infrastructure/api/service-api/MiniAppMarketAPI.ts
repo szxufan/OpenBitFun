@@ -1,4 +1,3 @@
-import { accountIdentityAPI } from './AccountIdentityAPI';
 import { api } from './ApiClient';
 import { createTauriCommandError } from '../errors/TauriCommandError';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
@@ -81,19 +80,6 @@ export interface MarketBrowseRequest {
   sort?: MarketSort;
   cursor?: string;
   limit?: number;
-}
-
-export interface MarketMe {
-  email?: string;
-  user: MarketUserSummary;
-  isAdmin: boolean;
-}
-
-export interface DesktopAuthStart {
-  transactionId: string;
-  authorizationUrl: string;
-  expiresAt: number;
-  pollIntervalSeconds: number;
 }
 
 export interface MarketSubmission {
@@ -213,11 +199,6 @@ export class MiniAppMarketAPI {
       throw createTauriCommandError('miniapp_market_get_listing', error, { slug });
     }
   }
-
-  authStart = () => accountIdentityAPI.authStart();
-  authPoll = (transaction: DesktopAuthStart) => accountIdentityAPI.authPoll(transaction);
-  me = () => accountIdentityAPI.me();
-  logout = () => accountIdentityAPI.logout();
 
   async setRating(slug: string, value?: number): Promise<{
     average: number;
@@ -354,10 +335,6 @@ export class MiniAppMarketAPI {
 
   onUploadProgress(handler: (progress: MarketUploadProgress) => void): () => void {
     return api.listen<MarketUploadProgress>('miniapp-market-upload-progress', handler);
-  }
-
-  onAccountChanged(handler: () => void): () => void {
-    return accountIdentityAPI.onAccountChanged(handler);
   }
 }
 

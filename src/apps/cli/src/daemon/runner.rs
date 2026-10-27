@@ -35,16 +35,35 @@ pub(crate) async fn run_daemon() -> Result<()> {
     .await?;
 
     let account = runtime.account_runtime();
-    let Some(user_id) = account.try_restore_session().await else {
-        return Err(anyhow!(
-            "not logged in; run `openbitfun`, log in with `/login`, then start the daemon again"
-        ));
-    };
-    tracing::info!("Daemon restored account session for user {user_id}");
+    let mut routing_started_by_login = false;
+    if let Some(user_id) = account.try_restore_session().await {
+        tracing::info!("Daemon restored account session for user {user_id}");
+    } else {
+        // Session-expiry path: attempt one silent renewal from the persisted
+        // refresh token before asking a human to sign in again.
+        match account.try_refresh_relogin().await {
+            Ok(login) => {
+                tracing::info!(
+                    "Daemon renewed the account session for user {}",
+                    login.user_id
+                );
+                // The renewed login already adopted device routing.
+                routing_started_by_login = true;
+            }
+            Err(error) => {
+                tracing::warn!("Daemon could not renew the persisted account session: {error:#}");
+                return Err(anyhow!(
+                    "not logged in; run `openbitfun login` (or `/login` in the TUI), then start the daemon again"
+                ));
+            }
+        }
+    }
 
     let device =
         DeviceIdentity::from_current_machine().map_err(|e| anyhow!("detect device: {e}"))?;
-    account.restore_device_routing(&device.device_name).await?;
+    if !routing_started_by_login {
+        account.restore_device_routing(&device.device_name).await?;
+    }
 
     // Continuous account settings sync (30s pull + debounced push) so this
     // always-on host converges with cloud changes made on other devices and
@@ -63,9 +82,34 @@ pub(crate) async fn run_daemon() -> Result<()> {
             }
             _ = expired_check.tick() => {
                 if account.is_token_expired() {
+                    // Session-expiry path: attempt one silent renewal before
+                    // exiting for an interactive sign-in. Renewal adopts a
+                    // fresh account context, which first retires the
+                    // background routing owner; when this daemon IS the owner
+                    // recorded in the pid file, an in-process renewal would
+                    // signal itself and reject the renewed credential, so it
+                    // is only attempted when no live owner is recorded.
+                    if !pid::is_daemon_running() {
+                        match account.try_refresh_relogin().await {
+                            Ok(login) => {
+                                tracing::info!(
+                                    "Daemon renewed the account session for user {}",
+                                    login.user_id
+                                );
+                                continue;
+                            }
+                            Err(error) => {
+                                tracing::warn!(
+                                    "Daemon could not renew the expired account session: {error:#}"
+                                );
+                            }
+                        }
+                    }
                     // Exit 0 on purpose: re-authentication needs a human, so
                     // Restart=on-failure must not loop the daemon.
-                    tracing::warn!("Account token rejected by the relay; daemon exiting");
+                    tracing::warn!(
+                        "Account token rejected by the relay; daemon exiting; run `openbitfun login` (or `/login` in the TUI) to sign in again"
+                    );
                     break;
                 }
             }

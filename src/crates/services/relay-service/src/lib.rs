@@ -7,10 +7,10 @@
 //!   - Desktop clients connect via WebSocket
 //!   - Mobile clients interact via HTTP POST
 //!   - The relay forwards encrypted payloads without inspection
-//!   - GitHub identity owns device membership and public-key lookup
+//!   - Relay-local accounts (SMS-code verified, optional password) own device
+//!     membership and public-key lookup
 //!   - Published Page assets are managed via `WebAssetStore`
 
-mod identity;
 pub mod realtime;
 
 #[cfg(test)]
@@ -24,6 +24,7 @@ pub mod page_execution;
 pub mod relay;
 mod retired_version;
 pub mod routes;
+pub mod sms;
 
 pub use routes::api::AppState;
 
@@ -1181,8 +1182,16 @@ pub fn build_relay_router_with_page_data_origins_and_page_auth(
             "/api/info",
             get(move || routes::api::server_info_for_host(host_version)),
         )
-        .route("/api/auth/github/start", post(routes::auth::github_start))
-        .route("/api/auth/github/poll", post(routes::auth::github_poll))
+        .route(
+            "/api/auth/local/sms/send",
+            post(routes::auth::local_sms_send),
+        )
+        .route("/api/auth/local/login", post(routes::auth::local_login))
+        .route("/api/auth/local/refresh", post(routes::auth::local_refresh))
+        .route(
+            "/api/auth/local/password",
+            post(routes::auth::local_set_password),
+        )
         .route("/api/auth/login", post(routes::auth::login))
         .route("/api/auth/logout", post(routes::auth::logout))
         .route("/api/auth/delegate", post(routes::auth::delegate))

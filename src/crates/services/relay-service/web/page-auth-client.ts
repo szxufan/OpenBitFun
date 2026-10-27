@@ -5,8 +5,12 @@ interface ErrorBody {
 
 const form = document.querySelector<HTMLFormElement>('[data-page-login-form]');
 const submitButton = document.querySelector<HTMLButtonElement>('[data-page-login-submit]');
+const sendCodeButton = document.querySelector<HTMLButtonElement>('[data-page-login-send-code]');
 const errorElement = document.querySelector<HTMLElement>('[data-page-login-error]');
+const phoneInput = document.querySelector<HTMLInputElement>('[data-page-login-phone]');
+const codeInput = document.querySelector<HTMLInputElement>('[data-page-login-code]');
 const loginState = form?.dataset.pageLoginState;
+const SEND_CODE_COOLDOWN_SECS = 60;
 
 function relayPathPrefix(): string {
   const authRouteIndex = window.location.pathname.indexOf('/api/page-auth/');
@@ -55,16 +59,36 @@ async function readError(response: Response): Promise<string> {
   const fallback = message('登录失败，请重试。', 'Sign-in failed. Try again.');
   try {
     const body = await response.json() as ErrorBody;
+    const error = typeof body.error === 'string' ? body.error : '';
+    if (error === 'invalid verification code' || error === 'verification code incorrect'
+      || error === 'verification code invalid or expired') {
+      return message('验证码不正确，请检查后重试。', 'The verification code was not accepted. Try again.');
+    }
+    if (error === 'invalid phone or password') {
+      return message('手机号或密码未通过验证。', 'The phone number or password was not accepted.');
+    }
+    if (error === 'registration is closed on this relay') {
+      return message('该服务器当前未开放新账号注册。', 'New account registration is currently closed on this server.');
+    }
+    if (error === 'invalid phone number') {
+      return message('手机号无效，请检查后重试。', 'The phone number is invalid. Check it and try again.');
+    }
+    if (error === 'sms delivery is not configured') {
+      return message('该服务器未配置短信登录，请联系服务器管理员。', 'SMS sign-in is not configured on this server. Contact the server administrator.');
+    }
+    if (error === 'code delivery failed') {
+      return message('验证码发送失败，请稍后重试。', 'The verification code could not be delivered. Try again shortly.');
+    }
+    if (error === 'account does not have access to this Page') {
+      return message('该账号没有此页面的访问权限。', 'This account cannot access the Page.');
+    }
     if (body.retry_after_secs && body.retry_after_secs > 0) {
       return message(
         `尝试次数过多，请在 ${body.retry_after_secs} 秒后重试。`,
         `Too many attempts. Try again in ${body.retry_after_secs} seconds.`,
       );
     }
-    if (body.error === 'account does not have access to this Page') {
-      return message('该账号没有此页面的访问权限。', 'This account cannot access the Page.');
-    }
-    return body.error || fallback;
+    return error || fallback;
   } catch {
     return fallback;
   }
@@ -83,52 +107,76 @@ async function postJson<T>(path: string, body: Record<string, unknown>): Promise
   return response.json() as Promise<T>;
 }
 
-interface AuthStart {
-  transactionId: string;
-  transactionSecret: string;
-  authorizationUrl: string;
-  expiresAt: number;
-  pollIntervalSeconds: number;
+interface LocalTokenPair {
+  accessToken: string;
+  refreshToken: string;
 }
+
+let cooldownTimer: number | undefined;
+
+function startCooldown(seconds: number): void {
+  if (!sendCodeButton) return;
+  let remaining = seconds;
+  const render = () => {
+    if (!sendCodeButton) return;
+    if (remaining > 0) {
+      sendCodeButton.disabled = true;
+      sendCodeButton.textContent = message(`${remaining} 秒后可重发`, `Resend in ${remaining}s`);
+    } else {
+      sendCodeButton.disabled = false;
+      sendCodeButton.textContent = message('发送验证码', 'Send code');
+    }
+  };
+  window.clearInterval(cooldownTimer);
+  render();
+  cooldownTimer = window.setInterval(() => {
+    remaining -= 1;
+    render();
+    if (remaining <= 0) window.clearInterval(cooldownTimer);
+  }, 1000);
+}
+
+sendCodeButton?.addEventListener('click', async () => {
+  if (!phoneInput || sendCodeButton.disabled) return;
+  if (!phoneInput.value.trim()) {
+    showError(message('请输入手机号。', 'Enter your phone number first.'));
+    return;
+  }
+  showError('');
+  sendCodeButton.disabled = true;
+  sendCodeButton.textContent = message('发送中…', 'Sending…');
+  try {
+    await postJson<{ status: string }>(
+      relayApiPath('/api/auth/local/sms/send'),
+      { phone: phoneInput.value.trim() },
+    );
+    startCooldown(SEND_CODE_COOLDOWN_SECS);
+  } catch (error) {
+    showError(error instanceof Error ? error.message : message('发送失败，请重试。', 'Could not send the code. Try again.'));
+    sendCodeButton.disabled = false;
+    sendCodeButton.textContent = message('发送验证码', 'Send code');
+  }
+});
 
 form?.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!submitButton || submitButton.disabled) return;
-  // Open synchronously during the click so browser popup protection permits it.
-  const popup = window.open('about:blank', '_blank');
-  if (!popup) {
-    showError(message('请允许登录弹窗后重试。', 'Allow the sign-in popup and try again.'));
+  if (!phoneInput?.value.trim() || !codeInput?.value.trim()) {
+    showError(message('请输入手机号和验证码。', 'Enter your phone number and the verification code.'));
     return;
   }
-  popup.opener = null;
   showError('');
   submitButton.disabled = true;
-  submitButton.textContent = message('等待登录…', 'Waiting for sign-in…');
+  submitButton.textContent = message('登录中…', 'Signing in…');
   try {
-    const start = await postJson<AuthStart>(relayApiPath('/api/auth/github/start?methods=all'), {});
-    const authorization = new URL(start.authorizationUrl);
-    if (!((authorization.origin === 'https://github.com' && authorization.pathname === '/login/oauth/authorize') || (authorization.origin === 'https://auth.openbitfun.com' && authorization.pathname === '/sign-in')) || !!authorization.username || !!authorization.password) {
-      throw new Error(message('登录地址无效。', 'The sign-in URL is invalid.'));
-    }
-    if (authorization.origin === 'https://auth.openbitfun.com') authorization.searchParams.set('locale', navigator.language);
-    popup.location.replace(authorization.href);
-    let accessToken: string | undefined;
-    while (Date.now() < start.expiresAt * 1000) {
-      await new Promise((resolve) => setTimeout(resolve, Math.max(1, start.pollIntervalSeconds) * 1000));
-      const result = await postJson<{ status: string; tokens?: { accessToken: string } }>(
-        relayApiPath('/api/auth/github/poll'),
-        { transactionId: start.transactionId, transactionSecret: start.transactionSecret },
-      );
-      if (result.tokens?.accessToken) {
-        accessToken = result.tokens.accessToken;
-        break;
-      }
-      if (result.status !== 'pending') {
-        throw new Error(message('授权未完成，请重新登录。', 'Authorization did not complete. Sign in again.'));
-      }
-    }
-    if (!accessToken) throw new Error(message('登录已过期，请重试。', 'Sign-in expired. Try again.'));
-    const loginBody: Record<string, unknown> = { access_token: accessToken };
+    // Relay-local sign-in: the SMS code exchanges for an account access
+    // token, which then authorizes this Page session. Both calls stay
+    // same-origin under the Relay path prefix.
+    const pair = await postJson<LocalTokenPair>(relayApiPath('/api/auth/local/login'), {
+      phone: phoneInput.value.trim(),
+      code: codeInput.value.trim(),
+    });
+    const loginBody: Record<string, unknown> = { access_token: pair.accessToken };
     if (loginState) {
       loginBody.state = loginState;
     } else {
@@ -139,9 +187,7 @@ form?.addEventListener('submit', async (event) => {
     window.location.replace(externalRedirectTarget(result.redirect_to));
   } catch (error) {
     showError(error instanceof Error ? error.message : message('登录失败，请重试。', 'Sign-in failed. Try again.'));
-  } finally {
-    popup.close();
     submitButton.disabled = false;
-    submitButton.textContent = message('使用邮箱或 GitHub 登录', 'Sign in with email or GitHub');
+    submitButton.textContent = message('使用手机号登录', 'Sign in with phone number');
   }
 });

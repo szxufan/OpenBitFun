@@ -315,11 +315,9 @@ pub(crate) fn install_service() -> Result<()> {
 fn ensure_persisted_account_session() -> Result<()> {
     match openbitfun_core::service::remote_connect::session_store::load_session() {
         Ok(Some(_)) => Ok(()),
-        Ok(None) => {
-            Err(anyhow!(
-                "not logged in; run `openbitfun`, log in with `/login`, then re-run `openbitfun daemon install`"
-            ))
-        }
+        Ok(None) => Err(anyhow!(
+            "not logged in; run `openbitfun login` (or `/login` in the TUI), then re-run `openbitfun daemon install`"
+        )),
         Err(error) => Err(anyhow!("read account session: {error}")),
     }
 }

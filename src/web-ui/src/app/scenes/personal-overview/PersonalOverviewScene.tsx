@@ -95,7 +95,7 @@ const PersonalOverviewScene: React.FC<{ isActive?: boolean }> = ({ isActive = tr
     t('greetings.ready'),
   ];
   const displayName = displayedIdentity?.name ?? (
-    identity.resolved && (identity.status === 'signed-out' || identity.status === 'authorizing')
+    identity.resolved && identity.status === 'signed-out'
       ? guestGreetings[Math.floor(greetingSeed * guestGreetings.length)]
       : null
   );

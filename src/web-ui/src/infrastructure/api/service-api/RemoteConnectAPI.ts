@@ -360,17 +360,6 @@ class RemoteConnectAPIService {
     }
   }
 
-  async accountLogin(): Promise<AccountLoginResult> {
-    try {
-      return await this.adapter.request<AccountLoginResult>('account_login', {
-        request: {},
-      });
-    } catch (e) {
-      log.error('accountLogin failed', e);
-      throw e;
-    }
-  }
-
   async accountStatus(): Promise<AccountStatus> {
     try {
       return await this.adapter.request<AccountStatus>('account_status');
@@ -389,6 +378,20 @@ class RemoteConnectAPIService {
     } catch (e) {
       log.warn('accountGetCredentialHint failed', e);
       return null;
+    }
+  }
+
+  /**
+   * Renew an expired device token from the persisted refresh token. Rejects
+   * when no refresh token survives; the caller must ask the user for a new
+   * SMS verification code.
+   */
+  async accountRefreshRelogin(): Promise<AccountLoginResult> {
+    try {
+      return await this.adapter.request<AccountLoginResult>('account_refresh_relogin', {});
+    } catch (e) {
+      log.warn('accountRefreshRelogin failed', e);
+      throw e;
     }
   }
 

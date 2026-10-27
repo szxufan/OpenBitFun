@@ -178,7 +178,9 @@ fn remaining_cli_local_persistence_stays_behind_explicit_owner_boundaries() {
     );
     assert!(
         STARTUP_PAGE.contains("self.account_runtime")
-            && STARTUP_PAGE.contains("account.advance_github_login(transaction_id).await")
+            && STARTUP_PAGE.contains(".local_sms_send(&phone)")
+            && STARTUP_PAGE.contains(".login_with_local_credentials(")
+            && STARTUP_PAGE.contains(".try_refresh_relogin()")
             && STARTUP_PAGE.contains("account.logout().await")
             && !STARTUP_PAGE.contains("finalize_login_after_sync_choice")
             && !STARTUP_PAGE.contains("start_auto_sync_background")
@@ -224,7 +226,7 @@ fn embedded_account_management_uses_the_account_owner_directly() {
         !CLI_MAIN.contains("surface_services")
             && CLI_MAIN.contains("runtime.account_runtime().clone()")
             && STARTUP_PAGE.contains("Option<Arc<AccountRuntime>>")
-            && STARTUP_PAGE.contains("account.advance_github_login(transaction_id).await")
+            && STARTUP_PAGE.contains(".login_with_local_credentials(")
             && STARTUP_PAGE.contains("account.snapshot().await")
             && APP_SERVER_MANAGEMENT.contains("pub use owner::AppManagementService")
             && !CLI_MAIN.contains("mod tui_host")
@@ -599,4 +601,57 @@ fn runtime_ownership_policy_is_assembled_once_in_core() {
             && AGENTIC_SYSTEM.contains("init_agentic_system_for_profile_with_runtime_ownership"),
         "CLI must select a deployment and inject the single Core owner"
     );
+}
+
+#[test]
+fn relay_local_login_flows_use_sms_then_credentials_and_refresh_before_prompt() {
+    const LOGIN_CLI: &str = include_str!("../../src/login_cli.rs");
+    const STARTUP_PAGE: &str = include_str!("../../src/ui/startup.rs");
+    const CHAT_ACCOUNT: &str = include_str!("../../src/modes/chat/account.rs");
+    const DAEMON_RUNNER: &str = include_str!("../../src/daemon/runner.rs");
+    const LOGIN_FORM: &str = include_str!("../../src/ui/login_form.rs");
+
+    // The plain-terminal command requests a code before asking for it, then
+    // signs in with the code (or the password) through the shared runtime.
+    assert!(
+        LOGIN_CLI.contains(".local_sms_send(&phone)")
+            && LOGIN_CLI.contains(".login_with_local_credentials(")
+            && LOGIN_CLI.contains("rpassword::prompt_password")
+            && LOGIN_CLI.contains("OPENBITFUN_ACCOUNT_PASSWORD"),
+        "openbitfun login must send the SMS code, then sign in with code or password"
+    );
+    // Non-TTY contexts degrade loudly instead of hanging on a prompt.
+    assert!(
+        LOGIN_CLI.contains("read_stdin_credential")
+            && LOGIN_CLI.contains("Run `openbitfun login` in an interactive terminal"),
+        "non-TTY login without credentials must fail with interactive sign-in guidance"
+    );
+    // Session-expiry paths attempt one silent renewal before the credential
+    // form is shown.
+    for (path, source) in [
+        ("ui/startup.rs", STARTUP_PAGE),
+        ("modes/chat/account.rs", CHAT_ACCOUNT),
+        ("daemon/runner.rs", DAEMON_RUNNER),
+    ] {
+        assert!(
+            source.contains(".try_refresh_relogin()"),
+            "{path} must attempt a refresh relogin before prompting for credentials"
+        );
+    }
+    // The TUI wizard collects phone -> code/password in that order and never
+    // echoes the password.
+    assert!(
+        LOGIN_FORM.contains("enum LoginFormAction")
+            && LOGIN_FORM.contains("RequestCode")
+            && LOGIN_FORM.contains("LoginWithCode")
+            && LOGIN_FORM.contains("LoginWithPassword")
+            && LOGIN_FORM.contains("\"*\".repeat"),
+        "the login form must submit relay-local credentials with a masked password field"
+    );
+    // The removed GitHub/identity flows must not come back.
+    for source in [LOGIN_CLI, STARTUP_PAGE, CHAT_ACCOUNT, LOGIN_FORM] {
+        assert!(!source.contains("advance_github_login"));
+        assert!(!source.contains("AccountLoginProgress"));
+        assert!(!source.contains("GitHubAuthStart"));
+    }
 }

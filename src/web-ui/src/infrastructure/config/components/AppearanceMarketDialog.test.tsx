@@ -29,9 +29,8 @@ const mocks = vi.hoisted(() => ({
     resolved: true,
     status: 'signed-in',
     me: {
-      user: { githubId: 1, login: 'reviewer', avatarUrl: '' },
-      isAdmin: true,
-    } as { user: { githubId: number; login: string; avatarUrl: string }; isAdmin: boolean } | null,
+      user: { id: '1', login: 'reviewer', avatarUrl: '' },
+    } as { user: { id: string; login: string; avatarUrl: string } } | null,
   },
 }));
 
@@ -106,7 +105,8 @@ vi.mock('@/infrastructure/confirm-dialog', () => ({
 }));
 
 vi.mock('@/features/market-account', () => ({
-  AccountIdentityControls: () => <button type="button" data-testid="shared-market-account-controls">@reviewer</button>,
+  AccountIdentityControls: () => null,
+  useMarketAccountIdentity: () => mocks.accountState,
 }));
 
 vi.mock('@/infrastructure/account-identity', () => ({
@@ -193,9 +193,7 @@ describe('AppearanceMarketDialog', () => {
   let root: ReturnType<typeof createRoot>;
 
   beforeEach(() => {
-    mocks.accountState.me = {
-      user: { githubId: 1, login: 'reviewer', avatarUrl: '' }, isAdmin: true,
-    };
+    mocks.accountState.me = { user: { id: '1', login: 'reviewer', avatarUrl: '' } };
     mocks.accountState.status = 'signed-in';
     mocks.getCachedPage.mockReset();
     mocks.browse.mockReset().mockResolvedValue({ items: [summary] });
@@ -262,10 +260,9 @@ describe('AppearanceMarketDialog', () => {
       await Promise.resolve();
     });
     await vi.waitFor(() => expect(container.textContent).toContain('Tokyo Night'));
-    expect(container.querySelector('[data-testid="shared-market-account-controls"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="shared-market-account-controls"]')).toBeNull();
     expect(container.querySelector('h2')?.textContent).toBe('package.market.title');
-    const accountControls = container.querySelector('[data-testid="shared-market-account-controls"]')!;
-    const headerActions = accountControls.closest('[data-openbitfun-part="header-actions"]');
+    const headerActions = container.querySelector('[data-openbitfun-part="header-actions"]');
     expect(headerActions).not.toBeNull();
     expect(headerActions?.querySelector('button[aria-label="Close"]')).not.toBeNull();
     expect(container.textContent).toContain('package.market.updateAvailable');
@@ -447,12 +444,11 @@ describe('AppearanceMarketDialog', () => {
   });
 
   it.each([
-    { signedIn: false, admin: false, count: 1 },
-    { signedIn: true, admin: false, count: 2 },
-    { signedIn: true, admin: true, count: 3 },
-  ])('keeps navigation visibility for account state $signedIn / admin $admin', async ({ signedIn, admin, count }) => {
+    { signedIn: false, count: 1 },
+    { signedIn: true, count: 3 },
+  ])('keeps navigation visibility for account state $signedIn', async ({ signedIn, count }) => {
     mocks.accountState.me = signedIn ? {
-      user: { githubId: 1, login: 'member', avatarUrl: '' }, isAdmin: admin,
+      user: { id: '1', login: 'member', avatarUrl: '' },
     } : null;
     mocks.accountState.status = signedIn ? 'signed-in' : 'signed-out';
     const onClose = vi.fn();
@@ -468,20 +464,18 @@ describe('AppearanceMarketDialog', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it('returns to browse when account permissions remove the active navigation entry', async () => {
+  it('returns to browse when the account leaves the active navigation entry', async () => {
     const onClose = vi.fn();
     await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={onClose} />));
     const review = [...container.querySelectorAll<HTMLButtonElement>('nav button')]
       .find(button => button.textContent === 'package.market.views.review')!;
     await act(async () => review.click());
     expect(review.getAttribute('aria-current')).toBe('page');
-    mocks.accountState.me = { ...mocks.accountState.me!, isAdmin: false };
-    await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={onClose} />));
-    expect(container.querySelectorAll('nav button')).toHaveLength(2);
-    expect(container.querySelector('nav [aria-current="page"]')?.textContent).toBe('package.market.views.browse');
     mocks.accountState.me = null;
+    mocks.accountState.status = 'signed-out';
     await act(async () => root.render(<AppearanceMarketDialog isOpen onClose={onClose} />));
     expect(container.querySelectorAll('nav button')).toHaveLength(1);
+    expect(container.querySelector('nav [aria-current="page"]')?.textContent).toBe('package.market.views.browse');
     expect(onClose).not.toHaveBeenCalled();
   });
 

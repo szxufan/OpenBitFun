@@ -794,29 +794,16 @@ impl AppManagementService {
         ))
     }
 
-    pub async fn account_github_start(
+    pub async fn account_sms_send(
         &self,
-        _request: AccountGitHubStartRequest,
-    ) -> AppManagementResult<AccountGitHubStartResponse> {
-        let authorization = self
-            .account_runtime(ACCOUNT_CAPABILITY)?
-            .start_github_auth()
+        request: AccountSmsSendRequest,
+    ) -> AppManagementResult<AccountSmsSendResponse> {
+        self.account_runtime(ACCOUNT_CAPABILITY)?
+            .local_sms_send(&request.phone)
             .await
             .map_err(internal_account_error)?;
-        Ok(AccountGitHubStartResponse { authorization })
-    }
-
-    pub async fn account_github_poll(
-        &self,
-        request: AccountGitHubPollRequest,
-    ) -> AppManagementResult<AccountGitHubPollResponse> {
-        let result = self
-            .account_runtime(ACCOUNT_CAPABILITY)?
-            .poll_github_auth(request.transaction_id)
-            .await
-            .map_err(internal_account_error)?;
-        Ok(AccountGitHubPollResponse {
-            status: result.status,
+        Ok(AccountSmsSendResponse {
+            status: "sent".to_string(),
         })
     }
 
@@ -825,11 +812,24 @@ impl AppManagementService {
         request: AccountLoginRequest,
     ) -> AppManagementResult<AccountLoginResponse> {
         validate_account_operation_id(&request.operation_id)?;
-        let result = self
-            .account_runtime(ACCOUNT_CAPABILITY)?
-            .login_with_identity()
-            .await
-            .map_err(|error| internal_account_error(error))?;
+        let phone = request.phone.as_deref();
+        let (code, password) = (request.code.as_deref(), request.password.as_deref());
+        let result = match (phone, code, password) {
+            (Some(phone), Some(code), None) => {
+                self.account_runtime(ACCOUNT_CAPABILITY)?
+                    .login_with_local_credentials(phone, Some(code), None)
+                    .await
+            }
+            (Some(phone), None, Some(password)) => {
+                self.account_runtime(ACCOUNT_CAPABILITY)?
+                    .login_with_local_credentials(phone, None, Some(password))
+                    .await
+            }
+            _ => Err(anyhow::anyhow!(
+                "account/login requires phone plus exactly one of code or password"
+            )),
+        }
+        .map_err(internal_account_error)?;
         let status_message = account_login_status_message(&result);
         Ok(AccountLoginResponse {
             user_id: result.user_id,

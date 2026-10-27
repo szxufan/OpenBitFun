@@ -20,7 +20,7 @@ test('stable and beta channels resolve to isolated updater feeds', () => {
   const beta = resolveReleaseChannel('beta');
   assert.match(stable.primaryUpdaterEndpoint, /releases\/latest\/download/);
   assert.match(beta.primaryUpdaterEndpoint, /releases\/download\/channel-v1-beta/);
-  assert.equal(beta.fallbackUpdaterEndpoint, 'https://openbitfun.com/release/beta/latest-v1.json');
+  assert.equal(beta.fallbackUpdaterEndpoint, 'https://iso.mylinkpi.cn/obf/release/beta/latest-v1.json');
   assert.notEqual(beta.primaryUpdaterEndpoint, stable.primaryUpdaterEndpoint);
   for (const config of [stable, beta]) {
     assert.ok(config.primaryUpdaterEndpoint.endsWith('/latest-v1.json'));
@@ -204,6 +204,6 @@ test('Desktop, CLI and SSH dispatch consume only the versioned stable feeds', ()
     assert.doesNotMatch(source, /https:[^"\s]+\/latest\.json/);
   }
   const cli = readFileSync(new URL('../src/apps/cli/src/self_update.rs', import.meta.url), 'utf8');
-  assert.ok(cli.includes('https://github.com/GCWing/OpenBitFun/releases/latest/download/linux-binaries-v1.json'));
-  assert.ok(cli.includes('https://openbitfun.com/release/linux-binaries-v1.json'));
+  assert.ok(cli.includes('https://github.com/szxufan/OpenBitFun/releases/latest/download/linux-binaries-v1.json'));
+  assert.ok(cli.includes('https://iso.mylinkpi.cn/obf/release/linux-binaries-v1.json'));
 });

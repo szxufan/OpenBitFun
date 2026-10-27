@@ -11,6 +11,7 @@ const SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 #[derive(Default)]
 pub(crate) struct DesktopEmbeddedRelayHost {
     runtime: Mutex<Option<EmbeddedRelayRuntime>>,
+    database: Mutex<Option<std::sync::Arc<openbitfun_relay_service::db::DbPool>>>,
     #[cfg(test)]
     start_candidate_ready: tokio::sync::Notify,
 }
@@ -107,6 +108,7 @@ impl EmbeddedRelayHost for DesktopEmbeddedRelayHost {
         #[cfg(test)]
         let database_path = ":memory:".to_string();
         let database = Arc::new(openbitfun_relay_service::db::connect(&database_path).await?);
+        *self.database.lock().await = Some(Arc::clone(&database));
         let asset_store = Arc::new(MemoryAssetStore::new());
         let start_time = std::time::Instant::now();
 
@@ -166,6 +168,50 @@ impl EmbeddedRelayHost for DesktopEmbeddedRelayHost {
         if let Some(runtime) = runtime {
             runtime.stop().await;
         }
+        *self.database.lock().await = None;
+    }
+
+    async fn provision_owner_session(
+        &self,
+        relay_url: &str,
+        user_id: &str,
+        username: &str,
+        device: &openbitfun_services_integrations::remote_connect::DeviceIdentity,
+    ) -> anyhow::Result<
+        openbitfun_core::service::remote_connect::embedded_relay_host::EmbeddedOwnerSession,
+    > {
+        let database = self
+            .database
+            .lock()
+            .await
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("embedded relay is not running"))?;
+        // The device row's public key must match the session key derived for
+        // this relay URL, or controllers could not encrypt RPC for it.
+        let device_secret =
+            openbitfun_services_integrations::remote_connect::session_store::device_secret(
+                relay_url,
+                user_id,
+                &device.device_id,
+            )?;
+        let public_key =
+            openbitfun_services_integrations::remote_connect::device_crypto::public_key_base64(
+                &device_secret,
+            );
+        let token = openbitfun_relay_service::db::provision_embedded_owner_device(
+            &database,
+            user_id,
+            username,
+            &device.device_id,
+            &device.device_name,
+            &public_key,
+        )
+        .await?;
+        Ok(
+            openbitfun_core::service::remote_connect::embedded_relay_host::EmbeddedOwnerSession {
+                token,
+            },
+        )
     }
 }
 

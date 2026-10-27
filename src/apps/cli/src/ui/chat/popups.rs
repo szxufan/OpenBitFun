@@ -756,12 +756,6 @@ impl ChatView {
         self.login_form.handle_key_event(key)
     }
 
-    pub(crate) fn login_form_set_authorization(
-        &mut self,
-        authorization: openbitfun_product_domains::account::GitHubAuthStart,
-    ) {
-        self.login_form.set_authorization(authorization);
-    }
     pub(crate) fn login_form_set_status(&mut self, status: &str) {
         self.login_form.set_status(status);
     }

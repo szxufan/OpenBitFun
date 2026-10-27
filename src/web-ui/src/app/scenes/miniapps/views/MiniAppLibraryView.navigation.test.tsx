@@ -21,7 +21,7 @@ vi.mock('@/infrastructure/contexts/WorkspaceContext', () => ({ useCurrentWorkspa
 vi.mock('@/shared/types', () => ({ isRemoteWorkspace: () => mocks.remote }));
 vi.mock('@/shared/notification-system', () => ({ useNotification: () => mocks }));
 vi.mock('@/infrastructure/account-identity', () => ({ useAccountIdentity: () => ({ me: null }) }));
-vi.mock('@/features/market-account', () => ({ AccountIdentityControls: () => null }));
+vi.mock('@/features/market-account', () => ({ AccountIdentityControls: () => null, useMarketAccountIdentity: () => ({ me: null }) }));
 vi.mock('@/app/hooks/useSceneManager', () => ({ useSceneManager: () => ({ openTabs: [], closeScene: vi.fn() }) }));
 vi.mock('@/app/hooks/useGallerySceneAutoRefresh', () => ({ useGallerySceneAutoRefresh: () => undefined }));
 vi.mock('../hooks/useMiniAppActivity', () => ({ useMiniAppActivity: () => [] }));

@@ -237,7 +237,7 @@ test('disconnect affects only the current tab and remains disconnected after rel
     await connected(second);
     assert.equal(relay.logins.length, 1);
     assert.equal((await readAccount(first)).token, (await readAccount(second)).token);
-    // An explicit selection reconnects without another OAuth/login request.
+    // An explicit selection reconnects without another local sign-in or device exchange.
     await first.evaluate(() => [...document.querySelectorAll('.devices-page__device')]
       .find(row => row.textContent.includes('desktop-b')).click());
     await connected(first, 'desktop-b');
@@ -247,7 +247,7 @@ test('disconnect affects only the current tab and remains disconnected after rel
   } finally { await context.close(); }
 });
 
-test('browser profiles remain separate even with the same user agent and GitHub account', { timeout: 40_000 }, async () => {
+test('browser profiles remain separate even with the same user agent and relay-local account', { timeout: 40_000 }, async () => {
   const contexts = await Promise.all([browser.createIncognitoBrowserContext(), browser.createIncognitoBrowserContext()]);
   const relay = new RelayFixture();
   try {
@@ -327,7 +327,7 @@ test('legacy tab credentials migrate with their keys and navigation without revi
   } finally { await context.close(); }
 });
 
-test('transient Relay errors preserve login; genuine expiry signs out tabs without rotating identity', { timeout: 45_000 }, async () => {
+test('transient Relay errors preserve the login without minting a new identity', { timeout: 45_000 }, async () => {
   const context = await browser.createIncognitoBrowserContext();
   const relay = new RelayFixture();
   try {
@@ -343,14 +343,64 @@ test('transient Relay errors preserve login; genuine expiry signs out tabs witho
     relay.directoryStatus = 200;
     await first.reload(); await connected(first);
     assert.equal(relay.logins.length, 1);
+    assert.deepEqual(relay.errors, []);
+  } finally { await context.close(); }
+});
+
+test('an expired device token recovers through the local refresh token without rotating the controller key', { timeout: 45_000 }, async () => {
+  const context = await browser.createIncognitoBrowserContext();
+  const relay = new RelayFixture();
+  try {
+    const first = await relay.page(context, source.origin);
+    await signIn(first); await connected(first);
+    const original = await readAccount(first);
+    assert.ok(original.refreshToken, 'the relay-local refresh token must be persisted with the session');
     relay.tokens.delete(original.token);
     await first.reload();
-    await Promise.all([first, second].map(page => page.waitForSelector('.pairing-page__form')));
-    assert.match(await first.$eval('.pairing-page__error', el => el.textContent), /expired/);
-    await signIn(second); await connected(second); await connected(first);
-    assert.equal((await readAccount(first)).controllerDeviceId, original.controllerDeviceId);
+    await until(() => relay.logins.length === 2, 'the expired device token must trigger one refresh and one re-exchange');
+    // The recovery re-runs the device exchange with the SAME controller id and key.
+    assert.equal(relay.logins[1].device_id, relay.logins[0].device_id);
+    assert.equal(relay.logins[1].public_key, relay.logins[0].public_key);
+    assert.equal(relay.refreshes.length, 1);
+    assert.equal(relay.refreshTokens.has(original.refreshToken), false, 'the used refresh token is single use');
+    await connected(first);
+    const renewed = await readAccount(first);
+    assert.notEqual(renewed.token, original.token);
+    assert.equal(renewed.controllerDeviceId, original.controllerDeviceId);
+    assert.notEqual(renewed.refreshToken, original.refreshToken);
     assert.equal(relay.devices.size, 1);
-    assert.equal(relay.logins.length, 2);
+    assert.deepEqual(relay.errors, []);
+  } finally { await context.close(); }
+});
+
+test('without a refresh token an expired device token returns to the sign-in form', { timeout: 45_000 }, async () => {
+  const context = await browser.createIncognitoBrowserContext();
+  const relay = new RelayFixture();
+  try {
+    const first = await relay.page(context, source.origin);
+    await signIn(first); await connected(first);
+    const original = await readAccount(first);
+    // Simulate a record written before relay-local accounts: same identity, no refresh token.
+    await first.evaluate(() => new Promise((resolve, reject) => {
+      const request = indexedDB.open('openbitfun-mobile-account', 1);
+      request.onerror = reject;
+      request.onsuccess = () => {
+        const tx = request.result.transaction('accounts', 'readwrite');
+        const store = tx.objectStore('accounts');
+        const read = store.get(location.origin);
+        read.onsuccess = () => {
+          read.result.session.refreshToken = null;
+          store.put(read.result);
+        };
+        tx.oncomplete = () => { request.result.close(); resolve(); };
+        tx.onerror = reject;
+      };
+    }));
+    relay.tokens.delete(original.token);
+    await first.reload();
+    await first.waitForSelector('.pairing-page__form');
+    assert.match(await first.$eval('.pairing-page__error', el => el.textContent), /expired/);
+    assert.equal(relay.logins.length, 1, 'no recovery exchange is possible without a refresh token');
     assert.deepEqual(relay.errors, []);
   } finally { await context.close(); }
 });
@@ -507,54 +557,68 @@ test('a retired official relay token stays archived and is never rebound to the 
  }finally{await context.close();}
 });
 
-test('sign-in uses a separate popup, can cancel and reopen a closed window, and closes on success', { timeout: 40_000 }, async () => {
+test('the inline sign-in form is gated by the relay capability contract', { timeout: 40_000 }, async () => {
+  const context = await browser.createIncognitoBrowserContext();
+  const relay = new RelayFixture();
+  relay.capabilities = ['device_alias_v1'];
+  try {
+    const page = await relay.page(context, source.origin, invitation());
+    await page.waitForSelector('.pairing-page__error');
+    assert.match(await page.$eval('.pairing-page__error', el => el.textContent), /does not support phone-number sign-in/);
+    assert.equal(await page.$eval('button.pairing-page__submit', button => button.disabled), true);
+    assert.equal(relay.smsSends.length, 0, 'an old relay must not receive local auth requests');
+    assert.equal(relay.logins.length, 0);
+    assert.deepEqual(relay.errors, []);
+  } finally { await context.close(); }
+});
+
+test('an SMS cooldown surfaces the relay retry window and blocks resending', { timeout: 40_000 }, async () => {
+  const context = await browser.createIncognitoBrowserContext();
+  const relay = new RelayFixture();
+  relay.smsCooldown = 42;
+  try {
+    const page = await relay.page(context, source.origin, invitation());
+    await page.type('input[inputmode="tel"]', '13800000002');
+    await page.waitForSelector('button.pairing-page__send-code:not([disabled])');
+    await page.click('button.pairing-page__send-code');
+    await page.waitForSelector('.pairing-page__error');
+    assert.match(await page.$eval('.pairing-page__error', el => el.textContent), /42/);
+    assert.equal(await page.$eval('button.pairing-page__send-code', button => button.disabled), true);
+    assert.match(await page.$eval('button.pairing-page__send-code', button => button.textContent), /42/);
+    assert.deepEqual(relay.smsSends, ['13800000002']);
+    assert.equal(relay.logins.length, 0);
+    assert.deepEqual(relay.errors, []);
+  } finally { await context.close(); }
+});
+
+test('a rejected code stays on the form without a device exchange', { timeout: 40_000 }, async () => {
   const context = await browser.createIncognitoBrowserContext();
   const relay = new RelayFixture();
   try {
     const page = await relay.page(context, source.origin, invitation());
-    await page.waitForSelector('.pairing-page__form button[type="submit"]');
-    await page.evaluate(async () => {
-      const { CloudAccountClient } = await import('/src/services/CloudAccountClient.ts');
-      CloudAccountClient.prototype.authorize = async (popup, signal) => {
-        window.authFixturePopup = popup;
-        return new Promise((resolve, reject) => {
-          window.completeAuthFixture = () => resolve('fixture-user-123');
-          signal.addEventListener('abort', () => reject(new Error('Cancelled')), { once: true });
-        });
-      };
-    });
-    const open = async (selector) => {
-      await page.evaluate(() => { window.completeAuthFixture = undefined; });
-      const targetPromise = browser.waitForTarget(target => target.opener() === page.target() && target.type() === 'page');
-      await page.click(selector);
-      const target = await targetPromise;
-      const popupPage = await target.page();
-      await page.waitForFunction(() => typeof window.completeAuthFixture === 'function');
-      await popupPage.setRequestInterception(true);
-      popupPage.on('request', request => request.respond({ status: 200, contentType: 'text/html', body: '<h1>Authentication fixture</h1>' }));
-      await popupPage.goto('https://auth.openbitfun.com/sign-in');
-      assert.equal(await popupPage.evaluate(() => window.opener !== null), true);
-      const parentSession = await page.target().createCDPSession();
-      const popupSession = await target.createCDPSession();
-      const parentWindow = await parentSession.send('Browser.getWindowForTarget');
-      const authWindow = await popupSession.send('Browser.getWindowForTarget');
-      assert.notEqual(authWindow.windowId, parentWindow.windowId);
-      assert.ok(authWindow.bounds.width <= 500);
-      await parentSession.detach(); await popupSession.detach();
-      return popupPage;
-    };
-    const first = await open('.pairing-page__retry');
-    await page.click('.pairing-page__action button:last-child');
-    await until(() => first.isClosed());
-    assert.equal(relay.logins.length, 0);
-    const second = await open('.pairing-page__retry');
-    await second.close();
-    // The return action starts a fresh attempt if the user closed the popup.
-    const third = await open('.pairing-page__retry');
-    await page.evaluate(() => window.completeAuthFixture());
+    await signIn(page, { code: '000000' });
+    await page.waitForSelector('.pairing-page__error');
+    assert.match(await page.$eval('.pairing-page__error', el => el.textContent), /verification code was not accepted/);
+    assert.equal(relay.logins.length, 0, 'a wrong code must never reach the device exchange');
+    assert.deepEqual(relay.localLogins, [{ phone: '13800000002', code: '000000' }]);
+    await signIn(page);
     await connected(page);
-    await until(() => third.isClosed());
     assert.equal(relay.logins.length, 1);
+    assert.deepEqual(relay.errors, []);
+  } finally { await context.close(); }
+});
+
+test('password sign-in completes the same device exchange', { timeout: 40_000 }, async () => {
+  const context = await browser.createIncognitoBrowserContext();
+  const relay = new RelayFixture();
+  try {
+    const page = await relay.page(context, source.origin, invitation());
+    await signIn(page, { password: 'fixture-password' });
+    await connected(page);
+    assert.deepEqual(relay.localLogins, [{ phone: '13800000002', password: 'fixture-password' }]);
+    assert.equal(relay.logins[0].access_token, 'fixture-user-123');
+    assert.equal(relay.logins[0].password_hash, undefined);
+    assert.ok((await readAccount(page)).refreshToken);
     assert.deepEqual(relay.errors, []);
   } finally { await context.close(); }
 });

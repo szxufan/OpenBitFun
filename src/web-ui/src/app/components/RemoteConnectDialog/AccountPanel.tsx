@@ -7,7 +7,7 @@ import { useI18n } from '@/infrastructure/i18n';
 import {
   confirmDanger,
 } from '@/infrastructure/confirm-dialog';
-import { LogOut, Pencil, Check, X } from 'lucide-react';
+import { KeyRound, LogOut, Pencil, Check, X } from 'lucide-react';
 import { DeviceSystemGlyph } from '../NavPanel/components/DeviceSystemGlyph';
 import { reportedHostKind } from '../NavPanel/deviceInterconnectionOverview';
 import { remoteConnectAPI, deviceDisplayName, deviceMetadataLabel } from '@/infrastructure/api/service-api/RemoteConnectAPI';
@@ -15,7 +15,7 @@ import type {
   AccountDeviceInfo,
   OnlineDeviceInfo,
 } from '@/infrastructure/api/service-api/RemoteConnectAPI';
-import { accountIdentityService, useAccountIdentity } from '@/infrastructure/account-identity';
+import { relayAccountService, useAccountIdentity } from '@/infrastructure/account-identity';
 import { api } from '@/infrastructure/api/service-api/ApiClient';
 import { usePeerDeviceMode } from '@/infrastructure/peer-device/peerDeviceContextState';
 import {
@@ -72,6 +72,29 @@ const DEVICE_POLL_FALLBACK_MS = 30_000;
 const DEVICE_CONNECT_MAX_ATTEMPTS = 5;
 const DEVICE_CONNECT_RECOVERY_INTERVAL_MS = 30_000;
 const DEVICE_LIST_FAILURE_THRESHOLD = 3;
+/** Default verification-code resend cooldown when the relay answer has none. */
+const SMS_RESEND_COOLDOWN_SECS = 60;
+/** Upper bound for a cooldown parsed from a relay answer, in seconds. */
+const SMS_RESEND_COOLDOWN_MAX_SECS = 600;
+
+/**
+ * Relay cooldown answers embed the wait in the command error text, e.g.
+ * "Too many requests (HTTP 429, retry in 42s)". Extract it so the button
+ * re-enables exactly when the relay allows another send.
+ */
+function parseRetryAfterSecs(error: unknown): number | null {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = /retry[ _-]*?(?:after[ _-]*(?:secs|seconds)?|in)[ _-]*:?[ _-]*(\d+)/i.exec(message);
+  if (!match) return null;
+  const seconds = Number(match[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.min(Math.ceil(seconds), SMS_RESEND_COOLDOWN_MAX_SECS);
+}
+
+/** Relay-local auth errors surface the relay message verbatim. */
+function relayErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 async function connectDevicesWithRetry(
   isCurrent: () => boolean,
@@ -185,11 +208,26 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
   const { success } = useNotification();
   const { peerMode, switchToDevice, switchToLocal } = usePeerDeviceMode();
   const identity = useAccountIdentity();
-  const githubId = (identity.me?.user.accountId ?? identity.me?.user.githubId);
-  const username = identity.me?.email ?? identity.me?.user.login ?? '';
+  const accountId = identity.me?.user.id;
+  const username = identity.me?.user.login ?? '';
   const [error, setError] = useState<PanelFailure | null>(null);
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<View>('login');
+
+  // Inline SMS/password sign-in form state.
+  const [loginMode, setLoginMode] = useState<'code' | 'password'>('code');
+  const [phone, setPhone] = useState('');
+  const [smsCode, setSmsCode] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [sendingCode, setSendingCode] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [submittingLogin, setSubmittingLogin] = useState(false);
+  /** Silent refresh-token renewal is running after a session expiry. */
+  const [reloginPending, setReloginPending] = useState(false);
+  // Optional password for the signed-in relay account.
+  const [passwordEditorOpen, setPasswordEditorOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [settingPassword, setSettingPassword] = useState(false);
 
   const [devices, setDevices] = useState<AccountDeviceInfo[]>([]);
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
@@ -279,6 +317,14 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
     if (refreshTimer.current) { clearInterval(refreshTimer.current); refreshTimer.current = null; }
   }, []);
 
+  /**
+   * Latest silent-relogin starter. Defined later (it needs `initializeDevices`),
+   * while `handleSessionExpired` above the device callbacks must reach it.
+   */
+  const attemptSilentReloginRef = useRef<(epoch: number) => Promise<void>>(
+    async () => undefined,
+  );
+
   const handleSessionExpired = useCallback(async (_error: unknown, expectedEpoch: number) => {
     if (!isAccountEpochCurrent(expectedEpoch)) return;
     const nextEpoch = invalidateAccountRequests();
@@ -286,17 +332,18 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
     // produced their 401. Do not issue a second unconditional logout here: a
     // late frontend response must never clear a newer login.
     resetState();
-    setView(githubId !== undefined ? 'devices' : 'login');
-    if (githubId !== undefined) {
+    setView(accountId !== undefined ? 'devices' : 'login');
+    if (accountId !== undefined) {
       setActiveAccountEpoch(nextEpoch);
       // Session expiry keeps its dedicated wording and flow; it is never
-      // re-routed through the generic relay banners.
+      // re-routed through the generic relay banners. The persisted refresh
+      // token gets one silent renewal before the SMS form is offered.
       setRelayFailure({ message: t('accountLogin.sessionExpired'), action: 'sign-in' });
-      void accountIdentityService.refresh().catch(() => undefined);
+      void attemptSilentReloginRef.current(nextEpoch);
     } else {
       setError({ message: t('accountLogin.sessionExpired'), action: 'sign-in' });
     }
-  }, [githubId, invalidateAccountRequests, isAccountEpochCurrent, resetState, t]);
+  }, [accountId, invalidateAccountRequests, isAccountEpochCurrent, resetState, t]);
 
   /** Log the raw transport detail and expose only the classified banner copy. */
   const reportAccountFailure = useCallback((context: string, error: unknown): PanelFailure => {
@@ -445,8 +492,8 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
       setRelayFailure(null);
     }
     try {
-      if (githubId === undefined) return;
-      if (!await ensureAccountSession(remoteConnectAPI, () => isAccountEpochCurrent(epoch), githubId)) return;
+      if (accountId === undefined) return;
+      if (!await ensureAccountSession(remoteConnectAPI, () => isAccountEpochCurrent(epoch), accountId)) return;
       const onlineDevices = await connectDevicesWithRetry(
         () => isAccountEpochCurrent(epoch),
       );
@@ -477,7 +524,7 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
       if (showLoading && isAccountEpochCurrent(epoch)) setLoading(false);
     }
   }, [
-    githubId,
+    accountId,
     applyPresenceOnline,
     handleSessionExpired,
     isAccountEpochCurrent,
@@ -564,6 +611,41 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
     startDevicePolling,
   ]);
 
+  /**
+   * Renew the relay session from the persisted refresh token after an expiry.
+   * A success resumes device presence under the same epoch; only a failure
+   * falls back to the SMS form.
+   */
+  const attemptSilentRelogin = useCallback(async (epoch: number) => {
+    setReloginPending(true);
+    try {
+      await relayAccountService.relogin();
+      if (!isAccountEpochCurrent(epoch)) return;
+      setRelayFailure(null);
+      refreshLocalDeviceId(epoch);
+      await initializeDevices();
+    } catch (reloginError) {
+      log.warn('silent account relogin failed', reloginError);
+      if (!isAccountEpochCurrent(epoch)) return;
+      // Re-read the host state: the backend usually cleared the session on
+      // expiry, which flips the identity and shows the form through the
+      // identity effect above.
+      await relayAccountService.refresh().catch(() => undefined);
+      if (!isAccountEpochCurrent(epoch)) return;
+      if (relayAccountService.getSnapshot().me) {
+        // The identity survived but its refresh token did not. The top-level
+        // banner stays visible beside the login form.
+        setError({ message: t('accountLogin.refreshFailed'), action: 'sign-in' });
+        setView('login');
+      }
+    } finally {
+      if (isAccountEpochCurrent(epoch)) setReloginPending(false);
+    }
+  }, [initializeDevices, isAccountEpochCurrent, refreshLocalDeviceId, t]);
+
+  // Latest definition wins, exactly like `refreshDevicesRef` above.
+  attemptSilentReloginRef.current = attemptSilentRelogin;
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
@@ -574,22 +656,31 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!identity.resolved || identity.status === 'authorizing') return;
+    if (!identity.resolved) return;
     const epoch = invalidateAccountRequests();
     resetState();
     setLoading(false);
     setError(null);
-    if (githubId === undefined) {
+    if (accountId === undefined) {
       setView('login');
       return;
     }
-    // Identity is shared with both markets. A missing Relay session is a
-    // connection setup step, never a second GitHub login prompt.
+    // The relay account owns the relay session. A missing session is a setup
+    // step (expired refresh token, host restart), never a second login form
+    // on its own; `ensureAccountSession` tries the silent renewal first.
     setView('devices');
     setActiveAccountEpoch(epoch);
     refreshLocalDeviceId(epoch);
-    ensureAccountSession(remoteConnectAPI, () => isAccountEpochCurrent(epoch), githubId).then(async (ready) => {
-      if (ready && isAccountEpochCurrent(epoch)) await initializeDevices();
+    ensureAccountSession(remoteConnectAPI, () => isAccountEpochCurrent(epoch), accountId).then(async (ready) => {
+      if (!isAccountEpochCurrent(epoch)) return;
+      if (ready) {
+        await initializeDevices();
+        return;
+      }
+      // Silent renewal already failed inside ensureAccountSession; the SMS
+      // form is the only remaining path back into the account.
+      setError({ message: t('accountLogin.sessionExpired'), action: 'sign-in' });
+      setView('login');
     }).catch((e) => {
       if (!isAccountEpochCurrent(epoch)) return;
       log.warn('account connection initialization failed', e);
@@ -602,14 +693,14 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
     };
   }, [
     identity.resolved,
-    identity.status,
-    githubId,
+    accountId,
     initializeDevices,
     invalidateAccountRequests,
     isAccountEpochCurrent,
     markRelayUnreachable,
     refreshLocalDeviceId,
     resetState,
+    t,
   ]);
 
   // Subscribe only while a specific account epoch is active. The callback
@@ -640,28 +731,86 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
     return unlistenPresence;
   }, [activeAccountEpoch, applyPresenceOnline, isAccountEpochCurrent]);
 
-  const handleLogin = useCallback(async () => {
-    if (identity.status === 'authorizing') {
-      try { await accountIdentityService.reopenSignIn(); }
-      catch (e: unknown) { if (mountedRef.current) setError(reportAccountFailure('reopenSignIn failed', e)); }
+  // Tick the resend cooldown down once per second while it is active.
+  useEffect(() => {
+    if (resendCooldown <= 0) return undefined;
+    const timer = setTimeout(
+      () => setResendCooldown(seconds => Math.max(0, seconds - 1)),
+      1000,
+    );
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  /**
+   * Request an SMS verification code. Relay answers arrive verbatim; a
+   * cooldown in the error text becomes the countdown instead of the default.
+   */
+  const handleSendCode = useCallback(async () => {
+    const normalizedPhone = phone.trim();
+    if (!normalizedPhone || sendingCode || resendCooldown > 0) return;
+    setSendingCode(true);
+    setError(null);
+    try {
+      await relayAccountService.sendSmsCode(normalizedPhone);
+      if (mountedRef.current) setResendCooldown(SMS_RESEND_COOLDOWN_SECS);
+    } catch (e: unknown) {
+      if (!mountedRef.current) return;
+      setError({ message: relayErrorText(e), action: null });
+      const retryAfter = parseRetryAfterSecs(e);
+      if (retryAfter) setResendCooldown(retryAfter);
+    } finally {
+      if (mountedRef.current) setSendingCode(false);
+    }
+  }, [phone, resendCooldown, sendingCode]);
+
+  /** Sign in (or register) with the SMS code, or with the account password. */
+  const handleSubmitLogin = useCallback(async () => {
+    const normalizedPhone = phone.trim();
+    if (loading || submittingLogin) return;
+    const missing = loginMode === 'code' ? !smsCode.trim() : !loginPassword;
+    if (!normalizedPhone || missing) {
+      setError({ message: t('accountLogin.emptyFields'), action: null });
       return;
     }
-    setLoading(true); setError(null);
+    setSubmittingLogin(true);
+    setError(null);
     try {
-      const me = await accountIdentityService.signIn();
-      if (mountedRef.current) success(t('accountLogin.loginSuccess', { user_id: me.email ?? me.user.login }));
+      const result = loginMode === 'code'
+        ? await relayAccountService.signInWithCode(normalizedPhone, smsCode.trim())
+        : await relayAccountService.signInWithPassword(normalizedPhone, loginPassword);
+      // The service snapshot flips to signed-in; the identity effect above
+      // switches this panel to the devices view.
+      if (mountedRef.current) success(t('accountLogin.loginSuccess', { user_id: result.user_id }));
     } catch (e: unknown) {
-      if (mountedRef.current) setError(reportAccountFailure('signIn failed', e));
+      if (mountedRef.current) setError({ message: relayErrorText(e), action: null });
     } finally {
-      if (mountedRef.current) setLoading(false);
+      if (mountedRef.current) setSubmittingLogin(false);
     }
-  }, [identity.status, reportAccountFailure, success, t]);
+  }, [loading, loginMode, loginPassword, phone, smsCode, submittingLogin, success, t]);
+
+  /** Set or change the optional password of the signed-in relay account. */
+  const handleSetPassword = useCallback(async () => {
+    if (!newPassword || settingPassword) return;
+    setSettingPassword(true);
+    setError(null);
+    try {
+      await relayAccountService.setPassword(newPassword);
+      if (!mountedRef.current) return;
+      setPasswordEditorOpen(false);
+      setNewPassword('');
+      success(t('accountLogin.setPasswordSuccess'));
+    } catch (e: unknown) {
+      if (mountedRef.current) setError({ message: relayErrorText(e), action: null });
+    } finally {
+      if (mountedRef.current) setSettingPassword(false);
+    }
+  }, [newPassword, settingPassword, success, t]);
 
   const handleLogout = useCallback(async () => {
     const epoch = invalidateAccountRequests();
     setLoading(true);
     try {
-      await accountIdentityService.logout();
+      await relayAccountService.logout();
       if (!isAccountEpochCurrent(epoch)) return;
       resetState();
       setView('login');
@@ -803,13 +952,11 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
     t,
   ]);
 
-  /** Run the next step a banner offers; sign-in keeps its existing flow. */
+  /** Run the next step a banner offers; the inline login form owns its own submit. */
   const runFailureAction = useCallback((action: RelayFailureAction) => {
     if (action === 'check-updates') { void handleCheckForUpdates(); return; }
-    if (action === 'retry') {
-      if (view === 'login') { void handleLogin(); } else { void handleRetryConnect(); }
-    }
-  }, [handleCheckForUpdates, handleLogin, handleRetryConnect, view]);
+    if (action === 'retry' && view !== 'login') { void handleRetryConnect(); }
+  }, [handleCheckForUpdates, handleRetryConnect, view]);
 
   const renderSectionHeading = (id: string, title: string, action?: React.ReactNode) => (
     <div className="account-panel__section-heading">
@@ -854,10 +1001,82 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
                   <span className="account-panel__value-prop">{t('accountLogin.loginValueProp')}</span>
                   <span className="account-panel__security-note">{t('accountLogin.securityNote')}</span>
                 </span>
-                <div className="account-panel__actions" data-openbitfun-component="remote-account-panel" data-openbitfun-part="actions">
-                  <Button variant="primary" size="sm" onClick={handleLogin} loading={loading && identity.status !== 'authorizing'}>
-                    {identity.status === 'authorizing' ? t('accountLogin.reopen') : loading ? t('accountLogin.processing') : t('accountLogin.login')}
-                  </Button>
+                <div className="account-panel__login-form">
+                  <Input
+                    className="account-panel__login-field"
+                    value={phone}
+                    onChange={e => setPhone(e.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') { event.preventDefault(); void handleSubmitLogin(); }
+                    }}
+                    placeholder={t('accountLogin.phonePlaceholder')}
+                    aria-label={t('accountLogin.phoneLabel')}
+                    inputMode="tel"
+                    autoComplete="tel"
+                    disabled={submittingLogin}
+                  />
+                  {loginMode === 'code' ? (
+                    <span className="account-panel__login-code-row">
+                      <Input
+                        className="account-panel__login-field account-panel__login-field--code"
+                        value={smsCode}
+                        onChange={e => setSmsCode(e.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter') { event.preventDefault(); void handleSubmitLogin(); }
+                        }}
+                        placeholder={t('accountLogin.codePlaceholder')}
+                        aria-label={t('accountLogin.codeLabel')}
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        disabled={submittingLogin}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSendCode}
+                        loading={sendingCode}
+                        disabled={!phone.trim() || resendCooldown > 0 || submittingLogin}
+                      >
+                        {resendCooldown > 0
+                          ? t('accountLogin.resendCodeIn', { seconds: resendCooldown })
+                          : t('accountLogin.sendCode')}
+                      </Button>
+                    </span>
+                  ) : (
+                    <Input
+                      className="account-panel__login-field"
+                      type="password"
+                      value={loginPassword}
+                      onChange={e => setLoginPassword(e.target.value)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') { event.preventDefault(); void handleSubmitLogin(); }
+                      }}
+                      placeholder={t('accountLogin.passwordPlaceholder')}
+                      aria-label={t('accountLogin.password')}
+                      autoComplete="current-password"
+                      disabled={submittingLogin}
+                    />
+                  )}
+                  <div className="account-panel__actions" data-openbitfun-component="remote-account-panel" data-openbitfun-part="actions">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={handleSubmitLogin}
+                      loading={loading && submittingLogin}
+                      disabled={submittingLogin}
+                    >
+                      {submittingLogin || reloginPending ? t('accountLogin.processing') : t('accountLogin.login')}
+                    </Button>
+                    <Button
+                      variant="text"
+                      size="sm"
+                      onClick={() => setLoginMode(mode => (mode === 'code' ? 'password' : 'code'))}
+                      disabled={submittingLogin}
+                    >
+                      {loginMode === 'code' ? t('accountLogin.usePasswordLogin') : t('accountLogin.useCodeLogin')}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </section>
@@ -869,16 +1088,64 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
             <section className="account-panel__section" aria-labelledby="account-panel-account-title">
               {renderSectionHeading('account-panel-account-title', t('accountLogin.accountSectionTitle'))}
               <div className="account-panel__card account-panel__identity-line">
-                <Avatar key={username} size="md" src={identity.me?.user.avatarUrl} alt={username} aria-label={username}>
+                {/* Relay accounts have no avatar; the letter of the masked
+                    phone is the identity mark. */}
+                <Avatar key={username} size="md" src={identity.me?.user.avatarUrl || undefined} alt={username} aria-label={username}>
                   {username.trim().charAt(0).toUpperCase() || <Icon name="user" />}
                 </Avatar>
                 <span className="account-panel__identity-copy">
                   <OverflowText className="account-panel__identity-name" title={username}>{username.trim()}</OverflowText>
                   <span className="account-panel__identity-label">{t('accountLogin.signedInAccount')}</span>
                 </span>
-                <Button variant="outline" size="sm" leadingIcon={<LogOut size={14} />} onClick={handleLogout} disabled={loading}>
-                  {t('accountLogin.logout')}
-                </Button>
+                {passwordEditorOpen ? (
+                  <span className="account-panel__password-editor">
+                    <Input
+                      className="account-panel__password-input"
+                      type="password"
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') { event.preventDefault(); void handleSetPassword(); }
+                        if (event.key === 'Escape') { event.preventDefault(); setPasswordEditorOpen(false); }
+                      }}
+                      placeholder={t('accountLogin.setPasswordLabel')}
+                      aria-label={t('accountLogin.setPasswordLabel')}
+                      autoFocus
+                      disabled={settingPassword}
+                    />
+                    <IconButton
+                      aria-label={t('accountLogin.setPassword')}
+                      icon={<Check size={14} />}
+                      loading={settingPassword}
+                      onClick={() => void handleSetPassword()}
+                      size="sm"
+                      variant="primary"
+                    />
+                    <IconButton
+                      aria-label={t('accountLogin.cancel')}
+                      disabled={settingPassword}
+                      icon={<X size={14} />}
+                      onClick={() => setPasswordEditorOpen(false)}
+                      size="sm"
+                      variant="quiet"
+                    />
+                  </span>
+                ) : (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      leadingIcon={<KeyRound size={14} />}
+                      onClick={() => { setPasswordEditorOpen(true); setNewPassword(''); }}
+                      disabled={loading}
+                    >
+                      {t('accountLogin.setPassword')}
+                    </Button>
+                    <Button variant="outline" size="sm" leadingIcon={<LogOut size={14} />} onClick={handleLogout} disabled={loading}>
+                      {t('accountLogin.logout')}
+                    </Button>
+                  </>
+                )}
               </div>
             </section>
             <section className="account-panel__section" aria-labelledby="account-panel-devices-title">

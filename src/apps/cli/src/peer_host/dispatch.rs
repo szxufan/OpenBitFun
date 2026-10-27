@@ -148,13 +148,16 @@ fn handle_psk_confirm(args: &Value) -> HostInvokeBridgeResult {
     if completer_id.trim().is_empty() {
         return HostInvokeBridgeResult::err("controller_device_id is required");
     }
-    let Some((_token, user_id, _master_key, relay_url)) =
-        openbitfun_core::service::remote_connect::session_store::load_session()
-    else {
-        return HostInvokeBridgeResult::err("no account session on this host");
+    let loaded_session = openbitfun_core::service::remote_connect::session_store::load_session();
+    let (_token, user_id, _master_key, relay_url) = match loaded_session {
+        Ok(Some(session)) => session,
+        Ok(None) => return HostInvokeBridgeResult::err("no account session on this host"),
+        Err(error) => return HostInvokeBridgeResult::err(format!("read account session: {error}")),
     };
     let matched = openbitfun_core::service::remote_connect::psk_store::lookup_entry(
-        &relay_url, &user_id, &completer_id,
+        &relay_url,
+        &user_id,
+        &completer_id,
     )
     .map_err(|error| format!("read pairing vault: {error}"))
     .and_then(|entry| {
@@ -174,9 +177,7 @@ fn handle_psk_confirm(args: &Value) -> HostInvokeBridgeResult {
     });
     match matched {
         Ok(true) => HostInvokeBridgeResult::ok_value(json!({ "confirmed": true })),
-        Ok(false) => {
-            HostInvokeBridgeResult::err("no matching pairing offer for this device")
-        }
+        Ok(false) => HostInvokeBridgeResult::err("no matching pairing offer for this device"),
         Err(error) => HostInvokeBridgeResult::err(error),
     }
 }
@@ -225,7 +226,9 @@ mod tests {
         }
         let ping = handle_host_invoke("peer_mode_ping", json!({})).await;
         match ping {
-            RemoteResponse::HostInvokeResult { value: Some(value), .. } => {
+            RemoteResponse::HostInvokeResult {
+                value: Some(value), ..
+            } => {
                 assert_eq!(
                     value.pointer("/capabilities/psk_pairing_v1"),
                     Some(&json!(true))

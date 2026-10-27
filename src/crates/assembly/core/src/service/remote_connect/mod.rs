@@ -309,6 +309,20 @@ impl RemoteConnectService {
         Ok(url)
     }
 
+    /// Mint the embedded LAN Relay's owner session. Only meaningful while a
+    /// LAN route is prepared; see `EmbeddedRelayHost::provision_owner_session`.
+    pub async fn provision_embedded_owner(
+        &self,
+        relay_url: &str,
+        user_id: &str,
+        username: &str,
+        device: &openbitfun_services_integrations::remote_connect::DeviceIdentity,
+    ) -> anyhow::Result<embedded_relay_host::EmbeddedOwnerSession> {
+        self.embedded_relay_host
+            .provision_owner_session(relay_url, user_id, username, device)
+            .await
+    }
+
     /// Build an invitation for the authenticated route. URL selection is the
     /// only difference between official and locally hosted Relay connections.
     pub async fn start(&self, method: ConnectionMethod) -> Result<ConnectionResult> {
@@ -1059,7 +1073,13 @@ impl RemoteConnectService {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("device routing not connected"))?;
         client
-            .send_device_message(target_device_id, correlation_id, encrypted_data, nonce, key_id)
+            .send_device_message(
+                target_device_id,
+                correlation_id,
+                encrypted_data,
+                nonce,
+                key_id,
+            )
             .await
     }
 
@@ -1088,7 +1108,13 @@ impl RemoteConnectService {
             .ok_or_else(|| anyhow::anyhow!("device routing not connected"))?;
         drop(_lifecycle);
         client
-            .send_device_message(target_device_id, correlation_id, encrypted_data, nonce, key_id)
+            .send_device_message(
+                target_device_id,
+                correlation_id,
+                encrypted_data,
+                nonce,
+                key_id,
+            )
             .await?;
         Ok(true)
     }

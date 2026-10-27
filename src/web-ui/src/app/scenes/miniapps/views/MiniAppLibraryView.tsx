@@ -35,7 +35,6 @@ import { HARNESS_PRESENTATION } from '@/shared/agents/harnessPresentation';
 import { getActiveSurfaceScope, onSurfaceActivated } from '@/infrastructure/peer-device/deviceSurface';
 import { useGallerySceneAutoRefresh } from '@/app/hooks/useGallerySceneAutoRefresh';
 import { useSceneManager } from '@/app/hooks/useSceneManager';
-import { AccountIdentityControls } from '@/features/market-account';
 import type {
   MiniAppMeta,
   MiniAppPermissions,
@@ -50,10 +49,10 @@ import {
   type MarketSort,
 } from '@/infrastructure/api/service-api/MiniAppMarketAPI';
 import { systemAPI } from '@/infrastructure/api/service-api/SystemAPI';
+import { useMarketAccountIdentity } from '@/features/market-account';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
 import { useI18n } from '@/infrastructure/i18n';
-import { useAccountIdentity } from '@/infrastructure/account-identity';
 import { useNotification } from '@/shared/notification-system';
 import { isRemoteWorkspace } from '@/shared/types';
 import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
@@ -129,7 +128,8 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
   const { closeScene, openTabs } = useSceneManager();
   const { t, formatNumber, currentLanguage } = useI18n('scenes/miniapp');
   const miniAppActivities = useMiniAppActivity();
-  const { me } = useAccountIdentity();
+  // Market browsing stays anonymous; there is no market sign-in entry anymore.
+  const { me } = useMarketAccountIdentity();
   const launch = useMiniAppLaunch();
   const systemInstallation = useMiniAppSystemInstallation(launch.supported);
   const presentationSnapshot = useMiniAppPresentationStore(state => state.snapshot);
@@ -147,7 +147,6 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [installed, setInstalled] = useState<MarketInstalledStatus | null>(null);
-  const [loginOpen, setLoginOpen] = useState(false);
   const [detailActionBusy, setDetailActionBusy] = useState(false);
   const [busyListingId, setBusyListingId] = useState<string>();
   const [installPrompt, setInstallPrompt] = useState(false);
@@ -537,25 +536,8 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
     }
   }, [busyListingId, fetchMarketDetail, notification, t]);
 
-  const refreshPersonalizedDetail = () => {
-    if (!detail) return;
-    const activeSlug = detail.slug;
-    void miniAppMarketAPI.getListing(activeSlug)
-      .then((updated) => setDetail((current) => (
-        current?.slug === activeSlug ? updated : current
-      )))
-      .catch((error) => log.warn(
-        'Failed to refresh MiniApp market detail after account change',
-        error,
-      ));
-  };
-
   const toggleFavorite = async () => {
-    if (!detail) return;
-    if (!me) {
-      setLoginOpen(true);
-      return;
-    }
+    if (!detail || !me) return;
     setDetailActionBusy(true);
     try {
       const result = await miniAppMarketAPI.setFavorite(detail.slug, !detail.isFavorited);
@@ -572,11 +554,7 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
   };
 
   const rate = async (value: number) => {
-    if (!detail) return;
-    if (!me) {
-      setLoginOpen(true);
-      return;
-    }
+    if (!detail || !me) return;
     setDetailActionBusy(true);
     try {
       const result = await miniAppMarketAPI.setRating(detail.slug, value);
@@ -840,15 +818,6 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
     </Button>
   ) : toolbarActions;
 
-  const accountControls = (
-    <AccountIdentityControls
-      showSignIn={false}
-      loginOpen={loginOpen}
-      onLoginOpenChange={setLoginOpen}
-      onIdentityChanged={refreshPersonalizedDetail}
-    />
-  );
-
   return (
     <GalleryLayout
       data-openbitfun-component="miniapp-gallery-view"
@@ -857,11 +826,9 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
       header={showingDetail ? (
         <nav className="miniapp-gallery-pane__detail-toolbar" aria-label={t('detail.navigation')}>
           <MiniAppDetailBackButton onBack={closeDetail} label={detailBackLabel} />
-          {accountControls}
         </nav>
       ) : undefined}
     >
-      {!showingDetail && <div className="miniapp-gallery-pane__account-actions">{accountControls}</div>}
       <div ref={catalogContentRef} hidden={showingDetail}>
         <GalleryPageHeader
           title={t('title')}

@@ -10105,11 +10105,11 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/services/relay-service/src/identity.rs',
-    reason: 'standalone Relay must bind its reviewed ring configuration to the identity client',
+    path: 'src/crates/services/relay-service/src/sms.rs',
+    reason: 'standalone Relay must bind its reviewed ring configuration to the SMS client',
     patterns: [{
-      regex: /let tls = rustls::ClientConfig::builder_with_provider\(Arc::new\(\s*rustls::crypto::ring::default_provider\(\),?\s*\)\)[\s\S]*?\.tls_backend_preconfigured\(tls\)/,
-      message: 'Relay identity verification requires an explicit client-scoped ring config',
+      regex: /let tls = rustls::ClientConfig::builder_with_provider\(std::sync::Arc::new\(\s*rustls::crypto::ring::default_provider\(\),?\s*\)\)[\s\S]*?\.use_preconfigured_tls\(tls\)/,
+      message: 'Relay SMS delivery requires an explicit client-scoped ring config',
     }],
   },
 ];

@@ -2,7 +2,7 @@ import { HostDialogQueue, type QueueAttachment } from '../../../../shared/dialog
 import { api } from '@/infrastructure/api/service-api/ApiClient';
 import { getActiveSurfaceScope, isLocalSurface } from '@/infrastructure/peer-device/deviceSurface';
 import { peerConnectionManager } from '@/infrastructure/peer-device/PeerConnectionManager';
-import { accountIdentityService } from '@/infrastructure/account-identity/AccountIdentityService';
+import { relayAccountService } from '@/infrastructure/account-identity/RelayAccountService';
 import { FlowChatStore } from '../store/FlowChatStore';
 import { isAcpFlowSession } from '../utils/acpSession';
 import { resolveSessionDriverId } from '../session-drivers/resolve';
@@ -12,8 +12,8 @@ import { getSubmittedMessagePreviews } from './submittedMessagePresentation';
 
 const clients = new Map<string, HostDialogQueue>();
 function currentAccount(): string {
-  const user = accountIdentityService.getSnapshot().me?.user;
-  return String(user?.accountId || user?.githubId || 'local');
+  const user = relayAccountService.getSnapshot().me?.user;
+  return String(user?.id || 'local');
 }
 export function hostQueueSupported(sessionId: string): boolean {
   const session = FlowChatStore.getInstance().getState().sessions.get(sessionId);

@@ -4,6 +4,24 @@ import { CLIENT_PROTOCOL_VERSION, CLIENT_VERSION } from '../../../shared/relay-t
 
 import { pairingRelayUrl } from './pairingLink';
 export interface CloudAccountSession { token: string; userId: string; masterKey: Uint8Array; }
+
+/** Relay-local account profile returned together with every token pair. */
+export interface LocalAccountUser {
+  userId: string;
+  login: string;
+  phoneMasked: string;
+  hasPassword: boolean;
+}
+
+/** One relay-local access/refresh pair; the access token feeds the device exchange. */
+export interface LocalTokenPair {
+  accessToken: string;
+  refreshToken: string;
+  accessExpiresAt: number;
+  refreshExpiresAt: number;
+  user: LocalAccountUser;
+}
+
 interface RelayErrorResponse { error?: string; retry_after_secs?: number; }
 export class CloudAccountRequestError extends Error {
   readonly status: number;
@@ -25,25 +43,6 @@ export class CloudAccountTransportError extends Error {
   }
 }
 
-/**
- * Whether a failed sign-in poll should be tried again inside the window.
- *
- * Retry what the next tick could plausibly get past: a transport failure, and
- * a relay that is rate limiting or briefly unavailable. Stop for anything the
- * relay meant — a rejected transaction stays rejected however long the browser
- * keeps asking.
- *
- * Kept in step with `harmonyos/.../CloudAccountClient.ets` and
- * `shared/core-feature/.../AccountStore.kt`, which carry the same decision.
- */
-export function retryableAuthorizationPollError(error: unknown): boolean {
-  if (error instanceof CloudAccountTransportError) return true;
-  if (error instanceof CloudAccountRequestError) {
-    return error.status === 429 || (error.status >= 500 && error.status < 600);
-  }
-  return false;
-}
-
 export function generateRequestId(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -51,6 +50,20 @@ export function generateRequestId(): string {
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * Normalize a mainland-China mobile number for the relay-local account API.
+ *
+ * Mirrors the Relay's own `normalize_phone` so the form can gate the send-code
+ * action locally; the Relay re-validates and remains the authority.
+ */
+export function normalizeAccountPhone(raw: string): string | null {
+  const trimmed = raw.replace(/[\s-]+/g, '');
+  const digits = trimmed.startsWith('+86') ? trimmed.slice(3)
+    : trimmed.startsWith('86') && trimmed.length === 13 ? trimmed.slice(2)
+      : trimmed;
+  return /^1[3-9]\d{9}$/.test(digits) ? digits : null;
 }
 
 async function requestJson<T>(
@@ -104,13 +117,38 @@ async function requestJson<T>(
   }
 }
 
-
-interface AuthStart {
-  transactionId: string; transactionSecret: string; authorizationUrl: string;
-  expiresAt: number; pollIntervalSeconds: number;
+interface LocalTokenWire {
+  accessToken?: string;
+  refreshToken?: string;
+  accessExpiresAt?: number;
+  refreshExpiresAt?: number;
+  user?: { userId?: string; login?: string; phoneMasked?: string; hasPassword?: boolean };
 }
 
-/** GitHub identity authorizes a separately keyed browser controller. */
+function parseLocalPair(value: LocalTokenWire): LocalTokenPair {
+  const accessExpiresAt = value?.accessExpiresAt;
+  const refreshExpiresAt = value?.refreshExpiresAt;
+  if (!value?.accessToken?.trim() || !value?.refreshToken?.trim()
+    || typeof accessExpiresAt !== 'number' || !Number.isFinite(accessExpiresAt)
+    || typeof refreshExpiresAt !== 'number' || !Number.isFinite(refreshExpiresAt)
+    || !value.user?.userId?.trim()) {
+    throw new CloudAccountTransportError('Relay returned an incomplete local sign-in response.');
+  }
+  return {
+    accessToken: value.accessToken,
+    refreshToken: value.refreshToken,
+    accessExpiresAt,
+    refreshExpiresAt,
+    user: {
+      userId: value.user.userId,
+      login: value.user.login?.trim() || value.user.userId,
+      phoneMasked: value.user.phoneMasked?.trim() || '',
+      hasPassword: value.user.hasPassword === true,
+    },
+  };
+}
+
+/** Relay-local phone accounts authorize a separately keyed browser controller. */
 export class CloudAccountClient {
   private readonly relayUrl: string;
   constructor(relayUrl: string) {
@@ -118,44 +156,52 @@ export class CloudAccountClient {
     if (!endpoint) throw new Error('Invalid Relay URL');
     this.relayUrl = endpoint;
   }
-  async authorize(popup: Window, signal: AbortSignal): Promise<string> {
-    const start = await requestJson<AuthStart>(this.relayUrl, '/api/auth/github/start?methods=all', {});
-    const url = new URL(start.authorizationUrl);
-    if (!((url.origin === 'https://github.com' && url.pathname === '/login/oauth/authorize') || (url.origin === 'https://auth.openbitfun.com' && url.pathname === '/sign-in')) || url.username || url.password) {
-      throw new Error('Untrusted account authorization URL.');
-    }
-    if (url.origin === 'https://auth.openbitfun.com') url.searchParams.set('locale', (typeof document === 'undefined' ? 'en-US' : document.documentElement.lang || 'en-US'));
-    if (signal.aborted) throw new Error('Sign-in cancelled.');
-    popup.location.href = url.href;
-    let lastTransient: Error | null = null;
-    while (!signal.aborted && Date.now() < start.expiresAt * 1000) {
-      await new Promise<void>((resolve) => setTimeout(resolve, Math.min(30, Math.max(1, start.pollIntervalSeconds)) * 1000));
-      if (signal.aborted) break;
-      let result: { status: string; tokens?: { accessToken: string } };
-      try {
-        result = await requestJson<{ status: string; tokens?: { accessToken: string } }>(
-          this.relayUrl, '/api/auth/github/poll', {
-            transactionId: start.transactionId, transactionSecret: start.transactionSecret,
-          },
-        );
-      } catch (cause) {
-        // The poll window spans the minutes the user spends in the popup, which
-        // on a phone browser is exactly when the tab is backgrounded, the radio
-        // sleeps, or the network hops. Ending the sign-in on the first hiccup
-        // would send them back to the start for something the next tick fixes
-        // by itself, so only a refusal the relay actually means stops the loop.
-        if (!retryableAuthorizationPollError(cause)) throw cause;
-        lastTransient = cause as Error;
-        continue;
+
+  /** Whether this Relay serves the relay-local phone-account contract. */
+  async supportsLocalAuth(): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 10_000);
+    try {
+      const response = await fetch(`${this.relayUrl}/api/info`, {
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (!response.ok) return false;
+      const info = await response.json() as { capabilities?: unknown };
+      return Array.isArray(info.capabilities) && info.capabilities.includes('local_auth_v1');
+    } catch (error: unknown) {
+      if ((error as { name?: string })?.name === 'AbortError') {
+        throw new CloudAccountTransportError('Account request timed out.');
       }
-      lastTransient = null;
-      if (result.status === 'authorized' && result.tokens?.accessToken) return result.tokens.accessToken;
-      if (result.status === 'expired' || result.status === 'denied') break;
+      // fetch() rejects with a TypeError for connection-level failures.
+      if (error instanceof TypeError) {
+        throw new CloudAccountTransportError('Could not reach the account service.');
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timer);
     }
-    // A window that ran out while every poll was failing is a network problem,
-    // not a rejected sign-in: report the one the user can act on.
-    if (!signal.aborted && lastTransient) throw lastTransient;
-    throw new Error(signal.aborted ? 'Sign-in cancelled.' : 'Sign-in expired. Try again.');
+  }
+
+  /** Ask the Relay to text a verification code to this phone. A 429 answer
+   * throws with the Relay's message and the cooldown in `retryAfterSeconds`. */
+  async smsSend(phone: string): Promise<void> {
+    await requestJson<{ status: string }>(this.relayUrl, '/api/auth/local/sms/send', { phone });
+  }
+
+  /** Sign in with an SMS code (registering the account on first use) or, for
+   * accounts that set one, the optional password. Exactly one is sent. */
+  async localLogin(phone: string, credentials: { code: string } | { password: string }): Promise<LocalTokenPair> {
+    const body = 'code' in credentials
+      ? { phone, code: credentials.code }
+      : { phone, password: credentials.password };
+    return parseLocalPair(await requestJson<LocalTokenWire>(this.relayUrl, '/api/auth/local/login', body));
+  }
+
+  /** Rotate a refresh token into a fresh pair; an expired or replayed token is
+   * a 401 the caller must treat as "sign in again". */
+  async localRefresh(refreshToken: string): Promise<LocalTokenPair> {
+    return parseLocalPair(await requestJson<LocalTokenWire>(this.relayUrl, '/api/auth/local/refresh', { refreshToken }));
   }
 
   async login(accessToken: string, deviceId: string, browserPrivateKey: Uint8Array): Promise<CloudAccountSession> {

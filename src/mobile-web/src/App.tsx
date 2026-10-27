@@ -13,7 +13,7 @@ import {
   RemoteSessionManager,
 } from './services/RemoteSessionManager';
 import { reconcileAccountOwner } from './services/accountOwner';
-import { BrowserAccountStorageError, releaseBrowserAccount } from './services/BrowserAccountStore';
+import { BrowserAccountStorageError, recoverExpiredAccountSession, releaseBrowserAccount } from './services/BrowserAccountStore';
 import { CloudAccountClient } from './services/CloudAccountClient';
 import {
   clearMobileNavigation,
@@ -377,10 +377,14 @@ const AppContent: React.FC = () => {
     const synchronize = async () => {
       const request = ++generation;
       try {
-        const saved = await binding.store.read();
+        // Read the binding live: a relay-local refresh recovery swaps the token
+        // in place, and a stale closure here would read that as a foreign login.
+        const current = accountBindingRef.current;
+        if (!current) return;
+        const saved = await current.store.read();
         try {
           if (disposed || request !== generation || clientRef.current !== client) return;
-          if (saved.session?.token !== binding.token || saved.controllerDeviceId !== client.controllerDeviceId) {
+          if (saved.session?.token !== current.token || saved.controllerDeviceId !== client.controllerDeviceId) {
             const clearNavigation = saved.lastChange !== 'expired' && saved.session?.userId !== client.accountUserId;
             resetAccount(clearNavigation);
           } else setAccountError(null);
@@ -390,10 +394,22 @@ const AppContent: React.FC = () => {
       }
     };
     const unsubscribe = binding.store.subscribe(() => { void synchronize(); });
+    let recovering = false;
     const unlistenExpired = client.onAuthorizationExpired(token => {
-      void binding.store.clearSession(token, 'expired').then(synchronize).catch(error => {
-        if (!disposed) handleAccountStorageError(error);
-      });
+      // A 401 on the device token first tries the relay-local refresh token:
+      // rotate it, redo the device exchange with the stored controller key,
+      // and keep working. Only a refused rotation falls back to signing in
+      // again. One recovery runs at a time; concurrent 401s wait it out.
+      if (disposed || recovering) return;
+      recovering = true;
+      void recoverExpiredAccountSession(binding.store, client, token, renewedToken => {
+        accountBindingRef.current = { store: binding.store, token: renewedToken };
+      })
+        .then(recovered => (recovered
+          ? synchronize()
+          : binding.store.clearSession(token, 'expired').then(synchronize)))
+        .catch(error => { if (!disposed) handleAccountStorageError(error); })
+        .finally(() => { recovering = false; });
     });
     // Also close the gap between initial restoration and mounting this observer.
     void synchronize();

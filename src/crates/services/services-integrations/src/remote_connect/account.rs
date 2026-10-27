@@ -1,4 +1,4 @@
-//! GitHub-authenticated device credentials and pairwise encrypted relay messages.
+//! Relay-local account credentials and pairwise encrypted relay messages.
 
 use super::device_crypto;
 use anyhow::{anyhow, Result};
@@ -318,14 +318,15 @@ impl AccountSession {
                 // A successful PSK decrypt from the peer is itself proof both
                 // sides hold the secret: promote a pending offer, whatever
                 // command travels inside the envelope.
-                if let Some(id) = key_id
-                    .and_then(|id| id.strip_prefix(device_crypto::PSK_KEY_ID_PREFIX))
+                if let Some(id) =
+                    key_id.and_then(|id| id.strip_prefix(device_crypto::PSK_KEY_ID_PREFIX))
                 {
                     let _ = super::psk_store::mark_paired(relay_url, &self.user_id, device_id, id);
                 }
                 return Ok(plaintext);
             }
-            self.invalidate_peer_public_key(relay_url, device_id).await?;
+            self.invalidate_peer_public_key(relay_url, device_id)
+                .await?;
             let key = self.receiver_key(relay_url, device_id, key_id).await?;
             return super::encryption::decrypt_from_base64(&key, data, nonce)
                 .map_err(|_| anyhow!("{PAIRING_KEY_MISMATCH_MESSAGE}"));
@@ -336,7 +337,8 @@ impl AccountSession {
             Err(_) => {
                 // A device can rotate its private key while a controller is
                 // disconnected. Refresh its authenticated key once on failure.
-                self.invalidate_peer_public_key(relay_url, device_id).await?;
+                self.invalidate_peer_public_key(relay_url, device_id)
+                    .await?;
                 let key = self.receiver_key(relay_url, device_id, None).await?;
                 super::encryption::decrypt_from_base64(&key, data, nonce)
             }
@@ -377,6 +379,56 @@ struct ErrorBody {
     error: String,
     #[serde(default)]
     retry_after_secs: Option<i64>,
+}
+
+/// The relay-local account profile returned with a sign-in token pair.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalAccountUser {
+    pub user_id: String,
+    pub login: String,
+    pub phone_masked: String,
+    pub has_password: bool,
+}
+
+/// A relay-local sign-in token pair (camelCase wire, matching the relay).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalTokenPair {
+    pub access_token: String,
+    pub access_expires_at: i64,
+    pub refresh_token: String,
+    pub refresh_expires_at: i64,
+    pub user: LocalAccountUser,
+}
+
+/// Environment override for the relay base URL. Self-hosted deployments point
+/// desktop and CLI hosts at their own relay instead of the official endpoint.
+pub const ENV_RELAY_URL_OVERRIDE: &str = "OPENBITFUN_RELAY_URL";
+
+/// Resolve the relay base URL, applying the [`ENV_RELAY_URL_OVERRIDE`]. The
+/// override must use https, or plain http only on a loopback or private
+/// address, so account tokens cannot silently ship over the open internet.
+pub fn configured_relay_url() -> Result<String> {
+    let configured = std::env::var(ENV_RELAY_URL_OVERRIDE)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let Some(configured) = configured else {
+        return Ok(openbitfun_product_domains::account::DEFAULT_RELAY_URL.to_string());
+    };
+    let url = validate_relay_base_url(&configured)?;
+    let private_http = url.scheme() == "http"
+        && url
+            .host_str()
+            .and_then(|host| host.parse::<std::net::Ipv4Addr>().ok())
+            .is_some_and(|ip| ip.is_private() || ip.is_loopback() || ip.is_link_local());
+    if url.scheme() != "https" && !private_http {
+        return Err(anyhow!(
+            "{ENV_RELAY_URL_OVERRIDE} must use https (plain http is only allowed on loopback or private addresses)"
+        ));
+    }
+    Ok(url.to_string())
 }
 
 /// HTTP client for the relay's account endpoints.
@@ -450,6 +502,11 @@ pub const DEVICE_KIND_CLI: &str = "cli";
 /// Relay capability advertising that a host may report [`DEVICE_KIND_CLI`].
 pub const RELAY_CAPABILITY_DEVICE_KIND_CLI: &str = "device_kind_cli_v1";
 
+/// Relay capability advertising relay-local accounts: SMS-code sign-in and
+/// registration plus the optional-password and refresh endpoints under
+/// `/api/auth/local/*`.
+pub const RELAY_CAPABILITY_LOCAL_AUTH: &str = "local_auth_v1";
+
 /// The GitHub/relay login request body.
 ///
 /// `clientVersion`/`clientProtocol` are optional from the Relay's point of view,
@@ -512,44 +569,78 @@ impl AccountClient {
         }
     }
 
-    /// Reuse the shared GitHub login used by the OpenBitFun marketplaces.
-    pub async fn login_with_identity(
+    /// Sign in (registering on first use) with an SMS verification code, or
+    /// with the account's optional password, then exchange the returned
+    /// access token for a keyed device session. `code` and `password` are
+    /// mutually exclusive; pass exactly one.
+    pub async fn login_with_local_credentials(
         &self,
         relay_url: &str,
+        phone: &str,
+        code: Option<&str>,
+        password: Option<&str>,
         device: &DeviceIdentity,
         device_kind: &str,
-    ) -> Result<(
-        AccountSession,
-        openbitfun_product_domains::account::GitHubUser,
-    )> {
-        let mut identity =
-            crate::account_identity::AccountIdentityClient::from_environment().await?;
-        let profile = identity
-            .me()
-            .await?
-            .ok_or_else(|| anyhow!("Sign in to continue"))?;
-        let access_token = identity
-            .access_token()
-            .await?
-            .ok_or_else(|| anyhow!("Sign in to continue"))?;
-        let account_id = profile
-            .user
-            .identity_id()
-            .ok_or_else(|| anyhow!("Unsupported account identity"))?;
+    ) -> Result<(AccountSession, LocalTokenPair)> {
+        let pair = self.local_sign_in(relay_url, phone, code, password).await?;
+        self.exchange_local_access_token(relay_url, &pair, device, device_kind)
+            .await
+    }
+
+    /// Sign in (registering on first use) with an SMS verification code or
+    /// the account's optional password. Exactly one of `code`/`password`.
+    pub async fn local_sign_in(
+        &self,
+        relay_url: &str,
+        phone: &str,
+        code: Option<&str>,
+        password: Option<&str>,
+    ) -> Result<LocalTokenPair> {
+        self.require_local_auth(relay_url).await?;
+        let body = match (code, password) {
+            (Some(code), None) => serde_json::json!({ "phone": phone, "code": code }),
+            (None, Some(password)) => serde_json::json!({ "phone": phone, "password": password }),
+            _ => return Err(anyhow!("provide exactly one of code or password")),
+        };
+        // Not idempotent: every call mints a token pair, so never blind-retry.
+        let response = send_with_retry(
+            "local relay sign-in",
+            self.http
+                .post(Self::endpoint(relay_url, "/api/auth/local/login")?)
+                .json(&body),
+            RelayHttpRetry::SingleAttempt,
+        )
+        .await?;
+        if !response.status().is_success() {
+            return Err(Self::into_buffered_error(response));
+        }
+        Ok(response.json().await?)
+    }
+
+    /// Exchange a local access token for a keyed device session. Works for a
+    /// fresh sign-in pair and for a refreshed pair alike.
+    pub async fn exchange_local_access_token(
+        &self,
+        relay_url: &str,
+        pair: &LocalTokenPair,
+        device: &DeviceIdentity,
+        device_kind: &str,
+    ) -> Result<(AccountSession, LocalTokenPair)> {
+        let account_id = pair.user.user_id.clone();
         let device_secret =
             super::session_store::device_secret(relay_url, &account_id, &device.device_id)?;
-        let body = login_request_body(
-            &access_token,
+        let exchange_body = login_request_body(
+            &pair.access_token,
             device,
             device_kind,
             device_crypto::public_key_base64(&device_secret),
             uuid::Uuid::new_v4().to_string(),
         );
         let response = send_with_retry(
-            "GitHub relay login",
+            "local relay login",
             self.http
                 .post(Self::endpoint(relay_url, "/api/auth/login")?)
-                .json(&body),
+                .json(&exchange_body),
             RelayHttpRetry::IdempotentWrite,
         )
         .await?;
@@ -567,7 +658,84 @@ impl AccountClient {
         {
             log::warn!("Failed to report device metadata after login: {error}");
         }
-        Ok((session, profile.user))
+        Ok((session, pair.clone()))
+    }
+
+    /// Request a verification code for `phone`. Rate-limit and cooldown
+    /// rejections surface the relay's message verbatim.
+    pub async fn local_sms_send(&self, relay_url: &str, phone: &str) -> Result<()> {
+        self.require_local_auth(relay_url).await?;
+        let response = send_with_retry(
+            "local relay code request",
+            self.http
+                .post(Self::endpoint(relay_url, "/api/auth/local/sms/send")?)
+                .json(&serde_json::json!({ "phone": phone })),
+            RelayHttpRetry::SingleAttempt,
+        )
+        .await?;
+        if !response.status().is_success() {
+            return Err(Self::into_buffered_error(response));
+        }
+        Ok(())
+    }
+
+    /// Rotate a refresh token into a fresh access/refresh pair. Callers
+    /// persist the returned pair before re-exchanging the device token.
+    pub async fn refresh_local_pair(
+        &self,
+        relay_url: &str,
+        refresh_token: &str,
+    ) -> Result<LocalTokenPair> {
+        self.require_local_auth(relay_url).await?;
+        let response = send_with_retry(
+            "local relay refresh",
+            self.http
+                .post(Self::endpoint(relay_url, "/api/auth/local/refresh")?)
+                .json(&serde_json::json!({ "refreshToken": refresh_token })),
+            RelayHttpRetry::SingleAttempt,
+        )
+        .await?;
+        if !response.status().is_success() {
+            return Err(Self::into_buffered_error(response));
+        }
+        Ok(response.json().await?)
+    }
+
+    /// Set or change the signed-in account's optional password using a fresh
+    /// access token. Other sessions' refresh tokens are revoked by the relay.
+    pub async fn local_set_password(
+        &self,
+        relay_url: &str,
+        access_token: &str,
+        new_password: &str,
+    ) -> Result<()> {
+        self.require_local_auth(relay_url).await?;
+        let response = send_with_retry(
+            "local relay password update",
+            self.http
+                .post(Self::endpoint(relay_url, "/api/auth/local/password")?)
+                .bearer_auth(access_token)
+                .json(&serde_json::json!({ "newPassword": new_password })),
+            RelayHttpRetry::SingleAttempt,
+        )
+        .await?;
+        if !response.status().is_success() {
+            return Err(Self::into_buffered_error(response));
+        }
+        Ok(())
+    }
+
+    async fn require_local_auth(&self, relay_url: &str) -> Result<()> {
+        let capabilities = self.relay_capabilities(relay_url).await?;
+        if capabilities
+            .iter()
+            .any(|name| name == RELAY_CAPABILITY_LOCAL_AUTH)
+        {
+            return Ok(());
+        }
+        Err(anyhow!(
+            "this relay does not support local account sign-in (missing {RELAY_CAPABILITY_LOCAL_AUTH})"
+        ))
     }
 
     pub fn new() -> Self {
@@ -1402,6 +1570,9 @@ mod tests {
     #[tokio::test]
     async fn psk_envelope_dispatch_follows_key_id() {
         let dir = tempfile::tempdir().unwrap();
+        let _store_guard = crate::remote_connect::session_store::test_store_guard()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         crate::remote_connect::session_store::set_session_store_directory_for_test(
             dir.path().to_path_buf(),
         );
@@ -1453,12 +1624,12 @@ Connection: close
 
         // Confirming the pairing switches the sender to the PSK derivation.
         let psk = [91u8; 32];
-        super::psk_store::store_entry(
+        crate::remote_connect::psk_store::store_entry(
             &relay_url,
             "fixture",
             "host-1",
             &psk,
-            super::psk_store::PeerPskStatus::Paired,
+            crate::remote_connect::psk_store::PeerPskStatus::Paired,
             None,
         )
         .unwrap();
@@ -1497,12 +1668,10 @@ Connection: close
 
         // key_id is authoritative in both directions: a PSK payload cannot be
         // opened as legacy, and a foreign id is a loud pairing mismatch.
-        assert!(
-            session
-                .decrypt_from_peer(&relay_url, "host-1", &paired.data, &paired.nonce, None)
-                .await
-                .is_err()
-        );
+        assert!(session
+            .decrypt_from_peer(&relay_url, "host-1", &paired.data, &paired.nonce, None)
+            .await
+            .is_err());
         let mismatch = session
             .decrypt_from_peer(
                 &relay_url,
@@ -1518,5 +1687,204 @@ Connection: close
             "unexpected error: {mismatch}"
         );
         server.abort();
+    }
+
+    /// A raw-TCP relay double for the local sign-in flow. Each incoming
+    /// request gets the next scripted body; the request line is recorded so
+    /// the test can pin the exact call order.
+    struct LocalAuthRelayDouble {
+        url: String,
+        handle: tokio::task::JoinHandle<Vec<String>>,
+    }
+
+    fn local_pair_body(access: &str, refresh: &str) -> String {
+        serde_json::json!({
+            "accessToken": access,
+            "accessExpiresAt": 946684800,
+            "refreshToken": refresh,
+            "refreshExpiresAt": 946684900,
+            "user": {
+                "userId": "local-abc123",
+                "login": "u-ab12cd",
+                "phoneMasked": "138****0001",
+                "hasPassword": false,
+            },
+        })
+        .to_string()
+    }
+
+    async fn spawn_local_auth_relay(script: Vec<String>) -> LocalAuthRelayDouble {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            for body in script {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut buffer = [0; 8192];
+                let read = socket.read(&mut buffer).await.unwrap();
+                let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                let request_line = request.split("\r\n").next().unwrap_or_default().to_string();
+                seen.push(request_line);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+            }
+            seen
+        });
+        LocalAuthRelayDouble { url, handle }
+    }
+
+    fn local_device() -> DeviceIdentity {
+        DeviceIdentity {
+            device_id: "0123456789abcdef0123456789abcdef".to_string(),
+            device_name: "Test Host".to_string(),
+            mac_address: "00:11:22:33:44:55".to_string(),
+        }
+    }
+
+    /// Hold the shared store guard for the whole test: returning it keeps the
+    /// lock alive until the end of the test function.
+    fn redirect_session_store_for_test() -> (std::path::PathBuf, std::sync::MutexGuard<'static, ()>)
+    {
+        let guard = crate::remote_connect::session_store::test_store_guard()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let directory = std::env::temp_dir().join(format!(
+            "openbitfun-local-auth-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        crate::remote_connect::session_store::set_session_store_directory_for_test(
+            directory.clone(),
+        );
+        (directory, guard)
+    }
+
+    #[tokio::test]
+    async fn local_credentials_login_requires_the_local_auth_capability() {
+        let relay = spawn_local_auth_relay(vec![
+            // A relay without local_auth_v1 must be refused before any
+            // credential ever leaves the host.
+            r#"{"capabilities":["device_alias_v1"]}"#.to_string(),
+        ])
+        .await;
+        let (_store, _store_guard) = redirect_session_store_for_test();
+        let client = AccountClient::new();
+        let error = client
+            .login_with_local_credentials(
+                &relay.url,
+                "13800000001",
+                Some("123456"),
+                None,
+                &local_device(),
+                DEVICE_KIND_DESKTOP,
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("local account sign-in"), "got: {error}");
+        let seen = relay.handle.await.unwrap();
+        assert_eq!(seen.len(), 1, "no credential request may be attempted");
+        assert!(seen[0].contains("/api/info"));
+    }
+
+    #[tokio::test]
+    async fn local_credentials_login_signs_in_exchanges_and_rotates() {
+        // The post-login metadata report probes capabilities first; without
+        // `device_metadata_v1` in the answer it stops there.
+        let relay = spawn_local_auth_relay(vec![
+            r#"{"capabilities":["local_auth_v1"]}"#.to_string(),
+            local_pair_body("access-1", "refresh-1"),
+            r#"{"token":"device-token","user_id":"local-abc123"}"#.to_string(),
+            r#"{"capabilities":["local_auth_v1"]}"#.to_string(),
+            r#"{"capabilities":["local_auth_v1"]}"#.to_string(),
+            local_pair_body("access-2", "refresh-2"),
+        ])
+        .await;
+        let (store, _store_guard) = redirect_session_store_for_test();
+        let client = AccountClient::new();
+        let (session, pair) = client
+            .login_with_local_credentials(
+                &relay.url,
+                "13800000001",
+                Some("123456"),
+                None,
+                &local_device(),
+                DEVICE_KIND_DESKTOP,
+            )
+            .await
+            .expect("local login");
+        assert_eq!(session.user_id, "local-abc123");
+        assert_eq!(pair.access_token, "access-1");
+        assert_eq!(pair.refresh_token, "refresh-1");
+        assert_eq!(pair.user.phone_masked, "138****0001");
+        assert!(!pair.user.has_password);
+        let rotated = client
+            .refresh_local_pair(&relay.url, "refresh-1")
+            .await
+            .expect("refresh");
+        assert_eq!(rotated.access_token, "access-2");
+        assert_eq!(rotated.refresh_token, "refresh-2");
+        let seen = relay.handle.await.unwrap();
+        assert_eq!(
+            seen[0], "GET /api/info HTTP/1.1",
+            "capability probe comes first"
+        );
+        assert!(seen[1].contains("POST /api/auth/local/login"));
+        assert!(seen[2].contains("POST /api/auth/login"));
+        assert!(seen[3].contains("/api/info"));
+        assert!(seen[4].contains("/api/info"));
+        assert!(seen[5].contains("POST /api/auth/local/refresh"));
+        let _ = std::fs::remove_dir_all(store);
+    }
+
+    #[test]
+    fn relay_url_override_validates_scheme_and_private_http() {
+        let guard = EnvGuard::new("OPENBITFUN_RELAY_URL", "");
+        assert_eq!(
+            super::configured_relay_url().unwrap(),
+            openbitfun_product_domains::account::DEFAULT_RELAY_URL
+        );
+        guard.set("https://relay.example.com/v1");
+        assert_eq!(
+            super::configured_relay_url().unwrap(),
+            "https://relay.example.com/v1"
+        );
+        guard.set("http://192.168.1.5:9700");
+        assert!(super::configured_relay_url().is_ok());
+        guard.set("http://relay.example.com");
+        assert!(super::configured_relay_url().is_err());
+    }
+
+    /// Sequential env-var override so parallel tests cannot observe the
+    /// mutation half-applied; the guard restores the previous value on drop.
+    struct EnvGuard {
+        name: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn new(name: &'static str, initial: &str) -> Self {
+            let previous = std::env::var(name).ok();
+            std::env::set_var(name, initial);
+            Self { name, previous }
+        }
+        fn set(&self, value: &str) {
+            std::env::set_var(self.name, value);
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var(self.name, value),
+                None => std::env::remove_var(self.name),
+            }
+        }
     }
 }

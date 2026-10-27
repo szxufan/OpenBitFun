@@ -1,35 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import type { AccountIdentitySnapshot } from '@/infrastructure/account-identity/AccountIdentityService';
+import type { RelayAccountSnapshot } from '@/infrastructure/account-identity/RelayAccountService';
 import { getOverviewIdentity } from './overviewIdentity';
 
-const internalLogin = 'user-6ad742378dc144debcbe1d32ef06314f';
-const identity: AccountIdentitySnapshot = {
+const identity: RelayAccountSnapshot = {
   resolved: true,
   status: 'signed-in',
-  me: { user: { githubId: 0, login: internalLogin, avatarUrl: '' }, isAdmin: false },
+  me: { user: { id: 'user-1', login: '138****0001', avatarUrl: '' } },
 };
 
 describe('personal overview identity', () => {
-  it('shows the verified email instead of an email account’s generated login', () => {
-    expect(getOverviewIdentity({ ...identity, me: { ...identity.me!, email: 'cwing@example.com' } }))
-      .toEqual({ name: 'cwing@example.com', handle: null });
+  it('shows the masked phone of the signed-in relay account', () => {
+    expect(getOverviewIdentity(identity)).toEqual({ name: '138****0001', handle: null });
   });
 
-  it('hides the generated login when older metadata does not provide the email', () => {
-    expect(getOverviewIdentity(identity)).toBeNull();
+  it.each(['signed-out', 'loading'] as const)('hides the identity while %s', status => {
+    expect(getOverviewIdentity({ ...identity, status, resolved: status !== 'loading' })).toBeNull();
   });
 
-  it.each(['signed-out', 'loading', 'authorizing'] as const)('hides even cached account metadata while %s', status => {
-    expect(getOverviewIdentity({ ...identity, status, me: { ...identity.me!, email: 'cwing@example.com' } })).toBeNull();
+  it('hides the identity when the relay reports no session', () => {
+    expect(getOverviewIdentity({ resolved: true, status: 'signed-out', me: null })).toBeNull();
   });
 
-  it('keeps legacy GitHub names working without optional email metadata', () => {
-    expect(getOverviewIdentity({ ...identity, me: { user: { githubId: 42, login: 'GCWing', avatarUrl: '' }, isAdmin: false } }))
-      .toEqual({ name: 'GCWing', handle: '@GCWing' });
-  });
-
-  it('does not hide normal usernames that share the user prefix', () => {
-    expect(getOverviewIdentity({ ...identity, me: { ...identity.me!, user: { ...identity.me!.user, login: 'user-friendly' } } })?.name)
-      .toBe('user-friendly');
+  it('falls back to the relay user id while the credential hint has not answered', () => {
+    expect(getOverviewIdentity({
+      ...identity,
+      me: { user: { id: 'u-9', login: 'u-9', avatarUrl: '' } },
+    })).toEqual({ name: 'u-9', handle: null });
   });
 });

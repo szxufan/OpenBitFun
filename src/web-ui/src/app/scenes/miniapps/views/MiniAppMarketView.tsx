@@ -39,8 +39,7 @@ import {
   type MarketSort,
 } from '@/infrastructure/api/service-api/MiniAppMarketAPI';
 import { marketImageUrl, retryOriginalMarketImage } from '@/infrastructure/api/service-api/MarketImage';
-import { AccountIdentityControls } from '@/features/market-account';
-import { useAccountIdentity } from '@/infrastructure/account-identity';
+import { useMarketAccountIdentity } from '@/features/market-account';
 import { createLogger } from '@/shared/utils/logger';
 import { useNotification } from '@/shared/notification-system';
 import { getMiniAppIconGradient, renderMiniAppIcon } from '../utils/miniAppIcons';
@@ -73,7 +72,8 @@ const MiniAppMarketView: React.FC<MiniAppMarketViewProps> = ({ tabs }) => {
   const { openScene, activateScene, openTabs } = useSceneManager();
   const upsertApp = useMiniAppStore((state) => state.upsertApp);
   const setMarketOrigin = useMiniAppStore((state) => state.setMarketOrigin);
-  const { me } = useAccountIdentity();
+  // Market browsing stays anonymous; there is no market sign-in entry anymore.
+  const { me } = useMarketAccountIdentity();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>('all');
   const [sort, setSort] = useState<MarketSort>('newest');
@@ -85,7 +85,6 @@ const MiniAppMarketView: React.FC<MiniAppMarketViewProps> = ({ tabs }) => {
   const [detail, setDetail] = useState<MarketListingDetail>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [installed, setInstalled] = useState<MarketInstalledStatus | null>(null);
-  const [loginOpen, setLoginOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(false);
   const [releasesExpanded, setReleasesExpanded] = useState(false);
@@ -153,19 +152,8 @@ const MiniAppMarketView: React.FC<MiniAppMarketViewProps> = ({ tabs }) => {
     }
   };
 
-  const refreshPersonalizedDetail = () => {
-    if (!detail) return;
-    void miniAppMarketAPI.getListing(detail.slug)
-      .then(setDetail)
-      .catch(error => log.warn('Failed to refresh MiniApp market detail after account change', error));
-  };
-
   const toggleFavorite = async () => {
-    if (!detail) return;
-    if (!me) {
-      setLoginOpen(true);
-      return;
-    }
+    if (!detail || !me) return;
     setActionBusy(true);
     try {
       const result = await miniAppMarketAPI.setFavorite(detail.slug, !detail.isFavorited);
@@ -182,11 +170,7 @@ const MiniAppMarketView: React.FC<MiniAppMarketViewProps> = ({ tabs }) => {
   };
 
   const rate = async (value: number) => {
-    if (!detail) return;
-    if (!me) {
-      setLoginOpen(true);
-      return;
-    }
+    if (!detail || !me) return;
     setActionBusy(true);
     try {
       const result = await miniAppMarketAPI.setRating(detail.slug, value);
@@ -282,11 +266,6 @@ const MiniAppMarketView: React.FC<MiniAppMarketViewProps> = ({ tabs }) => {
               onValueChange={setQuery}
               placeholder={t('market.search')}
               size="sm"
-            />
-            <AccountIdentityControls
-              loginOpen={loginOpen}
-              onLoginOpenChange={setLoginOpen}
-              onIdentityChanged={refreshPersonalizedDetail}
             />
           </div>
         )}

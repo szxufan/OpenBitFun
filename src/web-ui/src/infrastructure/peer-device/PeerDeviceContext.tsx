@@ -12,7 +12,7 @@ import {
 
 export const PeerDeviceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const identity = useAccountIdentity();
-  const accountId = identity.me?.user.accountId ?? identity.me?.user.githubId;
+  const accountId = identity.me?.user.id;
   const directory = useDeviceDirectory();
   useEffect(() => {
     if (identity.status !== 'signed-in' || accountId === undefined) return;

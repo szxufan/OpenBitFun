@@ -445,7 +445,7 @@ test('TLS source boundaries reject bypasses of the centralized provider owner', 
 
 test('standalone Relay TLS exception cannot install a process provider', () => {
   const providerRule = forbiddenContentUnderRules.find(rule => rule.reason.includes('only owner allowed to install'));
-  const relayPath = 'src/crates/services/relay-service/src/identity.rs';
+  const relayPath = 'src/crates/services/relay-service/src/sms.rs';
   assert.ok(providerRule.patterns[0].allowPaths.includes(relayPath));
   const scopedRule = forbiddenContentUnderRules.find(rule => rule.path === relayPath && rule.reason.includes('client-scoped'));
   assert.ok(scopedRule);

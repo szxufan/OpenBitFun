@@ -237,7 +237,7 @@
     "hostBridges": [
       "mark_openbitfun_control_surface_ready",
       "mark_openbitfun_control_surface_unready",
-    "miniapp_shell_call",
+      "miniapp_shell_call",
       "peer_host_invoke_complete",
       "product_control_invoke",
       "report_openbitfun_control_result",
@@ -280,6 +280,17 @@
       "refresh_subscription_account_instance",
       "set_subscription_account_enabled",
       "start_subscription_account_login"
+    ],
+    "relayLocalAccountAuth": [
+      "account_refresh_relogin",
+      "account_set_password",
+      "account_sms_send"
+    ],
+    "peerPskPairingVault": [
+      "peer_psk_complete",
+      "peer_psk_list",
+      "peer_psk_offer_create",
+      "peer_psk_remove"
     ]
   },
   "capabilities": [
@@ -3098,13 +3109,9 @@
             "reasonEn": "Market sign-in requires the account holder to confirm an external authentication flow; the Agent can open the exact entry but cannot complete that authentication for them."
           },
           "evidence": [
-            "command:account_github_start",
-            "command:account_github_poll",
             "command:miniapp_market_set_favorite",
             "command:miniapp_market_set_rating",
-            "command:miniapp_market_installed_origins",
-            "command:account_logout",
-            "command:account_github_info"
+            "command:miniapp_market_installed_origins"
           ]
         },
         {
@@ -3138,7 +3145,7 @@
             "command:miniapp_host_call",
             "command:miniapp_worker_call",
             "command:miniapp_runtime_status",
-        "command:miniapp_presentation",
+            "command:miniapp_presentation",
             "command:miniapp_worker_list_running",
             "command:miniapp_worker_stop",
             "command:miniapp_draft_host_call",
@@ -4517,9 +4524,6 @@
             "reasonEn": "GitHub account sign-in requires confirmation on an external authentication page; the Agent may open the entry and read non-secret status but cannot impersonate the account holder."
           },
           "evidence": [
-            "command:account_github_start",
-            "command:account_github_poll",
-            "command:account_github_info",
             "command:account_logout",
             "command:account_status"
           ]
@@ -9936,9 +9940,6 @@
     },
     "context_upload": {
       "capabilityId": "feature.files-editor"
-    },
-    "account_identity": {
-      "capabilityId": "feature.remote-connect"
     },
     "file_drop_preview": {
       "capabilityId": "feature.files-editor"

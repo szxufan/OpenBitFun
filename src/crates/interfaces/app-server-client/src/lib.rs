@@ -89,18 +89,10 @@ impl AppServerClient {
         self.rpc(|cx| Ok(cx.send_request(request))).await
     }
 
-    pub async fn account_github_start(
+    pub async fn account_sms_send(
         &self,
-        request: AccountGitHubStartRequest,
-    ) -> Result<AccountGitHubStartResponse, ClientError> {
-        self.request_with_timeout(|cx| Ok(cx.send_request(request)), SIDE_EFFECT_TIMEOUT)
-            .await
-    }
-
-    pub async fn account_github_poll(
-        &self,
-        request: AccountGitHubPollRequest,
-    ) -> Result<AccountGitHubPollResponse, ClientError> {
+        request: AccountSmsSendRequest,
+    ) -> Result<AccountSmsSendResponse, ClientError> {
         self.request_with_timeout(|cx| Ok(cx.send_request(request)), SIDE_EFFECT_TIMEOUT)
             .await
     }

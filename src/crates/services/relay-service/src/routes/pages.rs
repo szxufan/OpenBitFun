@@ -998,7 +998,6 @@ async fn page_browser_login(
     State(state): State<AppState>,
     connect_info: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
-    verifier: Option<Extension<crate::identity::IdentityVerifier>>,
     Json(body): Json<PageBrowserLoginRequest>,
 ) -> Response {
     let db = match require_db(&state) {
@@ -1033,7 +1032,6 @@ async fn page_browser_login(
             connect_info.map(|Extension(ConnectInfo(addr))| addr),
             &headers,
             &body.access_token,
-            verifier.as_ref().map(|v| &v.0),
         )
         .await
         {
@@ -1122,7 +1120,6 @@ async fn page_browser_login(
         connect_info.map(|Extension(ConnectInfo(addr))| addr),
         &headers,
         &body.access_token,
-        verifier.as_ref().map(|v| &v.0),
     )
     .await
     {
@@ -1320,12 +1317,21 @@ fn page_login_form_response(
     <div class="mark" aria-hidden="true">B</div>
     <p class="eyebrow">OPENBITFUN PAGE</p>
     <h1>登录后访问</h1>
-    <p>此页面受访问权限保护，请使用邮箱或 GitHub 登录。</p>
-    <p class="secondary">This Page is protected. Sign in with your email or GitHub account.</p>
+    <p>此页面受访问权限保护，请使用手机号登录。</p>
+    <p class="secondary">This Page is protected. Sign in with your phone number.</p>
     <p class="access">{access_description}</p>
     <form data-page-login-form{login_state_attribute}>
       <p data-page-login-error class="error" role="alert" hidden></p>
-      <button data-page-login-submit class="submit" type="submit">使用邮箱或 GitHub 登录 · Sign in with email or GitHub</button>
+      <label class="field">手机号 Phone
+        <input data-page-login-phone type="tel" inputmode="tel" autocomplete="tel" placeholder="13800000000" required>
+      </label>
+      <label class="field">验证码 Code
+        <span class="code-line">
+          <input data-page-login-code inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 位数验证码 / 6-digit code" required>
+          <button data-page-login-send-code type="button" class="send">发送验证码 · Send code</button>
+        </span>
+      </label>
+      <button data-page-login-submit class="submit" type="submit">使用手机号登录 · Sign in with phone number</button>
     </form>
     <p class="note">使用 OpenBitFun 统一账号登录。</p>
     <noscript><p class="error">登录需要启用 JavaScript。 JavaScript is required to sign in.</p></noscript>
@@ -1429,6 +1435,11 @@ input:focus{border-color:#5d96ff;box-shadow:0 0 0 3px rgba(79,140,255,.18)}
 .password input{padding-right:60px}
 button{border:0;font:inherit;cursor:pointer}
 .toggle{position:absolute;right:6px;bottom:5px;height:32px;padding:0 8px;background:transparent;color:#8fb6ff;font-size:12px}
+.code-line{display:flex;gap:8px;align-items:stretch;margin-top:7px}
+.code-line input{margin-top:0}
+.send{flex:0 0 auto;min-width:150px;min-height:42px;padding:0 12px;border-radius:8px;background:#262b35;color:#9cc0ff;font-size:13px;font-weight:600}
+.send:hover{background:#2f3541}
+.send:disabled{cursor:wait;opacity:.62}
 .submit{width:100%;min-height:44px;margin-top:20px;border-radius:9px;background:#4f8cff;color:white;font-weight:650}
 .submit:hover{background:#68a0ff}
 .submit:disabled{cursor:wait;opacity:.72}
@@ -3090,34 +3101,30 @@ mod tests {
             Vec::new(),
             page_browser_auth,
         );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let authority_url = format!("http://{}/me", listener.local_addr().unwrap());
-        let authority = axum::Router::new().route(
-            "/me",
-            axum::routing::get(|headers: HeaderMap| async move {
-                match headers.get("authorization").and_then(|h| h.to_str().ok()) {
-                    Some("Bearer alice") => (
-                        StatusCode::OK,
-                        Json(serde_json::json!({"user":{"githubId":101,"login":"alice"}})),
-                    ),
-                    Some("Bearer bob") => (
-                        StatusCode::OK,
-                        Json(serde_json::json!({"user":{"githubId":102,"login":"bob"}})),
-                    ),
-                    _ => (
-                        StatusCode::UNAUTHORIZED,
-                        Json(serde_json::json!({"error":"expired"})),
-                    ),
-                }
-            }),
-        );
-        tokio::spawn(async move {
-            axum::serve(listener, authority).await.unwrap();
-        });
-        let app = app.layer(Extension(
-            crate::identity::IdentityVerifier::with_url(&authority_url).unwrap(),
-        ));
         (app, tok_alice.token, tok_bob.token, pool)
+    }
+
+    /// Mint a local account access token for the page-login exchange.
+    async fn access_for(pool: &Arc<crate::db::DbPool>, user_id: &str) -> String {
+        crate::db::LocalAuthToken::issue_pair(pool, user_id)
+            .await
+            .unwrap()
+            .access_token
+    }
+
+    /// Setup that also exposes local sign-in access tokens for page login.
+    async fn setup_app_with_access() -> (
+        axum::Router,
+        String,
+        String,
+        String,
+        String,
+        Arc<crate::db::DbPool>,
+    ) {
+        let (app, alice, bob, pool) = setup_app_with_pool().await;
+        let alice_access = access_for(&pool, "101").await;
+        let bob_access = access_for(&pool, "102").await;
+        (app, alice, bob, alice_access, bob_access, pool)
     }
 
     async fn setup_app_with_pool() -> (axum::Router, String, String, Arc<crate::db::DbPool>) {
@@ -4605,7 +4612,7 @@ mod tests {
 
     async fn login_page_cookie(
         app: &axum::Router,
-        username: &str,
+        access_token: &str,
         slug: &str,
         version_id: Option<&str>,
     ) -> (String, String) {
@@ -4622,7 +4629,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(
                         serde_json::json!({
-                            "access_token": username,
+                            "access_token": access_token,
                             "return_to": return_to,
                         })
                         .to_string(),
@@ -4679,7 +4686,7 @@ mod tests {
             .unwrap();
         let login_html = String::from_utf8_lossy(&body);
         assert!(login_html.contains("登录后访问"));
-        assert!(login_html.contains("GitHub"));
+        assert!(login_html.contains("Sign in with phone number"));
         assert_eq!(
             get_page(&app, "/p/alice/priv", Some(&bob)).await,
             StatusCode::NOT_FOUND
@@ -4737,7 +4744,7 @@ mod tests {
 
     #[tokio::test]
     async fn visibility_change_revokes_existing_browser_grants() {
-        let (app, alice, _) = setup_app().await;
+        let (app, alice, _, alice_access, _, _) = setup_app_with_access().await;
         save_and_deploy_with_visibility(
             &app,
             &alice,
@@ -4746,7 +4753,7 @@ mod tests {
             "private",
         )
         .await;
-        let (cookie, _) = login_page_cookie(&app, "alice", "visibility-revoke", None).await;
+        let (cookie, _) = login_page_cookie(&app, &alice_access, "visibility-revoke", None).await;
         let authorized = app
             .clone()
             .oneshot(
@@ -4799,7 +4806,7 @@ mod tests {
 
     #[tokio::test]
     async fn browser_login_enforces_page_visibility_and_sets_scoped_http_only_cookie() {
-        let (app, alice, _bob) = setup_app().await;
+        let (app, alice, _bob, alice_access, bob_access, _) = setup_app_with_access().await;
         let private_version = save_and_deploy_with_visibility(
             &app,
             &alice,
@@ -4860,7 +4867,7 @@ mod tests {
         assert!(login_page.headers().get(header::SET_COOKIE).is_none());
         let body = to_bytes(login_page.into_body(), usize::MAX).await.unwrap();
         let html = String::from_utf8_lossy(&body);
-        assert!(html.contains("GitHub"));
+        assert!(html.contains("Sign in with phone number"));
         assert!(html.contains("/api/page-auth/client.js"));
 
         let script = app
@@ -4909,7 +4916,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(
                         serde_json::json!({
-                            "access_token": "bob",
+                            "access_token": bob_access,
                             "return_to": "/p/alice/private-open",
                         })
                         .to_string(),
@@ -4931,7 +4938,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(
                         serde_json::json!({
-                            "access_token": "alice",
+                            "access_token": alice_access,
                             "return_to": "/p/alice/private-open",
                             "path_prefix": "/relay",
                         })
@@ -5006,7 +5013,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(
                         serde_json::json!({
-                            "access_token": "bob",
+                            "access_token": bob_access,
                             "return_to": "/p/alice/relay-open",
                         })
                         .to_string(),
@@ -5047,7 +5054,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(
                         serde_json::json!({
-                            "access_token": "alice",
+                            "access_token": alice_access,
                             "return_to": "https://attacker.invalid/",
                         })
                         .to_string(),
@@ -5066,7 +5073,8 @@ mod tests {
             "https://relay.test/relay",
         )
         .unwrap();
-        let (app, alice, _, _) = setup_app_with_page_auth(Some(config)).await;
+        let (app, alice, _, pool) = setup_app_with_page_auth(Some(config)).await;
+        let alice_access = access_for(&pool, "101").await;
         save_and_deploy_with_visibility(
             &app,
             &alice,
@@ -5169,7 +5177,7 @@ mod tests {
         assert_eq!(sign_in.status(), StatusCode::OK);
         let body = to_bytes(sign_in.into_body(), usize::MAX).await.unwrap();
         let html = String::from_utf8_lossy(&body);
-        assert!(html.contains("GitHub"));
+        assert!(html.contains("Sign in with phone number"));
         assert!(html.contains(&format!(r#"data-page-login-state="{state}""#)));
         assert!(html.contains(r#"src="./client.js""#));
 
@@ -5183,7 +5191,7 @@ mod tests {
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(
                         serde_json::json!({
-                            "access_token": "alice",
+                            "access_token": alice_access,
                             "state": state,
                         })
                         .to_string(),
@@ -5260,7 +5268,7 @@ mod tests {
 
     #[tokio::test]
     async fn production_and_preview_browser_grants_can_coexist() {
-        let (app, alice, _) = setup_app().await;
+        let (app, alice, _, alice_access, _, _) = setup_app_with_access().await;
         let version = save_and_deploy_with_visibility(
             &app,
             &alice,
@@ -5270,9 +5278,9 @@ mod tests {
         )
         .await;
         let (production_cookie, production_set_cookie) =
-            login_page_cookie(&app, "alice", "cookie-scope", None).await;
+            login_page_cookie(&app, &alice_access, "cookie-scope", None).await;
         let (preview_cookie, preview_set_cookie) =
-            login_page_cookie(&app, "alice", "cookie-scope", Some(&version)).await;
+            login_page_cookie(&app, &alice_access, "cookie-scope", Some(&version)).await;
         assert!(production_set_cookie.contains("Path=/p/alice/cookie-scope;"));
         assert!(preview_set_cookie.contains(&format!("Path=/p/alice/cookie-scope/@v/{version};")));
 
@@ -5359,10 +5367,10 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_and_recreating_a_page_rejects_the_old_browser_grant() {
-        let (app, alice, _) = setup_app().await;
+        let (app, alice, _, alice_access, _, _) = setup_app_with_access().await;
         save_and_deploy_with_visibility(&app, &alice, "recreated", "<html>old</html>", "private")
             .await;
-        let (old_cookie, _) = login_page_cookie(&app, "alice", "recreated", None).await;
+        let (old_cookie, _) = login_page_cookie(&app, &alice_access, "recreated", None).await;
         let old_generation = test_page_generation(&app, &alice, "recreated")
             .await
             .unwrap();

@@ -34,11 +34,11 @@ use super::release_verify::{
 use super::remote_git::shell_quote_posix;
 use super::types::SSHCommandOptions;
 
-const GITHUB_RELEASE_BASE: &str = "https://github.com/GCWing/OpenBitFun/releases";
-const OPENBITFUN_RELEASE_BASE: &str = "https://openbitfun.com/release";
+const GITHUB_RELEASE_BASE: &str = "https://github.com/szxufan/OpenBitFun/releases";
+const OPENBITFUN_RELEASE_BASE: &str = "https://iso.mylinkpi.cn/obf/release";
 const GITHUB_LATEST_MANIFEST: &str =
-    "https://github.com/GCWing/OpenBitFun/releases/latest/download/latest-v1.json";
-const OPENBITFUN_LATEST_MANIFEST: &str = "https://openbitfun.com/release/latest-v1.json";
+    "https://github.com/szxufan/OpenBitFun/releases/latest/download/latest-v1.json";
+const OPENBITFUN_LATEST_MANIFEST: &str = "https://iso.mylinkpi.cn/obf/release/latest-v1.json";
 const INSTALL_STEM: &str = "install-cli";
 const INSTALL_DONE_MARKER: &str = "OPENBITFUN_DISPATCH_CLI_INSTALL_DONE";
 const INSTALL_PREPARE_GRACE_SECONDS: u64 = 30;
@@ -3441,12 +3441,12 @@ mod tests {
         assert_eq!(sources[0].origin, ReleaseOrigin::GitHub);
         assert_eq!(
             sources[0].url,
-            format!("https://github.com/GCWing/OpenBitFun/releases/download/v1.2.3/{filename}")
+            format!("https://github.com/szxufan/OpenBitFun/releases/download/v1.2.3/{filename}")
         );
         assert_eq!(sources[1].origin, ReleaseOrigin::OpenBitFun);
         assert_eq!(
             sources[1].url,
-            format!("https://openbitfun.com/release/1.2.3/{filename}")
+            format!("https://iso.mylinkpi.cn/obf/release/1.2.3/{filename}")
         );
     }
 

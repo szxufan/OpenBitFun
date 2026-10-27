@@ -18,12 +18,12 @@ const UPDATE_PROGRESS_EVENT: &str = "openbitfun-update-progress";
 /// `scripts/desktop-tauri-build.mjs`, which bakes the same pair into the bundle.
 const GITHUB_UPDATER_ENDPOINT: &str = match option_env!("OPENBITFUN_UPDATER_PRIMARY_ENDPOINT") {
     Some(endpoint) => endpoint,
-    None => "https://github.com/GCWing/OpenBitFun/releases/latest/download/latest-v1.json",
+    None => "https://github.com/szxufan/OpenBitFun/releases/latest/download/latest-v1.json",
 };
 const OPENBITFUN_UPDATER_ENDPOINT: &str = match option_env!("OPENBITFUN_UPDATER_FALLBACK_ENDPOINT")
 {
     Some(endpoint) => endpoint,
-    None => "https://openbitfun.com/release/latest-v1.json",
+    None => "https://iso.mylinkpi.cn/obf/release/latest-v1.json",
 };
 
 /// Throughput probe settings, matching the CLI updater and the relay deploy

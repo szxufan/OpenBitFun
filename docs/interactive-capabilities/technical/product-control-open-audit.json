@@ -1201,13 +1201,9 @@
         "actionId": "surface.miniapps.open"
       },
       "evidence": [
-        "command:account_github_start",
-        "command:account_github_poll",
         "command:miniapp_market_set_favorite",
         "command:miniapp_market_set_rating",
-        "command:miniapp_market_installed_origins",
-        "command:account_logout",
-        "command:account_github_info"
+        "command:miniapp_market_installed_origins"
       ]
     },
     {
@@ -2037,9 +2033,6 @@
         "eventName": "openbitfun:open-remote-connect"
       },
       "evidence": [
-        "command:account_github_start",
-        "command:account_github_poll",
-        "command:account_github_info",
         "command:account_logout",
         "command:account_status"
       ]

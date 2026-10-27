@@ -143,13 +143,14 @@ mod tests {
         assert!(!is_local_only_command("git_get_repository_trust"));
     }
 
-    /// GitHub identity belongs to the controller across all three surfaces.
+    /// Account credentials belong to the controller across all three surfaces.
     #[test]
-    fn github_identity_stays_on_the_controller_device() {
+    fn account_credentials_stay_on_the_controller_device() {
         for command in [
-            "account_github_start",
-            "account_github_poll",
-            "account_github_info",
+            "account_sms_send",
+            "account_refresh_relogin",
+            "account_set_password",
+            "account_login",
             "account_logout",
         ] {
             assert!(is_local_only_command(command), "{command}");

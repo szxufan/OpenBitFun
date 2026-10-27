@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { AccountIdentitySnapshot } from '@/infrastructure/account-identity';
+import type { RelayAccountSnapshot } from '@/infrastructure/account-identity';
 import { useDeviceDirectory } from '@/infrastructure/account/deviceDirectory';
 import type { AccountDeviceInfo, DeviceInfo } from '@/infrastructure/api/service-api/RemoteConnectAPI';
 import type { PeerModeState } from '@/infrastructure/peer-device/peerDeviceContextState';
@@ -35,7 +35,7 @@ let root: Root;
 let container: HTMLDivElement;
 let trackWidth: number;
 const resizeListeners = new Set<() => void>();
-const identity: AccountIdentitySnapshot = { resolved: true, status: 'signed-in', me: null };
+const identity: RelayAccountSnapshot = { resolved: true, status: 'signed-in', me: null };
 const device = (id: string, extra: Partial<AccountDeviceInfo> = {}): AccountDeviceInfo => ({
   device_id: id, device_name: id, online: true, last_seen_at: null, ...extra,
 });

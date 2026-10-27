@@ -1420,7 +1420,19 @@ pub fn init_on_startup() {
                         log::warn!("Remote connect startup init failed: {error}");
                         return;
                     }
-                    match login_account_on_relay_for_generation(openbitfun_product_domains::account::DEFAULT_RELAY_URL.to_string(), Some(startup_generation)).await {
+                    // Local accounts cannot silently migrate across relays;
+                    // try refresh-token renewal, otherwise the user signs in
+                    // once with a verification code on the configured relay.
+                    let target = match configured_relay_url() {
+                        Ok(url) => url,
+                        Err(error) => {
+                            log::warn!("Invalid relay configuration: {error}");
+                            sync_account_login_capability(false);
+                            let _ = ensure_service().await;
+                            return;
+                        }
+                    };
+                    match refresh_relogin_on_relay(target).await {
                         Ok(_) => {
                             if let Err(error) = account_connect_devices_with_retry().await {
                                 log::warn!("New Relay routing failed: {error}");
@@ -1429,7 +1441,7 @@ pub fn init_on_startup() {
                         }
                         Err(error) => {
                             sync_account_login_capability(false);
-                            log::warn!("New Relay sign-in required; previous credential retained: {error}");
+                            log::warn!("Local sign-in required on the configured relay: {error}");
                             if let Err(error) = ensure_service().await {
                                 log::warn!("Remote connect startup init failed: {error}");
                             }
@@ -1998,8 +2010,11 @@ pub async fn remote_connect_start(
         ConnectionMethod::BotFeishu | ConnectionMethod::BotTelegram | ConnectionMethod::BotWeixin
     ) {
         // IM transports also require the signed-in account before pairing.
+        // Local sign-in needs a verification code, so automatic startup can
+        // only renew from the persisted refresh token.
         if read_account_context().await.is_err() {
-            account_login(AccountAuthRequest {}).await?;
+            let relay_url = configured_relay_url()?;
+            refresh_relogin_on_relay(relay_url).await?;
         }
         let generation = account_context_generation();
         let _account_guard = lock_account_operation(generation).await?;
@@ -2027,7 +2042,7 @@ pub async fn remote_connect_start(
     let result = async {
         let current_url = read_account_context().await.ok().map(|(_, url)| url);
         if current_url.as_deref() != Some(relay_url.as_str()) {
-            login_account_on_relay(relay_url).await?;
+            refresh_relogin_on_relay(relay_url).await?;
         }
         account_connect_devices().await?;
         let holder = get_service_holder().read().await;
@@ -2283,42 +2298,150 @@ pub struct AccountStatus {
     pub user_id: Option<String>,
 }
 
-/// Login uses the shared GitHub credential; no per-Relay credentials or URL.
+/// Local relay sign-in: an SMS `code` (registering on first use) or the
+/// account's optional `password`. Exactly one of the two.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AccountAuthRequest {}
+pub struct AccountAuthRequest {
+    pub phone: String,
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(default)]
+    pub password: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountSmsSendRequest {
+    pub phone: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountSetPasswordRequest {
+    pub new_password: String,
+}
 
 fn current_device_identity() -> Result<DeviceIdentity, String> {
     DeviceIdentity::from_current_machine().map_err(|e| format!("detect device: {e}"))
 }
 
-/// Persist the in-memory account session so restart restores login.
-async fn persist_account_session(device_id: Option<&str>) -> Result<(), String> {
+/// Persist the in-memory account session so restart restores login. The
+/// relay-local refresh token is stored alongside so an expired device token
+/// renews silently instead of demanding a new SMS code.
+async fn persist_account_session(
+    device_id: Option<&str>,
+    refresh_token: Option<&str>,
+) -> Result<(), String> {
     // Login installs the context while its transition permit is still held;
     // this internal persistence step intentionally reads that staged value.
     let (session, relay_url) = read_account_context_raw().await?;
-    session_store::save_session_with_device(
+    session_store::save_session_with_device_and_refresh(
         &session.token,
         &session.user_id,
         &session.master_key,
         &relay_url,
         device_id,
+        refresh_token,
     )
     .map_err(|e| format!("persist session: {e}"))
 }
 
 #[tauri::command]
-pub async fn account_login(_request: AccountAuthRequest) -> Result<AccountLoginResult, String> {
-    login_account_on_relay(openbitfun_product_domains::account::DEFAULT_RELAY_URL.to_string()).await
+pub async fn account_sms_send(request: AccountSmsSendRequest) -> Result<(), String> {
+    let relay_url = configured_relay_url()?;
+    AccountClient::new()
+        .local_sms_send(&relay_url, &request.phone)
+        .await
+        .map_err(|e| format!("{e}"))
 }
 
-async fn login_account_on_relay(relay_url: String) -> Result<AccountLoginResult, String> {
-    login_account_on_relay_for_generation(relay_url, None).await
+/// Renew an expired device token from the persisted refresh token. Used
+/// before prompting the user for a fresh SMS-code sign-in.
+#[tauri::command]
+pub async fn account_refresh_relogin() -> Result<AccountLoginResult, String> {
+    let relay_url = configured_relay_url()?;
+    refresh_relogin_on_relay(relay_url).await
+}
+
+/// Refresh-token renewal against one specific relay. There is no silently
+/// reusable account credential anymore, so every automatic re-login path
+/// funnels through this; failure means the user must sign in with a new SMS
+/// code.
+async fn refresh_relogin_on_relay(relay_url: String) -> Result<AccountLoginResult, String> {
+    let loaded = session_store::load_session_detailed()
+        .ok()
+        .flatten()
+        .ok_or_else(|| "no persisted session to renew".to_string())?;
+    let refresh_token = loaded
+        .refresh_token
+        .as_deref()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "session cannot be renewed without a refresh token".to_string())?
+        .to_string();
+    let client = AccountClient::new();
+    let pair = client
+        .refresh_local_pair(&relay_url, &refresh_token)
+        .await
+        .map_err(|e| format!("sign in again with a verification code: {e}"))?;
+    login_account_on_relay_for_generation(relay_url, None, Some(pair)).await
+}
+
+#[tauri::command]
+pub async fn account_set_password(request: AccountSetPasswordRequest) -> Result<(), String> {
+    let relay_url = configured_relay_url()?;
+    // The password update authorizes with a fresh access token; the caller
+    // must complete an SMS-code sign-in first.
+    let loaded = session_store::load_session_detailed()
+        .ok()
+        .flatten()
+        .ok_or_else(|| "sign in before setting a password".to_string())?;
+    let refresh_token = loaded
+        .refresh_token
+        .as_deref()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "sign in with a verification code first".to_string())?
+        .to_string();
+    let client = AccountClient::new();
+    let pair = client
+        .refresh_local_pair(&relay_url, &refresh_token)
+        .await
+        .map_err(|e| format!("{e}"))?;
+    client
+        .local_set_password(&relay_url, &pair.access_token, &request.new_password)
+        .await
+        .map_err(|e| format!("{e}"))
+}
+
+#[tauri::command]
+pub async fn account_login(request: AccountAuthRequest) -> Result<AccountLoginResult, String> {
+    let relay_url = configured_relay_url()?;
+    let device = current_device_identity()?;
+    let client = AccountClient::new();
+    let pair = client
+        .local_sign_in(
+            &relay_url,
+            &request.phone,
+            request.code.as_deref(),
+            request.password.as_deref(),
+        )
+        .await
+        .map_err(|e| format!("{e}"))?;
+    let _ = device;
+    login_account_on_relay_for_generation(relay_url, None, Some(pair)).await
+}
+
+fn configured_relay_url() -> Result<String, String> {
+    openbitfun_services_integrations::remote_connect::account::configured_relay_url()
+        .map_err(|e| format!("{e}"))
 }
 
 async fn login_account_on_relay_for_generation(
     relay_url: String,
     required_generation: Option<u64>,
+    pre_authenticated: Option<
+        openbitfun_services_integrations::remote_connect::account::LocalTokenPair,
+    >,
 ) -> Result<AccountLoginResult, String> {
     // Keep the old account fully usable while credentials are verified. Only a
     // successful candidate is allowed to begin the protected replacement
@@ -2330,8 +2453,10 @@ async fn login_account_on_relay_for_generation(
     }
     let device = current_device_identity()?;
     let client = AccountClient::new();
-    let (session, profile) = client
-        .login_with_identity(&relay_url, &device, DEVICE_KIND_DESKTOP)
+    let pre_authenticated =
+        pre_authenticated.ok_or_else(|| "sign-in credentials are required".to_string())?;
+    let (session, pair) = client
+        .exchange_local_access_token(&relay_url, &pre_authenticated, &device, DEVICE_KIND_DESKTOP)
         .await
         .map_err(|e| format!("{e}"))?;
 
@@ -2393,11 +2518,16 @@ async fn login_account_on_relay_for_generation(
         relay_url: relay_url.clone(),
     });
     // Persist non-secret credentials for next startup pre-fill
-    save_credential_hint(&profile.login, &relay_url);
+    save_credential_hint(&pair.user.phone_masked, &relay_url);
     // Reset the token-expired flag on fresh login
     TOKEN_EXPIRED.store(false, std::sync::atomic::Ordering::Relaxed);
 
-    if let Err(e) = persist_account_session(Some(device.device_id.as_str())).await {
+    if let Err(e) = persist_account_session(
+        Some(device.device_id.as_str()),
+        Some(pair.refresh_token.as_str()),
+    )
+    .await
+    {
         log::warn!("Failed to persist session: {e}");
     }
     register_delegated_identity_providers().await;
@@ -2509,12 +2639,8 @@ async fn clear_account_login_state(revoke_relay_token: bool) {
 }
 
 #[tauri::command]
-pub async fn account_logout(app: tauri::AppHandle) -> Result<(), String> {
-    let mut identity = openbitfun_services_integrations::account_identity::AccountIdentityClient::from_environment()
-        .await.map_err(|error| error.to_string())?;
-    identity.logout().await.map_err(|error| error.to_string())?;
+pub async fn account_logout(_app: tauri::AppHandle) -> Result<(), String> {
     clear_account_login(true).await;
-    super::account_identity_api::emit_identity_changed(&app, "signed-out");
     log::info!("Account logged out");
     Ok(())
 }
@@ -3365,9 +3491,8 @@ pub async fn peer_psk_complete(
     if code.is_empty() {
         return Err("pairing code is required".to_string());
     }
-    let payload =
-        openbitfun_core::service::remote_connect::pairing::parse_psk_pairing_code(code)
-            .map_err(|e| format!("invalid pairing code: {e}"))?;
+    let payload = openbitfun_core::service::remote_connect::pairing::parse_psk_pairing_code(code)
+        .map_err(|e| format!("invalid pairing code: {e}"))?;
     let (session, relay_url) = read_account_context().await?;
     let identity = DeviceIdentity::from_current_machine().map_err(|e| format!("{e}"))?;
     let directory_key = session
@@ -3449,16 +3574,10 @@ pub async fn peer_psk_remove(request: PeerPskRemoveRequest) -> Result<bool, Stri
 /// Pairing entries for the logged-in account, without the secrets.
 #[tauri::command]
 pub async fn peer_psk_list(
-) -> Result<
-    Vec<openbitfun_core::service::remote_connect::psk_store::PeerPskListing>,
-    String,
-> {
+) -> Result<Vec<openbitfun_core::service::remote_connect::psk_store::PeerPskListing>, String> {
     let (session, relay_url) = read_account_context().await?;
-    openbitfun_core::service::remote_connect::psk_store::list_entries(
-        &relay_url,
-        &session.user_id,
-    )
-    .map_err(|e| format!("{e}"))
+    openbitfun_core::service::remote_connect::psk_store::list_entries(&relay_url, &session.user_id)
+        .map_err(|e| format!("{e}"))
 }
 
 /// Result of an auto-sync operation, returned to the frontend.

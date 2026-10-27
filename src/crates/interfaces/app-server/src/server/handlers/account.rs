@@ -17,17 +17,8 @@ pub(in crate::server) fn builder(
             management_handler!(
                 management,
                 ACCOUNT_CAPABILITY,
-                AccountGitHubStartRequest,
-                account_github_start
-            ),
-            agent_client_protocol::on_receive_request!(),
-        )
-        .on_receive_request(
-            management_handler!(
-                management,
-                ACCOUNT_CAPABILITY,
-                AccountGitHubPollRequest,
-                account_github_poll
+                AccountSmsSendRequest,
+                account_sms_send
             ),
             agent_client_protocol::on_receive_request!(),
         )

@@ -43,9 +43,7 @@ use ratatui::{
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::account::{
-    account_login_status_message, account_snapshot_projection, redact_login_error,
-};
+use crate::account::{account_login_status_message, account_snapshot_projection};
 use crate::agent::runtime_client::{CliAgentMode as TuiAgentMode, CliAgentRuntimeClient};
 use crate::model_selection::{
     model_catalog_projection, model_edit_projection, model_from_mutation, model_list_projection,
@@ -1398,7 +1396,30 @@ impl StartupPage {
         });
         match logged_in {
             Ok(snapshot) if snapshot.logged_in => self.open_account_panel(snapshot),
-            Ok(_) => self.login_form.show(),
+            Ok(_) => {
+                // A rejected device token may still have a usable refresh
+                // token: try one silent renewal before asking for credentials.
+                if let Some(login) = self.try_renew_expired_session() {
+                    self.status = Some(account_login_status_message(&login));
+                    let renewed = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            let account = self.account_runtime.as_ref().ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "Account management is unavailable for this TUI Host"
+                                )
+                            })?;
+                            Ok::<_, anyhow::Error>(account_snapshot_projection(
+                                account.snapshot().await,
+                            ))
+                        })
+                    });
+                    if let Ok(snapshot) = renewed {
+                        self.open_account_panel(snapshot);
+                        return;
+                    }
+                }
+                self.login_form.show();
+            }
             Err(error) => {
                 tracing::warn!(
                     "Failed to load account: {}",
@@ -1409,6 +1430,34 @@ impl StartupPage {
                     "Failed to load account: {}",
                     crate::account_guidance::account_failure_line(&error.to_string())
                 ));
+            }
+        }
+    }
+
+    /// Session-expiry path: attempt one silent renewal from the persisted
+    /// refresh token. `None` means the user must sign in with new credentials.
+    fn try_renew_expired_session(
+        &self,
+    ) -> Option<openbitfun_core::service::remote_connect::account_runtime::AccountLoginResult> {
+        let renewal = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let account = self.account_runtime.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("Account management is unavailable for this TUI Host")
+                })?;
+                if !account.is_token_expired() {
+                    return Ok(None);
+                }
+                account.try_refresh_relogin().await.map(Some)
+            })
+        });
+        match renewal {
+            Ok(result) => result,
+            Err(error) => {
+                tracing::warn!(
+                    "Session renewal failed: {}",
+                    crate::account::bounded_account_error(&error.to_string())
+                );
+                None
             }
         }
     }
@@ -1426,38 +1475,36 @@ impl StartupPage {
 
     fn handle_login_form_action(&mut self, action: LoginFormAction) -> Option<StartupResult> {
         match action {
-            LoginFormAction::Submit(transaction_id) => {
+            LoginFormAction::RequestCode { phone } => {
                 let result = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
                         let account = self.account_runtime.as_ref().ok_or_else(|| {
                             anyhow::anyhow!("Account management is unavailable for this TUI Host")
                         })?;
-                        account.advance_github_login(transaction_id).await
+                        account.local_sms_send(&phone).await
                     })
                 });
-                use openbitfun_core::service::remote_connect::account_runtime::AccountLoginProgress;
                 match result {
-                    Ok(AccountLoginProgress::Authorization(authorization)) => {
-                        self.login_form.set_authorization(authorization)
-                    }
-                    Ok(AccountLoginProgress::Waiting) => self.login_form.set_status(
-                        "Waiting for sign-in. Complete it in your browser, then press Enter.",
-                    ),
-                    Ok(AccountLoginProgress::Complete(login)) => {
-                        self.status = Some(account_login_status_message(&login));
-                        self.show_login_form();
-                    }
+                    Ok(()) => self.login_form.set_status(format!(
+                        "Verification code sent to {phone}. Enter the code, then press Enter."
+                    )),
                     Err(error) => {
                         tracing::warn!(
-                            "Login failed: {}",
+                            "SMS code request failed: {}",
                             crate::account::bounded_account_error(&error.to_string())
                         );
                         self.login_form.set_error(format!(
-                            "Login failed: {}",
-                            crate::account_guidance::account_failure_line(&error.to_string())
-                        ))
+                            "Could not send the verification code: {}",
+                            crate::account::bounded_account_error(&error.to_string())
+                        ));
                     }
                 }
+            }
+            LoginFormAction::LoginWithCode { phone, code } => {
+                self.complete_local_login(phone, Some(code), None)
+            }
+            LoginFormAction::LoginWithPassword { phone, password } => {
+                self.complete_local_login(phone, None, Some(password))
             }
             LoginFormAction::Logout => {
                 match tokio::task::block_in_place(|| {
@@ -1493,6 +1540,45 @@ impl StartupPage {
             LoginFormAction::None => {}
         }
         None
+    }
+
+    /// Sign in with the collected relay-local credentials and adopt the new
+    /// account panel state. Runtime errors (cooldowns, closed registration,
+    /// SMS outages) are surfaced verbatim so the user can act on them.
+    fn complete_local_login(
+        &mut self,
+        phone: String,
+        code: Option<String>,
+        password: Option<String>,
+    ) {
+        let result = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let account = self.account_runtime.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("Account management is unavailable for this TUI Host")
+                })?;
+                account
+                    .login_with_local_credentials(&phone, code.as_deref(), password.as_deref())
+                    .await
+            })
+        });
+        // Never let a password-bearing transport detail reach logs or the UI.
+        let result = result.map_err(
+            |error| match password.as_deref().filter(|s| !s.is_empty()) {
+                Some(secret) => crate::account::redact_login_error(error, [secret, "", ""]),
+                None => error,
+            },
+        );
+        match result {
+            Ok(login) => {
+                self.status = Some(account_login_status_message(&login));
+                self.show_login_form();
+            }
+            Err(error) => {
+                let detail = crate::account::bounded_account_error(&error.to_string());
+                tracing::warn!("Login failed: {detail}");
+                self.login_form.set_error(format!("Login failed: {detail}"));
+            }
+        }
     }
 
     fn show_session_selector(&mut self) {

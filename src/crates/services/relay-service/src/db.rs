@@ -23,9 +23,41 @@ const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS users (
   user_id            TEXT PRIMARY KEY,
   username           TEXT UNIQUE NOT NULL,
+  password_hash      TEXT,
+  failed_attempts    INTEGER NOT NULL DEFAULT 0,
+  locked_until       INTEGER NOT NULL DEFAULT 0,
   created_at         INTEGER NOT NULL,
   updated_at         INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS phone_identities (
+  phone       TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL UNIQUE REFERENCES users(user_id) ON DELETE CASCADE,
+  verified_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS local_auth_tokens (
+  token_hash TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  token_kind TEXT NOT NULL,
+  family_id  TEXT NOT NULL,
+  rotated_at INTEGER,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_local_auth_tokens_user ON local_auth_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_local_auth_tokens_family ON local_auth_tokens(family_id);
+CREATE TABLE IF NOT EXISTS sms_codes (
+  phone       TEXT PRIMARY KEY,
+  code_hash   TEXT NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  consumed_at INTEGER,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sms_sends (
+  phone    TEXT NOT NULL,
+  sent_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sms_sends_phone_time ON sms_sends(phone, sent_at);
 CREATE TABLE IF NOT EXISTS devices (
   device_id    TEXT NOT NULL,
   user_id      TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -159,6 +191,15 @@ const MIGRATE_DEVICE_CLIENT_BUILD: [&str; 2] = [
     "ALTER TABLE devices ADD COLUMN client_protocol INTEGER",
 ];
 
+/// Local-account credential columns. Databases from the retired
+/// GitHub-authority mode keep their rows; the new columns start NULL/zero and
+/// an operator can bind a phone identity to a legacy row via relay-admin.
+const MIGRATE_USERS_LOCAL_CREDENTIALS: [&str; 3] = [
+    "ALTER TABLE users ADD COLUMN password_hash TEXT",
+    "ALTER TABLE users ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN locked_until INTEGER NOT NULL DEFAULT 0",
+];
+
 /// Open (or create) the SQLite database and ensure the schema exists.
 pub async fn connect(db_path: &str) -> Result<DbPool> {
     connect_with_presence_reset(db_path, true).await
@@ -260,6 +301,13 @@ async fn connect_with_presence_reset(db_path: &str, reset_presence: bool) -> Res
             }
         }
     }
+    for migration in MIGRATE_USERS_LOCAL_CREDENTIALS {
+        if let Err(error) = sqlx::query(migration).execute(&pool).await {
+            if !error.to_string().contains("duplicate column name") {
+                return Err(anyhow!("migrate local user credentials: {error}"));
+            }
+        }
+    }
     sqlx::query(
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_tokens_request_id \
          ON auth_tokens(request_id) WHERE request_id IS NOT NULL",
@@ -274,6 +322,22 @@ async fn connect_with_presence_reset(db_path: &str, reset_presence: bool) -> Res
         .execute(&pool)
         .await
         .map_err(|e| anyhow!("clean expired auth tokens: {e}"))?;
+    sqlx::query("DELETE FROM local_auth_tokens WHERE expires_at <= ?")
+        .bind(now)
+        .execute(&pool)
+        .await
+        .map_err(|e| anyhow!("clean expired local auth tokens: {e}"))?;
+    sqlx::query("DELETE FROM sms_codes WHERE expires_at <= ?")
+        .bind(now)
+        .execute(&pool)
+        .await
+        .map_err(|e| anyhow!("clean expired sms codes: {e}"))?;
+    // Keep one week of send history for the per-phone daily cap audit trail.
+    sqlx::query("DELETE FROM sms_sends WHERE sent_at <= ?")
+        .bind(now - 7 * 24 * 3600)
+        .execute(&pool)
+        .await
+        .map_err(|e| anyhow!("clean sms send history: {e}"))?;
     if reset_presence {
         // Online presence is owned by the in-memory connection registry. A
         // fresh *server* process has no live sockets, so never carry stale
@@ -444,8 +508,65 @@ async fn migrate_account_scoped_devices(pool: &DbPool) -> Result<()> {
 pub struct UserRow {
     pub user_id: String,
     pub username: String,
+    /// Optional Argon2id PHC string. SMS-code accounts may never set one.
+    pub password_hash: Option<String>,
+    pub failed_attempts: i64,
+    pub locked_until: i64,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+/// Consecutive password failures before the account locks, and the lock
+/// schedule after that. SMS-code login is unaffected: it proves phone
+/// possession on every use and has its own per-code attempt budget.
+const PASSWORD_LOCKOUT_ATTEMPTS: i64 = 5;
+const PASSWORD_LOCKOUT_BASE_SECS: i64 = 15 * 60;
+const PASSWORD_LOCKOUT_MAX_SECS: i64 = 24 * 3600;
+
+pub fn password_lockout_until(failed_attempts: i64, now: i64) -> i64 {
+    if failed_attempts < PASSWORD_LOCKOUT_ATTEMPTS {
+        return 0;
+    }
+    let shift = (failed_attempts - PASSWORD_LOCKOUT_ATTEMPTS).min(12) as u32;
+    now + (PASSWORD_LOCKOUT_BASE_SECS.saturating_mul(1 << shift)).min(PASSWORD_LOCKOUT_MAX_SECS)
+}
+
+/// A mainland-China mobile number: 11 digits starting 1[3-9]. Normalized form
+/// drops an optional +86/86 prefix, spaces, and dashes before validation.
+pub fn normalize_phone(raw: &str) -> Option<String> {
+    let trimmed: String = raw
+        .trim()
+        .chars()
+        .filter(|c| !c.is_whitespace() && *c != '-')
+        .collect();
+    let digits = trimmed
+        .strip_prefix("+86")
+        .or_else(|| trimmed.strip_prefix("86").filter(|rest| rest.len() == 11))
+        .unwrap_or(trimmed.as_str());
+    if digits.len() == 11
+        && digits.starts_with('1')
+        && digits[1..].starts_with(|c| ('3'..='9').contains(&c))
+        && digits.bytes().all(|b| b.is_ascii_digit())
+    {
+        Some(digits.to_string())
+    } else {
+        None
+    }
+}
+
+/// `138****1234`-style display form. Never expose a full phone number in API
+/// responses; the full number only travels in the verify/login requests.
+pub fn mask_phone(phone: &str) -> String {
+    let chars: Vec<char> = phone.chars().collect();
+    if chars.len() == 11 {
+        format!(
+            "{}****{}",
+            chars[..3].iter().collect::<String>(),
+            chars[7..].iter().collect::<String>()
+        )
+    } else {
+        "***".to_string()
+    }
 }
 
 impl UserRow {
@@ -456,9 +577,142 @@ impl UserRow {
         let user = sqlx::query_as::<_, UserRow>(
             "INSERT INTO users (user_id, username, created_at, updated_at) VALUES (?, ?, ?, ?) \
              ON CONFLICT(user_id) DO UPDATE SET username = excluded.username, updated_at = excluded.updated_at \
-             RETURNING user_id, username, created_at, updated_at",
+             RETURNING user_id, username, password_hash, failed_attempts, locked_until, created_at, updated_at",
         ).bind(user_id).bind(username).bind(now).bind(now).fetch_one(pool).await?;
         Ok(user)
+    }
+
+    /// Create a local phone-verified account. The username is a generated
+    /// handle (never the phone number) because usernames appear in public
+    /// Page URLs; the verified phone owns the identity mapping instead.
+    pub async fn create_local_with_phone(pool: &DbPool, phone: &str) -> Result<UserRow> {
+        let now = Utc::now().timestamp();
+        let mut tx = pool
+            .begin()
+            .await
+            .map_err(|e| anyhow!("begin local account: {e}"))?;
+        let user_id = format!("local-{}", hex_random(16));
+        // A colliding handle is astronomically unlikely but must still retry,
+        // because username is UNIQUE.
+        let mut username = format!("u-{}", hex_random(6));
+        for _ in 0..5 {
+            let inserted = sqlx::query(
+                "INSERT INTO users (user_id, username, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            )
+            .bind(&user_id)
+            .bind(&username)
+            .bind(now)
+            .bind(now)
+            .execute(&mut *tx)
+            .await;
+            match inserted {
+                Ok(_) => break,
+                Err(error) if error.to_string().contains("UNIQUE") => {
+                    username = format!("u-{}", hex_random(6));
+                    continue;
+                }
+                Err(error) => return Err(anyhow!("create local user: {error}")),
+            }
+        }
+        sqlx::query("INSERT INTO phone_identities (phone, user_id, verified_at) VALUES (?, ?, ?)")
+            .bind(phone)
+            .bind(&user_id)
+            .bind(now)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| anyhow!("create phone identity: {e}"))?;
+        tx.commit()
+            .await
+            .map_err(|e| anyhow!("commit local account: {e}"))?;
+        Ok(UserRow {
+            user_id,
+            username,
+            password_hash: None,
+            failed_attempts: 0,
+            locked_until: 0,
+            created_at: now,
+            updated_at: now,
+        })
+    }
+
+    pub async fn find_by_phone(pool: &DbPool, phone: &str) -> Result<Option<UserRow>> {
+        Ok(sqlx::query_as::<_, UserRow>(
+            "SELECT u.user_id, u.username, u.password_hash, u.failed_attempts, u.locked_until, \
+             u.created_at, u.updated_at FROM users u JOIN phone_identities p ON p.user_id = u.user_id \
+             WHERE p.phone = ?",
+        )
+        .bind(phone)
+        .fetch_optional(pool)
+        .await?)
+    }
+
+    /// Bind a verified phone to an existing (possibly GitHub-era) user row so
+    /// legacy accounts keep their devices and Pages after the operator moves
+    /// them onto local sign-in.
+    pub async fn bind_phone_identity(pool: &DbPool, user_id: &str, phone: &str) -> Result<()> {
+        let now = Utc::now().timestamp();
+        sqlx::query(
+            "INSERT INTO phone_identities (phone, user_id, verified_at) VALUES (?, ?, ?) \
+             ON CONFLICT(phone) DO UPDATE SET user_id = excluded.user_id, verified_at = excluded.verified_at",
+        )
+        .bind(phone)
+        .bind(user_id)
+        .bind(now)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("bind phone identity: {e}"))?;
+        Ok(())
+    }
+
+    pub async fn set_password_hash(pool: &DbPool, user_id: &str, hash: &str) -> Result<()> {
+        let now = Utc::now().timestamp();
+        sqlx::query(
+            "UPDATE users SET password_hash = ?, failed_attempts = 0, locked_until = 0, \
+             updated_at = ? WHERE user_id = ?",
+        )
+        .bind(hash)
+        .bind(now)
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("set password hash: {e}"))?;
+        Ok(())
+    }
+
+    /// Record one wrong password and return the new lock deadline (0 = open).
+    pub async fn record_password_failure(pool: &DbPool, user_id: &str) -> Result<i64> {
+        let now = Utc::now().timestamp();
+        let row = sqlx::query_as::<_, (i64, i64)>(
+            "UPDATE users SET failed_attempts = failed_attempts + 1, updated_at = ? \
+             WHERE user_id = ? RETURNING failed_attempts, 0",
+        )
+        .bind(now)
+        .bind(user_id)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| anyhow!("record password failure: {e}"))?;
+        let deadline = password_lockout_until(row.0, now);
+        if deadline > 0 {
+            sqlx::query("UPDATE users SET locked_until = ? WHERE user_id = ?")
+                .bind(deadline)
+                .bind(user_id)
+                .execute(pool)
+                .await
+                .map_err(|e| anyhow!("lock account: {e}"))?;
+        }
+        Ok(deadline)
+    }
+
+    pub async fn clear_password_failures(pool: &DbPool, user_id: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE users SET failed_attempts = 0, locked_until = 0, updated_at = ? WHERE user_id = ?",
+        )
+        .bind(Utc::now().timestamp())
+        .bind(user_id)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("clear password failures: {e}"))?;
+        Ok(())
     }
 
     #[cfg(test)]
@@ -469,7 +723,7 @@ impl UserRow {
 
     pub async fn find_by_username(pool: &DbPool, username: &str) -> Result<Option<UserRow>> {
         Ok(sqlx::query_as::<_, UserRow>(
-            "SELECT user_id, username, created_at, updated_at FROM users WHERE username = ?",
+            "SELECT user_id, username, password_hash, failed_attempts, locked_until, created_at, updated_at FROM users WHERE username = ?",
         )
         .bind(username)
         .fetch_optional(pool)
@@ -478,7 +732,7 @@ impl UserRow {
 
     pub async fn find_by_user_id(pool: &DbPool, user_id: &str) -> Result<Option<UserRow>> {
         Ok(sqlx::query_as::<_, UserRow>(
-            "SELECT user_id, username, created_at, updated_at FROM users WHERE user_id = ?",
+            "SELECT user_id, username, password_hash, failed_attempts, locked_until, created_at, updated_at FROM users WHERE user_id = ?",
         )
         .bind(user_id)
         .fetch_optional(pool)
@@ -536,6 +790,21 @@ impl UserRow {
             .execute(pool)
             .await
             .map_err(|e| anyhow!("delete auth_tokens: {e}"))?;
+        sqlx::query("DELETE FROM local_auth_tokens WHERE user_id = ?")
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("delete local_auth_tokens: {e}"))?;
+        sqlx::query("DELETE FROM sms_codes WHERE phone IN (SELECT phone FROM phone_identities WHERE user_id = ?)")
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("delete sms_codes: {e}"))?;
+        sqlx::query("DELETE FROM sms_sends WHERE phone IN (SELECT phone FROM phone_identities WHERE user_id = ?)")
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("delete sms_sends: {e}"))?;
         sqlx::query("DELETE FROM devices WHERE user_id = ?")
             .bind(user_id)
             .execute(pool)
@@ -1202,6 +1471,11 @@ fn generate_token() -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn hex_random(bytes: usize) -> String {
+    let buffer: Vec<u8> = (0..bytes).map(|_| rand::random::<u8>()).collect();
+    buffer.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Account tokens are fixed-size lowercase hexadecimal bearer secrets. Check
 /// the shape before hitting SQLite so oversized or malformed untrusted input
 /// cannot become a database lookup key.
@@ -1210,6 +1484,422 @@ pub fn is_valid_auth_token(token: &str) -> bool {
         && token
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Provision (or reuse) the owner device of a process-local embedded relay.
+///
+/// The embedded LAN Relay has no SMS transport, so its owner account cannot
+/// be created through the public sign-in flow. The host that owns the relay
+/// process mints its owner session here, using the account identity it
+/// already authenticated with on its configured relay so LAN control keeps
+/// same-account semantics. Not exposed over HTTP.
+pub async fn provision_embedded_owner_device(
+    pool: &DbPool,
+    user_id: &str,
+    username: &str,
+    device_id: &str,
+    device_name: &str,
+    public_key: &str,
+) -> Result<String> {
+    UserRow::upsert_verified(pool, user_id, username).await?;
+    DeviceRow::upsert(
+        pool,
+        device_id,
+        user_id,
+        device_name,
+        None,
+        Some(public_key),
+    )
+    .await?;
+    Ok(AuthToken::create(pool, user_id, device_id).await?.token)
+}
+
+// ── Local account tokens (SMS/password sign-in) ─────────────────────────
+
+pub const LOCAL_ACCESS_TOKEN_TTL_SECS: i64 = 15 * 60;
+pub const LOCAL_REFRESH_TOKEN_TTL_SECS: i64 = 30 * 24 * 3600;
+
+/// Shape check for local account bearer tokens: same 64-char lowercase hex
+/// form as device tokens, so untrusted input never becomes a lookup key.
+pub fn is_valid_local_token(token: &str) -> bool {
+    is_valid_auth_token(token)
+}
+
+/// SHA-256 of the raw token. Local sign-in tokens are stored only in this
+/// digested form, unlike legacy device tokens that double as row keys.
+pub fn hash_local_token(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(token.as_bytes());
+    digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct LocalAuthToken {
+    pub token_hash: String,
+    pub user_id: String,
+    pub token_kind: String,
+    pub family_id: String,
+    pub rotated_at: Option<i64>,
+    pub created_at: i64,
+    pub expires_at: i64,
+}
+
+pub const LOCAL_TOKEN_ACCESS: &str = "access";
+pub const LOCAL_TOKEN_REFRESH: &str = "refresh";
+
+/// An issued local sign-in pair. `access` is exchanged for a device token at
+/// `/api/auth/login`; `refresh` rotates the pair when the device token dies.
+pub struct LocalTokenPair {
+    pub user_id: String,
+    pub access_token: String,
+    pub access_expires_at: i64,
+    pub refresh_token: String,
+    pub refresh_expires_at: i64,
+    pub family_id: String,
+}
+
+impl LocalAuthToken {
+    /// Mint a fresh access/refresh pair under a new family.
+    pub async fn issue_pair(pool: &DbPool, user_id: &str) -> Result<LocalTokenPair> {
+        let now = Utc::now().timestamp();
+        let family_id = uuid::Uuid::new_v4().to_string();
+        let access_token = generate_token();
+        let refresh_token = generate_token();
+        let access_expires_at = now + LOCAL_ACCESS_TOKEN_TTL_SECS;
+        let refresh_expires_at = now + LOCAL_REFRESH_TOKEN_TTL_SECS;
+        for (token, kind, expires_at) in [
+            (&access_token, LOCAL_TOKEN_ACCESS, access_expires_at),
+            (&refresh_token, LOCAL_TOKEN_REFRESH, refresh_expires_at),
+        ] {
+            sqlx::query(
+                "INSERT INTO local_auth_tokens (token_hash, user_id, token_kind, family_id, created_at, expires_at) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(hash_local_token(token))
+            .bind(user_id)
+            .bind(kind)
+            .bind(&family_id)
+            .bind(now)
+            .bind(expires_at)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("issue local token: {e}"))?;
+        }
+        Ok(LocalTokenPair {
+            user_id: user_id.to_string(),
+            access_token,
+            access_expires_at,
+            refresh_token,
+            refresh_expires_at,
+            family_id,
+        })
+    }
+
+    /// Look up an active (unrotated, unexpired) access token by raw value.
+    pub async fn find_access(pool: &DbPool, token: &str) -> Result<Option<LocalAuthToken>> {
+        Self::find_active(pool, token, LOCAL_TOKEN_ACCESS).await
+    }
+
+    async fn find_active(pool: &DbPool, token: &str, kind: &str) -> Result<Option<LocalAuthToken>> {
+        if !is_valid_local_token(token) {
+            return Ok(None);
+        }
+        let row = sqlx::query_as::<_, LocalAuthToken>(
+            "SELECT token_hash, user_id, token_kind, family_id, rotated_at, created_at, expires_at \
+             FROM local_auth_tokens WHERE token_hash = ? AND token_kind = ?",
+        )
+        .bind(hash_local_token(token))
+        .bind(kind)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("find local token: {e}"))?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        if row.rotated_at.is_some() || row.expires_at <= Utc::now().timestamp() {
+            return Ok(None);
+        }
+        Ok(Some(row))
+    }
+
+    /// Find a refresh row regardless of state, for replay detection.
+    async fn find_refresh_any_state(pool: &DbPool, token: &str) -> Result<Option<LocalAuthToken>> {
+        if !is_valid_local_token(token) {
+            return Ok(None);
+        }
+        Ok(sqlx::query_as::<_, LocalAuthToken>(
+            "SELECT token_hash, user_id, token_kind, family_id, rotated_at, created_at, expires_at \
+             FROM local_auth_tokens WHERE token_hash = ? AND token_kind = ?",
+        )
+        .bind(hash_local_token(token))
+        .bind(LOCAL_TOKEN_REFRESH)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("find local refresh token: {e}"))?)
+    }
+
+    pub async fn revoke_family(pool: &DbPool, family_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM local_auth_tokens WHERE family_id = ?")
+            .bind(family_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("revoke local token family: {e}"))?;
+        Ok(())
+    }
+
+    /// Drop every refresh token of this user except the given family. Used on
+    /// password change: other signed-in devices must re-verify, while the
+    /// session that made the change stays alive.
+    pub async fn revoke_user_refresh_except_family(
+        pool: &DbPool,
+        user_id: &str,
+        keep_family: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "DELETE FROM local_auth_tokens WHERE user_id = ? AND token_kind = ? AND family_id != ?",
+        )
+        .bind(user_id)
+        .bind(LOCAL_TOKEN_REFRESH)
+        .bind(keep_family)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("revoke user refresh tokens: {e}"))?;
+        Ok(())
+    }
+
+    pub async fn revoke_all_for_user(pool: &DbPool, user_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM local_auth_tokens WHERE user_id = ?")
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("revoke all local tokens: {e}"))?;
+        Ok(())
+    }
+
+    /// Consume a refresh token and mint the next pair in the same family.
+    ///
+    /// A refresh token that was already rotated marks a stolen-token replay:
+    /// the whole family is revoked so both the thief and the victim must sign
+    /// in again with a fresh SMS-code proof.
+    pub async fn rotate_refresh(pool: &DbPool, token: &str) -> Result<Option<LocalTokenPair>> {
+        let Some(row) = Self::find_refresh_any_state(pool, token).await? else {
+            return Ok(None);
+        };
+        if row.rotated_at.is_some() {
+            Self::revoke_family(pool, &row.family_id).await?;
+            return Ok(None);
+        }
+        let now = Utc::now().timestamp();
+        let consumed = sqlx::query(
+            "UPDATE local_auth_tokens SET rotated_at = ? \
+             WHERE token_hash = ? AND token_kind = ? AND rotated_at IS NULL",
+        )
+        .bind(now)
+        .bind(&row.token_hash)
+        .bind(LOCAL_TOKEN_REFRESH)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("rotate local refresh token: {e}"))?;
+        if consumed.rows_affected() == 0 {
+            // Lost a race with a concurrent rotation: treat as replay.
+            Self::revoke_family(pool, &row.family_id).await?;
+            return Ok(None);
+        }
+        if row.expires_at <= now {
+            Self::revoke_family(pool, &row.family_id).await?;
+            return Ok(None);
+        }
+        // Retire the family's outstanding access tokens too: they are short
+        // lived, but a rotation should immediately supersede them.
+        sqlx::query(
+            "UPDATE local_auth_tokens SET rotated_at = ? WHERE family_id = ? AND token_kind = ?",
+        )
+        .bind(now)
+        .bind(&row.family_id)
+        .bind(LOCAL_TOKEN_ACCESS)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("retire rotated access tokens: {e}"))?;
+        let access_token = generate_token();
+        let refresh_token = generate_token();
+        let access_expires_at = now + LOCAL_ACCESS_TOKEN_TTL_SECS;
+        let refresh_expires_at = now + LOCAL_REFRESH_TOKEN_TTL_SECS;
+        for (token, kind, expires_at) in [
+            (&access_token, LOCAL_TOKEN_ACCESS, access_expires_at),
+            (&refresh_token, LOCAL_TOKEN_REFRESH, refresh_expires_at),
+        ] {
+            sqlx::query(
+                "INSERT INTO local_auth_tokens (token_hash, user_id, token_kind, family_id, created_at, expires_at) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(hash_local_token(token))
+            .bind(&row.user_id)
+            .bind(kind)
+            .bind(&row.family_id)
+            .bind(now)
+            .bind(expires_at)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("issue rotated local token: {e}"))?;
+        }
+        Ok(Some(LocalTokenPair {
+            user_id: row.user_id,
+            access_token,
+            access_expires_at,
+            refresh_token,
+            refresh_expires_at,
+            family_id: row.family_id,
+        }))
+    }
+}
+
+// ── SMS verification codes ──────────────────────────────────────────────
+
+pub const SMS_CODE_TTL_SECS: i64 = 5 * 60;
+pub const SMS_CODE_MAX_ATTEMPTS: i64 = 5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SmsCodeCheck {
+    /// The code matched and was consumed; it cannot be used twice.
+    Accepted,
+    /// Wrong code; the attempt budget decreased.
+    Rejected { attempts_left: i64 },
+    /// Budget exhausted, expired, already used, or never issued.
+    Denied,
+}
+
+impl SmsCode {
+    /// Replace any outstanding code for this phone. One live code per phone
+    /// keeps resends simple: a new code invalidates the previous one.
+    pub async fn replace(
+        pool: &DbPool,
+        phone: &str,
+        code_hash: &str,
+        expires_at: i64,
+    ) -> Result<()> {
+        let now = Utc::now().timestamp();
+        sqlx::query(
+            "INSERT INTO sms_codes (phone, code_hash, attempts, consumed_at, created_at, expires_at) \
+             VALUES (?, ?, 0, NULL, ?, ?) \
+             ON CONFLICT(phone) DO UPDATE SET code_hash = excluded.code_hash, attempts = 0, \
+             consumed_at = NULL, created_at = excluded.created_at, expires_at = excluded.expires_at",
+        )
+        .bind(phone)
+        .bind(code_hash)
+        .bind(now)
+        .bind(expires_at)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("store sms code: {e}"))?;
+        Ok(())
+    }
+
+    pub async fn check_and_consume(
+        pool: &DbPool,
+        phone: &str,
+        code_hash: &str,
+    ) -> Result<SmsCodeCheck> {
+        let now = Utc::now().timestamp();
+        let row = sqlx::query_as::<_, (String, i64, Option<i64>, i64)>(
+            "SELECT code_hash, attempts, consumed_at, expires_at FROM sms_codes WHERE phone = ?",
+        )
+        .bind(phone)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("load sms code: {e}"))?;
+        let Some((stored_hash, attempts, consumed_at, expires_at)) = row else {
+            return Ok(SmsCodeCheck::Denied);
+        };
+        if consumed_at.is_some() || expires_at <= now || attempts >= SMS_CODE_MAX_ATTEMPTS {
+            return Ok(SmsCodeCheck::Denied);
+        }
+        if constant_time_eq(stored_hash.as_bytes(), code_hash.as_bytes()) {
+            sqlx::query("UPDATE sms_codes SET consumed_at = ? WHERE phone = ?")
+                .bind(now)
+                .bind(phone)
+                .execute(pool)
+                .await
+                .map_err(|e| anyhow!("consume sms code: {e}"))?;
+            return Ok(SmsCodeCheck::Accepted);
+        }
+        sqlx::query("UPDATE sms_codes SET attempts = attempts + 1 WHERE phone = ?")
+            .bind(phone)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("record sms code attempt: {e}"))?;
+        Ok(SmsCodeCheck::Rejected {
+            attempts_left: SMS_CODE_MAX_ATTEMPTS - attempts - 1,
+        })
+    }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SmsCode {
+    pub phone: String,
+    pub code_hash: String,
+    pub attempts: i64,
+    pub consumed_at: Option<i64>,
+    pub created_at: i64,
+    pub expires_at: i64,
+}
+
+pub const SMS_RESEND_COOLDOWN_SECS: i64 = 60;
+pub const SMS_DAILY_CAP_PER_PHONE: i64 = 10;
+
+impl SmsSend {
+    pub async fn record(pool: &DbPool, phone: &str) -> Result<()> {
+        sqlx::query("INSERT INTO sms_sends (phone, sent_at) VALUES (?, ?)")
+            .bind(phone)
+            .bind(Utc::now().timestamp())
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("record sms send: {e}"))?;
+        Ok(())
+    }
+
+    pub async fn sent_within(pool: &DbPool, phone: &str, secs: i64) -> Result<bool> {
+        let cutoff = Utc::now().timestamp() - secs;
+        let row = sqlx::query_as::<_, (i64,)>(
+            "SELECT count(*) FROM sms_sends WHERE phone = ? AND sent_at > ?",
+        )
+        .bind(phone)
+        .bind(cutoff)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| anyhow!("check sms cooldown: {e}"))?;
+        Ok(row.0 > 0)
+    }
+
+    pub async fn count_since(pool: &DbPool, phone: &str, since: i64) -> Result<i64> {
+        let row = sqlx::query_as::<_, (i64,)>(
+            "SELECT count(*) FROM sms_sends WHERE phone = ? AND sent_at >= ?",
+        )
+        .bind(phone)
+        .bind(since)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| anyhow!("count sms sends: {e}"))?;
+        Ok(row.0)
+    }
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SmsSend {
+    pub phone: String,
+    pub sent_at: i64,
+}
+
+/// Constant-time byte comparison for secret digests. Returns false for
+/// different-length inputs immediately — length is not secret here.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
 }
 
 // ── Pages (published static sites) ──────────────────────────────────────

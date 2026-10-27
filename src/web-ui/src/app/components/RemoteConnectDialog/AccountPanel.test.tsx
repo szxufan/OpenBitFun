@@ -5,18 +5,34 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AccountPanel } from './AccountPanel';
 import { useUpdateInstallStore } from '@/infrastructure/update/updateInstallStore';
 const mocks = vi.hoisted(() => ({
-  identity: { resolved: true, status: 'signed-in', me: { user: { githubId: 42, login: 'alice' } } } as { resolved: boolean; status: string; me: { user: { githubId: number; login: string } } | null },
-  reopenSignIn: vi.fn(),
-  getDeviceInfo: vi.fn(), accountStatus: vi.fn(), accountLogin: vi.fn(),
+  identity: { resolved: true, status: 'signed-in', me: { user: { id: '42', login: '138****0001', avatarUrl: '' } } } as { resolved: boolean; status: string; me: { user: { id: string; login: string; avatarUrl: string } } | null },
+  sendSmsCode: vi.fn(), signInWithCode: vi.fn(), signInWithPassword: vi.fn(),
+  relogin: vi.fn(), refresh: vi.fn(), logout: vi.fn(), setPassword: vi.fn(),
+  getDeviceInfo: vi.fn(), accountStatus: vi.fn(), accountRefreshRelogin: vi.fn(),
   accountRelayCapabilities: vi.fn(), accountUpdateDevice: vi.fn(),
   accountConnectDevices: vi.fn(), accountListDevices: vi.fn(),
   checkForUpdates: vi.fn(), installUpdate: vi.fn(),
   peerMode: { active: false } as { active: boolean },
   switchToDevice: vi.fn(), switchToLocal: vi.fn(),
-  t: (key: string) => key,
+  success: vi.fn(),
+  t: (key: string, params?: Record<string, unknown>) => (
+    params ? `${key}:${Object.values(params).join(',')}` : key
+  ),
 }));
 const presenceListeners = vi.hoisted(() => [] as Array<(payload: { devices: Array<Record<string, unknown>> }) => void>);
-vi.mock('@/infrastructure/account-identity', () => ({ useAccountIdentity: () => mocks.identity, accountIdentityService: { reopenSignIn: mocks.reopenSignIn } }));
+vi.mock('@/infrastructure/account-identity', () => ({
+  useAccountIdentity: () => mocks.identity,
+  relayAccountService: {
+    sendSmsCode: mocks.sendSmsCode,
+    signInWithCode: mocks.signInWithCode,
+    signInWithPassword: mocks.signInWithPassword,
+    relogin: mocks.relogin,
+    refresh: mocks.refresh,
+    logout: mocks.logout,
+    setPassword: mocks.setPassword,
+    getSnapshot: () => mocks.identity,
+  },
+}));
 vi.mock('@/infrastructure/api/service-api/RemoteConnectAPI', async importOriginal => ({ ...await importOriginal<typeof import('@/infrastructure/api/service-api/RemoteConnectAPI')>(), remoteConnectAPI: mocks }));
 vi.mock('@/infrastructure/api/service-api/ApiClient', () => ({
   api: {
@@ -38,7 +54,7 @@ vi.mock('@/infrastructure/api/service-api/SystemAPI', () => ({
   systemAPI: { checkForUpdates: mocks.checkForUpdates, installUpdate: mocks.installUpdate },
 }));
 vi.mock('@/infrastructure/confirm-dialog', () => ({ confirmDanger: vi.fn() }));
-vi.mock('@/shared/notification-system', () => ({ useNotification: () => ({ success: vi.fn() }) }));
+vi.mock('@/shared/notification-system', () => ({ useNotification: () => ({ success: mocks.success }) }));
 vi.mock('@openbitfun/ui', () => {
   const Box = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
   const Button = ({ children, onClick, disabled }: { children?: React.ReactNode; onClick?: React.MouseEventHandler<HTMLButtonElement>; disabled?: boolean }) => <button onClick={onClick} disabled={disabled}>{children}</button>;
@@ -53,7 +69,7 @@ let root: Root;
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.resetAllMocks();
-  mocks.identity = { resolved: true, status: 'signed-in', me: { user: { githubId: 42, login: 'alice' } } };
+  mocks.identity = { resolved: true, status: 'signed-in', me: { user: { id: '42', login: '138****0001', avatarUrl: '' } } };
   mocks.peerMode = { active: false };
   mocks.getDeviceInfo.mockResolvedValueOnce({ device_id: 'local', device_name: 'My computer' })
     .mockImplementation(() => new Promise(() => {}));
@@ -61,6 +77,13 @@ beforeEach(() => {
   // deterministically instead of creating an unbounded render loop.
   mocks.accountStatus.mockResolvedValueOnce({ logged_in: true, user_id: '42' })
     .mockImplementation(() => new Promise(() => {}));
+  mocks.accountRefreshRelogin.mockResolvedValue({ user_id: '42' });
+  mocks.relogin.mockResolvedValue({ user_id: '42' });
+  mocks.refresh.mockResolvedValue(undefined);
+  mocks.logout.mockResolvedValue(undefined);
+  mocks.sendSmsCode.mockResolvedValue(undefined);
+  mocks.signInWithCode.mockResolvedValue({ user_id: '42' });
+  mocks.signInWithPassword.mockResolvedValue({ user_id: '42' });
   mocks.accountRelayCapabilities.mockResolvedValue([]);
   mocks.accountConnectDevices.mockResolvedValue([{ device_id: 'local', device_name: 'My computer' }]);
   mocks.accountListDevices.mockResolvedValue([{ device_id: 'local', device_name: 'My computer', online: true }]);
@@ -108,7 +131,7 @@ it('fences a late snapshot when switching accounts', async () => {
   let resolve!: (devices: Array<{ device_id: string; device_name: string; online: boolean }>) => void;
   mocks.accountListDevices.mockReturnValueOnce(new Promise(res => { resolve = res; }));
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
-  mocks.identity = { resolved: true, status: 'signed-in', me: { user: { githubId: 7, login: 'bob' } } };
+  mocks.identity = { resolved: true, status: 'signed-in', me: { user: { id: '7', login: '139****0002', avatarUrl: '' } } };
   mocks.accountStatus.mockResolvedValue({ logged_in: true, user_id: '7' });
   mocks.accountConnectDevices.mockResolvedValue([]);
   mocks.accountListDevices.mockResolvedValue([{ device_id: 'new', device_name: 'New account device', online: true }]);
@@ -120,7 +143,7 @@ it('fences a late snapshot when switching accounts', async () => {
 it('shows a connection failure while retaining the signed-in account', async () => {
   mocks.accountStatus.mockReset().mockRejectedValue(new Error('network unavailable'));
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
-  expect(container.textContent).toContain('alice');
+  expect(container.textContent).toContain('138****0001');
   expect(container.textContent).toContain('accountLogin.retryConnect');
   expect(container.textContent).not.toContain('accountLogin.loadingDevices');
 });
@@ -183,7 +206,7 @@ it('retries a failed connection without asking for GitHub authorization again', 
   await retryConnection();
   expect(container.textContent).toContain('My computer');
   expect(container.textContent).not.toContain('accountLogin.loadingDevices');
-  expect(mocks.accountLogin).not.toHaveBeenCalled();
+  expect(mocks.accountRefreshRelogin).not.toHaveBeenCalled();
 });
 it('allows the new account to retry while an old recovery is still pending', async () => {
   let finishOld!: (devices: Array<{ device_id: string; device_name: string }>) => void;
@@ -192,7 +215,7 @@ it('allows the new account to retry while an old recovery is still pending', asy
     .mockReturnValueOnce(new Promise(res => { finishOld = res; }));
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
   await retryConnection();
-  mocks.identity = { resolved: true, status: 'signed-in', me: { user: { githubId: 7, login: 'bob' } } };
+  mocks.identity = { resolved: true, status: 'signed-in', me: { user: { id: '7', login: '139****0002', avatarUrl: '' } } };
   mocks.accountStatus.mockResolvedValue({ logged_in: true, user_id: '7' });
   mocks.accountConnectDevices.mockRejectedValueOnce(new Error('socket failure'))
     .mockResolvedValueOnce([{ device_id: 'new', device_name: 'New account device' }]);
@@ -257,15 +280,129 @@ it('ignores pre-auth device information that arrives after the adopted ID', asyn
   expect(mocks.accountConnectDevices).toHaveBeenCalledTimes(1);
 });
 
-it('lets a pending login reopen its external sign-in page', async () => {
-  mocks.identity = { resolved: true, status: 'authorizing', me: null };
-  mocks.accountStatus.mockResolvedValue({ logged_in: false });
+it('renders the inline phone and code form instead of an external sign-in page', async () => {
+  mocks.identity = { resolved: true, status: 'signed-out', me: null };
+  mocks.accountStatus.mockReset().mockResolvedValue({ logged_in: false });
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
-  const reopen = [...container.querySelectorAll('button')].find(button => button.textContent === 'accountLogin.reopen');
-  expect(reopen).toBeDefined();
-  expect(reopen!.disabled).toBe(false);
-  await act(async () => { reopen!.click(); });
-  expect(mocks.reopenSignIn).toHaveBeenCalledOnce();
+  expect(container.querySelector('input[aria-label="accountLogin.phoneLabel"]')).not.toBeNull();
+  expect(container.querySelector('input[aria-label="accountLogin.codeLabel"]')).not.toBeNull();
+  expect(container.textContent).not.toContain('accountLogin.reopen');
+  expect(mocks.sendSmsCode).not.toHaveBeenCalled();
+});
+
+it('sends an SMS code and guards resending behind the countdown', async () => {
+  vi.useFakeTimers();
+  try {
+    mocks.identity = { resolved: true, status: 'signed-out', me: null };
+    mocks.accountStatus.mockReset().mockResolvedValue({ logged_in: false });
+    mocks.sendSmsCode.mockResolvedValue(undefined);
+    await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+    const phoneInput = container.querySelector<HTMLInputElement>('input[aria-label="accountLogin.phoneLabel"]')!;
+    await act(async () => { setInputValue(phoneInput, '13800138000'); });
+    const send = () => Array.from(container.querySelectorAll('button'))
+      .find(node => node.textContent?.startsWith('accountLogin.sendCode')
+        || node.textContent?.startsWith('accountLogin.resendCodeIn'))!;
+    await act(async () => { send().click(); });
+    expect(mocks.sendSmsCode).toHaveBeenCalledWith('13800138000');
+    // The send action is replaced by a disabled countdown.
+    const counting = send();
+    expect(counting.disabled).toBe(true);
+    expect(counting.textContent).toContain('accountLogin.resendCodeIn:60');
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(send().textContent).toContain('accountLogin.resendCodeIn:59');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('keeps the relay cooldown answer verbatim and uses it as the countdown', async () => {
+  vi.useFakeTimers();
+  try {
+    mocks.identity = { resolved: true, status: 'signed-out', me: null };
+    mocks.accountStatus.mockReset().mockResolvedValue({ logged_in: false });
+    mocks.sendSmsCode.mockRejectedValue(new Error('Too many requests (HTTP 429, retry in 42s)'));
+    await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+    const phoneInput = container.querySelector<HTMLInputElement>('input[aria-label="accountLogin.phoneLabel"]')!;
+    await act(async () => { setInputValue(phoneInput, '13800138000'); });
+    const send = Array.from(container.querySelectorAll('button'))
+      .find(node => node.textContent === 'accountLogin.sendCode')!;
+    await act(async () => { send.click(); });
+    expect(container.textContent).toContain('Too many requests (HTTP 429, retry in 42s)');
+    const counting = Array.from(container.querySelectorAll('button'))
+      .find(node => node.textContent?.includes('accountLogin.resendCodeIn'))!;
+    expect(counting.textContent).toContain('accountLogin.resendCodeIn:42');
+    expect(counting.disabled).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('signs in with the SMS code from the inline form', async () => {
+  mocks.identity = { resolved: true, status: 'signed-out', me: null };
+  mocks.accountStatus.mockReset().mockResolvedValue({ logged_in: false });
+  mocks.signInWithCode.mockResolvedValue({ user_id: '42' });
+  await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+  await act(async () => { setInputValue(container.querySelector<HTMLInputElement>('input[aria-label="accountLogin.phoneLabel"]')!, '13800138000'); });
+  await act(async () => { setInputValue(container.querySelector<HTMLInputElement>('input[aria-label="accountLogin.codeLabel"]')!, '123456'); });
+  const submit = Array.from(container.querySelectorAll('button')).find(node => node.textContent === 'accountLogin.login')!;
+  await act(async () => { submit.click(); });
+  expect(mocks.signInWithCode).toHaveBeenCalledWith('13800138000', '123456');
+  expect(mocks.success).toHaveBeenCalledWith('accountLogin.loginSuccess:42');
+});
+
+it('switches to password login and submits the password', async () => {
+  mocks.identity = { resolved: true, status: 'signed-out', me: null };
+  mocks.accountStatus.mockReset().mockResolvedValue({ logged_in: false });
+  mocks.signInWithPassword.mockResolvedValue({ user_id: '42' });
+  await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+  await act(async () => { setInputValue(container.querySelector<HTMLInputElement>('input[aria-label="accountLogin.phoneLabel"]')!, '13800138000'); });
+  const toggle = Array.from(container.querySelectorAll('button'))
+    .find(node => node.textContent === 'accountLogin.usePasswordLogin')!;
+  await act(async () => { toggle.click(); });
+  expect(container.querySelector('input[aria-label="accountLogin.codeLabel"]')).toBeNull();
+  const passwordInput = container.querySelector<HTMLInputElement>('input[aria-label="accountLogin.password"]')!;
+  await act(async () => { setInputValue(passwordInput, 'hunter2'); });
+  const submit = Array.from(container.querySelectorAll('button')).find(node => node.textContent === 'accountLogin.login')!;
+  await act(async () => { submit.click(); });
+  expect(mocks.signInWithPassword).toHaveBeenCalledWith('13800138000', 'hunter2');
+  expect(mocks.sendSmsCode).not.toHaveBeenCalled();
+});
+
+it('requires both the phone and the verification code before submitting', async () => {
+  mocks.identity = { resolved: true, status: 'signed-out', me: null };
+  mocks.accountStatus.mockReset().mockResolvedValue({ logged_in: false });
+  await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+  const submit = Array.from(container.querySelectorAll('button')).find(node => node.textContent === 'accountLogin.login')!;
+  await act(async () => { submit.click(); });
+  expect(container.textContent).toContain('accountLogin.emptyFields');
+  expect(mocks.signInWithCode).not.toHaveBeenCalled();
+});
+
+it('silently renews an expired session before offering the SMS form', async () => {
+  mocks.accountStatus.mockResolvedValue({ logged_in: true, user_id: '42' });
+  mocks.accountConnectDevices.mockRejectedValueOnce(Object.assign(
+    new Error('relay auth error: HTTP 401'),
+    { status: 401 },
+  )).mockResolvedValueOnce([]);
+  await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+  await vi.waitFor(() => expect(mocks.relogin).toHaveBeenCalledOnce());
+  // The renewed session re-initializes presence without asking for a code.
+  await vi.waitFor(() => expect(mocks.accountConnectDevices).toHaveBeenCalledTimes(2));
+  expect(container.querySelector('input[aria-label="accountLogin.phoneLabel"]')).toBeNull();
+  expect(container.textContent).not.toContain('accountLogin.refreshFailed');
+});
+
+it('falls back to the SMS form when the refresh token cannot renew', async () => {
+  mocks.accountStatus.mockResolvedValue({ logged_in: true, user_id: '42' });
+  mocks.accountConnectDevices.mockRejectedValue(Object.assign(
+    new Error('relay auth error: HTTP 401'),
+    { status: 401 },
+  ));
+  mocks.relogin.mockRejectedValue(new Error('sign in again with a verification code'));
+  await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+  await vi.waitFor(() => expect(container.textContent).toContain('accountLogin.refreshFailed'));
+  // The identity is still signed in, but only a fresh code can restore it.
+  expect(container.querySelector('input[aria-label="accountLogin.phoneLabel"]')).not.toBeNull();
 });
 
 it('shows explicit old Relay capability state before any mutation', async () => {
@@ -428,7 +565,7 @@ it('keeps an incompatible device listed with a reason and never targets it', asy
   expect(container.textContent).toContain('Old build');
   expect(container.textContent).toContain('accountLogin.deviceClientIncompatibleWithVersion');
   // No control target: the peer never becomes a peer-mode switch button.
-  expect(container.querySelector('button[aria-label="accountLogin.openDevice"]')).toBeNull();
+  expect(container.querySelector('button[aria-label^="accountLogin.openDevice"]')).toBeNull();
   expect(mocks.switchToDevice).not.toHaveBeenCalled();
   // Alias editing is a plain directory operation and stays available on both rows.
   expect(container.querySelectorAll('button[aria-label="accountLogin.editDeviceAlias"]').length).toBe(2);
@@ -443,7 +580,7 @@ it('still allows switching to a device whose compatibility flag is absent', asyn
     { device_id: 'peer', device_name: 'Peer build', online: true },
   ]);
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
-  const peer = container.querySelector<HTMLButtonElement>('button[aria-label="accountLogin.openDevice"]');
+  const peer = container.querySelector<HTMLButtonElement>('button[aria-label^="accountLogin.openDevice"]');
   expect(peer).not.toBeNull();
   await act(async () => { peer!.click(); });
   expect(mocks.switchToDevice).toHaveBeenCalledWith('peer', 'Peer build');

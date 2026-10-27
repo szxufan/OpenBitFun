@@ -62,12 +62,6 @@ pub trait AccountRuntimeHost: Send + Sync {
     async fn stop_device_routing(&self);
 }
 
-pub enum AccountLoginProgress {
-    Authorization(openbitfun_product_domains::account::GitHubAuthStart),
-    Waiting,
-    Complete(AccountLoginResult),
-}
-
 #[derive(Debug, Clone)]
 pub struct AccountLoginResult {
     pub user_id: String,
@@ -226,21 +220,16 @@ impl AccountRuntime {
             if openbitfun_services_integrations::remote_connect::account::persisted_relay_requires_migration(
                 &loaded.relay_url,
             ) {
+                // Local accounts have no silently reusable credential across
+                // relays: keep the record, adopt the stable device id, and ask
+                // the user to sign in once on the configured relay.
                 if let Some(device_id) = loaded.device_id.as_deref() {
                     if let Err(error) = DeviceIdentity::adopt_account_device_id(device_id) {
                         log::warn!("Failed to adopt migrating account device id: {error}");
-                        return None;
                     }
                 }
-                return match self.login_with_identity().await {
-                    Ok(result) => Some(result.user_id),
-                    Err(error) => {
-                        log::warn!(
-                            "New Relay sign-in required; previous credential retained: {error}"
-                        );
-                        None
-                    }
-                };
+                log::warn!("Persisted relay requires migration; local sign-in is needed once");
+                return None;
             }
         }
         let transition = self.begin_account_transition().await;
@@ -304,69 +293,84 @@ impl AccountRuntime {
             .await
     }
 
-    pub async fn advance_github_login(
+    /// Request an SMS verification code for `phone` on the configured relay.
+    pub async fn local_sms_send(self: &Arc<Self>, phone: &str) -> Result<()> {
+        let relay_url = configured_relay_url()?;
+        AccountClient::new().local_sms_send(&relay_url, phone).await
+    }
+
+    /// Sign in with an SMS verification code (registering on first use) or
+    /// the account's optional password, then take over the account context.
+    pub async fn login_with_local_credentials(
         self: &Arc<Self>,
-        transaction_id: Option<String>,
-    ) -> Result<AccountLoginProgress> {
-        if let Some(transaction_id) = transaction_id {
-            let response = self.poll_github_auth(transaction_id).await?;
-            match response.status.as_str() {
-                "pending" => return Ok(AccountLoginProgress::Waiting),
-                "authorized" => {}
-                _ => {
-                    return Err(anyhow!(
-                        "GitHub authorization expired or was not completed; restart sign-in"
-                    ))
-                }
-            }
-        } else {
-            let mut identity = openbitfun_services_integrations::account_identity::AccountIdentityClient::from_environment().await?;
-            if identity.me().await?.is_none() {
-                return Ok(AccountLoginProgress::Authorization(
-                    self.start_github_auth().await?,
-                ));
-            }
-        }
-        Ok(AccountLoginProgress::Complete(
-            self.login_with_identity().await?,
-        ))
-    }
-
-    pub async fn start_github_auth(
-        &self,
-    ) -> Result<openbitfun_product_domains::account::GitHubAuthStart> {
-        Ok(openbitfun_services_integrations::account_identity::start_auth_flow().await?)
-    }
-
-    pub async fn poll_github_auth(
-        &self,
-        transaction_id: String,
-    ) -> Result<openbitfun_product_domains::account::GitHubAuthPollResponse> {
-        Ok(
-            openbitfun_services_integrations::account_identity::poll_auth_flow(
-                openbitfun_product_domains::account::GitHubAuthPollRequest { transaction_id },
-            )
-            .await?,
-        )
-    }
-
-    pub async fn login_with_identity(self: &Arc<Self>) -> Result<AccountLoginResult> {
-        let _login_guard = self.account_login_lock.lock().await;
-        let relay_url = openbitfun_product_domains::account::DEFAULT_RELAY_URL.to_string();
-        let expected_generation = self.account_context_generation();
-        if !self.account_context_is_current(expected_generation) {
-            return Err(anyhow!("account context changed"));
-        }
-
+        phone: &str,
+        code: Option<&str>,
+        password: Option<&str>,
+    ) -> Result<AccountLoginResult> {
+        let relay_url = configured_relay_url()?;
         let device = current_device_identity()?;
         let client = AccountClient::new();
         let device_kind = client
             .reported_device_kind(&relay_url, self.host.is_cli_host())
             .await;
-        let (session, profile) = client
-            .login_with_identity(&relay_url, &device, device_kind)
+        let pair = client
+            .local_sign_in(&relay_url, phone, code, password)
             .await
             .map_err(|error| anyhow!("login failed: {error}"))?;
+        let (session, pair) = client
+            .exchange_local_access_token(&relay_url, &pair, &device, device_kind)
+            .await
+            .map_err(|error| anyhow!("login failed: {error}"))?;
+        self.adopt_local_session(relay_url, session, pair, device)
+            .await
+    }
+
+    /// Silently renew an expired device token from the persisted refresh
+    /// token. Fails loudly when no refresh token survives, so callers can
+    /// prompt for a fresh SMS-code sign-in.
+    pub async fn try_refresh_relogin(self: &Arc<Self>) -> Result<AccountLoginResult> {
+        let relay_url = configured_relay_url()?;
+        let loaded = session_store::load_session_detailed()
+            .ok()
+            .flatten()
+            .ok_or_else(|| anyhow!("no persisted session to renew"))?;
+        let refresh_token = loaded
+            .refresh_token
+            .as_deref()
+            .filter(|token| !token.is_empty())
+            .ok_or_else(|| anyhow!("session cannot be renewed without a refresh token"))?;
+        let client = AccountClient::new();
+        let pair = client
+            .refresh_local_pair(&relay_url, refresh_token)
+            .await
+            .map_err(|error| anyhow!("session renewal rejected: {error}"))?;
+        let device = current_device_identity()?;
+        let device_kind = client
+            .reported_device_kind(&relay_url, self.host.is_cli_host())
+            .await;
+        let (session, pair) = client
+            .exchange_local_access_token(&relay_url, &pair, &device, device_kind)
+            .await
+            .map_err(|error| anyhow!("session renewal failed: {error}"))?;
+        self.adopt_local_session(relay_url, session, pair, device)
+            .await
+    }
+
+    /// Shared tail of every successful local login: background-owner
+    /// retirement, atomic context transition, persistence, and routing.
+    async fn adopt_local_session(
+        self: &Arc<Self>,
+        relay_url: String,
+        session: AccountSession,
+        pair: openbitfun_services_integrations::remote_connect::account::LocalTokenPair,
+        device: DeviceIdentity,
+    ) -> Result<AccountLoginResult> {
+        let _login_guard = self.account_login_lock.lock().await;
+        let expected_generation = self.account_context_generation();
+        if !self.account_context_is_current(expected_generation) {
+            return Err(anyhow!("account context changed"));
+        }
+        let client = AccountClient::new();
         let previous_account_context = self.account_context.read().await.clone();
         let retired_background_owner = match self.host.retire_background_routing_owner().await {
             Ok(retired) => retired,
@@ -381,6 +385,7 @@ impl AccountRuntime {
                 return Err(failure.error);
             }
         };
+        // A renewal keeps the same account; a new sign-in may replace another.
         let Some(transition) = self
             .begin_account_transition_if_current(expected_generation)
             .await
@@ -407,15 +412,16 @@ impl AccountRuntime {
             session: session.clone(),
             relay_url: relay_url.clone(),
         });
-        session_store::save_credential_hint(&profile.login, &relay_url);
+        session_store::save_credential_hint(&pair.user.phone_masked, &relay_url);
         self.token_expired.store(false, Ordering::Relaxed);
 
-        if let Err(error) = session_store::save_session_with_device(
+        if let Err(error) = session_store::save_session_with_device_and_refresh(
             &token,
             &user_id,
             &master_key,
             &relay_url,
             Some(device.device_id.as_str()),
+            Some(pair.refresh_token.as_str()),
         ) {
             log::warn!("Failed to persist session: {error}");
         }
@@ -455,8 +461,6 @@ impl AccountRuntime {
     }
 
     pub async fn logout(&self) -> Result<()> {
-        let mut identity = openbitfun_services_integrations::account_identity::AccountIdentityClient::from_environment().await?;
-        identity.logout().await?;
         let transition = self.begin_account_transition().await;
         self.host.stop_device_routing().await;
         if self.host.request_background_routing_owner_shutdown() {
@@ -674,6 +678,11 @@ impl Drop for AccountContextTransitionGuard<'_> {
 fn normalize_relay_url(relay_url: &str) -> Result<String> {
     let parsed = validate_relay_base_url(relay_url.trim())?;
     Ok(parsed.as_str().trim_end_matches('/').to_string())
+}
+
+fn configured_relay_url() -> Result<String> {
+    openbitfun_services_integrations::remote_connect::account::configured_relay_url()
+        .map(|url| url.trim_end_matches('/').to_string())
 }
 
 fn current_device_identity() -> Result<DeviceIdentity> {

@@ -168,7 +168,7 @@ function installMotionPreference(initial = false) {
 
 async function renderBrowseableDevices() {
   state.overview = overview({ peer: { deviceId: 'peer-1', deviceName: 'Current host' } });
-  state.identity = { status: 'signed-in', me: { user: { accountId: 'acct' } } };
+  state.identity = { status: 'signed-in', me: { user: { id: 'acct', login: '138****0001', avatarUrl: '' } } };
   state.getDeviceInfo.mockResolvedValue({ device_id: 'local', device_name: 'This computer' });
   state.accountListDevices.mockResolvedValue([
     { device_id: 'local', device_name: 'This computer', online: true },
@@ -324,7 +324,7 @@ describe('device status card', () => {
 
   it('opens on the current peer without sliding when the directory arrives, including after browsing and reopening', async () => {
     state.overview = overview({ peer: { deviceId: 'peer-1', deviceName: 'Current host' } });
-    state.identity = { status: 'signed-in', me: { user: { accountId: 'acct' } } };
+    state.identity = { status: 'signed-in', me: { user: { id: 'acct', login: '138****0001', avatarUrl: '' } } };
     state.getDeviceInfo.mockResolvedValue({ device_id: 'local', device_name: 'This computer' });
     const devices = [
       { device_id: 'local', device_name: 'This computer', online: true },
@@ -368,7 +368,7 @@ describe('device status card', () => {
   });
 
   it('hides pagination and navigation after loading a single local device', async () => {
-    state.identity = { status: 'signed-in', me: { user: { accountId: 'acct' } } };
+    state.identity = { status: 'signed-in', me: { user: { id: 'acct', login: '138****0001', avatarUrl: '' } } };
     state.getDeviceInfo.mockResolvedValue({ device_id: 'local', device_name: 'This computer' });
     state.accountListDevices.mockResolvedValue([{ device_id: 'local', device_name: 'This computer', online: true }]);
     await act(async () => { render(); });
@@ -473,7 +473,7 @@ describe('device status card', () => {
 
   it('draws an attached CLI peer as a server while browsing the device list', async () => {
     state.overview = overview({ peer: { deviceId: 'peer-1', deviceName: 'Current host' } });
-    state.identity = { status: 'signed-in', me: { email: 'user@example.com', user: { accountId: 'acct', githubId: 42, login: 'user' } } };
+    state.identity = { status: 'signed-in', me: { user: { id: 'acct', login: 'user@example.com', avatarUrl: '' } } };
     state.getDeviceInfo.mockResolvedValue({ device_id: 'local', device_name: 'This computer', device_os: 'Windows' });
     state.accountListDevices.mockResolvedValue([
       { device_id: 'local', device_name: 'This computer', device_os: 'Windows', device_kind: 'desktop', online: true },
@@ -614,7 +614,7 @@ describe('device status card', () => {
 
   it('keeps the current peer disconnectable even when presence omits it', async () => {
     state.overview = overview({ peer: { deviceId: 'peer-1', deviceName: 'Remote workstation' } });
-    state.identity = { status: 'signed-in', me: { user: { accountId: 'acct', githubId: 42, login: 'user' } } };
+    state.identity = { status: 'signed-in', me: { user: { id: 'acct', login: '138****0001', avatarUrl: '' } } };
     state.getDeviceInfo.mockResolvedValue({ device_id: 'local', device_name: 'This computer' });
     state.accountListDevices.mockResolvedValue([
       { device_id: 'local', device_name: 'This computer', online: true },
@@ -829,7 +829,7 @@ describe('device status card', () => {
   });
 
   it('keeps an incompatible peer in the switch list but never connects to it', async () => {
-    state.identity = { status: 'signed-in', me: { user: { accountId: 'acct', githubId: 42, login: 'user' } } };
+    state.identity = { status: 'signed-in', me: { user: { id: 'acct', login: '138****0001', avatarUrl: '' } } };
     state.getDeviceInfo.mockResolvedValue({ device_id: 'local', device_name: 'This computer' });
     state.accountListDevices.mockResolvedValue([
       { device_id: 'local', device_name: 'This computer', online: true },

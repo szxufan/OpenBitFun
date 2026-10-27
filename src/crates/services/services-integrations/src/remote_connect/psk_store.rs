@@ -7,9 +7,9 @@
 //! exclusive lock file so Desktop and CLI processes sharing one home stay
 //! consistent. Pairing secrets never leave this machine through the relay.
 
-use anyhow::{Context, Result};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
+use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -123,9 +123,10 @@ fn encrypt_entry(key: &[u8; 32], entry: &PeerPskEntry) -> Result<String> {
         created_at_unix: u64,
         peer_name: Option<&'a str>,
     }
+    let psk = B64.encode(entry.psk);
     let body = EntryBody {
         peer_device_id: &entry.peer_device_id,
-        psk: B64.encode(entry.psk),
+        psk: &psk,
         psk_id: &entry.psk_id,
         status: entry.status,
         created_at_unix: entry.created_at_unix,
@@ -241,7 +242,11 @@ pub fn store_entry(
 }
 
 /// Load the pairing secret for one peer, if this device holds one.
-pub fn lookup_entry(relay_url: &str, user_id: &str, peer_device_id: &str) -> Result<Option<PeerPskEntry>> {
+pub fn lookup_entry(
+    relay_url: &str,
+    user_id: &str,
+    peer_device_id: &str,
+) -> Result<Option<PeerPskEntry>> {
     with_vault_lock(|| {
         let (key_path, vault_path, _) = vault_paths()?;
         if !vault_path.exists() || !key_path.exists() {
@@ -249,7 +254,10 @@ pub fn lookup_entry(relay_url: &str, user_id: &str, peer_device_id: &str) -> Res
         }
         let key = ensure_key(&key_path)?;
         let file = read_vault(&vault_path);
-        let Some(blob) = file.entries.get(&entry_key(relay_url, user_id, peer_device_id)) else {
+        let Some(blob) = file
+            .entries
+            .get(&entry_key(relay_url, user_id, peer_device_id))
+        else {
             return Ok(None);
         };
         match decrypt_entry(&key, blob) {
@@ -288,7 +296,9 @@ pub fn mark_paired(
         let mut entry = match decrypt_entry(&key, blob) {
             Ok(entry) => entry,
             Err(error) => {
-                log::warn!("Failed to decrypt psk vault entry for device {peer_device_id}: {error}");
+                log::warn!(
+                    "Failed to decrypt psk vault entry for device {peer_device_id}: {error}"
+                );
                 return Ok(false);
             }
         };
@@ -355,6 +365,9 @@ mod tests {
 
     fn test_dir() -> PathBuf {
         let dir = tempfile::tempdir().unwrap().keep();
+        let _store_guard = super::super::session_store::test_store_guard()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         super::super::session_store::set_session_store_directory_for_test(dir.clone());
         dir
     }
@@ -390,13 +403,7 @@ mod tests {
             .unwrap()
             .is_none());
 
-        assert!(mark_paired(
-            "https://relay.example",
-            "user-1",
-            "peer-1",
-            &entry.psk_id
-        )
-        .unwrap());
+        assert!(mark_paired("https://relay.example", "user-1", "peer-1", &entry.psk_id).unwrap());
         let paired = lookup_entry("https://relay.example", "user-1", "peer-1")
             .unwrap()
             .unwrap();

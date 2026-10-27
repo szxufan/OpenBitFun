@@ -190,23 +190,27 @@ pub(super) async fn start_lan(method: ConnectionMethod) -> Result<ConnectionResu
             .await
             .map_err(|error| error.to_string())?;
         let identity = current_device_identity()?;
-        let client = AccountClient::new();
-        let (session, _) = client
-            .login_with_identity(&relay_url, &identity, DEVICE_KIND_DESKTOP)
-            .await
-            .map_err(|error| error.to_string())?;
-        // The global GitHub identity is authoritative; a stale official Relay
-        // session must never silently join a different signed-in account.
-        if get_account_context()
+        // Local accounts have no cross-relay credential. The LAN Relay is
+        // process-local and owned by this app, so the owner session is
+        // provisioned directly for the account signed in on the configured
+        // relay; controllers on the LAN Relay must still match that account.
+        let owner_user_id = get_account_context()
             .read()
             .await
             .as_ref()
-            .is_some_and(|context| context.session.user_id != session.user_id)
-        {
-            revoke_login_candidate(&client, &relay_url, &session, "account identity mismatch")
-                .await;
-            return Err("Account identity changed; reconnect the official Relay".into());
-        }
+            .map(|context| context.session.user_id.clone())
+            .ok_or("Sign in on the configured relay before starting LAN mode")?;
+        let owner_username = session_store::load_credential_hint()
+            .map(|hint| hint.username)
+            .unwrap_or_else(|| owner_user_id.clone());
+        let owner = service
+            .provision_embedded_owner(&relay_url, &owner_user_id, &owner_username, &identity)
+            .await
+            .map_err(|error| error.to_string())?;
+        let device_secret =
+            session_store::device_secret(&relay_url, &owner_user_id, &identity.device_id)
+                .map_err(|error| error.to_string())?;
+        let session = AccountSession::new(owner.token, owner_user_id, device_secret);
         RelayRoute::replace_lan_context(Some(AccountContextState { session, relay_url })).await;
         drop(holder);
         connect_route_devices(route).await?;

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAccountLoginState } from './useAccountLoginState';
 
 const mocks = vi.hoisted(() => ({
-  identity: { status: 'signed-in', me: { user: { githubId: 1 } } },
+  identity: { status: 'signed-in', me: { user: { id: '1', login: '138****0001', avatarUrl: '' } } },
   getDeviceInfo: vi.fn(),
 }));
 vi.mock('@/infrastructure/account-identity', () => ({ useAccountIdentity: () => mocks.identity }));
@@ -22,12 +22,12 @@ const render = () => act(async () => { root.render(<Harness />); });
 const attr = (name: string) => container.firstElementChild?.getAttribute(name);
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  mocks.identity = { status: 'signed-in', me: { user: { githubId: 1 } } };
+  mocks.identity = { status: 'signed-in', me: { user: { id: '1', login: '138****0001', avatarUrl: '' } } };
   mocks.getDeviceInfo.mockReset().mockRejectedValue(new Error('Relay unavailable'));
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); });
-describe('shared GitHub identity', () => {
+describe('relay account identity', () => {
   it('remains signed in when Relay device information is unavailable', async () => {
     await render();
     expect(attr('data-logged-in')).toBe('true');
@@ -45,7 +45,7 @@ describe('shared GitHub identity', () => {
   it('does not show the previous identity device name after switching identities', async () => {
     mocks.getDeviceInfo.mockResolvedValueOnce({ device_name: 'First device' });
     await render(); expect(attr('data-device-name')).toBe('First device');
-    mocks.identity.me.user.githubId = 2; await render();
+    mocks.identity = { status: 'signed-in', me: { user: { id: '2', login: '139****0002', avatarUrl: '' } } }; await render();
     expect(attr('data-logged-in')).toBe('true');
     expect(attr('data-device-name')).toBe('');
   });

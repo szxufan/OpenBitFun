@@ -173,7 +173,7 @@ test('release sync pins Relay and Linux metadata to the updater release during l
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'openbitfun-release-metadata-'));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
   const urls = path.join(temp, 'urls');
-  const releaseBase = 'https://github.com/GCWing/OpenBitFun/releases/download/v1.0.0';
+  const releaseBase = 'https://github.com/szxufan/OpenBitFun/releases/download/v1.0.0';
   const result = spawnSync('bash', ['-c', `
     source "$SYNC_SCRIPT"
     flock() { return 0; }
@@ -217,7 +217,7 @@ test('openbitfun sync mirrors the website installer from the exact updater relea
     ['-c', `
       source "$SYNC_SCRIPT"
       VERSION_DIR="$TEST_VERSION_DIR"
-      RELEASE_ASSET_BASE_URL="https://github.com/GCWing/OpenBitFun/releases/download/v1.2.3"
+      RELEASE_ASSET_BASE_URL="https://github.com/szxufan/OpenBitFun/releases/download/v1.2.3"
       LATEST_JSON="$TEST_LATEST_JSON"
       download_asset() {
         printf '%s\\t%s\\n' "$1" "$2" >> "$DOWNLOAD_CALLS"
@@ -234,8 +234,8 @@ test('openbitfun sync mirrors the website installer from the exact updater relea
         TEST_LATEST_JSON: JSON.stringify({
           manual_installers: {
             'windows-x86_64': {
-              url: 'https://github.com/GCWing/OpenBitFun/releases/download/v1.2.3/OpenBitFun_1.2.3_windows-x86_64-installer.exe',
-              signature_url: 'https://github.com/GCWing/OpenBitFun/releases/download/v1.2.3/OpenBitFun_1.2.3_windows-x86_64-installer.exe.sig',
+              url: 'https://github.com/szxufan/OpenBitFun/releases/download/v1.2.3/OpenBitFun_1.2.3_windows-x86_64-installer.exe',
+              signature_url: 'https://github.com/szxufan/OpenBitFun/releases/download/v1.2.3/OpenBitFun_1.2.3_windows-x86_64-installer.exe.sig',
             },
           },
         }),
@@ -246,8 +246,8 @@ test('openbitfun sync mirrors the website installer from the exact updater relea
 
   const downloads = fs.readFileSync(calls, 'utf8').trim().split('\n');
   assert.deepEqual(downloads, [
-    `https://github.com/GCWing/OpenBitFun/releases/download/v1.2.3/OpenBitFun_1.2.3_windows-x86_64-installer.exe\t${versionDir}/OpenBitFun_1.2.3_windows-x86_64-installer.exe`,
-    `https://github.com/GCWing/OpenBitFun/releases/download/v1.2.3/OpenBitFun_1.2.3_windows-x86_64-installer.exe.sig\t${versionDir}/OpenBitFun_1.2.3_windows-x86_64-installer.exe.sig`,
+    `https://github.com/szxufan/OpenBitFun/releases/download/v1.2.3/OpenBitFun_1.2.3_windows-x86_64-installer.exe\t${versionDir}/OpenBitFun_1.2.3_windows-x86_64-installer.exe`,
+    `https://github.com/szxufan/OpenBitFun/releases/download/v1.2.3/OpenBitFun_1.2.3_windows-x86_64-installer.exe.sig\t${versionDir}/OpenBitFun_1.2.3_windows-x86_64-installer.exe.sig`,
   ]);
 });
 
@@ -262,7 +262,7 @@ test('openbitfun sync uses the canonical fixed installer fallback', () => {
     ['-c', `
       source "$SYNC_SCRIPT"
       VERSION_DIR="$TEST_VERSION_DIR"
-      RELEASE_ASSET_BASE_URL="https://github.com/GCWing/OpenBitFun/releases/download/v1.2.2"
+      RELEASE_ASSET_BASE_URL="https://github.com/szxufan/OpenBitFun/releases/download/v1.2.2"
       download_asset() {
         printf '%s\\t%s\\n' "$1" "$2" >> "$DOWNLOAD_CALLS"
       }
@@ -280,8 +280,8 @@ test('openbitfun sync uses the canonical fixed installer fallback', () => {
   );
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(fs.readFileSync(calls, 'utf8').trim().split('\n'), [
-    `https://github.com/GCWing/OpenBitFun/releases/download/v1.2.2/openbitfun-installer.exe\t${versionDir}/openbitfun-installer.exe`,
-    `https://github.com/GCWing/OpenBitFun/releases/download/v1.2.2/openbitfun-installer.exe.sig\t${versionDir}/openbitfun-installer.exe.sig`,
+    `https://github.com/szxufan/OpenBitFun/releases/download/v1.2.2/openbitfun-installer.exe\t${versionDir}/openbitfun-installer.exe`,
+    `https://github.com/szxufan/OpenBitFun/releases/download/v1.2.2/openbitfun-installer.exe.sig\t${versionDir}/openbitfun-installer.exe.sig`,
   ]);
 });
 
@@ -298,7 +298,7 @@ test('openbitfun sync mirrors complete signed macOS CLI sets for Dispatch', () =
       source "$SYNC_SCRIPT"
       VERSION="1.2.3"
       VERSION_DIR="$TEST_VERSION_DIR"
-      RELEASE_ASSET_BASE_URL="https://github.com/GCWing/OpenBitFun/releases/download/v1.2.3"
+      RELEASE_ASSET_BASE_URL="https://github.com/szxufan/OpenBitFun/releases/download/v1.2.3"
       curl() { return 0; }
       download_asset() {
         printf '%s\\t%s\\n' "$1" "$2" >> "$DOWNLOAD_CALLS"
@@ -328,7 +328,7 @@ test('openbitfun sync mirrors complete signed macOS CLI sets for Dispatch', () =
     for (const suffix of ['', '.sha256', '.sha256.sig', '.sig']) {
       assert.ok(
         downloads.includes(
-          `https://github.com/GCWing/OpenBitFun/releases/download/v1.2.3/${archive}${suffix}\t${versionDir}/${archive}${suffix}`
+          `https://github.com/szxufan/OpenBitFun/releases/download/v1.2.3/${archive}${suffix}\t${versionDir}/${archive}${suffix}`
         )
       );
     }

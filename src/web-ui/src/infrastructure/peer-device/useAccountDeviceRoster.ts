@@ -40,7 +40,7 @@ export interface AccountDeviceRoster {
 export function useAccountDeviceRoster(): AccountDeviceRoster {
   const identity = useAccountIdentity();
   const directory = useDeviceDirectory();
-  const accountId = identity.me?.user.accountId ?? identity.me?.user.githubId;
+  const accountId = identity.me?.user.id;
   const { loggedIn, deviceName: localDeviceName } = useAccountLoginState();
   const [localDeviceId, setLocalDeviceId] = useState<string | null>(null);
   const [peers, setPeers] = useState<DeviceRosterEntry[]>([]);

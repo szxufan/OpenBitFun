@@ -85,6 +85,19 @@ export class RelayFixture {
   holdLogins = false;
   pendingLogins = [];
   online = true;
+  /** `/api/info` capability list; without `local_auth_v1` the app must degrade. */
+  capabilities = ['local_auth_v1', 'device_alias_v1'];
+  /** Relay-local account answers: the fixed SMS code, optional password, and
+   * the cooldown (seconds) a send must report when set. */
+  localCode = '123456';
+  localPassword = 'fixture-password';
+  registrationOpen = true;
+  smsCooldown = 0;
+  smsSends = [];
+  localLogins = [];
+  refreshes = [];
+  refreshTokens = new Map();
+  refreshCounter = 0;
   /** Host-owned streams served over `read_stream`; the simulated Relay stores none. */
   streams = new Map();
   streamReads = [];
@@ -138,11 +151,55 @@ export class RelayFixture {
     return token;
   }
 
+  /** One relay-local access/refresh pair; refresh tokens are single use. */
+  issueLocalPair(endpoint, userId = '123') {
+    // Counter-based names: a consumed token must never be reissued under the
+    // same string, or a replay would look valid.
+    const refreshToken = `fixture-refresh-${++this.refreshCounter}`;
+    this.refreshTokens.set(refreshToken, { endpoint, userId });
+    const now = Math.floor(Date.now() / 1000);
+    return {
+      accessToken: `fixture-user-${userId}`,
+      accessExpiresAt: now + 900,
+      refreshToken,
+      refreshExpiresAt: now + 30 * 24 * 3600,
+      user: { userId, login: `user-${userId}`, phoneMasked: '138****0002', hasPassword: true },
+    };
+  }
+
   async api(endpoint, path, request) {
-    const json = body => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    const json = (body, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
     const authorization = request.headers().authorization ?? '';
     const token = authorization.replace(/^Bearer /, '');
     const auth = this.tokens.get(token);
+    if (path === '/api/info') {
+      return json({ capabilities: this.capabilities });
+    }
+    if (path === '/api/auth/local/sms/send') {
+      const body = JSON.parse(request.postData());
+      this.smsSends.push(body.phone);
+      if (this.smsCooldown > 0) {
+        return json({ error: 'please wait before requesting another code', retry_after_secs: this.smsCooldown }, 429);
+      }
+      return json({ status: 'sent' }, 202);
+    }
+    if (path === '/api/auth/local/login') {
+      const body = JSON.parse(request.postData());
+      assert.ok((body.code !== undefined) !== (body.password !== undefined), 'exactly one credential');
+      this.localLogins.push(body);
+      const refused = body.code !== undefined ? body.code !== this.localCode : body.password !== this.localPassword;
+      if (refused) return json({ error: 'invalid code or password' }, 401);
+      if (!this.registrationOpen) return json({ error: 'registration closed' }, 403);
+      return json(this.issueLocalPair(endpoint, '123'));
+    }
+    if (path === '/api/auth/local/refresh') {
+      const body = JSON.parse(request.postData());
+      this.refreshes.push(body.refreshToken);
+      const entry = this.refreshTokens.get(body.refreshToken);
+      if (!entry || entry.endpoint !== endpoint) return json({ error: 'refresh token expired' }, 401);
+      this.refreshTokens.delete(body.refreshToken);
+      return json(this.issueLocalPair(endpoint, entry.userId));
+    }
     if (path === '/api/auth/login') {
       const body = JSON.parse(request.postData());
       assert.match(body.access_token, /^fixture-user-/);
@@ -308,22 +365,41 @@ export async function readAccount(page) {
     const { currentRelayUrl } = await import('/src/services/pairingLink.ts');
     const saved = await getBrowserAccountStore(currentRelayUrl()).read();
     const summary = { controllerDeviceId: saved.controllerDeviceId, revision: saved.revision,
-      token: saved.session?.token ?? null, userId: saved.session?.userId ?? null };
+      token: saved.session?.token ?? null, userId: saved.session?.userId ?? null,
+      refreshToken: saved.session?.refreshToken ?? null };
     releaseBrowserAccount(saved);
     return summary;
   });
 }
 
-export async function signIn(page, user = '123') {
+/**
+ * Drives the inline relay-local form: phone, verification code (default) or
+ * password, submit. The SMS itself stays in the fixture Relay; no real Aliyun
+ * delivery or user credentials are involved. Fields are replaced, not
+ * appended, so a retry after a rejected code works unchanged.
+ */
+export async function signIn(page, { phone = '13800000002', code = '123456', password } = {}) {
+  const replace = async (selector, text) => {
+    await page.click(selector, { clickCount: 3 });
+    await page.type(selector, text);
+  };
   await page.bringToFront();
   await page.waitForSelector('.pairing-page__form button[type="submit"]');
-  // OAuth itself is covered by the account contract suite; no real GitHub
-  // authorization or user credentials are used by these browser tests.
-  await page.evaluate(async user => {
-    const { CloudAccountClient } = await import('/src/services/CloudAccountClient.ts');
-    CloudAccountClient.prototype.authorize = async () => `fixture-user-${user}`;
-  }, user);
-  await page.click('.pairing-page__form button[type="submit"]');
+  await replace('input[inputmode="tel"]', phone);
+  if (password === undefined) {
+    // A resend cooldown from an earlier send is the client protecting the
+    // Relay's window; when it is active the code has already been delivered.
+    const sendButton = await page.waitForSelector('button.pairing-page__send-code');
+    if (!(await sendButton.evaluate(button => button.disabled))) await sendButton.click();
+    await page.waitForSelector('input[autocomplete="one-time-code"]:not([disabled])');
+    await replace('input[autocomplete="one-time-code"]', code);
+  } else {
+    await page.click('button.pairing-page__mode-toggle');
+    await page.waitForSelector('input[type="password"]:not([disabled])');
+    await replace('input[type="password"]', password);
+  }
+  await page.waitForSelector('button.pairing-page__submit:not([disabled])');
+  await page.click('button.pairing-page__submit');
 }
 
 export async function connected(page, device = 'desktop-a') {

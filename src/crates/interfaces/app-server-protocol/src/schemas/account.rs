@@ -34,30 +34,19 @@ pub struct AccountSnapshotResponse {
     pub devices: Vec<AccountDevice>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "rpc", derive(JsonRpcRequest))]
-#[cfg_attr(feature = "rpc", request(method = "account/githubStart", response = AccountGitHubStartResponse))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AccountGitHubStartRequest {}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "rpc", derive(JsonRpcResponse))]
-pub struct AccountGitHubStartResponse {
-    #[serde(flatten)]
-    pub authorization: openbitfun_product_domains::account::GitHubAuthStart,
-}
-
+/// Request an SMS verification code for relay-local sign-in.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "rpc", derive(JsonRpcRequest))]
-#[cfg_attr(feature = "rpc", request(method = "account/githubPoll", response = AccountGitHubPollResponse))]
+#[cfg_attr(feature = "rpc", request(method = "account/smsSend", response = AccountSmsSendResponse))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AccountGitHubPollRequest {
-    pub transaction_id: String,
+pub struct AccountSmsSendRequest {
+    pub phone: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "rpc", derive(JsonRpcResponse))]
-pub struct AccountGitHubPollResponse {
+#[serde(rename_all = "camelCase")]
+pub struct AccountSmsSendResponse {
     pub status: String,
 }
 
@@ -67,6 +56,15 @@ pub struct AccountGitHubPollResponse {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AccountLoginRequest {
     pub operation_id: String,
+    /// Relay-local credentials: the phone plus exactly one of code/password.
+    /// Older clients that omit them get an explicit error instead of a
+    /// credential-less login attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phone: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,13 +100,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn login_accepts_no_password_or_relay_configuration() {
+    fn login_takes_optional_local_credentials() {
+        // Older clients omit the credential fields entirely.
         assert!(serde_json::from_value::<AccountLoginRequest>(
             serde_json::json!({"operationId":"op"})
         )
         .is_ok());
         assert!(serde_json::from_value::<AccountLoginRequest>(
-            serde_json::json!({"operationId":"op","password":"secret"})
+            serde_json::json!({"operationId":"op","phone":"13800138000","code":"123456"})
+        )
+        .is_ok());
+        assert!(serde_json::from_value::<AccountLoginRequest>(
+            serde_json::json!({"operationId":"op","phone":"13800138000","password":"secret"})
+        )
+        .is_ok());
+        // Relay configuration never travels through this request.
+        assert!(serde_json::from_value::<AccountLoginRequest>(
+            serde_json::json!({"operationId":"op","relayUrl":"https://relay.example"})
         )
         .is_err());
     }
@@ -119,8 +127,7 @@ mod tests {
             "account/snapshot",
             "account/login",
             "account/logout",
-            "account/githubStart",
-            "account/githubPoll",
+            "account/smsSend",
         ] {
             assert!(crate::method::is_valid_method_name(method));
         }

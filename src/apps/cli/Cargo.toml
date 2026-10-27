@@ -67,6 +67,7 @@ clap = { workspace = true }
 # TUI framework (Terminal User Interface)
 ratatui = { workspace = true }
 crossterm = { workspace = true }
+rpassword = { workspace = true }
 
 # Config and serialization
 dirs = { workspace = true }

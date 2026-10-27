@@ -57,6 +57,10 @@ pub struct AccountSessionRecord {
     pub master_key: [u8; 32],
     pub relay_url: String,
     pub device_id: Option<String>,
+    /// Relay-local refresh token for silent session renewal. Absent for
+    /// sessions written before local accounts existed and for sessions whose
+    /// relay does not support them.
+    pub refresh_token: Option<String>,
 }
 
 impl std::fmt::Debug for AccountSessionRecord {
@@ -68,6 +72,7 @@ impl std::fmt::Debug for AccountSessionRecord {
             .field("master_key", &"[REDACTED]")
             .field("relay_url", &self.relay_url)
             .field("device_id", &self.device_id)
+            .field("refresh_token", &"[REDACTED]")
             .finish()
     }
 }
@@ -110,6 +115,8 @@ struct AccountSessionPayload {
     relay_url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     device_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refresh_token: Option<String>,
 }
 
 pub fn read_device_identity(path: &Path) -> Result<Option<DeviceIdentityRecord>> {
@@ -217,6 +224,7 @@ pub fn write_current_account_session(
         master_key_b64: BASE64.encode(session.master_key),
         relay_url: session.relay_url.clone(),
         device_id: session.device_id.clone(),
+        refresh_token: session.refresh_token.clone(),
     };
     let plaintext = serde_json::to_vec(&payload).context("serialize account session payload")?;
     let key = derive_current_key(binding, &secret);
@@ -265,6 +273,7 @@ fn decode_account_session_payload(bytes: &[u8]) -> Result<AccountSessionRecord> 
         master_key,
         relay_url: payload.relay_url,
         device_id: payload.device_id,
+        refresh_token: payload.refresh_token,
     };
     validate_account_session(&session)?;
     Ok(session)
@@ -1113,6 +1122,7 @@ mod tests {
             master_key: [0x42; 32],
             relay_url: "https://relay.example.invalid".to_string(),
             device_id: Some("0123456789abcdef0123456789abcdef".to_string()),
+            refresh_token: None,
         };
         let local_secret = [0x24; 32];
         std::fs::write(source.path().join("account_session.key"), local_secret).unwrap();
@@ -1234,13 +1244,15 @@ mod tests {
         local_secret: &[u8; 32],
         domains: LegacyAccountSessionKeyDomains<'_>,
     ) {
-        let payload = AccountSessionPayload {
-            token: session.token.clone(),
-            user_id: session.user_id.clone(),
-            master_key_b64: BASE64.encode(session.master_key),
-            relay_url: session.relay_url.clone(),
-            device_id: session.device_id.clone(),
-        };
+        // Legacy fixtures intentionally omit the refresh-token field: the
+        // decoder must accept payloads written before the field existed.
+        let payload = serde_json::json!({
+            "token": session.token,
+            "user_id": session.user_id,
+            "master_key_b64": BASE64.encode(session.master_key),
+            "relay_url": session.relay_url,
+            "device_id": session.device_id,
+        });
         let plaintext = serde_json::to_vec(&payload).unwrap();
         let key = derive_legacy_v2_key(binding, local_secret, domains);
         let nonce = [0x11; NONCE_SIZE];

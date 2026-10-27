@@ -187,6 +187,7 @@ vte = "0.15.0"
 clap = { version = "4.6.1", features = ["derive"] }
 crossterm = "0.28"
 ratatui = "0.29"
+rpassword = "7"
 unicode-width = "0.2"
 pulldown-cmark = { version = "0.11", default-features = false }
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }

@@ -1364,7 +1364,7 @@ export const RemoteConnectDialog: React.FC<RemoteConnectDialogProps> = ({
             statusLabel: accountLoggedIn
               ? t('remoteConnect.accountSignedIn')
               : t('remoteConnect.accountSignedOut'),
-            statusDetail: accountLoggedIn ? accountIdentity.me?.email ?? accountIdentity.me?.user.login ?? null : null,
+            statusDetail: accountLoggedIn ? accountIdentity.me?.user.login ?? null : null,
             statusPositive: accountLoggedIn,
             state: accountLoggedIn ? 'authenticated' : undefined,
           })}
