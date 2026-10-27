@@ -80,17 +80,8 @@ jobs:
           git tag "${TAG_NAME}" "${GITHUB_SHA}"
           git push origin "refs/tags/${TAG_NAME}"
 
-      - name: Trigger desktop package
-        if: steps.detect.outputs.should_release == 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ steps.detect.outputs.tag_name }}
-        run: |
-          set -euo pipefail
-
-          gh workflow run desktop-package.yml \
-            --ref "${GITHUB_REF_NAME}" \
-            -f "tag_name=${TAG_NAME}" \
-            -f "release_channel=stable" \
-            -f "upload_to_release=true"
+      # Fork change: on the official repository, release-please dispatched
+      # desktop-package with upload_to_release=true (fail-closed on signing
+      # certificates). This fork cannot run that path, so the created tag push
+      # is handled by fork-release.yml instead: it publishes an unsigned
+      # release via the artifact-tolerant build modes.

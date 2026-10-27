@@ -1,0 +1,239 @@
+# Fork-only release automation.
+#
+# Upstream (GCWing/OpenBitFun) publishes through release-please →
+# desktop-package with `upload_to_release=true`, which is fail-closed on
+# Authenticode/Apple/minisign signing secrets. A personal fork without those
+# certificates cannot use that path. This workflow gives a fork the same
+# automation — pushing a `v*` tag publishes an unsigned release:
+#
+#   - relay server + CLI linux archives (via linux-binaries, which is already
+#     fork-tolerant: signing is a no-op without keys)
+#   - desktop installers for all platforms (desktop-package in artifact-only
+#     mode, which upstream explicitly supports without signing secrets)
+#   - multi-arch relay Docker image pushed to GHCR
+#
+# The upstream workflows themselves are untouched; only this fork's
+# release-please no longer dispatches the signed publication path.
+
+name: Fork Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  actions: write
+  packages: write
+
+concurrency:
+  group: fork-release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  relay-archives:
+    name: Relay and CLI archives
+    uses: ./.github/workflows/linux-binaries.yml
+    with:
+      checkout_ref: ${{ github.ref_name }}
+      version: ${{ github.ref_name }}
+      artifact_prefix: ${{ github.ref_name }}
+      upload_artifacts: true
+
+  desktop-packages:
+    name: Desktop installers (artifact-only)
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.locate.outputs.run_id }}
+    steps:
+      - name: Dispatch desktop-package in artifact-only mode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "dispatched_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          gh workflow run desktop-package.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "${TAG_NAME}" \
+            -f "tag_name=${TAG_NAME}" \
+            -f "release_channel=stable" \
+            -f "upload_to_release=false"
+
+      - name: Wait for the desktop-package run
+        id: locate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          DISPATCHED_AT: ${{ env.dispatched_at }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 20
+          for attempt in $(seq 1 60); do
+            run_id="$(gh run list --repo "$GITHUB_REPOSITORY" \
+              --workflow desktop-package.yml \
+              --json databaseId,createdAt,conclusion \
+              --jq "[.[] | select(.createdAt >= env.DISPATCHED_AT)] | sort_by(.createdAt) | .[0].databaseId // empty")"
+            if [[ -n "$run_id" ]]; then
+              echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+              gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status \
+                --interval 30 >/dev/null
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "The dispatched desktop-package run never appeared." >&2
+          exit 1
+
+  publish:
+    name: Publish fork release
+    needs: [relay-archives, desktop-packages]
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/openbitfun-relay-server
+      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Download relay and CLI archives
+        uses: actions/download-artifact@v7
+        with:
+          pattern: openbitfun-linux-${{ github.ref_name }}-*
+          path: linux-release-assets
+          merge-multiple: true
+
+      - name: Download desktop installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DESKTOP_RUN_ID: ${{ needs.desktop-packages.outputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p desktop-assets
+          # All artifacts of the artifact-only desktop run land in one tree;
+          # staging filters installers by file extension.
+          gh run download "$DESKTOP_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --dir desktop-assets
+          find desktop-assets -type f | wc -l
+
+      - name: Verify release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f linux-release-assets/openbitfun-relay-server-x86_64-unknown-linux-gnu.tar.gz
+          test -f linux-release-assets/openbitfun-relay-server-aarch64-unknown-linux-gnu.tar.gz
+          for archive in linux-release-assets/openbitfun-relay-server-*.tar.gz; do
+            (cd linux-release-assets && sha256sum --check "$(basename "${archive}").sha256")
+          done
+          cp src/apps/relay-server/Dockerfile.release linux-release-assets/Dockerfile.release
+          shopt -s nullglob
+          installers=(
+            desktop-assets/**/*.exe desktop-assets/**/*.dmg
+            desktop-assets/**/*.AppImage desktop-assets/**/*.deb desktop-assets/**/*.rpm
+          )
+          if [[ "${#installers[@]}" -eq 0 ]]; then
+            echo "No desktop installers were produced." >&2
+            exit 1
+          fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build and push relay image
+        id: image
+        uses: docker/build-push-action@v7
+        with:
+          context: linux-release-assets
+          file: linux-release-assets/Dockerfile.release
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          sbom: false
+          build-args: |
+            VERSION=${{ env.RELEASE_VERSION }}
+            REVISION=${{ env.RELEASE_TAG }}
+          tags: |
+            ${{ env.IMAGE }}:${{ env.RELEASE_TAG }}
+            ${{ env.IMAGE }}:${{ env.RELEASE_VERSION }}
+            ${{ env.IMAGE }}:latest
+
+      - name: Smoke-test published image on both platforms
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: bash scripts/relay/smoke-image.sh "${IMAGE}@${IMAGE_DIGEST}"
+
+      - name: Stage unsigned image descriptor
+        shell: bash
+        env:
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg image "${IMAGE}" \
+            --arg tag "${RELEASE_TAG}" \
+            --arg version "${RELEASE_VERSION#v}" \
+            --arg digest "${IMAGE_DIGEST}" \
+            '{
+              schema_version: 1,
+              image: $image,
+              tag: $tag,
+              version: $version,
+              digest: $digest,
+              platforms: ["linux/amd64", "linux/arm64"],
+              signature: "unsigned fork build"
+            }' > relay-image.json
+
+      - name: Stage release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob globstar
+          mkdir -p release-upload-assets
+          for asset in \
+            desktop-assets/**/*.exe \
+            desktop-assets/**/*.dmg \
+            desktop-assets/**/*.AppImage \
+            desktop-assets/**/*.deb \
+            desktop-assets/**/*.rpm \
+            linux-release-assets/openbitfun-cli-*.tar.gz \
+            linux-release-assets/openbitfun-cli-*.tar.gz.sha256 \
+            linux-release-assets/openbitfun-relay-server-*.tar.gz \
+            linux-release-assets/openbitfun-relay-server-*.tar.gz.sha256 \
+            relay-image.json; do
+            cp "$asset" release-upload-assets/
+          done
+          (cd release-upload-assets && sha256sum ./* > "SHA256SUMS")
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${RELEASE_TAG}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "OpenBitFun ${RELEASE_VERSION#v} (fork, unsigned)" \
+            --notes "Automated fork release from ${RELEASE_TAG}.
+
+          Built without distribution signing certificates: Windows installers
+          are unsigned, macOS bundles are unsigned and not notarized, and the
+          updater feed is not published. Verify SHA256SUMS before installing.
+          The relay Docker image is at ${IMAGE}:${RELEASE_TAG}." \
+            release-upload-assets/*
