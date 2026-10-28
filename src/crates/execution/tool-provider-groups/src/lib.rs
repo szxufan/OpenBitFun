@@ -99,7 +99,7 @@ pub fn enabled_feature_groups() -> Vec<ToolPackFeatureGroup> {
 pub fn tool_feature_group(tool_name: &str) -> Option<ToolPackFeatureGroup> {
     match tool_name {
         "LS" | "Read" | "Glob" | "Grep" | "Write" | "Edit" | "Delete" | "ExecCommand"
-        | "WriteStdin" | "ExecControl" | "GetTime" | "ListModels" => {
+        | "WriteStdin" | "ExecControl" | "ExecReadOutput" | "GetTime" | "ListModels" => {
             Some(ToolPackFeatureGroup::Basic)
         }
         "Worktree" | "ReviewPlatform" | "GetFileDiff" => Some(ToolPackFeatureGroup::Git),
@@ -197,6 +197,7 @@ const PRODUCT_TOOL_PROVIDER_GROUP_PLAN: &[ToolProviderGroupPlan] = &[
             "ExecCommand",
             "WriteStdin",
             "ExecControl",
+            "ExecReadOutput",
             "GetTime",
             "ListModels",
         ],
@@ -567,6 +568,7 @@ mod tests {
                 "ExecCommand",
                 "WriteStdin",
                 "ExecControl",
+                "ExecReadOutput",
                 "GetTime",
                 "ListModels",
                 "Task",

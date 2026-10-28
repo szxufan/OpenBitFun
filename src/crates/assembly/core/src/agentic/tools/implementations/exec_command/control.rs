@@ -14,6 +14,7 @@ use tool_runtime::exec_command::{
     exec_control_result_value, exec_control_session_not_found_result,
     render_exec_control_response_for_assistant, ExecCommandControlAction, ExecCommandControlOrigin,
     ExecCommandControlRequest, ExecCommandControlResponse, ExecCommandResultFields,
+    EXEC_TOOL_MAX_OUTPUT_CHARS,
 };
 
 // ExecControl termination semantics by execution surface:
@@ -64,7 +65,7 @@ pub async fn control_exec_command_session(
                 action: ExecControlTool::remote_action(request.action),
                 origin: ExecControlTool::remote_origin(request.origin),
                 yield_time_ms: request.yield_time_ms,
-                max_output_chars: None,
+                max_output_chars: Some(EXEC_TOOL_MAX_OUTPUT_CHARS),
             })
             .await
             .map_err(|error| match error {
@@ -101,7 +102,7 @@ pub async fn control_exec_command_session(
             action: ExecControlTool::local_action(request.action),
             origin: ExecControlTool::local_origin(request.origin),
             yield_time_ms: request.yield_time_ms,
-            max_output_chars: None,
+            max_output_chars: Some(EXEC_TOOL_MAX_OUTPUT_CHARS),
         })
         .await
         .map_err(|error| match error {

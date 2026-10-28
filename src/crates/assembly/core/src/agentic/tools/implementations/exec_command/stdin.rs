@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use tool_runtime::exec_command::{
     render_write_stdin_response_for_assistant, write_stdin_input_from_input,
     write_stdin_input_validation_message, write_stdin_result_value,
-    write_stdin_session_not_found_result, ExecCommandResultFields,
+    write_stdin_session_not_found_result, ExecCommandResultFields, EXEC_TOOL_MAX_OUTPUT_CHARS,
 };
 
 pub struct WriteStdinTool;
@@ -52,7 +52,7 @@ impl WriteStdinTool {
             chars: parsed_input.chars,
             append_enter: parsed_input.append_enter,
             yield_time_ms: Some(parsed_input.yield_time_ms),
-            max_output_chars: None,
+            max_output_chars: Some(EXEC_TOOL_MAX_OUTPUT_CHARS),
         };
         let remote_exec_port = context.remote_exec_port().ok_or_else(|| {
             OpenBitFunError::tool(
@@ -237,7 +237,7 @@ Output is only what was produced during this tool call's wait window."#
             chars: parsed_input.chars,
             append_enter: parsed_input.append_enter,
             yield_time_ms: Some(parsed_input.yield_time_ms),
-            max_output_chars: None,
+            max_output_chars: Some(EXEC_TOOL_MAX_OUTPUT_CHARS),
         };
         let terminal_port = context.terminal_port().ok_or_else(|| {
             OpenBitFunError::tool("terminal runtime service is required for WriteStdin".to_string())

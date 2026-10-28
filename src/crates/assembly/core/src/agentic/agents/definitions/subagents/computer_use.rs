@@ -27,6 +27,7 @@ impl ComputerUseMode {
                 "ExecCommand".to_string(),
                 "WriteStdin".to_string(),
                 "ExecControl".to_string(),
+                "ExecReadOutput".to_string(),
                 "ControlHub".to_string(),
                 "OpenBitFunControl".to_string(),
                 "ComputerUse".to_string(),

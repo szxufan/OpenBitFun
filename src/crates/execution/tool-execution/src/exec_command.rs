@@ -6,6 +6,11 @@ use std::time::Duration;
 pub const EXEC_COMMAND_POWERSHELL_UTF8_OUTPUT_PREFIX: &str =
     "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;\n";
 pub const EXEC_COMMAND_DEFAULT_YIELD_TIME_MS: u64 = 30_000;
+
+/// Default per-call output budget for the model-facing exec tools. The
+/// head/tail truncation keeps the beginning and the end of the output; the
+/// full output stays re-readable through the capture read path.
+pub const EXEC_TOOL_MAX_OUTPUT_CHARS: usize = 30_000;
 pub const REMOTE_EXEC_SHELL_PROBE_TIMEOUT_MS: u64 = 3_000;
 
 const REMOTE_NON_TTY_INTERRUPT_GRACE_SECONDS: u64 = 2;
@@ -121,6 +126,9 @@ pub struct ExecCommandResultData {
     pub workdir: String,
     pub tty: bool,
     pub shell: ExecCommandShellMetadata,
+    /// Capture handle for re-reading retained output (the originating tool
+    /// call id). `None` only when the caller has no tool-call identity.
+    pub output_ref: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -712,10 +720,16 @@ pub fn exec_command_shell_metadata_value(metadata: ExecCommandShellMetadata) -> 
 }
 
 pub fn exec_command_result_value(result: ExecCommandResultData) -> Value {
-    let mut data = exec_command_result_fields_value(result.fields, true);
+    let mut data = exec_command_result_fields_value(result.fields.clone(), true);
     data["workdir"] = json!(result.workdir);
     data["tty"] = json!(result.tty);
     data["shell"] = exec_command_shell_metadata_value(result.shell);
+    data["original_output_chars"] = json!(result.fields.original_output_chars);
+    data["truncated"] =
+        json!(result.fields.original_output_chars > result.fields.output.chars().count());
+    if let Some(output_ref) = result.output_ref {
+        data["output_ref"] = json!(output_ref);
+    }
     data
 }
 
@@ -833,9 +847,13 @@ pub fn render_exec_response_for_assistant_with_notes(
     } else {
         format!("<note>\n{}\n</note>\n", note_lines.join("\n"))
     };
+    let output_ref_section = match data.get("output_ref").and_then(Value::as_str) {
+        Some(output_ref) => format!("<output_ref>\n{output_ref}\n</output_ref>\n"),
+        None => String::new(),
+    };
 
     format!(
-        "<status>\n{status}\n</status>\n<wall_time>\n{wall_time}\n</wall_time>\n{note_section}<output>\n{output}\n</output>"
+        "<status>\n{status}\n</status>\n<wall_time>\n{wall_time}\n</wall_time>\n{note_section}{output_ref_section}<output>\n{output}\n</output>"
     )
 }
 
@@ -854,6 +872,26 @@ pub fn render_exec_command_response_for_assistant(data: &Value) -> String {
             "No output was produced. In non-TTY mode, programs may block-buffer pipe output; use unbuffered flags/env vars or TTY mode if progressive output matters."
                 .to_string(),
         );
+    }
+
+    if data.get("truncated").and_then(Value::as_bool) == Some(true) {
+        let delivered = data
+            .get("output")
+            .and_then(Value::as_str)
+            .map(|output| output.chars().count())
+            .unwrap_or_default();
+        let original = data
+            .get("original_output_chars")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
+        match data.get("output_ref").and_then(Value::as_str) {
+            Some(output_ref) => note_lines.push(format!(
+                "Preview truncated (kept {delivered} of {original} chars). The full output is retained; re-read it with ExecReadOutput using output_ref '{output_ref}' instead of re-running the command."
+            )),
+            None => note_lines.push(format!(
+                "Preview truncated (kept {delivered} of {original} chars)."
+            )),
+        }
     }
 
     render_exec_response_for_assistant_with_notes(data, status_lines, note_lines, 3)
@@ -1513,6 +1551,7 @@ mod tests {
                 pipeline_failure_policy: "last_command".to_string(),
                 remote_env_snapshot_applied: None,
             },
+            output_ref: Some("tool-call-7".to_string()),
         });
 
         assert_eq!(
@@ -1534,9 +1573,47 @@ mod tests {
                     "path": "pwsh",
                     "invocation": "`pwsh -Command <cmd>`",
                     "pipeline_failure_policy": "last_command"
-                }
+                },
+                "original_output_chars": 4,
+                "truncated": false,
+                "output_ref": "tool-call-7"
             })
         );
+    }
+
+    #[test]
+    fn exec_command_result_builder_marks_truncated_previews() {
+        let data = exec_command_result_value(ExecCommandResultData {
+            fields: ExecCommandResultFields {
+                chunk_id: "chunk-9".to_string(),
+                wall_time_seconds: 2.0,
+                output: "a".repeat(EXEC_TOOL_MAX_OUTPUT_CHARS),
+                session_id: None,
+                exit_code: Some(0),
+                original_output_chars: EXEC_TOOL_MAX_OUTPUT_CHARS + 500,
+                completion: Some(ExecCommandCompletion {
+                    status: ExecCommandCompletionStatus::Exited,
+                    source: ExecCommandCompletionSource::Process,
+                }),
+                remote: false,
+            },
+            workdir: "/repo".to_string(),
+            tty: false,
+            shell: ExecCommandShellMetadata {
+                name: "Bash".to_string(),
+                kind: "bash".to_string(),
+                path: "/bin/bash".to_string(),
+                invocation: "`/bin/bash -o pipefail -lc <cmd>`".to_string(),
+                pipeline_failure_policy: "pipefail".to_string(),
+                remote_env_snapshot_applied: None,
+            },
+            output_ref: Some("tool-call-9".to_string()),
+        });
+
+        assert_eq!(data.get("truncated").and_then(Value::as_bool), Some(true));
+        let rendered = render_exec_command_response_for_assistant(&data);
+        assert!(rendered.contains("<output_ref>\ntool-call-9\n</output_ref>"));
+        assert!(rendered.contains("re-read it with ExecReadOutput using output_ref 'tool-call-9'"));
     }
 
     #[test]

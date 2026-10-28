@@ -101,6 +101,10 @@ pub fn standard_harness_tools() -> Vec<String> {
         "ExecCommand".to_string(),
         "WriteStdin".to_string(),
         "ExecControl".to_string(),
+        // Companion to ExecCommand: every command's output stays captured, so
+        // agents re-read, filter, and paginate it here instead of piping
+        // grep/head/tail in the command or re-running it to look again.
+        "ExecReadOutput".to_string(),
         // The companion to ExecCommand for remote work: a server started on
         // an SSH host is unreachable from the user's machine until a forward
         // exists, and an Agent that cannot see this tool reinvents it with

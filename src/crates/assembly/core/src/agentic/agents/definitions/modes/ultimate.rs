@@ -31,6 +31,7 @@ impl UltimateHarness {
                 "ExecCommand",
                 "WriteStdin",
                 "ExecControl",
+                "ExecReadOutput",
                 "ListModels",
                 "Skill",
                 "DesktopCard",

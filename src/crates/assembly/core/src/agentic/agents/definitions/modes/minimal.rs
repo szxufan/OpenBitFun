@@ -21,6 +21,7 @@ impl MinimalHarness {
             "ExecCommand",
             "WriteStdin",
             "ExecControl",
+            "ExecReadOutput",
         ]
         .into_iter()
         .map(str::to_string)

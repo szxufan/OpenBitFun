@@ -110,7 +110,7 @@ pub use cron_tool::CronTool;
 pub use delete_file_tool::DeleteFileTool;
 #[cfg(feature = "tools-agent-control")]
 pub use desktop_card_tool::DesktopCardTool;
-pub use exec_command::{ExecCommandTool, ExecControlTool, WriteStdinTool};
+pub use exec_command::{ExecCommandTool, ExecControlTool, ExecReadOutputTool, WriteStdinTool};
 pub use file_edit_tool::FileEditTool;
 pub use file_read_tool::FileReadTool;
 pub use file_write_tool::FileWriteTool;

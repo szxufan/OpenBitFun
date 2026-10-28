@@ -113,7 +113,7 @@ pub struct RemoteExecProcessLifecycleEvent {
 }
 
 pub type RemoteExecLifecycleSink = mpsc::UnboundedSender<RemoteExecProcessLifecycleEvent>;
-pub type RemoteExecOutputSink = mpsc::UnboundedSender<String>;
+pub type RemoteExecOutputSink = mpsc::UnboundedSender<super::ExecOutputChunk>;
 pub type RemoteExecStreamingOutputSink = mpsc::Sender<String>;
 #[async_trait::async_trait]
 pub trait RemoteExecPort: RuntimeServicePort + std::fmt::Debug {

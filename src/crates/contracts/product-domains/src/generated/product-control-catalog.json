@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "40fada109d5dbcfdbc1b289af574f7ac736da1620d4eee26128a40d3f0f5818c",
+  "digest": "ce3449c9298e138a981243b202aae9c901e15311d8a9e940bebbf12e1d99b881",
   "ownerDigest": "f27c231da2e536e4f2123910f34f862b55d21feb0528bc915d4d13edbd528af9",
   "searchAcceptance": [
     {
@@ -3181,7 +3181,8 @@
       "delegateTools": [
         "ExecCommand",
         "WriteStdin",
-        "ExecControl"
+        "ExecControl",
+        "ExecReadOutput"
       ],
       "presentationTarget": {
         "kind": "action",
@@ -21642,22 +21643,23 @@
         },
         {
           "id": "command-control",
-          "titleZh": "执行命令、写入输入并发送中断或其他信号",
-          "titleEn": "Execute commands, write input, and send interrupt or other signals",
+          "titleZh": "执行命令、读取输出、写入输入并发送中断或其他信号",
+          "titleEn": "Execute commands, read output, write input, and send interrupt or other signals",
           "control": {
             "kind": "delegate",
             "tools": [
               "ExecCommand",
               "WriteStdin",
-              "ExecControl"
+              "ExecControl",
+              "ExecReadOutput"
             ],
             "workflowZh": [
               "用 ExecCommand 启动命令；需要交互时启用 TTY，并保留返回的 session_id",
-              "用 WriteStdin 输入或轮询输出，用 ExecControl 发送中断或强制终止"
+              "用 WriteStdin 输入或轮询输出，用 ExecReadOutput 读取后台命令的增量输出，用 ExecControl 发送中断或强制终止"
             ],
             "workflowEn": [
               "Start the command with ExecCommand; enable TTY for interactive programs and keep the returned session_id",
-              "Use WriteStdin to enter text or poll output, and ExecControl to interrupt or terminate the process"
+              "Use WriteStdin to enter text or poll output, ExecReadOutput to read a background command's incremental output, and ExecControl to interrupt or terminate the process"
             ]
           }
         },
@@ -21765,8 +21767,8 @@
         "Detect available shells and choose a default or explicit shell",
         "在当前项目目录或指定起始目录创建终端",
         "Create terminals in the current project or a chosen starting directory",
-        "执行命令、写入输入并发送中断或其他信号",
-        "Execute commands, write input, and send interrupt or other signals",
+        "执行命令、读取输出、写入输入并发送中断或其他信号",
+        "Execute commands, read output, write input, and send interrupt or other signals",
         "随终端面板大小变化同步行列尺寸",
         "Synchronize terminal rows and columns as the panel resizes",
         "查看命令历史并检测 Shell Integration 支持",
@@ -21782,10 +21784,11 @@
         "Pass the target directory as ExecCommand workdir; omit it to use the current workspace root",
         "WriteStdin",
         "ExecControl",
+        "ExecReadOutput",
         "用 ExecCommand 启动命令；需要交互时启用 TTY，并保留返回的 session_id",
-        "用 WriteStdin 输入或轮询输出，用 ExecControl 发送中断或强制终止",
+        "用 WriteStdin 输入或轮询输出，用 ExecReadOutput 读取后台命令的增量输出，用 ExecControl 发送中断或强制终止",
         "Start the command with ExecCommand; enable TTY for interactive programs and keep the returned session_id",
-        "Use WriteStdin to enter text or poll output, and ExecControl to interrupt or terminate the process"
+        "Use WriteStdin to enter text or poll output, ExecReadOutput to read a background command's incremental output, and ExecControl to interrupt or terminate the process"
       ],
       "docsUrl": "https://playbook.openbitfun.com/capabilities/feature.terminal/"
     },

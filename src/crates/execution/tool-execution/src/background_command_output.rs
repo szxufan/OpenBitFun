@@ -1,4 +1,4 @@
-use openbitfun_runtime_ports::ExecTerminalSize;
+use openbitfun_runtime_ports::{ExecOutputChunk, ExecOutputStream, ExecTerminalSize};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, OnceLock};
@@ -7,8 +7,19 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::time::Instant;
 
 pub const BACKGROUND_COMMAND_OUTPUT_CAPTURE_LIMIT_BYTES: usize = 1024 * 1024;
-const BACKGROUND_COMMAND_OUTPUT_COMPLETED_TTL: Duration = Duration::from_secs(30 * 60);
-const MAX_BACKGROUND_COMMAND_OUTPUT_RECORDS: usize = 128;
+pub const BACKGROUND_COMMAND_OUTPUT_COMPLETED_TTL: Duration = Duration::from_secs(30 * 60);
+pub const MAX_BACKGROUND_COMMAND_OUTPUT_RECORDS: usize = 128;
+
+/// Human-facing summary of the capture retention policy, embedded in
+/// not-found answers so the model can self-correct instead of retrying.
+pub fn background_command_output_retention_policy_message() -> String {
+    format!(
+        "Captured command output is retained per command up to {} KB, for {} minutes after the command completes, and for at most {} commands.",
+        BACKGROUND_COMMAND_OUTPUT_CAPTURE_LIMIT_BYTES / 1024,
+        BACKGROUND_COMMAND_OUTPUT_COMPLETED_TTL.as_secs() / 60,
+        MAX_BACKGROUND_COMMAND_OUTPUT_RECORDS
+    )
+}
 
 static BACKGROUND_COMMAND_OUTPUT_CAPTURE: OnceLock<Arc<BackgroundCommandOutputCapture>> =
     OnceLock::new();
@@ -76,6 +87,19 @@ pub struct ReadBackgroundCommandOutputRequest {
     pub cursor: Option<u64>,
 }
 
+/// Addressable read keyed by the capture id (the originating tool call id)
+/// instead of the exec session id. Used by the model-facing read tool because
+/// a command that finishes inside its first tool call never gets an
+/// exec-session link.
+#[derive(Debug, Clone)]
+pub struct ReadBackgroundCommandOutputRefRequest {
+    pub capture_id: String,
+    pub cursor: Option<u64>,
+    /// `Stdout`/`Stderr` keep only that stream's chunks; `None`/`Combined`
+    /// keep the combined arrival-ordered view.
+    pub stream: Option<ExecOutputStream>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ListBackgroundCommandOutputRequest {
     pub agent_session_id: Option<String>,
@@ -124,6 +148,7 @@ struct BackgroundCommandOutputRecord {
 
 struct BackgroundCommandOutputChunk {
     cursor: u64,
+    stream: ExecOutputStream,
     text: String,
     bytes: usize,
 }
@@ -132,9 +157,9 @@ impl BackgroundCommandOutputCapture {
     pub async fn start_capture(
         self: &Arc<Self>,
         request: StartBackgroundCommandOutputCapture,
-    ) -> mpsc::UnboundedSender<String> {
+    ) -> mpsc::UnboundedSender<ExecOutputChunk> {
         self.cleanup_expired().await;
-        let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<ExecOutputChunk>();
         let record = BackgroundCommandOutputRecord {
             agent_session_id: request.agent_session_id,
             command: request.command,
@@ -269,56 +294,76 @@ impl BackgroundCommandOutputCapture {
             .await?;
         let records = self.records.lock().await;
         let record = records.get(&capture_id)?;
-        let first_cursor = record.chunks.front().map(|chunk| chunk.cursor);
-        let should_reset = request
-            .cursor
-            .zip(first_cursor)
-            .is_some_and(|(cursor, first)| cursor < first);
-        let snapshot = if request.cursor.is_none() || should_reset {
-            Some(record.snapshot())
-        } else {
-            None
-        };
-        let chunks = if let Some(cursor) = request.cursor.filter(|_| !should_reset) {
-            record
-                .chunks
-                .iter()
-                .filter(|chunk| chunk.cursor >= cursor)
-                .map(|chunk| chunk.text.clone())
-                .collect()
-        } else {
-            Vec::new()
-        };
+        Some(build_read_response(record, request.cursor, None))
+    }
 
-        Some(ReadBackgroundCommandOutputResponse {
-            metadata: record.metadata(),
-            cursor: record.next_cursor,
-            reset: should_reset,
-            snapshot,
-            chunks,
-        })
+    /// Addressable read by capture id, optionally filtered to one stream.
+    pub async fn read_by_ref(
+        &self,
+        request: ReadBackgroundCommandOutputRefRequest,
+    ) -> Option<ReadBackgroundCommandOutputResponse> {
+        let records = self.records.lock().await;
+        let record = records.get(&request.capture_id)?;
+        Some(build_read_response(record, request.cursor, request.stream))
+    }
+
+    /// Metadata for a capture id without consuming anything; the read tool
+    /// uses this to answer list-style lookups and not-found errors.
+    pub async fn metadata_by_ref(
+        &self,
+        capture_id: &str,
+    ) -> Option<BackgroundCommandOutputMetadata> {
+        let records = self.records.lock().await;
+        records
+            .get(capture_id)
+            .map(BackgroundCommandOutputRecord::metadata)
     }
 
     pub async fn list(
         &self,
         request: ListBackgroundCommandOutputRequest,
     ) -> ListBackgroundCommandOutputResponse {
+        let activities = self
+            .list_with_capture_ids(request)
+            .await
+            .into_iter()
+            .map(|(_, metadata)| metadata)
+            .collect::<Vec<_>>();
+        ListBackgroundCommandOutputResponse { activities }
+    }
+
+    /// Like [`Self::list`] but keeps the capture id (the model-facing
+    /// `output_ref`) next to each activity so reads can be addressed.
+    pub async fn list_with_capture_ids(
+        &self,
+        request: ListBackgroundCommandOutputRequest,
+    ) -> Vec<(String, BackgroundCommandOutputMetadata)> {
         self.cleanup_expired().await;
 
         let records = self.records.lock().await;
         let mut activities = records
-            .values()
-            .filter(|record| {
+            .iter()
+            .filter(|(capture_id, record)| {
                 record.exec_session_id.is_some()
+                    && !capture_id.is_empty()
                     && request.agent_session_id.as_ref().is_none_or(|session_id| {
                         record.agent_session_id.as_deref() == Some(session_id.as_str())
                     })
             })
-            .map(BackgroundCommandOutputRecord::metadata)
+            .map(|(capture_id, record)| (capture_id.clone(), record.metadata()))
             .collect::<Vec<_>>();
-        activities.sort_by_key(|metadata| (metadata.started_at, metadata.exec_session_id));
+        activities.sort_by_key(|(_, metadata)| (metadata.started_at, metadata.exec_session_id));
+        activities
+    }
 
-        ListBackgroundCommandOutputResponse { activities }
+    /// Resolves the capture id (model-facing `output_ref`) of a still-tracked
+    /// exec session.
+    pub async fn capture_id_for_exec_session(
+        &self,
+        remote: bool,
+        exec_session_id: i32,
+    ) -> Option<String> {
+        self.capture_id_for_session(remote, exec_session_id).await
     }
 
     async fn capture_id_for_session(&self, remote: bool, exec_session_id: i32) -> Option<String> {
@@ -332,19 +377,20 @@ impl BackgroundCommandOutputCapture {
             .cloned()
     }
 
-    async fn append_chunk(&self, capture_id: &str, text: String) {
-        if text.is_empty() {
+    async fn append_chunk(&self, capture_id: &str, chunk: ExecOutputChunk) {
+        if chunk.text.is_empty() {
             return;
         }
 
+        let bytes = chunk.text.len();
         let mut records = self.records.lock().await;
         let Some(record) = records.get_mut(capture_id) else {
             return;
         };
-        let bytes = text.len();
         record.chunks.push_back(BackgroundCommandOutputChunk {
             cursor: record.next_cursor,
-            text,
+            stream: chunk.stream,
+            text: chunk.text,
             bytes,
         });
         record.next_cursor = record.next_cursor.saturating_add(1);
@@ -412,6 +458,14 @@ impl BackgroundCommandOutputRecord {
             .collect::<String>()
     }
 
+    fn snapshot_stream(&self, stream: ExecOutputStream) -> String {
+        self.chunks
+            .iter()
+            .filter(|chunk| chunk.stream == stream)
+            .map(|chunk| chunk.text.as_str())
+            .collect::<String>()
+    }
+
     fn metadata(&self) -> BackgroundCommandOutputMetadata {
         BackgroundCommandOutputMetadata {
             agent_session_id: self.agent_session_id.clone(),
@@ -447,6 +501,56 @@ fn finish_record(
     }
 }
 
+/// Shared read protocol for session-keyed and capture-id-keyed reads:
+/// first read (or an aged-out cursor) returns a full snapshot, later reads
+/// return only the chunks after `cursor`. `stream` restricts both views to
+/// one tagged stream; `None`/`Combined` keep the arrival-ordered view.
+fn build_read_response(
+    record: &BackgroundCommandOutputRecord,
+    cursor: Option<u64>,
+    stream: Option<ExecOutputStream>,
+) -> ReadBackgroundCommandOutputResponse {
+    let stream_filter = match stream {
+        Some(ExecOutputStream::Stdout) | Some(ExecOutputStream::Stderr) => stream,
+        Some(ExecOutputStream::Combined) | None => None,
+    };
+    let matches_stream = |chunk: &BackgroundCommandOutputChunk| match stream_filter {
+        Some(filter) => chunk.stream == filter,
+        None => true,
+    };
+
+    let first_cursor = record.chunks.front().map(|chunk| chunk.cursor);
+    let should_reset = cursor
+        .zip(first_cursor)
+        .is_some_and(|(cursor, first)| cursor < first);
+    let snapshot = if cursor.is_none() || should_reset {
+        Some(match stream_filter {
+            Some(filter) => record.snapshot_stream(filter),
+            None => record.snapshot(),
+        })
+    } else {
+        None
+    };
+    let chunks = if let Some(cursor) = cursor.filter(|_| !should_reset) {
+        record
+            .chunks
+            .iter()
+            .filter(|chunk| chunk.cursor >= cursor && matches_stream(chunk))
+            .map(|chunk| chunk.text.clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    ReadBackgroundCommandOutputResponse {
+        metadata: record.metadata(),
+        cursor: record.next_cursor,
+        reset: should_reset,
+        snapshot,
+        chunks,
+    }
+}
+
 fn prune_record_count(records: &mut HashMap<String, BackgroundCommandOutputRecord>) {
     while records.len() > MAX_BACKGROUND_COMMAND_OUTPUT_RECORDS {
         let Some(oldest_capture_id) = records
@@ -471,8 +575,10 @@ fn now_unix_seconds() -> u64 {
 mod tests {
     use super::{
         background_command_output_capture, BackgroundCommandOutputStatus,
-        ReadBackgroundCommandOutputRequest, StartBackgroundCommandOutputCapture,
+        ReadBackgroundCommandOutputRefRequest, ReadBackgroundCommandOutputRequest,
+        StartBackgroundCommandOutputCapture,
     };
+    use openbitfun_runtime_ports::{ExecOutputChunk, ExecOutputStream};
 
     #[test]
     fn background_output_metadata_reads_legacy_payload_and_round_trips_geometry() {
@@ -533,9 +639,9 @@ mod tests {
             )
             .await
             .expect("record exists");
-        tx.send("hello".to_string())
+        tx.send(ExecOutputChunk::combined("hello"))
             .expect("capture receiver alive");
-        tx.send(" world".to_string())
+        tx.send(ExecOutputChunk::combined(" world"))
             .expect("capture receiver alive");
         tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
@@ -550,7 +656,8 @@ mod tests {
         assert_eq!(first.snapshot.as_deref(), Some("hello world"));
         assert_eq!(first.cursor, 2);
 
-        tx.send("!".to_string()).expect("capture receiver alive");
+        tx.send(ExecOutputChunk::combined("!"))
+            .expect("capture receiver alive");
         capture
             .finish_by_session(false, 4242, BackgroundCommandOutputStatus::Exited, Some(0))
             .await
@@ -571,5 +678,76 @@ mod tests {
             second.metadata.status,
             BackgroundCommandOutputStatus::Exited
         );
+    }
+
+    #[tokio::test]
+    async fn read_by_ref_filters_snapshot_and_chunks_by_stream() {
+        let capture_id = format!(
+            "ref-capture-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be after unix epoch")
+                .as_nanos()
+        );
+        let capture = background_command_output_capture();
+        let tx = capture
+            .start_capture(StartBackgroundCommandOutputCapture {
+                capture_id: capture_id.clone(),
+                agent_session_id: None,
+                command: "build".to_string(),
+                workdir: None,
+                remote: false,
+                tty: false,
+                terminal_size: None,
+            })
+            .await;
+        tx.send(ExecOutputChunk {
+            stream: ExecOutputStream::Stdout,
+            text: "out-1 ".to_string(),
+        })
+        .expect("capture receiver alive");
+        tx.send(ExecOutputChunk {
+            stream: ExecOutputStream::Stderr,
+            text: "err-1 ".to_string(),
+        })
+        .expect("capture receiver alive");
+        tx.send(ExecOutputChunk {
+            stream: ExecOutputStream::Stdout,
+            text: "out-2".to_string(),
+        })
+        .expect("capture receiver alive");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        let stderr_snapshot = capture
+            .read_by_ref(ReadBackgroundCommandOutputRefRequest {
+                capture_id: capture_id.clone(),
+                cursor: None,
+                stream: Some(ExecOutputStream::Stderr),
+            })
+            .await
+            .expect("record exists");
+        assert_eq!(stderr_snapshot.snapshot.as_deref(), Some("err-1 "));
+        assert_eq!(stderr_snapshot.cursor, 3);
+
+        let stdout_incremental = capture
+            .read_by_ref(ReadBackgroundCommandOutputRefRequest {
+                capture_id,
+                cursor: Some(2),
+                stream: Some(ExecOutputStream::Stdout),
+            })
+            .await
+            .expect("record exists");
+        assert_eq!(stdout_incremental.snapshot, None);
+        assert_eq!(stdout_incremental.chunks, vec!["out-2"]);
+    }
+
+    #[tokio::test]
+    async fn metadata_by_ref_answers_missing_captures_with_none() {
+        let capture = background_command_output_capture();
+
+        assert!(capture
+            .metadata_by_ref("no-such-capture-id")
+            .await
+            .is_none());
     }
 }

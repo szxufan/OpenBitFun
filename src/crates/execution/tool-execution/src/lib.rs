@@ -3,6 +3,7 @@ pub mod computer_use;
 pub mod context;
 pub mod exec_command;
 pub mod fs;
+pub mod output_read;
 pub mod pipeline;
 pub mod search;
 pub mod shell;

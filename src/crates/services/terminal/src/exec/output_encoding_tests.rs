@@ -1,4 +1,5 @@
 use super::{read_pipe_output, OutputCursor, OutputState};
+use openbitfun_runtime_ports::{ExecOutputChunk, ExecOutputStream};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
@@ -17,7 +18,12 @@ async fn pipe_read_boundary_preserves_results_progress_capture_and_counts() {
     let expected = format!("{}，后😀\n", "中".repeat(2730));
     let (capture_tx, mut capture_rx) = mpsc::unbounded_channel();
     let output = Arc::new(OutputState::new(Some(capture_tx)));
-    read_pipe_output(expected.as_bytes(), Arc::clone(&output)).await;
+    read_pipe_output(
+        expected.as_bytes(),
+        ExecOutputStream::Stdout,
+        Arc::clone(&output),
+    )
+    .await;
     output.close(Some(0)).await;
 
     let (progress_tx, mut progress_rx) = mpsc::channel(16);
@@ -31,8 +37,8 @@ async fn pipe_read_boundary_preserves_results_progress_capture_and_counts() {
         progress.push_str(&text);
     }
     let mut captured = String::new();
-    while let Ok(text) = capture_rx.try_recv() {
-        captured.push_str(&text);
+    while let Ok(chunk) = capture_rx.try_recv() {
+        captured.push_str(&chunk.text);
     }
     assert_eq!(progress, expected);
     assert_eq!(captured, expected);
@@ -53,13 +59,33 @@ async fn pipe_streams_keep_independent_partial_characters_across_polls() {
     let output = Arc::new(OutputState::new(Some(capture_tx)));
     let (mut stdout_writer, stdout) = tokio::io::duplex(64);
     let (mut stderr_writer, stderr) = tokio::io::duplex(64);
-    let stdout_task = tokio::spawn(read_pipe_output(stdout, Arc::clone(&output)));
-    let stderr_task = tokio::spawn(read_pipe_output(stderr, Arc::clone(&output)));
+    let stdout_task = tokio::spawn(read_pipe_output(
+        stdout,
+        ExecOutputStream::Stdout,
+        Arc::clone(&output),
+    ));
+    let stderr_task = tokio::spawn(read_pipe_output(
+        stderr,
+        ExecOutputStream::Stderr,
+        Arc::clone(&output),
+    ));
 
     stdout_writer.write_all(b"out:\xe4\xb8").await.unwrap();
-    assert_eq!(capture_rx.recv().await.unwrap(), "out:");
+    assert_eq!(
+        capture_rx.recv().await.unwrap(),
+        ExecOutputChunk {
+            stream: ExecOutputStream::Stdout,
+            text: "out:".to_string()
+        }
+    );
     stderr_writer.write_all(b"err:\xe6\x96").await.unwrap();
-    assert_eq!(capture_rx.recv().await.unwrap(), "err:");
+    assert_eq!(
+        capture_rx.recv().await.unwrap(),
+        ExecOutputChunk {
+            stream: ExecOutputStream::Stderr,
+            text: "err:".to_string()
+        }
+    );
     let first = output
         .collect_until(initial_cursor(), Instant::now(), 100, None)
         .await;
@@ -67,9 +93,21 @@ async fn pipe_streams_keep_independent_partial_characters_across_polls() {
     assert_eq!(first.original_output_chars, 8);
 
     stdout_writer.write_all(b"\xad").await.unwrap();
-    assert_eq!(capture_rx.recv().await.unwrap(), "中");
+    assert_eq!(
+        capture_rx.recv().await.unwrap(),
+        ExecOutputChunk {
+            stream: ExecOutputStream::Stdout,
+            text: "中".to_string()
+        }
+    );
     stderr_writer.write_all(b"\x87").await.unwrap();
-    assert_eq!(capture_rx.recv().await.unwrap(), "文");
+    assert_eq!(
+        capture_rx.recv().await.unwrap(),
+        ExecOutputChunk {
+            stream: ExecOutputStream::Stderr,
+            text: "文".to_string()
+        }
+    );
     let second = output
         .collect_until(first.cursor, Instant::now(), 100, None)
         .await;
@@ -82,7 +120,13 @@ async fn pipe_streams_keep_independent_partial_characters_across_polls() {
     stdout_task.await.unwrap();
     stderr_task.await.unwrap();
     output.close(Some(0)).await;
-    assert_eq!(capture_rx.recv().await.unwrap(), "\u{fffd}");
+    assert_eq!(
+        capture_rx.recv().await.unwrap(),
+        ExecOutputChunk {
+            stream: ExecOutputStream::Stdout,
+            text: "\u{fffd}".to_string()
+        }
+    );
     let last = output
         .collect_until(second.cursor, Instant::now(), 100, None)
         .await;
@@ -139,8 +183,8 @@ async fn git_bash_cat_preserves_utf8_fixture_through_exec_command() {
         progress.push_str(&text);
     }
     let mut capture = String::new();
-    while let Ok(text) = capture_rx.try_recv() {
-        capture.push_str(&text);
+    while let Ok(chunk) = capture_rx.try_recv() {
+        capture.push_str(&chunk.text);
     }
     assert_eq!(progress, expected);
     assert_eq!(capture, expected);

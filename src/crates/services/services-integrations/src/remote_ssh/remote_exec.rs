@@ -7,6 +7,7 @@
 use crate::remote_ssh::transport::{ssh_exit_code_for_signal, SSH_EXIT_STATUS_AFTER_EOF_GRACE};
 use crate::remote_ssh::SSHConnectionManager;
 use anyhow::{anyhow, Context};
+use openbitfun_runtime_ports::{ExecOutputChunk, ExecOutputStream};
 use rand::Rng;
 use russh::client::Msg;
 use russh::{Channel, ChannelMsg, Sig};
@@ -44,7 +45,7 @@ pub struct RemoteExecCommandRequest {
     pub yield_time_ms: Option<u64>,
     pub max_output_chars: Option<usize>,
     pub lifecycle_tx: Option<mpsc::UnboundedSender<RemoteExecProcessLifecycleEvent>>,
-    pub output_capture_tx: Option<mpsc::UnboundedSender<String>>,
+    pub output_capture_tx: Option<mpsc::UnboundedSender<ExecOutputChunk>>,
 }
 
 #[derive(Debug, Clone)]
@@ -201,7 +202,7 @@ impl RemotePipeControlState {
 struct OutputState {
     inner: Mutex<OutputInner>,
     notify: Notify,
-    output_capture_tx: Option<mpsc::UnboundedSender<String>>,
+    output_capture_tx: Option<mpsc::UnboundedSender<ExecOutputChunk>>,
 }
 
 struct OutputInner {
@@ -224,6 +225,16 @@ enum OutputStream {
     Combined,
     Stdout,
     Stderr,
+}
+
+impl OutputStream {
+    fn capture_stream(self) -> ExecOutputStream {
+        match self {
+            Self::Combined => ExecOutputStream::Combined,
+            Self::Stdout => ExecOutputStream::Stdout,
+            Self::Stderr => ExecOutputStream::Stderr,
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -254,6 +265,23 @@ impl PendingUtf8Streams {
         output.push_str(&decode_utf8_stream(&mut self.stdout, &[], true));
         output.push_str(&decode_utf8_stream(&mut self.stderr, &[], true));
         output
+    }
+
+    /// Flushes each stream's pending tail separately, keeping stream
+    /// provenance for capture consumers.
+    fn finish_streams(&mut self) -> Vec<(OutputStream, String)> {
+        let mut finished = Vec::new();
+        for (stream, pending) in [
+            (OutputStream::Combined, &mut self.combined),
+            (OutputStream::Stdout, &mut self.stdout),
+            (OutputStream::Stderr, &mut self.stderr),
+        ] {
+            let text = decode_utf8_stream(pending, &[], true);
+            if !text.is_empty() {
+                finished.push((stream, text));
+            }
+        }
+        finished
     }
 }
 
@@ -1098,7 +1126,7 @@ fn decode_utf8_stream(pending: &mut Vec<u8>, chunk: &[u8], finish: bool) -> Stri
 }
 
 impl OutputState {
-    fn new(output_capture_tx: Option<mpsc::UnboundedSender<String>>) -> Self {
+    fn new(output_capture_tx: Option<mpsc::UnboundedSender<ExecOutputChunk>>) -> Self {
         Self {
             inner: Mutex::new(OutputInner {
                 chunks: VecDeque::new(),
@@ -1117,10 +1145,15 @@ impl OutputState {
         if chunk.is_empty() {
             return;
         }
-        let capture_text = {
+        let capture_chunk = {
             let mut inner = self.inner.lock().await;
-            let capture_text = self.output_capture_tx.as_ref().map(|_| {
-                decode_utf8_stream(inner.capture_pending_utf8.get_mut(stream), &chunk, false)
+            let capture_chunk = self.output_capture_tx.as_ref().map(|_| {
+                let text =
+                    decode_utf8_stream(inner.capture_pending_utf8.get_mut(stream), &chunk, false);
+                ExecOutputChunk {
+                    stream: stream.capture_stream(),
+                    text,
+                }
             });
             let seq = inner.next_seq;
             inner.next_seq = inner.next_seq.saturating_add(1);
@@ -1133,26 +1166,29 @@ impl OutputState {
                     break;
                 }
             }
-            capture_text
+            capture_chunk
         };
-        if let (Some(tx), Some(text)) = (&self.output_capture_tx, capture_text) {
-            if !text.is_empty() {
-                let _ = tx.send(text);
+        if let (Some(tx), Some(chunk)) = (&self.output_capture_tx, capture_chunk) {
+            if !chunk.text.is_empty() {
+                let _ = tx.send(chunk);
             }
         }
         self.notify.notify_waiters();
     }
 
     async fn close(&self, exit_code: Option<i32>) {
-        let capture_tail = {
+        let capture_tails = {
             let mut inner = self.inner.lock().await;
             inner.closed = true;
             inner.exit_code = exit_code;
-            inner.capture_pending_utf8.finish()
+            inner.capture_pending_utf8.finish_streams()
         };
         if let Some(tx) = &self.output_capture_tx {
-            if !capture_tail.is_empty() {
-                let _ = tx.send(capture_tail);
+            for (stream, text) in capture_tails {
+                let _ = tx.send(ExecOutputChunk {
+                    stream: stream.capture_stream(),
+                    text,
+                });
             }
         }
         self.notify.notify_waiters();

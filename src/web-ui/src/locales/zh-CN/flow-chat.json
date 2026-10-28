@@ -104,6 +104,7 @@
     "allowOnce": "允许一次",
     "allowAlways": "始终允许此范围",
     "allowAlwaysCommand": "始终允许此命令",
+    "commandDescriptionLabel": "命令说明：",
     "allowAlwaysCommandDescription": "仅对当前项目中完全相同的命令（含参数）生效，不会放行其他命令。",
     "allowAlwaysTooltip": "在 {{projectPath}} 中记住当前操作的授权，仅对以下范围生效：\n{{resources}}",
     "allowAlwaysTooltipCurrentProject": "在当前项目中记住当前操作的授权，仅对以下范围生效：\n{{resources}}",

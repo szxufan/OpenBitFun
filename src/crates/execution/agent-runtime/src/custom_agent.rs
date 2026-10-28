@@ -18,6 +18,7 @@ pub const DEFAULT_CUSTOM_MODE_TOOLS: &[&str] = &[
     "ExecCommand",
     "WriteStdin",
     "ExecControl",
+    "ExecReadOutput",
     "AgentSpawn",
     "AgentSendInput",
     "AgentControl",

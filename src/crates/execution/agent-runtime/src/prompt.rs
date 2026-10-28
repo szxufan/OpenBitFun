@@ -104,7 +104,7 @@ impl RuntimeContextNeeds {
             let tool_name = tool_name.as_ref();
             match tool_name {
                 "Read" | "Write" | "Edit" | "Delete" | "LS" | "Grep" | "Glob" | "ExecCommand"
-                | "WriteStdin" | "ExecControl" => {
+                | "WriteStdin" | "ExecControl" | "ExecReadOutput" => {
                     needs.workspace_tools = true;
                     if tool_name == "ExecCommand" {
                         needs.exec_command = true;
@@ -196,6 +196,10 @@ pub fn render_runtime_context_reminder(facts: &RuntimeContextFacts) -> Option<St
                 &shell.invocation,
             );
         }
+        exec_command_lines.push(
+            "- Do not pipe through grep/head/tail/wc/sed just to shape output: run the raw command, then re-read, filter, and paginate the captured output with ExecReadOutput."
+                .to_string(),
+        );
         push_runtime_context_section(&mut lines, "ExecCommand Shell", exec_command_lines);
     }
 

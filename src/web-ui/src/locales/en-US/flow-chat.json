@@ -104,6 +104,7 @@
     "allowOnce": "Allow once",
     "allowAlways": "Always allow this scope",
     "allowAlwaysCommand": "Always allow this command",
+    "commandDescriptionLabel": "Agent description: ",
     "allowAlwaysCommandDescription": "Applies only to this exact command, including its arguments, in the current project. Other commands are not authorized.",
     "allowAlwaysTooltip": "Remember approval for this action in {{projectPath}}, limited to the following scope:\n{{resources}}",
     "allowAlwaysTooltipCurrentProject": "Remember approval for this action in the current project, limited to the following scope:\n{{resources}}",

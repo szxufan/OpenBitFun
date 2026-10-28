@@ -25,8 +25,8 @@ Run a shell in the current project, inspect output, keep command history, and sh
   - Detect available shells and choose a default or explicit shell
 - **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 在当前项目目录或指定起始目录创建终端
   - Create terminals in the current project or a chosen starting directory
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` / `WriteStdin` / `ExecControl` · 执行命令、写入输入并发送中断或其他信号
-  - Execute commands, write input, and send interrupt or other signals
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` / `WriteStdin` / `ExecControl` / `ExecReadOutput` · 执行命令、读取输出、写入输入并发送中断或其他信号
+  - Execute commands, read output, write input, and send interrupt or other signals
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 随终端面板大小变化同步行列尺寸
   - Synchronize terminal rows and columns as the panel resizes
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看命令历史并检测 Shell Integration 支持

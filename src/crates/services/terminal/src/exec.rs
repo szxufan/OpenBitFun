@@ -9,6 +9,7 @@ mod output_decoder;
 #[cfg(test)]
 mod output_encoding_tests;
 
+use openbitfun_runtime_ports::{ExecOutputChunk, ExecOutputStream};
 use output_decoder::OutputDecoder;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize, SlavePty};
 use rand::Rng;
@@ -58,7 +59,7 @@ pub struct ExecCommandRequest {
     pub yield_time_ms: Option<u64>,
     pub max_output_chars: Option<usize>,
     pub lifecycle_tx: Option<mpsc::UnboundedSender<ExecProcessLifecycleEvent>>,
-    pub output_capture_tx: Option<mpsc::UnboundedSender<String>>,
+    pub output_capture_tx: Option<mpsc::UnboundedSender<ExecOutputChunk>>,
 }
 
 #[derive(Debug, Clone)]
@@ -224,11 +225,11 @@ impl LocalPipeControlState {
 struct OutputState {
     inner: Mutex<OutputInner>,
     notify: Notify,
-    output_capture_tx: Option<mpsc::UnboundedSender<String>>,
+    output_capture_tx: Option<mpsc::UnboundedSender<ExecOutputChunk>>,
 }
 
 struct OutputInner {
-    chunks: VecDeque<(u64, String)>,
+    chunks: VecDeque<(u64, ExecOutputStream, String)>,
     next_seq: u64,
     retained_bytes: usize,
     total_output_chars: usize,
@@ -769,7 +770,7 @@ impl ExecProcess {
 }
 
 impl OutputState {
-    fn new(output_capture_tx: Option<mpsc::UnboundedSender<String>>) -> Self {
+    fn new(output_capture_tx: Option<mpsc::UnboundedSender<ExecOutputChunk>>) -> Self {
         Self {
             inner: Mutex::new(OutputInner {
                 chunks: VecDeque::new(),
@@ -784,29 +785,32 @@ impl OutputState {
         }
     }
 
-    async fn push_text(&self, chunk: String) {
+    async fn push_text(&self, stream: ExecOutputStream, chunk: String) {
         if chunk.is_empty() {
             return;
         }
         let decoded_chars = chunk.chars().count();
-        let capture_text = self.output_capture_tx.as_ref().map(|_| chunk.clone());
+        let capture_chunk = self.output_capture_tx.as_ref().map(|_| ExecOutputChunk {
+            stream,
+            text: chunk.clone(),
+        });
         {
             let mut inner = self.inner.lock().await;
             let seq = inner.next_seq;
             inner.next_seq = inner.next_seq.saturating_add(1);
             inner.retained_bytes = inner.retained_bytes.saturating_add(chunk.len());
             inner.total_output_chars = inner.total_output_chars.saturating_add(decoded_chars);
-            inner.chunks.push_back((seq, chunk));
+            inner.chunks.push_back((seq, stream, chunk));
             while inner.retained_bytes > MAX_RETAINED_OUTPUT_BYTES {
-                if let Some((_, dropped)) = inner.chunks.pop_front() {
+                if let Some((_, _, dropped)) = inner.chunks.pop_front() {
                     inner.retained_bytes = inner.retained_bytes.saturating_sub(dropped.len());
                 } else {
                     break;
                 }
             }
         }
-        if let (Some(tx), Some(text)) = (&self.output_capture_tx, capture_text) {
-            let _ = tx.send(text);
+        if let (Some(tx), Some(chunk)) = (&self.output_capture_tx, capture_chunk) {
+            let _ = tx.send(chunk);
         }
         self.notify.notify_waiters();
     }
@@ -848,7 +852,7 @@ impl OutputState {
         output_tx: Option<&mpsc::Sender<String>>,
     ) -> bool {
         let inner = self.inner.lock().await;
-        for (seq, chunk) in inner.chunks.iter() {
+        for (seq, _stream, chunk) in inner.chunks.iter() {
             if *seq >= cursor.next_seq {
                 sink.push_str(chunk);
                 if let Some(tx) = output_tx {
@@ -1155,9 +1159,13 @@ async fn spawn_pty_process(request: &ExecCommandRequest) -> TerminalResult<ExecP
         async move {
             let mut decoder = OutputDecoder::default();
             while let Some(chunk) = output_rx.recv().await {
-                output.push_text(decoder.push(&chunk)).await;
+                output
+                    .push_text(ExecOutputStream::Combined, decoder.push(&chunk))
+                    .await;
             }
-            output.push_text(decoder.finish()).await;
+            output
+                .push_text(ExecOutputStream::Combined, decoder.finish())
+                .await;
         }
     });
 
@@ -1272,25 +1280,35 @@ async fn spawn_pipe_process(
         #[cfg(unix)]
         reader_tasks.push(spawn_pipe_reader_with_done(
             stdout,
+            ExecOutputStream::Stdout,
             Arc::clone(&output),
             reader_done_tx.clone(),
         ));
         #[cfg(not(unix))]
-        reader_tasks.push(spawn_pipe_reader(stdout, Arc::clone(&output)));
+        reader_tasks.push(spawn_pipe_reader(
+            stdout,
+            ExecOutputStream::Stdout,
+            Arc::clone(&output),
+        ));
     }
     if let Some(stderr) = stderr {
         #[cfg(unix)]
         reader_tasks.push(match capture {
-            ExecOutputCapture::Combined => {
-                spawn_pipe_reader_with_done(stderr, Arc::clone(&output), reader_done_tx.clone())
-            }
+            ExecOutputCapture::Combined => spawn_pipe_reader_with_done(
+                stderr,
+                ExecOutputStream::Stderr,
+                Arc::clone(&output),
+                reader_done_tx.clone(),
+            ),
             ExecOutputCapture::StdoutOnly => {
                 spawn_pipe_discard_reader_with_done(stderr, reader_done_tx.clone())
             }
         });
         #[cfg(not(unix))]
         reader_tasks.push(match capture {
-            ExecOutputCapture::Combined => spawn_pipe_reader(stderr, Arc::clone(&output)),
+            ExecOutputCapture::Combined => {
+                spawn_pipe_reader(stderr, ExecOutputStream::Stderr, Arc::clone(&output))
+            }
             ExecOutputCapture::StdoutOnly => spawn_pipe_discard_reader(stderr),
         });
     }
@@ -1643,14 +1661,18 @@ async fn kill_pipe_child(child: &mut tokio::process::Child) -> Option<i32> {
 }
 
 #[cfg(not(unix))]
-fn spawn_pipe_reader<R>(reader: R, output: Arc<OutputState>) -> JoinHandle<()>
+fn spawn_pipe_reader<R>(
+    reader: R,
+    stream: ExecOutputStream,
+    output: Arc<OutputState>,
+) -> JoinHandle<()>
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
-    tokio::spawn(read_pipe_output(reader, output))
+    tokio::spawn(read_pipe_output(reader, stream, output))
 }
 
-async fn read_pipe_output<R>(mut reader: R, output: Arc<OutputState>)
+async fn read_pipe_output<R>(mut reader: R, stream: ExecOutputStream, output: Arc<OutputState>)
 where
     R: AsyncRead + Unpin,
 {
@@ -1659,12 +1681,12 @@ where
     loop {
         match reader.read(&mut buffer).await {
             Ok(0) => break,
-            Ok(n) => output.push_text(decoder.push(&buffer[..n])).await,
+            Ok(n) => output.push_text(stream, decoder.push(&buffer[..n])).await,
             Err(ref error) if error.kind() == ErrorKind::Interrupted => continue,
             Err(_) => break,
         }
     }
-    output.push_text(decoder.finish()).await;
+    output.push_text(stream, decoder.finish()).await;
 }
 
 #[cfg(not(unix))]
@@ -1688,6 +1710,7 @@ where
 #[cfg(unix)]
 fn spawn_pipe_reader_with_done<R>(
     reader: R,
+    stream: ExecOutputStream,
     output: Arc<OutputState>,
     done_tx: mpsc::Sender<()>,
 ) -> JoinHandle<()>
@@ -1695,7 +1718,7 @@ where
     R: AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
-        read_pipe_output(reader, output).await;
+        read_pipe_output(reader, stream, output).await;
         let _ = done_tx.send(()).await;
     })
 }
@@ -1801,6 +1824,7 @@ mod tests {
     };
     #[cfg(windows)]
     use crate::shell::{ShellDetector, ShellType};
+    use openbitfun_runtime_ports::ExecOutputStream;
     use std::collections::HashMap;
     #[cfg(windows)]
     use std::path::PathBuf;
@@ -1900,7 +1924,9 @@ mod tests {
         let output = OutputState::new(None);
         let chunk = "🦀".repeat(32 * 1024);
         for _ in 0..10 {
-            output.push_text(chunk.clone()).await;
+            output
+                .push_text(ExecOutputStream::Combined, chunk.clone())
+                .await;
         }
         output.close(Some(0)).await;
 

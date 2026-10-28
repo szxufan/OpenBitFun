@@ -17,6 +17,7 @@ const TRANSLATIONS: Record<string, string> = {
   'permission.allowAlways': 'Always allow this scope',
   'permission.allowAlwaysCommand': 'Always allow this command',
   'permission.allowAlwaysCommandDescription': 'Applies only to this exact command, including its arguments, in the current project. Other commands are not authorized.',
+  'permission.commandDescriptionLabel': 'Agent description: ',
   'permission.allowCurrentAndFollowing': 'Allow all',
   'permission.reject': 'Reject',
   'permission.rejectCurrentAndFollowing': 'Reject all',
@@ -149,6 +150,26 @@ describe('ChatInputApprovalBand', () => {
 
     expect(container.querySelector('[data-openbitfun-part="risk"]')?.textContent).toBe(
       'Save status as permission.visibility.public without deploying.',
+    );
+  });
+
+  it('shows the model-provided command description above the command', async () => {
+    await act(async () => {
+      root.render(
+        <ChatInputApprovalBand
+          requests={[request({
+            action: 'bash',
+            resources: ['cargo test'],
+            displayMetadata: { description: 'Run the project test suite' },
+          })]}
+          onRespond={vi.fn(async () => undefined)}
+          onRespondBatch={vi.fn(async () => undefined)}
+        />
+      );
+    });
+
+    expect(container.querySelector('[data-openbitfun-part="description"]')?.textContent).toBe(
+      'Agent description: Run the project test suite',
     );
   });
 

@@ -99,6 +99,35 @@ pub struct ExecTerminalSize {
     pub rows: u16,
 }
 
+/// Stream provenance of one captured exec output chunk.
+///
+/// PTY sessions always produce `Combined` because the terminal merges stdout
+/// and stderr in the kernel; pipe sessions tag the two streams separately so
+/// readers can filter by stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecOutputStream {
+    Combined,
+    Stdout,
+    Stderr,
+}
+
+/// One captured exec output chunk together with its stream provenance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecOutputChunk {
+    pub stream: ExecOutputStream,
+    pub text: String,
+}
+
+impl ExecOutputChunk {
+    pub fn combined(text: impl Into<String>) -> Self {
+        Self {
+            stream: ExecOutputStream::Combined,
+            text: text.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PortErrorKind {

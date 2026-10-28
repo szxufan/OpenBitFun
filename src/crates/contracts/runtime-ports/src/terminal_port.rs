@@ -100,7 +100,7 @@ pub struct TerminalExecProcessLifecycleEvent {
 }
 
 pub type TerminalExecLifecycleSink = mpsc::UnboundedSender<TerminalExecProcessLifecycleEvent>;
-pub type TerminalExecOutputSink = mpsc::UnboundedSender<String>;
+pub type TerminalExecOutputSink = mpsc::UnboundedSender<super::ExecOutputChunk>;
 pub type TerminalExecStreamingOutputSink = mpsc::Sender<String>;
 
 #[async_trait::async_trait]

@@ -32,6 +32,7 @@ impl ClawMode {
                 "ExecCommand".to_string(),
                 "WriteStdin".to_string(),
                 "ExecControl".to_string(),
+                "ExecReadOutput".to_string(),
                 // The companion to ExecCommand for remote work: a server
                 // started on an SSH host is unreachable from the user's
                 // machine until a forward exists.

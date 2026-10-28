@@ -644,6 +644,7 @@ pub fn tool_manifest_sort_rank(tool_name: &str) -> usize {
         "AgentControl" => 1,
         "AgentWait" => 1,
         "ExecCommand" => 2,
+        "ExecReadOutput" => 3,
         "Glob" => 4,
         "Grep" => 5,
         "Read" => 6,

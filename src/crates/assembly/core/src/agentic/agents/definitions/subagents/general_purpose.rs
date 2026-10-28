@@ -27,6 +27,7 @@ impl GeneralPurposeAgent {
                 "ExecCommand".to_string(),
                 "WriteStdin".to_string(),
                 "ExecControl".to_string(),
+                "ExecReadOutput".to_string(),
                 "WebSearch".to_string(),
                 "WebFetch".to_string(),
             ],

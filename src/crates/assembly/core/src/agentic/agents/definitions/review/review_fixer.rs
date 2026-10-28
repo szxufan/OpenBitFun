@@ -29,6 +29,7 @@ impl ReviewFixerAgent {
                 "ExecCommand".to_string(),
                 "WriteStdin".to_string(),
                 "ExecControl".to_string(),
+                "ExecReadOutput".to_string(),
                 "TodoWrite".to_string(),
             ],
             tool_exposure_overrides,

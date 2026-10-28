@@ -140,6 +140,7 @@ export const ChatInputApprovalBand: React.FC<ChatInputApprovalBandProps> = ({
   const responding = pendingAnswer !== null;
 
   const request = requests[0];
+  const description = metadataString(request?.displayMetadata, 'description');
   const pendingCount = Math.max(totalPendingCount ?? requests.length, requests.length);
   // Answering "and everything after this" only means something when there is
   // something after it, either in this round or a later one.
@@ -288,6 +289,18 @@ export const ChatInputApprovalBand: React.FC<ChatInputApprovalBandProps> = ({
             ) : null}
           </Stack>
         </Card>
+
+        {/* The model's own account of what the command does, when it gave one. */}
+        {description ? (
+          <div
+            data-openbitfun-component="permission-request-panel"
+            data-openbitfun-part="description"
+            className="openbitfun-chat-input-approval__grant-note"
+          >
+            {t('permission.commandDescriptionLabel')}
+            {description}
+          </div>
+        ) : null}
 
         {/* Keep the risk visible while a failed response is retried. */}
         {risk ? (

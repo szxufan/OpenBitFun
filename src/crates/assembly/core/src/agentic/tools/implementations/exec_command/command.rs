@@ -37,9 +37,85 @@ use tool_runtime::exec_command::{
     parse_remote_exec_shell_probe_output, remote_exec_login_shell_command,
     remote_exec_non_tty_control_wrapper, remote_exec_shell_login_args,
     remote_exec_shell_probe_command, render_exec_command_response_for_assistant,
+    ExecCommandControlAction, ExecCommandControlOrigin, ExecCommandControlRequest,
     ExecCommandLifecycleStatus, ExecCommandResultData, ExecCommandResultFields,
-    ExecCommandShellMetadata, REMOTE_EXEC_SHELL_PROBE_TIMEOUT_MS,
+    ExecCommandShellMetadata, EXEC_TOOL_MAX_OUTPUT_CHARS, REMOTE_EXEC_SHELL_PROBE_TIMEOUT_MS,
 };
+
+/// How long a `background=true` ExecCommand waits before returning the
+/// session handle.
+const EXEC_COMMAND_BACKGROUND_YIELD_TIME_MS: u64 = 1_000;
+/// Wait budget of the timeout watchdog's kill control call.
+const EXEC_COMMAND_TIMEOUT_CONTROL_YIELD_TIME_MS: u64 = 2_000;
+
+#[derive(Debug, Clone, Copy, Default)]
+struct ExecCommandToolExtras {
+    background: bool,
+    timeout_ms: Option<u64>,
+}
+
+fn exec_command_tool_extras_from_input(input: &Value) -> ExecCommandToolExtras {
+    ExecCommandToolExtras {
+        background: input
+            .get("background")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        timeout_ms: input.get("timeout_ms").and_then(Value::as_u64),
+    }
+}
+
+fn exec_command_effective_yield_time_ms(requested: u64, extras: ExecCommandToolExtras) -> u64 {
+    let mut effective = requested;
+    if extras.background {
+        effective = effective.min(EXEC_COMMAND_BACKGROUND_YIELD_TIME_MS);
+    }
+    if let Some(timeout_ms) = extras.timeout_ms {
+        effective = effective.min(timeout_ms);
+    }
+    effective
+}
+
+fn exec_command_description_from_input(input: &Value) -> Option<String> {
+    input
+        .get("description")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|description| !description.is_empty())
+        .map(str::to_string)
+}
+
+/// Detached watchdog for `timeout_ms`: kills the still-running session at the
+/// deadline through the same control path ExecControl uses, so the capture
+/// lifecycle bridge records a killed completion even if the model never polls.
+fn spawn_timeout_watchdog(
+    context: &ToolUseContext,
+    remote: bool,
+    session_id: i32,
+    deadline: tokio::time::Instant,
+) {
+    let terminal_port = context.terminal_port().cloned();
+    let remote_exec_port = context.remote_exec_port().cloned();
+    if terminal_port.is_none() && remote_exec_port.is_none() {
+        return;
+    }
+    tokio::spawn(async move {
+        tokio::time::sleep_until(deadline).await;
+        let terminal_port = terminal_port.as_ref();
+        let remote_exec_port = remote_exec_port.as_ref();
+        let _ = super::control::control_exec_command_session(
+            ExecCommandControlRequest {
+                session_id,
+                action: ExecCommandControlAction::Kill,
+                origin: ExecCommandControlOrigin::ModelTool,
+                remote,
+                yield_time_ms: Some(EXEC_COMMAND_TIMEOUT_CONTROL_YIELD_TIME_MS),
+            },
+            terminal_port,
+            remote_exec_port,
+        )
+        .await;
+    });
+}
 
 #[derive(Debug, Clone)]
 struct RemoteShell {
@@ -517,6 +593,8 @@ impl ExecCommandTool {
             .ok_or_else(|| OpenBitFunError::tool("cmd is required for ExecCommand".to_string()))?;
         let cmd = parsed_input.cmd;
         let tty = parsed_input.tty;
+        let extras = exec_command_tool_extras_from_input(input);
+        let started_at = tokio::time::Instant::now();
 
         let workdir = Self::resolve_remote_workdir(input, context)?;
         let connection_id = context
@@ -530,11 +608,10 @@ impl ExecCommandTool {
             })?
             .to_string();
         let remote_exec_port = context.remote_exec_port().ok_or_else(|| {
-            OpenBitFunError::tool(
-                "remote exec runtime service is required for ExecCommand".to_string(),
-            )
+            OpenBitFunError::tool("remote exec runtime service is required for ExecCommand")
         })?;
-        let yield_time_ms = parsed_input.yield_time_ms;
+        let yield_time_ms =
+            exec_command_effective_yield_time_ms(parsed_input.yield_time_ms, extras);
         let PreparedShell::Remote(shell) = self.take_prepared_shell(input, context).await? else {
             return Err(OpenBitFunError::tool(
                 "ExecCommand shell plan does not match remote execution",
@@ -581,7 +658,7 @@ impl ExecCommandTool {
             command,
             tty,
             yield_time_ms: Some(yield_time_ms),
-            max_output_chars: None,
+            max_output_chars: Some(EXEC_TOOL_MAX_OUTPUT_CHARS),
             lifecycle_sink: Self::start_remote_lifecycle_bridge(context, self.name()),
             output_sink: output_capture_tx,
         };
@@ -611,6 +688,16 @@ impl ExecCommandTool {
             }
         };
         let completion = response.completion.map(exec_command_remote_completion);
+        if let Some(session_id) = response.session_id {
+            if let Some(timeout_ms) = extras.timeout_ms {
+                spawn_timeout_watchdog(
+                    context,
+                    true,
+                    session_id,
+                    started_at + std::time::Duration::from_millis(timeout_ms),
+                );
+            }
+        }
         if let Some(capture_id) = context.tool_call_id.as_ref() {
             if let Some(session_id) = response.session_id {
                 background_command_output_capture()
@@ -642,6 +729,7 @@ impl ExecCommandTool {
             workdir: workdir.clone(),
             tty,
             shell: Self::remote_shell_metadata(&workdir, &shell, env_snapshot.is_some()),
+            output_ref: context.tool_call_id.clone(),
         });
         let result_for_assistant = Self::response_for_assistant(&data);
 
@@ -674,8 +762,11 @@ Command availability:
 - Built-in tools such as Grep are separate APIs; Grep can search workspace content even when the shell has no `rg` executable.
 - If a command is not found, inspect the actual output and exit status. Choose a built-in tool or a command verified to be available in the target environment for the next step. Do not automatically rewrite an explicitly requested command or install software to retry it.
 
+Shaping output:
+- Do NOT pipe through grep/head/tail/wc/sed merely to shape or limit output. Run the raw command; every command's output is captured and stays re-readable, sliceable, and filterable through ExecReadOutput (line ranges, regex filter with original line numbers, head/tail, stdout/stderr selection). Only filter on the command side when the output exceeds the per-command 1MB retention cap.
+
 TTY modes:
-- `tty=false` (Default): 
+- `tty=false` (Default):
   - runs without a PTY. Local commands use pipe-backed stdio; remote commands use a non-PTY SSH exec channel.
   - No interactive stdin is attached, so input-waiting programs may see EOF instead of a prompt.
   - programs may block-buffer pipe output, so output may appear only after the process exits. Use unbuffered flags/env vars such as `python -u` or `PYTHONUNBUFFERED=1` or TTY mode when progressive output matters.
@@ -683,13 +774,16 @@ TTY modes:
 
 Waiting and continuation:
 - yield_time_ms waits for output until the process exits or the deadline is reached. It does not stop the process.
-- If the process is still running after `yield_time_ms`, the result includes a numeric session_id.
-- Use WriteStdin to poll for more output or send input to tty=true sessions, and ExecControl to interrupt or kill it.
+- `background=true` starts the command and returns promptly with a session handle; poll and slice its output with ExecReadOutput instead of waiting here.
+- `timeout_ms` is a hard deadline: a process still running at the deadline is killed and reported with a killed completion; the initial wait is capped to the deadline.
+- If the process is still running after the wait, the result includes a numeric session_id.
+- Use WriteStdin to send input to tty=true sessions, ExecControl to interrupt or kill it, and ExecReadOutput to re-read or poll captured output of any command (each result carries an output_ref handle).
 
 Output:
-- Output is only what was produced during this tool call's wait window.
+- Output is only what was produced during this tool call's wait window; everything remains re-readable via the output_ref handle.
+- Previews are truncated to a head/tail budget when very large (`truncated` is true); re-read the retained output with ExecReadOutput instead of re-running the command.
 - Bash, Zsh, and Ksh run with `pipefail`, so a pipeline reports a non-zero exit code when any stage fails unless the command explicitly handles that failure.
-- In non-TTY mode, stdout and stderr ordering is not guaranteed; use tty=true or redirect stderr with 2>&1 when terminal ordering matters."#
+- In non-TTY mode, stdout and stderr ordering is not guaranteed; use tty=true, redirect stderr with 2>&1, or select streams in ExecReadOutput when separation matters."#
             .to_string())
     }
 
@@ -723,6 +817,18 @@ Output:
                 "yield_time_ms": {
                     "type": "number",
                     "description": "How long to wait for output before yielding. Defaults to 30000 ms."
+                },
+                "background": {
+                    "type": "boolean",
+                    "description": "Set true to start the command and return promptly with a session handle instead of waiting out yield_time_ms. Output stays readable through ExecReadOutput. Defaults to false."
+                },
+                "timeout_ms": {
+                    "type": "number",
+                    "description": "Optional hard deadline: when the process is still running at the deadline it is killed and the result reports a killed completion. The initial wait is capped to this deadline. Defaults to no timeout."
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Active-voice description of what this command does, shown to the user in the approval dialog. Keep it short for simple commands; for pipelines state the mechanism (flags, filters, limits), not only the goal."
                 }
             },
             "required": ["cmd"],
@@ -770,7 +876,13 @@ Output:
             .map(|parsed| parsed.cmd.trim().to_string())
             .filter(|command| !command.is_empty())
             .ok_or_else(|| OpenBitFunError::validation("cmd is required".to_string()))?;
-        Ok(vec![PermissionIntent::new("bash", vec![command])])
+        let mut intent = PermissionIntent::new("bash", vec![command]);
+        if let Some(description) = exec_command_description_from_input(input) {
+            intent
+                .display_metadata
+                .insert("description".to_string(), json!(description));
+        }
+        Ok(vec![intent])
     }
 
     fn manages_own_execution_timeout(&self) -> bool {
@@ -847,12 +959,15 @@ Output:
         let cmd = parsed_input.cmd;
         let workdir = Self::resolve_workdir(input, context)?;
         let tty = parsed_input.tty;
+        let extras = exec_command_tool_extras_from_input(input);
+        let started_at = tokio::time::Instant::now();
         let PreparedShell::Local(shell) = self.take_prepared_shell(input, context).await? else {
             return Err(OpenBitFunError::tool(
                 "ExecCommand shell plan does not match local execution",
             ));
         };
-        let yield_time_ms = parsed_input.yield_time_ms;
+        let yield_time_ms =
+            exec_command_effective_yield_time_ms(parsed_input.yield_time_ms, extras);
         let terminal_port = context.terminal_port().ok_or_else(|| {
             OpenBitFunError::tool(
                 "terminal runtime service is required for ExecCommand".to_string(),
@@ -882,7 +997,7 @@ Output:
             env: Self::command_env(),
             tty,
             yield_time_ms: Some(yield_time_ms),
-            max_output_chars: None,
+            max_output_chars: Some(EXEC_TOOL_MAX_OUTPUT_CHARS),
             lifecycle_sink: Self::start_local_lifecycle_bridge(context, self.name()),
             output_sink: output_capture_tx,
         };
@@ -912,6 +1027,16 @@ Output:
             }
         };
         let completion = response.completion.map(exec_command_local_completion);
+        if let Some(session_id) = response.session_id {
+            if let Some(timeout_ms) = extras.timeout_ms {
+                spawn_timeout_watchdog(
+                    context,
+                    false,
+                    session_id,
+                    started_at + std::time::Duration::from_millis(timeout_ms),
+                );
+            }
+        }
         if let Some(capture_id) = context.tool_call_id.as_ref() {
             if let Some(session_id) = response.session_id {
                 background_command_output_capture()
@@ -940,9 +1065,10 @@ Output:
                 completion,
                 remote: false,
             },
-            workdir: workdir.to_string_lossy().to_string(),
+            workdir: workdir.to_string_lossy().into_owned(),
             tty,
             shell: Self::shell_metadata_value(&shell),
+            output_ref: context.tool_call_id.clone(),
         });
         let result_for_assistant = Self::response_for_assistant(&data);
 
@@ -957,12 +1083,20 @@ Output:
 #[cfg(test)]
 mod tests {
     use super::super::env_snapshot::RemoteEnvSnapshot;
-    use super::ExecCommandTool;
+    use super::{
+        exec_command_effective_yield_time_ms, exec_command_tool_extras_from_input, ExecCommandTool,
+        ExecCommandToolExtras,
+    };
     use super::{parse_remote_shell_probe_output, RemoteShell};
     use crate::agentic::tools::framework::{Tool, ToolUseContext};
     use crate::agentic::tools::ToolRuntimeRestrictions;
     use crate::agentic::workspace::WorkspaceBinding;
     use crate::service::remote_ssh::workspace_state::workspace_session_identity;
+    use openbitfun_runtime_ports::{
+        PortResult, RuntimeServiceCapability, RuntimeServicePort, TerminalExecCommandRequest,
+        TerminalExecCommandResponse, TerminalExecControlAction, TerminalExecControlRequest,
+        TerminalPort, TerminalSendStdinRequest, TerminalWriteStdinRequest,
+    };
     use serde_json::json;
     use std::collections::HashMap;
     use std::path::Path;
@@ -1454,6 +1588,228 @@ mod tests {
         assert_eq!(
             environment.get("GIT_TERMINAL_PROMPT").map(String::as_str),
             Some("0")
+        );
+    }
+
+    /// Terminal port stub for the timeout/background parameter tests: every
+    /// exec returns a running session, every control is recorded.
+    #[derive(Default)]
+    struct WatchdogTerminalPort {
+        exec_yields: std::sync::Mutex<Vec<u64>>,
+        controls: std::sync::Mutex<Vec<TerminalExecControlAction>>,
+    }
+
+    impl RuntimeServicePort for WatchdogTerminalPort {
+        fn capability(&self) -> RuntimeServiceCapability {
+            RuntimeServiceCapability::Terminal
+        }
+    }
+
+    impl std::fmt::Debug for WatchdogTerminalPort {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("WatchdogTerminalPort")
+        }
+    }
+
+    fn running_response(yield_time_ms: u64) -> TerminalExecCommandResponse {
+        TerminalExecCommandResponse {
+            chunk_id: "chunk-w".to_string(),
+            wall_time_seconds: yield_time_ms as f64 / 1000.0,
+            output: "started".to_string(),
+            session_id: Some(7),
+            exit_code: None,
+            original_output_chars: 7,
+            completion: None,
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TerminalPort for WatchdogTerminalPort {
+        async fn exec_command(
+            &self,
+            request: TerminalExecCommandRequest,
+        ) -> PortResult<TerminalExecCommandResponse> {
+            self.exec_yields
+                .lock()
+                .unwrap()
+                .push(request.yield_time_ms.unwrap_or_default());
+            Ok(running_response(request.yield_time_ms.unwrap_or_default()))
+        }
+
+        async fn exec_command_streaming(
+            &self,
+            request: TerminalExecCommandRequest,
+            _output_sink: openbitfun_runtime_ports::TerminalExecStreamingOutputSink,
+        ) -> PortResult<TerminalExecCommandResponse> {
+            self.exec_command(request).await
+        }
+
+        async fn write_stdin(
+            &self,
+            _request: TerminalWriteStdinRequest,
+        ) -> PortResult<TerminalExecCommandResponse> {
+            Ok(running_response(0))
+        }
+
+        async fn write_stdin_streaming(
+            &self,
+            _request: TerminalWriteStdinRequest,
+            _output_sink: openbitfun_runtime_ports::TerminalExecStreamingOutputSink,
+        ) -> PortResult<TerminalExecCommandResponse> {
+            Ok(running_response(0))
+        }
+
+        async fn send_stdin(&self, _request: TerminalSendStdinRequest) -> PortResult<()> {
+            Ok(())
+        }
+
+        async fn control_session(
+            &self,
+            request: TerminalExecControlRequest,
+        ) -> PortResult<TerminalExecCommandResponse> {
+            self.controls.lock().unwrap().push(request.action);
+            Ok(TerminalExecCommandResponse {
+                chunk_id: "chunk-c".to_string(),
+                wall_time_seconds: 0.0,
+                output: String::new(),
+                session_id: None,
+                exit_code: Some(137),
+                original_output_chars: 0,
+                completion: Some(openbitfun_runtime_ports::TerminalExecSessionCompletion {
+                    status: openbitfun_runtime_ports::TerminalExecSessionCompletionStatus::Killed,
+                    source: openbitfun_runtime_ports::TerminalExecSessionCompletionSource::Process,
+                }),
+            })
+        }
+    }
+
+    fn watchdog_tool_context(port: Arc<WatchdogTerminalPort>) -> ToolUseContext {
+        let workspace = tempfile::tempdir().expect("temporary workspace");
+        ToolUseContext {
+            tool_call_id: Some("timeout-capture".to_string()),
+            agent_type: Some("Standard".to_string()),
+            session_id: None,
+            dialog_turn_id: None,
+            workspace: Some(WorkspaceBinding::new(None, workspace.keep())),
+            loaded_deferred_tool_specs: Vec::new(),
+            primary_model_facts: tool_runtime::context::PrimaryModelFacts::default(),
+            custom_data: HashMap::new(),
+            computer_use_host: None,
+            runtime_tool_restrictions: ToolRuntimeRestrictions::default(),
+            runtime_handles: openbitfun_runtime_ports::ToolRuntimeHandles::default()
+                .with_terminal_port(Some(port)),
+        }
+    }
+
+    #[test]
+    fn effective_yield_clamps_for_background_and_timeout() {
+        let plain = ExecCommandToolExtras::default();
+        assert_eq!(exec_command_effective_yield_time_ms(30_000, plain), 30_000);
+
+        let background = ExecCommandToolExtras {
+            background: true,
+            timeout_ms: None,
+        };
+        assert_eq!(
+            exec_command_effective_yield_time_ms(30_000, background),
+            1_000
+        );
+        assert_eq!(exec_command_effective_yield_time_ms(500, background), 500);
+
+        let timeout = ExecCommandToolExtras {
+            background: false,
+            timeout_ms: Some(2_000),
+        };
+        assert_eq!(exec_command_effective_yield_time_ms(30_000, timeout), 2_000);
+
+        let both = ExecCommandToolExtras {
+            background: true,
+            timeout_ms: Some(300),
+        };
+        assert_eq!(exec_command_effective_yield_time_ms(30_000, both), 300);
+    }
+
+    #[test]
+    fn tool_extras_parse_background_and_timeout() {
+        let extras = exec_command_tool_extras_from_input(&json!({
+            "cmd": "sleep 5",
+            "background": true,
+            "timeout_ms": 1500,
+        }));
+
+        assert!(extras.background);
+        assert_eq!(extras.timeout_ms, Some(1500));
+    }
+
+    #[test]
+    fn permission_intent_carries_model_description() {
+        let tool = ExecCommandTool::new();
+        let intents = tool
+            .permission_intents(
+                &json!({
+                    "cmd": "cargo test",
+                    "description": "Run the project test suite",
+                }),
+                &local_tool_context(Path::new(".")),
+            )
+            .expect("intents should build");
+
+        assert_eq!(intents.len(), 1);
+        assert_eq!(
+            intents[0].display_metadata.get("description"),
+            Some(&json!("Run the project test suite"))
+        );
+    }
+
+    #[tokio::test]
+    async fn background_returns_promptly_with_the_session_handle() {
+        let port = Arc::new(WatchdogTerminalPort::default());
+        let context = watchdog_tool_context(port.clone());
+        let tool = ExecCommandTool::new();
+
+        let results = tool
+            .call_impl(
+                &json!({
+                    "cmd": "npm run watch",
+                    "background": true,
+                    "yield_time_ms": 30_000,
+                }),
+                &context,
+            )
+            .await
+            .expect("background exec should succeed");
+        match &results[0] {
+            crate::agentic::tools::framework::ToolResult::Result { data, .. } => {
+                assert_eq!(data["session_id"], 7);
+                assert_eq!(data["output_ref"], "timeout-capture");
+            }
+            other => panic!("expected a tool result, got {other:?}"),
+        }
+        assert_eq!(*port.exec_yields.lock().unwrap(), vec![1_000]);
+    }
+
+    #[tokio::test]
+    async fn timeout_watchdog_kills_the_still_running_session() {
+        let port = Arc::new(WatchdogTerminalPort::default());
+        let context = watchdog_tool_context(port.clone());
+        let tool = ExecCommandTool::new();
+
+        let _ = tool
+            .call_impl(
+                &json!({
+                    "cmd": "sleep 30",
+                    "yield_time_ms": 50,
+                    "timeout_ms": 50,
+                }),
+                &context,
+            )
+            .await
+            .expect("timeout exec should succeed");
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        assert_eq!(
+            *port.controls.lock().unwrap(),
+            vec![TerminalExecControlAction::Kill]
         );
     }
 }
