@@ -33,6 +33,8 @@ import {
   type RelayFailureKind,
 } from '../../../../../shared/relay-transport/RelayFailure';
 import { ensureAccountSession } from './ensureAccountSession';
+import AccountConfigBackupCard from './AccountConfigBackupCard';
+import SharedHostsCard from './SharedHostsCard';
 import './AccountPanel.scss';
 
 const log = createLogger('AccountPanel');
@@ -1314,6 +1316,8 @@ export const AccountPanel: React.FC<AccountPanelProps> = ({
                 </div>
               </div>}
             </section>
+            <AccountConfigBackupCard />
+            <SharedHostsCard onEntered={onCloseDialog} />
           </ScrollArea>
         )}
       </div>

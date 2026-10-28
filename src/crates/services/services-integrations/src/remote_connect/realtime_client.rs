@@ -203,13 +203,25 @@ impl RealtimeConnection {
         let _ = tokio::time::timeout(Duration::from_secs(5), self.client.join()).await;
     }
 }
+fn routed_payload(target: &str, params: Value, rpc: bool) -> Result<Value> {
+    let target = super::device_grants::PeerTarget::parse(target)?;
+    let mut payload = if rpc {
+        json!({"method":format!("{}:invoke", target.device_id),"params":params,"timeoutMs":120_000})
+    } else {
+        json!({"targetDeviceId":target.device_id,"params":params})
+    };
+    if let Some(account) = target.account_id {
+        payload["targetAccountId"] = json!(account);
+    }
+    Ok(payload)
+}
+
 impl RealtimeSender {
     pub async fn event(&self, target: &str, params: Value) -> Result<()> {
+        let payload = routed_payload(target, params, false)?;
         let response = self
             .sender
-            .emit(MachineEvent(
-                json!({"targetDeviceId":target,"params":params}),
-            ))
+            .emit(MachineEvent(payload))
             .await?
             .timeout(Duration::from_secs(10))
             .await?;
@@ -220,11 +232,10 @@ impl RealtimeSender {
     }
     pub async fn call(&self, target: &str, params: Value) -> Result<Value> {
         let params = self.payloads.upload_if_large(params).await?;
+        let payload = routed_payload(target, params, true)?;
         let ack = tokio::time::timeout(Duration::from_secs(125), async {
             self.sender
-                .emit(RpcCall(
-                    json!({"method":format!("{target}:invoke"),"params":params,"timeoutMs":120_000}),
-                ))
+                .emit(RpcCall(payload))
                 .await?
                 .timeout(Duration::from_secs(123))
                 .await

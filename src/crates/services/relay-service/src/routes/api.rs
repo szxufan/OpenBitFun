@@ -95,6 +95,14 @@ pub(crate) async fn server_info_for_host(host_version: &'static str) -> Json<Ser
             // optional-password and refresh-token endpoints under
             // `/api/auth/local/*`. Older clients keep the GitHub flow's 404s.
             "local_auth_v1",
+            // Manual, client-encrypted config backup storage under
+            // `/api/account/config-backup*`. One opaque blob per account;
+            // older clients never call these routes.
+            "account_config_backup_v1",
+            // Cross-account device grants under `/api/grants*`: one host
+            // device shared with specific grantee accounts. Clients must ask
+            // before using it; older clients never see a shared roster.
+            "device_grants_v1",
         ],
     })
 }

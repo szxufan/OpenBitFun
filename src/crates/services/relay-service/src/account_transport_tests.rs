@@ -317,7 +317,9 @@ async fn official_and_local_layouts_share_authenticated_directory_and_rpc() {
                 "device_metadata_v1",
                 "device_client_build_v1",
                 "device_kind_cli_v1",
-                "local_auth_v1"
+                "local_auth_v1",
+                "account_config_backup_v1",
+                "device_grants_v1"
             ])
         );
         let devices =
@@ -736,5 +738,253 @@ async fn handshake_records_and_clears_the_client_build() {
     assert!(row.client_protocol.is_none());
     let _ = socket.close(None).await;
 
+    server.abort();
+}
+
+#[tokio::test]
+async fn device_grant_routes_cross_account_rpc_and_tears_down_on_revoke() {
+    let db = Arc::new(db::connect(":memory:").await.unwrap());
+    let app = build_relay_router(
+        Arc::new(MemoryAssetStore::new()),
+        Instant::now(),
+        db.clone(),
+        "test",
+    );
+    let owner = db::UserRow::create_local_with_phone(&db, "13800000111")
+        .await
+        .unwrap();
+    let member = db::UserRow::create_local_with_phone(&db, "13800000112")
+        .await
+        .unwrap();
+    let outsider = db::UserRow::create_local_with_phone(&db, "13800000113")
+        .await
+        .unwrap();
+    for (user, device) in [
+        (&owner, "shared-host"),
+        (&owner, "owner-laptop"),
+        (&member, "member-desk"),
+        (&outsider, "outsider-desk"),
+    ] {
+        db::DeviceRow::upsert(&db, device, &user.user_id, device, Some("desktop"), None)
+            .await
+            .unwrap();
+    }
+    let machine_token = db::AuthToken::create(&db, &owner.user_id, "shared-host")
+        .await
+        .unwrap()
+        .token;
+    let owner_laptop_token = db::AuthToken::create(&db, &owner.user_id, "owner-laptop")
+        .await
+        .unwrap()
+        .token;
+    let member_token = db::AuthToken::create(&db, &member.user_id, "member-desk")
+        .await
+        .unwrap()
+        .token;
+    let outsider_token = db::AuthToken::create(&db, &outsider.user_id, "outsider-desk")
+        .await
+        .unwrap()
+        .token;
+
+    // The shared machine offers; the grantee redeems the one-time secret.
+    let offered = json_body(
+        request(
+            &app,
+            "POST",
+            "/api/grants",
+            &machine_token,
+            json!({"device_id":"shared-host","grantee_user_id":member.user_id,"scope":"drive"}),
+        )
+        .await,
+    )
+    .await;
+    let grant_id = offered["grant"]["grant_id"].as_str().unwrap().to_string();
+    let response = request(
+        &app,
+        "POST",
+        &format!("/api/grants/{grant_id}/accept"),
+        &member_token,
+        json!({"invite_secret":offered["invite_secret"]}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server_app = app.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, server_app).await.unwrap();
+    });
+    let mut host = connect_scope_with_build(
+        address,
+        "",
+        &machine_token,
+        "machine-scoped",
+        Some(("1.0.0", 1)),
+    )
+    .await;
+    event(
+        &mut host,
+        1,
+        "rpc-register",
+        json!({"method":"shared-host:peer-invoke"}),
+    )
+    .await;
+    assert_eq!(acknowledgement(&mut host, 1).await["ok"], true);
+    let mut controller = connect_scope_with_build(
+        address,
+        "",
+        &member_token,
+        "user-scoped",
+        Some(("1.0.0", 1)),
+    )
+    .await;
+    let mut outsider_socket = connect_scope_with_build(
+        address,
+        "",
+        &outsider_token,
+        "user-scoped",
+        Some(("1.0.0", 1)),
+    )
+    .await;
+
+    // Without a grant claim the member's call stays in its own account and
+    // finds no target.
+    event(
+        &mut controller,
+        2,
+        "rpc-call",
+        json!({"method":"shared-host:peer-invoke","params":{"encryptedData":"YQ=="},"timeoutMs":1000}),
+    )
+    .await;
+    let response = acknowledgement(&mut controller, 2).await;
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"], "RPC target unavailable");
+
+    // Riding the grant, the call reaches the host carrying the relay-derived
+    // source account for host-side authorization.
+    event(
+        &mut controller,
+        3,
+        "rpc-call",
+        json!({"method":"shared-host:peer-invoke","params":{"encryptedData":"YQ=="},"timeoutMs":3000,"targetAccountId":owner.user_id}),
+    )
+    .await;
+    let (ack_id, incoming) = loop {
+        let message = packet(&mut host).await;
+        if let Some(rest) = message.strip_prefix("42") {
+            let index = rest.find('[').unwrap();
+            let data: Value = serde_json::from_str(&rest[index..]).unwrap();
+            if data[0] == "rpc-request" {
+                break (rest[..index].to_string(), data[1].clone());
+            }
+        }
+    };
+    assert_eq!(incoming["sourceDeviceId"], "member-desk");
+    assert_eq!(incoming["sourceAccountId"], member.user_id);
+    host.send(Message::Text(
+        format!("43{ack_id}{}", json!([{"ok":true}])).into(),
+    ))
+    .await
+    .unwrap();
+    let response = acknowledgement(&mut controller, 3).await;
+    assert_eq!(response["ok"], true);
+
+    // A forged grant claim from an unrelated account is refused outright.
+    event(
+        &mut outsider_socket,
+        4,
+        "rpc-call",
+        json!({"method":"shared-host:peer-invoke","params":{},"timeoutMs":1000,"targetAccountId":owner.user_id}),
+    )
+    .await;
+    let response = acknowledgement(&mut outsider_socket, 4).await;
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"], "RPC forbidden: no active device grant");
+
+    // The machine pushes a cross-account event to the granted controller.
+    event(
+        &mut host,
+        5,
+        "machine-event",
+        json!({"targetDeviceId":"member-desk","targetAccountId":member.user_id,"params":{"hint":"sealed"}}),
+    )
+    .await;
+    assert_eq!(acknowledgement(&mut host, 5).await["ok"], true);
+    let mut got_hint = false;
+    for _ in 0..8 {
+        let frame = packet(&mut controller).await;
+        if let Some(rest) = frame.strip_prefix("42") {
+            let event: Value = serde_json::from_str(rest).unwrap();
+            if event[0] == "ephemeral"
+                && event[1]["type"] == "device-event"
+                && event[1]["sourceAccountId"] == owner.user_id
+                && event[1]["params"]["hint"] == "sealed"
+            {
+                got_hint = true;
+                break;
+            }
+        }
+    }
+    assert!(
+        got_hint,
+        "cross-account machine-event must reach the grantee"
+    );
+
+    // Revoking from any owner device tears the riding socket down within one
+    // monitor tick, exactly like a revoked token.
+    let response = request(
+        &app,
+        "DELETE",
+        &format!("/api/grants/{grant_id}"),
+        &owner_laptop_token,
+        json!(null),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut torn = false;
+    for _ in 0..6 {
+        match tokio::time::timeout(Duration::from_secs(6), controller.next()).await {
+            Ok(Some(Ok(Message::Close(_)))) | Ok(Some(Err(_))) | Err(_) => {
+                torn = true;
+                break;
+            }
+            Ok(Some(Ok(Message::Text(text)))) if text == "41" => {
+                torn = true;
+                break;
+            }
+            Ok(Some(Ok(Message::Ping(bytes)))) => {
+                let _ = controller.send(Message::Pong(bytes)).await;
+            }
+            Ok(Some(Ok(_))) => {}
+            Ok(None) => {
+                torn = true;
+                break;
+            }
+        }
+    }
+    assert!(torn, "revoked grant must disconnect the riding socket");
+    // A fresh controller socket cannot ride a revoked grant either.
+    let mut renewed = connect_scope_with_build(
+        address,
+        "",
+        &member_token,
+        "user-scoped",
+        Some(("1.0.0", 1)),
+    )
+    .await;
+    event(
+        &mut renewed,
+        6,
+        "rpc-call",
+        json!({"method":"shared-host:peer-invoke","params":{},"timeoutMs":1000,"targetAccountId":owner.user_id}),
+    )
+    .await;
+    let response = acknowledgement(&mut renewed, 6).await;
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"], "RPC forbidden: no active device grant");
+    let _ = renewed.close(None).await;
+    let _ = outsider_socket.close(None).await;
+    let _ = host.close(None).await;
     server.abort();
 }

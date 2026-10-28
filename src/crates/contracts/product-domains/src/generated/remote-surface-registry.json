@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:426be8b87d2cbd99",
+  "digest": "fnv1a64:3acc5ac3c5dc3d7b",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -44,7 +44,8 @@
       "whole_session_copy_v1",
       "user_question_response",
       "user_question_interaction_v1",
-      "psk_pairing_v1"
+      "psk_pairing_v1",
+      "device_grant_v1"
     ],
     "desktop": [
       "model_routing_v1",
@@ -82,7 +83,8 @@
       "whole_session_copy_v1",
       "user_question_response",
       "user_question_interaction_v1",
-      "psk_pairing_v1"
+      "psk_pairing_v1",
+      "device_grant_v1"
     ],
     "cli": [
       "model_routing_v1",
@@ -103,7 +105,8 @@
       "workspace_id_references_v1",
       "user_question_response",
       "user_question_interaction_v1",
-      "psk_pairing_v1"
+      "psk_pairing_v1",
+      "device_grant_v1"
     ]
   },
   "operations": [
@@ -117,7 +120,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "accept_operation",
@@ -129,7 +133,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "accept_session",
@@ -141,7 +146,60 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "account_config_backup_delete",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "account_config_backup_export",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "account_config_backup_import",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "account_config_backup_status",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_connect_devices",
@@ -153,7 +211,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_delete_device",
@@ -165,7 +224,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_device_rpc",
@@ -177,7 +237,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_execute_on_device",
@@ -189,7 +250,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_get_credential_hint",
@@ -201,7 +263,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_list_devices",
@@ -213,7 +276,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_load_older_session",
@@ -225,7 +289,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_login",
@@ -237,7 +302,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_logout",
@@ -249,7 +315,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_online_devices",
@@ -261,7 +328,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_refresh_relogin",
@@ -273,7 +341,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_relay_capabilities",
@@ -285,7 +354,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_set_password",
@@ -297,7 +367,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_sms_send",
@@ -309,7 +380,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_status",
@@ -321,7 +393,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_subscribe_session",
@@ -333,7 +406,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_token_expired",
@@ -345,7 +419,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_unsubscribe_session",
@@ -357,7 +432,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "account_update_device_alias",
@@ -369,7 +445,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "acknowledge_external_ecosystems_command",
@@ -381,7 +458,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "activate_session_goal",
@@ -393,7 +471,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "add_skill",
@@ -405,7 +484,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "appearance_market_browse",
@@ -417,7 +497,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "appearance_market_download_release",
@@ -429,7 +510,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "appearance_market_get_listing",
@@ -441,7 +523,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "appearance_market_get_review_submission",
@@ -453,7 +536,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "appearance_market_list_review_submissions",
@@ -465,7 +549,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "appearance_market_list_submissions",
@@ -477,7 +562,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "appearance_market_review_submission",
@@ -489,7 +575,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "appearance_market_submit_package",
@@ -501,7 +588,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "appearance_market_withdraw_submission",
@@ -513,7 +601,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "append_flow_chat_diagnostics",
@@ -525,7 +614,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "apply_external_hook_import_command",
@@ -537,7 +627,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "apply_external_mcp_import_command",
@@ -549,7 +640,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "apply_external_source_control_action_command",
@@ -560,7 +652,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "apply_patch",
@@ -572,7 +665,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "archive_all_sessions",
@@ -584,7 +678,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "archive_session",
@@ -595,7 +690,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_control_disconnect",
@@ -607,7 +703,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_control_enable_default_cdp",
@@ -619,7 +716,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_control_get_status",
@@ -631,7 +729,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_control_launch",
@@ -643,7 +742,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_control_list_browsers",
@@ -655,7 +755,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_control_restart_with_cdp",
@@ -667,7 +768,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_get_url",
@@ -679,7 +781,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_webview_capture_preview",
@@ -691,7 +794,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_webview_create",
@@ -703,7 +807,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_webview_eval",
@@ -715,7 +820,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_webview_navigate",
@@ -727,7 +833,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_webview_reload",
@@ -739,7 +846,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_webview_set_agent_target_state",
@@ -751,7 +859,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "browser_webview_set_bounds",
@@ -763,7 +872,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "btw_ask_stream",
@@ -775,7 +885,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "btw_cancel",
@@ -787,7 +898,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cancel_acp_dialog_turn",
@@ -799,7 +911,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cancel_dialog_turn",
@@ -810,7 +923,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cancel_insights_generation",
@@ -822,7 +936,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cancel_mcp_remote_oauth",
@@ -834,7 +949,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cancel_search",
@@ -846,7 +962,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cancel_session",
@@ -858,7 +975,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cancel_subscription_login",
@@ -870,7 +988,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cancel_tool",
@@ -881,7 +1000,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cancel_transfer",
@@ -893,7 +1013,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "canonicalize_agent_profile_configs",
@@ -905,7 +1026,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "check_command_exists",
@@ -917,7 +1039,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "check_commands_exist",
@@ -929,7 +1052,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "check_for_updates",
@@ -941,7 +1065,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "check_git_isolation",
@@ -953,7 +1078,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "check_path_exists",
@@ -964,7 +1090,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "choose_external_mcp_conflict_command",
@@ -975,7 +1102,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "choose_external_subagent_conflict_command",
@@ -986,7 +1114,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "cleanup_invalid_workspaces",
@@ -997,7 +1126,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "clear_mcp_remote_auth",
@@ -1009,7 +1139,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "clear_project_permission_grants",
@@ -1020,7 +1151,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "clear_session_thread_goal",
@@ -1032,7 +1164,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "clear_web_search_credential",
@@ -1043,7 +1176,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "close_workspace",
@@ -1055,7 +1189,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "compact_session",
@@ -1067,7 +1202,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "compress_path",
@@ -1079,7 +1215,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "compute_diff",
@@ -1091,7 +1228,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_control_preview",
@@ -1103,7 +1241,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_control_status",
@@ -1115,7 +1254,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_control_stop",
@@ -1127,7 +1267,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_get_status",
@@ -1139,7 +1280,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_open_system_settings",
@@ -1151,7 +1293,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_request_permission",
@@ -1163,7 +1306,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_request_permissions",
@@ -1175,7 +1319,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_share_control",
@@ -1187,7 +1332,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_share_forget_grant",
@@ -1199,7 +1345,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_share_grants",
@@ -1211,7 +1358,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_share_input",
@@ -1223,7 +1371,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_share_observe",
@@ -1235,7 +1384,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_share_request",
@@ -1247,7 +1397,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_share_start",
@@ -1259,7 +1410,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "computer_use_share_targets",
@@ -1271,7 +1423,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no browser or OS automation runtime"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "confirm_frontend_update",
@@ -1283,7 +1436,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "control_background_command",
@@ -1295,7 +1449,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "control_deep_review_queue",
@@ -1307,7 +1462,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "copy_session",
@@ -1319,7 +1475,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_acp_flow_session",
@@ -1331,7 +1488,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_assistant_workspace",
@@ -1343,7 +1501,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_control_conversation",
@@ -1354,7 +1513,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_cron_job",
@@ -1366,7 +1526,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_custom_agent",
@@ -1378,7 +1539,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_directory",
@@ -1389,7 +1551,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_file",
@@ -1401,7 +1564,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_miniapp",
@@ -1413,7 +1577,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_session",
@@ -1424,7 +1589,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "create_subagent",
@@ -1436,7 +1602,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "debug_close_devtools",
@@ -1448,7 +1615,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "debug_devtools_available",
@@ -1460,7 +1628,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "debug_element_picked",
@@ -1472,7 +1641,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "debug_open_devtools",
@@ -1484,7 +1654,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "decompress_path",
@@ -1496,7 +1667,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_agent_companion_pet_package",
@@ -1508,7 +1680,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_all_archived_sessions",
@@ -1520,7 +1693,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_assistant_workspace",
@@ -1532,7 +1706,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_cron_job",
@@ -1544,7 +1719,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_custom_agent",
@@ -1556,7 +1732,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_directory",
@@ -1567,7 +1744,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_file",
@@ -1578,7 +1756,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_mcp_server",
@@ -1590,7 +1769,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_miniapp",
@@ -1602,7 +1782,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_model_pool",
@@ -1613,7 +1794,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_persisted_session",
@@ -1625,7 +1807,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_session",
@@ -1636,7 +1819,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_skill",
@@ -1648,7 +1832,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "delete_subagent",
@@ -1660,7 +1845,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "desktop_card_delete",
@@ -1672,7 +1858,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "desktop_card_get",
@@ -1684,7 +1871,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "desktop_card_list",
@@ -1696,7 +1884,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "desktop_card_refresh",
@@ -1708,7 +1897,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "desktop_card_set_always_on_top",
@@ -1720,7 +1910,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "desktop_card_set_checklist_item",
@@ -1732,7 +1923,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "desktop_card_set_visible",
@@ -1744,7 +1936,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_answer",
@@ -1756,7 +1949,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_append",
@@ -1768,7 +1962,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_cancel",
@@ -1780,7 +1975,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_continue",
@@ -1792,7 +1988,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_install_cli_cancel",
@@ -1804,7 +2001,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_install_cli_poll",
@@ -1816,7 +2014,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_install_cli_start",
@@ -1828,7 +2027,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_list_jobs",
@@ -1840,7 +2040,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_list_targets",
@@ -1852,7 +2053,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_load_transcript",
@@ -1864,7 +2066,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_probe_target",
@@ -1876,7 +2079,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_provision_target",
@@ -1888,7 +2092,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_query",
@@ -1900,7 +2105,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_save_transcript",
@@ -1912,7 +2118,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_status",
@@ -1924,7 +2131,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_submit",
@@ -1936,7 +2144,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_sync_model_config",
@@ -1948,7 +2157,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_sync_result",
@@ -1960,7 +2170,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_answer",
@@ -1971,7 +2182,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_append",
@@ -1982,7 +2194,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_cancel",
@@ -1993,7 +2206,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_continue",
@@ -2004,7 +2218,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_list",
@@ -2015,7 +2230,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_probe",
@@ -2026,7 +2242,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_query",
@@ -2037,7 +2254,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_status",
@@ -2048,7 +2266,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_submit",
@@ -2059,7 +2278,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_workspace_bundle_begin",
@@ -2070,7 +2290,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_workspace_bundle_chunk",
@@ -2081,7 +2302,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_workspace_bundle_commit",
@@ -2092,7 +2314,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_workspace_provision",
@@ -2103,7 +2326,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_workspace_sync",
@@ -2114,7 +2338,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "dispatch_target_workspace_sync_chunk",
@@ -2125,7 +2350,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "download_skill_market",
@@ -2137,7 +2363,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "download_update",
@@ -2149,7 +2376,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "editor_ai_cancel",
@@ -2161,7 +2389,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "editor_ai_stream",
@@ -2173,7 +2402,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ensure_assistant_bootstrap",
@@ -2185,7 +2415,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ensure_control_conversation",
@@ -2196,7 +2427,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ensure_coordinator_session",
@@ -2207,7 +2439,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "execute_tool",
@@ -2219,7 +2452,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "expand_external_prompt_command_command",
@@ -2231,7 +2465,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "explorer_get_children",
@@ -2243,7 +2478,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not expose the remote-workspace UI surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "explorer_get_children_paginated",
@@ -2255,7 +2491,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not expose the remote-workspace UI surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "explorer_get_file_tree",
@@ -2267,7 +2504,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not expose the remote-workspace UI surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "export_config",
@@ -2279,7 +2517,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "export_diagnostics_bundle",
@@ -2291,7 +2530,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "export_local_file_to_path",
@@ -2303,7 +2543,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "export_session_transcript",
@@ -2315,7 +2556,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "fetch_mcp_app_resource",
@@ -2327,7 +2569,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "fork_session",
@@ -2339,7 +2582,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "frontend_update_candidate_failed",
@@ -2351,7 +2595,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "frontend_update_candidate_ready",
@@ -2363,7 +2608,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "generate_commit_message",
@@ -2375,7 +2621,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "generate_insights",
@@ -2387,7 +2634,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "generate_session_title",
@@ -2399,7 +2647,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_acp_clients",
@@ -2411,7 +2660,8 @@
       "cliPeer": {
         "kind": "soft_empty",
         "reason": "ACP client management is a desktop settings surface; the CLI peer host reports none"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_acp_session_commands",
@@ -2423,7 +2673,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_acp_session_options",
@@ -2435,7 +2686,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_agent_profile_config",
@@ -2446,7 +2698,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_agent_profile_configs",
@@ -2457,7 +2710,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_ai_model_catalog",
@@ -2468,7 +2722,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_all_modified_files",
@@ -2480,7 +2735,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_all_tools_info",
@@ -2491,7 +2747,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_app_state",
@@ -2503,7 +2760,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_app_version",
@@ -2515,7 +2773,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_assistant_workspaces",
@@ -2527,7 +2786,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_available_modes",
@@ -2538,7 +2798,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "get_available_tools",
@@ -2550,7 +2811,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_baseline_snapshot_diff",
@@ -2562,7 +2824,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_chat_mcp_catalog",
@@ -2573,7 +2836,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_clipboard_files",
@@ -2585,7 +2849,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_clipboard_image",
@@ -2597,7 +2862,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_config",
@@ -2608,7 +2874,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_configs",
@@ -2619,7 +2886,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_current_workspace",
@@ -2630,7 +2898,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "get_custom_agent_detail",
@@ -2642,7 +2911,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_default_review_team_definition",
@@ -2654,7 +2924,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_directory_children",
@@ -2665,7 +2936,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_directory_children_paginated",
@@ -2676,7 +2948,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_external_ecosystem_awareness_command",
@@ -2688,7 +2961,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_external_hook_catalog",
@@ -2700,7 +2974,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_external_hook_import_snapshot",
@@ -2712,7 +2987,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_external_source_control_snapshot",
@@ -2723,7 +2999,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_external_source_discovery_snapshot",
@@ -2734,7 +3011,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_external_source_snapshot",
@@ -2745,7 +3023,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_file_change_history",
@@ -2757,7 +3036,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_file_diff",
@@ -2769,7 +3049,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_file_editor_sync_hash",
@@ -2781,7 +3062,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_file_metadata",
@@ -2793,7 +3075,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_file_tree",
@@ -2805,7 +3088,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_file_watch_status",
@@ -2817,7 +3101,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_frontend_update_status",
@@ -2829,7 +3114,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_global_config_health",
@@ -2841,7 +3127,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_global_config_status",
@@ -2853,7 +3140,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_global_skill_settings",
@@ -2865,7 +3153,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_health_status",
@@ -2877,7 +3166,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_instruction_source_catalog",
@@ -2889,7 +3179,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_latest_insights",
@@ -2901,7 +3192,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_local_models_dev_catalogs",
@@ -2913,7 +3205,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_mcp_prompt",
@@ -2925,7 +3218,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_mcp_remote_oauth_session",
@@ -2937,7 +3231,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_mcp_server_status",
@@ -2949,7 +3244,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_mcp_servers",
@@ -2961,7 +3257,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_mcp_tool_ui_uri",
@@ -2973,7 +3270,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_memory_paths",
@@ -2985,7 +3283,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_miniapp",
@@ -2997,7 +3296,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_miniapp_draft_storage",
@@ -3009,7 +3309,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_miniapp_storage",
@@ -3021,7 +3322,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_miniapp_versions",
@@ -3033,7 +3335,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_mode_skill_configs",
@@ -3045,7 +3348,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_model_configs",
@@ -3056,7 +3360,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_model_pool_status",
@@ -3067,7 +3372,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_model_pools",
@@ -3078,7 +3384,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_model_routing_status",
@@ -3089,7 +3396,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_models_dev_catalog_status",
@@ -3100,7 +3408,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_native_prompt_command_conflicts_command",
@@ -3112,7 +3421,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_opened_workspaces",
@@ -3123,7 +3433,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_operation_diff",
@@ -3135,7 +3446,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_operation_summary",
@@ -3147,7 +3459,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_pending_update",
@@ -3159,7 +3472,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_prevent_sleep_enabled",
@@ -3171,7 +3485,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_primary_assistant_workspace",
@@ -3183,7 +3498,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_project_permission_rules",
@@ -3195,7 +3511,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_readonly_tools_info",
@@ -3207,7 +3524,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_recent_workspaces",
@@ -3218,7 +3536,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_runtime_capabilities",
@@ -3230,7 +3549,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_runtime_logging_info",
@@ -3242,7 +3562,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_session_file_diff_stats",
@@ -3254,7 +3575,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_session_files",
@@ -3265,7 +3587,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_session_interaction_mailbox",
@@ -3276,7 +3599,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "get_session_lineage",
@@ -3288,7 +3612,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_session_model_target",
@@ -3299,7 +3624,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_session_operations",
@@ -3311,7 +3637,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_session_permission_mode",
@@ -3322,7 +3649,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "get_session_stats",
@@ -3333,7 +3661,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "get_session_thread_goal",
@@ -3344,7 +3673,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_session_turns",
@@ -3356,7 +3686,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_session_usage_report",
@@ -3368,7 +3699,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_skill_configs",
@@ -3380,7 +3712,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_snapshot_sessions",
@@ -3392,7 +3725,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_snapshot_system_stats",
@@ -3404,7 +3738,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_startup_native_trace",
@@ -3416,7 +3751,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_statistics",
@@ -3428,7 +3764,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_subagent_detail",
@@ -3440,7 +3777,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_subscription_account_quota",
@@ -3452,7 +3790,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_subscription_login_status",
@@ -3464,7 +3803,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_system_info",
@@ -3475,7 +3815,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_token_usage_statistics",
@@ -3486,7 +3827,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_tool_info",
@@ -3498,7 +3840,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_turn_files",
@@ -3510,7 +3853,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_watched_paths",
@@ -3522,7 +3866,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_web_search_credential_status",
@@ -3533,7 +3878,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_workspace_info",
@@ -3544,7 +3890,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "get_workspace_reference_snapshot",
@@ -3556,7 +3903,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_add_files",
@@ -3568,7 +3916,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_add_worktree",
@@ -3580,7 +3929,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_checkout_branch",
@@ -3592,7 +3942,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_cherry_pick",
@@ -3604,7 +3955,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_cherry_pick_abort",
@@ -3616,7 +3968,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_cherry_pick_continue",
@@ -3628,7 +3981,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_commit",
@@ -3640,7 +3994,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_create_branch",
@@ -3652,7 +4007,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_delete_branch",
@@ -3664,7 +4020,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_branches",
@@ -3676,7 +4033,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_changed_files",
@@ -3688,7 +4046,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_commits",
@@ -3700,7 +4059,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_diff",
@@ -3712,7 +4072,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_enhanced_branches",
@@ -3724,7 +4085,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_file_content",
@@ -3736,7 +4098,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_graph",
@@ -3748,7 +4111,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_repository",
@@ -3760,7 +4124,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_repository_basic",
@@ -3772,7 +4137,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_repository_trust",
@@ -3783,7 +4149,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_get_status",
@@ -3795,7 +4162,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_is_repository",
@@ -3806,7 +4174,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_list_worktrees",
@@ -3818,7 +4187,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_pull",
@@ -3830,7 +4200,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_push",
@@ -3842,7 +4213,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_remove_worktree",
@@ -3854,7 +4226,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_reset_files",
@@ -3866,7 +4239,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_reset_to_commit",
@@ -3878,7 +4252,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_resolve_revision",
@@ -3890,7 +4265,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "git_trust_repository",
@@ -3902,7 +4278,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "grant_miniapp_path",
@@ -3914,7 +4291,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "grant_miniapp_workspace",
@@ -3926,7 +4304,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "has_insights_data",
@@ -3938,7 +4317,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "hide_agent_companion_desktop_pet",
@@ -3950,7 +4330,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "hide_main_window_after_close_request",
@@ -3962,7 +4343,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "html_preview_create",
@@ -3974,7 +4356,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "html_preview_release",
@@ -3986,7 +4369,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "i18n_get_config",
@@ -3998,7 +4382,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "i18n_get_current_language",
@@ -4010,7 +4395,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "i18n_get_supported_languages",
@@ -4022,7 +4408,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "i18n_set_config",
@@ -4034,7 +4421,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "i18n_set_language",
@@ -4046,7 +4434,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "import_agent_companion_pet_package",
@@ -4058,7 +4447,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "import_config",
@@ -4070,7 +4460,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "initialize_acp_clients",
@@ -4082,7 +4473,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "initialize_ai",
@@ -4094,7 +4486,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "initialize_mcp_servers",
@@ -4106,7 +4499,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "initialize_mcp_servers_non_destructive",
@@ -4118,7 +4512,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "initialize_tray_after_startup",
@@ -4130,7 +4525,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "initialize_workspace_startup_state",
@@ -4141,7 +4537,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "install_acp_client_cli",
@@ -4153,7 +4550,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "install_pending_update",
@@ -4165,7 +4563,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "install_update",
@@ -4177,7 +4576,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "interrupt_dialog_turn",
@@ -4189,7 +4589,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_agent_companion_pets",
@@ -4201,7 +4602,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_agent_tool_names",
@@ -4213,7 +4615,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_ai_models_by_config",
@@ -4224,7 +4627,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_archived_sessions",
@@ -4236,7 +4640,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_background_command_activities",
@@ -4248,7 +4653,8 @@
       "cliPeer": {
         "kind": "soft_empty",
         "reason": "background command activities are desktop-hosted; the CLI peer host reports none"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_cron_jobs",
@@ -4260,7 +4666,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_directory_files",
@@ -4271,7 +4678,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_files",
@@ -4282,7 +4690,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_manageable_subagents",
@@ -4293,7 +4702,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_mcp_prompts",
@@ -4305,7 +4715,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_mcp_resources",
@@ -4317,7 +4728,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_miniapps",
@@ -4329,7 +4741,8 @@
       "cliPeer": {
         "kind": "soft_empty",
         "reason": "MiniApps are a desktop-hosted runtime; the CLI peer host reports an empty catalog so hydrate succeeds"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_pending_permission_requests",
@@ -4340,7 +4753,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_persisted_sessions",
@@ -4351,7 +4765,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_persisted_sessions_count",
@@ -4362,7 +4777,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_persisted_sessions_page",
@@ -4373,7 +4789,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_project_permission_audit",
@@ -4384,7 +4801,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_project_permission_grants",
@@ -4395,7 +4813,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_removed_external_sessions",
@@ -4407,7 +4826,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_sessions",
@@ -4419,7 +4839,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "list_skill_market",
@@ -4431,7 +4852,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_subagents",
@@ -4442,7 +4864,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_subscription_account_instances",
@@ -4454,7 +4877,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_subscription_accounts",
@@ -4466,7 +4890,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "list_visible_subagents",
@@ -4477,7 +4902,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "load_acp_json_config",
@@ -4489,7 +4915,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "load_agent_companion_pet_spritesheet",
@@ -4501,7 +4928,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "load_canvas_artifact",
@@ -4513,7 +4941,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "load_canvas_state",
@@ -4525,7 +4954,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "load_git_repo_history",
@@ -4537,7 +4967,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "load_insights_report",
@@ -4549,7 +4980,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "load_mcp_json_config",
@@ -4561,7 +4993,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "load_persisted_session_metadata",
@@ -4573,7 +5006,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "load_session_event_backfill",
@@ -4584,7 +5018,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "load_session_turn_window",
@@ -4595,7 +5030,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "load_session_turns",
@@ -4606,7 +5042,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "local_file_download",
@@ -4618,7 +5055,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "logout_subscription_account",
@@ -4630,7 +5068,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "logout_subscription_account_instance",
@@ -4642,7 +5081,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "manage_dialog_queue",
@@ -4653,7 +5093,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "mark_miniapp_web_surface_ready",
@@ -4665,7 +5106,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "mark_openbitfun_control_surface_ready",
@@ -4677,7 +5119,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "mark_openbitfun_control_surface_unready",
@@ -4689,7 +5132,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "market_image_load",
@@ -4701,7 +5145,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_agent_cancel",
@@ -4713,7 +5158,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_agent_cancel_stale_runs",
@@ -4725,7 +5171,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_agent_ensure_session",
@@ -4737,7 +5184,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_agent_run",
@@ -4749,7 +5197,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_agent_turn_text",
@@ -4761,7 +5210,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_ai_cancel",
@@ -4773,7 +5223,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_ai_chat",
@@ -4785,7 +5236,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_ai_complete",
@@ -4797,7 +5249,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_ai_list_models",
@@ -4809,7 +5262,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_apply_draft",
@@ -4821,7 +5275,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_create_draft",
@@ -4833,7 +5288,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_decline_builtin_update",
@@ -4845,7 +5301,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_dialog_message",
@@ -4857,7 +5314,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_discard_draft",
@@ -4869,7 +5327,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_draft_host_call",
@@ -4881,7 +5340,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_draft_worker_call",
@@ -4893,7 +5353,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_draft_worker_stop",
@@ -4905,7 +5366,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_get_customization_metadata",
@@ -4917,7 +5379,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_get_draft",
@@ -4929,7 +5392,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_host_call",
@@ -4941,7 +5405,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_import_from_path",
@@ -4953,7 +5418,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_install_deps",
@@ -4965,7 +5431,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_browse",
@@ -4977,7 +5444,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_capture_window",
@@ -4989,7 +5457,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_get_listing",
@@ -5001,7 +5470,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_import_package",
@@ -5013,7 +5483,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_inspect_package",
@@ -5025,7 +5496,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_install",
@@ -5037,7 +5509,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_installed_origins",
@@ -5049,7 +5522,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_installed_status",
@@ -5061,7 +5535,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_list_submissions",
@@ -5073,7 +5548,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_set_favorite",
@@ -5085,7 +5561,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_set_rating",
@@ -5097,7 +5574,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_submit_installed",
@@ -5109,7 +5587,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_market_withdraw_submission",
@@ -5121,7 +5600,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_permission_diff_for_draft",
@@ -5133,7 +5613,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_presentation",
@@ -5145,7 +5626,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_recompile",
@@ -5157,7 +5639,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_render_slide_page",
@@ -5169,7 +5652,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_runtime_status",
@@ -5181,7 +5665,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_set_draft_permissions",
@@ -5193,7 +5678,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_shell_call",
@@ -5205,7 +5691,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_sync_draft_from_fs",
@@ -5217,7 +5704,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_sync_from_fs",
@@ -5229,7 +5717,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_worker_call",
@@ -5241,7 +5730,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_worker_list_running",
@@ -5253,7 +5743,8 @@
       "cliPeer": {
         "kind": "soft_empty",
         "reason": "MiniApps are a desktop-hosted runtime; the CLI peer host reports an empty catalog so hydrate succeeds"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "miniapp_worker_stop",
@@ -5265,7 +5756,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "minimize_to_tray",
@@ -5277,7 +5769,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "mutate_external_hook_import_command",
@@ -5289,7 +5782,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "notify_cron_host_ready",
@@ -5301,7 +5795,8 @@
       "cliPeer": {
         "kind": "soft_empty",
         "reason": "the CLI peer host has no cron host; readiness is acknowledged so hydrate succeeds"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "open_html_file_in_browser",
@@ -5313,7 +5808,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "open_remote_workspace",
@@ -5324,7 +5820,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "open_workspace",
@@ -5335,7 +5832,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_create_open_link",
@@ -5347,7 +5845,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_delete",
@@ -5359,7 +5858,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_delete_version",
@@ -5371,7 +5871,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_deploy",
@@ -5383,7 +5884,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_list",
@@ -5395,7 +5897,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_list_versions",
@@ -5407,7 +5910,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_publish",
@@ -5419,7 +5923,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_save_version",
@@ -5431,7 +5936,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_unpublish",
@@ -5443,7 +5949,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "page_update",
@@ -5455,7 +5962,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "paste_files",
@@ -5467,7 +5975,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "peer_control_attach",
@@ -5478,7 +5987,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "peer_control_detach",
@@ -5489,7 +5999,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "peer_controller_set_active",
@@ -5501,7 +6012,60 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "peer_grant_accept",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "peer_grant_list",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "peer_grant_offer",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "operator_only"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "peer_grant_revoke",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "controller_local"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      },
+      "observeAllowed": false
     },
     {
       "id": "peer_host_invoke_complete",
@@ -5513,7 +6077,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "peer_mode_ping",
@@ -5524,7 +6089,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": true
     },
     {
       "id": "peer_psk_complete",
@@ -5536,7 +6102,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "peer_psk_confirm",
@@ -5547,7 +6114,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "peer_psk_list",
@@ -5559,7 +6127,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "peer_psk_offer_create",
@@ -5571,7 +6140,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "peer_psk_remove",
@@ -5583,7 +6153,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "plan_external_hook_import_command",
@@ -5595,7 +6166,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "plan_external_mcp_import_command",
@@ -5607,7 +6179,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "predownload_acp_client_adapter",
@@ -5619,7 +6192,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "preview_commit_message",
@@ -5631,7 +6205,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "probe_acp_client_requirements",
@@ -5643,7 +6218,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "product_control_invoke",
@@ -5654,7 +6230,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "project_ai_model_reasoning_catalog",
@@ -5665,7 +6242,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "quick_commit_message",
@@ -5677,7 +6255,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "quit_app",
@@ -5689,7 +6268,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "read_background_command_output",
@@ -5701,7 +6281,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "read_file_content",
@@ -5712,7 +6293,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "read_mcp_resource",
@@ -5724,7 +6306,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "record_voice_exchange",
@@ -5735,7 +6318,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "recover_interrupted_dialog_turn",
@@ -5747,7 +6331,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "refresh_model_client",
@@ -5759,7 +6344,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "refresh_models_dev_catalog_now",
@@ -5770,7 +6356,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "refresh_subscription_account",
@@ -5782,7 +6369,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "refresh_subscription_account_instance",
@@ -5794,7 +6382,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reject_file",
@@ -5806,7 +6395,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reject_operation",
@@ -5818,7 +6408,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reload_config",
@@ -5829,7 +6420,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reload_custom_agents",
@@ -5841,7 +6433,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reload_session_context",
@@ -5853,7 +6446,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reload_subagents",
@@ -5865,7 +6459,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_close_workspace",
@@ -5877,7 +6472,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_configure_bot",
@@ -5889,7 +6485,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_get_bot_verbose_mode",
@@ -5901,7 +6498,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_get_device_info",
@@ -5913,7 +6511,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_get_form_state",
@@ -5925,7 +6524,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_get_lan_ip",
@@ -5937,7 +6537,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_get_lan_network_info",
@@ -5949,7 +6550,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_get_methods",
@@ -5961,7 +6563,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_set_bot_verbose_mode",
@@ -5973,7 +6576,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_set_form_state",
@@ -5985,7 +6589,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_start",
@@ -5997,7 +6602,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_status",
@@ -6009,7 +6615,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_stop",
@@ -6021,7 +6628,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_stop_bot",
@@ -6033,7 +6641,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_weixin_qr_poll",
@@ -6045,7 +6654,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_connect_weixin_qr_start",
@@ -6057,7 +6667,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_create_dir",
@@ -6069,7 +6680,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_download_to_local_path",
@@ -6081,7 +6693,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_execute",
@@ -6093,7 +6706,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_exists",
@@ -6105,7 +6719,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_get_tree",
@@ -6117,7 +6732,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_get_workspace_info",
@@ -6129,7 +6745,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not expose the remote-workspace UI surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_open_workspace",
@@ -6141,7 +6758,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_read_dir",
@@ -6153,7 +6771,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_read_file",
@@ -6165,7 +6784,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_remove",
@@ -6177,7 +6797,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_remove_workspace",
@@ -6189,7 +6810,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_rename",
@@ -6201,7 +6823,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_upload_from_local_path",
@@ -6213,7 +6836,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remote_write_file",
@@ -6225,7 +6849,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remove_project_permission_grant",
@@ -6236,7 +6861,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "remove_recent_workspace",
@@ -6248,7 +6874,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "rename_file",
@@ -6259,7 +6886,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "rename_session",
@@ -6270,7 +6898,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reorder_opened_workspaces",
@@ -6282,7 +6911,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "replace_mode_skill_selection",
@@ -6294,7 +6924,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "report_canvas_runtime_error",
@@ -6306,7 +6937,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "report_canvas_runtime_ready",
@@ -6318,7 +6950,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "report_ide_control_result",
@@ -6330,7 +6963,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "report_miniapp_web_result",
@@ -6342,7 +6976,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "report_openbitfun_control_result",
@@ -6354,7 +6989,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reset_agent_profile_config",
@@ -6366,7 +7002,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reset_assistant_workspace",
@@ -6378,7 +7015,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reset_config",
@@ -6390,7 +7028,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reset_memory",
@@ -6402,7 +7041,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reset_mode_skill_selection",
@@ -6414,7 +7054,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reset_workspace_persona_files",
@@ -6426,7 +7067,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "resize_agent_companion_desktop_pet",
@@ -6438,7 +7080,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "resolve_browser_dropped_file_paths",
@@ -6450,7 +7093,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "respond_permission",
@@ -6461,7 +7105,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "respond_permission_batch",
@@ -6472,7 +7117,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "restart_app",
@@ -6484,7 +7130,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "restart_mcp_server",
@@ -6496,7 +7143,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "restore_removed_external_session",
@@ -6508,7 +7156,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "restore_session",
@@ -6519,7 +7168,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "restore_session_view",
@@ -6530,7 +7180,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "restore_session_with_turns",
@@ -6541,7 +7192,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "retry_file_watch",
@@ -6553,7 +7205,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "retry_model_pool_member",
@@ -6564,7 +7217,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reveal_external_source_location",
@@ -6575,7 +7229,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reveal_in_explorer",
@@ -6587,7 +7242,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reveal_models_dev_cache_directory",
@@ -6599,7 +7255,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "reveal_session_storage_directory",
@@ -6611,7 +7268,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_clear_auth_token",
@@ -6623,7 +7281,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_get_issue",
@@ -6635,7 +7294,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_get_pull_request_ci_log",
@@ -6647,7 +7307,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_get_pull_request_detail",
@@ -6659,7 +7320,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_get_pull_request_detail_page",
@@ -6671,7 +7333,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_get_pull_request_review_target",
@@ -6683,7 +7346,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_get_pull_request_review_target_by_identity",
@@ -6695,7 +7359,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_get_workspace_context",
@@ -6707,7 +7372,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_get_workspace_snapshot",
@@ -6719,7 +7385,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "review_platform_update_auth_token",
@@ -6731,7 +7398,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "rollback_frontend_update",
@@ -6743,7 +7411,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "rollback_miniapp",
@@ -6755,7 +7424,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "rollback_session",
@@ -6767,7 +7437,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "rollback_session_to_turn",
@@ -6778,7 +7449,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "run_init_agents_md",
@@ -6790,7 +7462,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "run_system_command",
@@ -6802,7 +7475,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_acp_json_config",
@@ -6814,7 +7488,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_canvas_state",
@@ -6826,7 +7501,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_cloud_speech_config",
@@ -6838,7 +7514,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_git_repo_history",
@@ -6850,7 +7527,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_mcp_json_config",
@@ -6862,7 +7540,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_merged_diff_content",
@@ -6874,7 +7553,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_model_pool",
@@ -6885,7 +7565,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_project_permission_rules",
@@ -6897,7 +7578,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_session_metadata",
@@ -6908,7 +7590,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_session_turn",
@@ -6919,7 +7602,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "save_web_search_credential",
@@ -6930,7 +7614,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "scan_workspace_info",
@@ -6942,7 +7627,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "search_build_index",
@@ -6954,7 +7640,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "search_file_contents",
@@ -6966,7 +7653,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "search_filenames",
@@ -6978,7 +7666,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "search_files",
@@ -6990,7 +7679,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "search_get_repo_status",
@@ -7002,7 +7692,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "search_rebuild_index",
@@ -7014,7 +7705,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "search_referenceable_sessions",
@@ -7026,7 +7718,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "search_session_content",
@@ -7037,7 +7730,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "search_skill_market",
@@ -7049,7 +7743,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "send_background_command_input",
@@ -7061,7 +7756,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "send_mcp_app_message",
@@ -7073,7 +7769,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "send_system_notification",
@@ -7085,7 +7782,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_acp_session_config_option",
@@ -7097,7 +7795,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_acp_session_model",
@@ -7109,7 +7808,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_active_workspace",
@@ -7120,7 +7820,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_agent_profile_config",
@@ -7132,7 +7833,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_config",
@@ -7143,7 +7845,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_mcp_server_decision_command",
@@ -7154,7 +7857,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_mcp_servers_enabled_command",
@@ -7165,7 +7869,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_source_conflict_choice_command",
@@ -7176,7 +7881,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_source_enabled_command",
@@ -7187,7 +7893,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_subagent_activation_command",
@@ -7198,7 +7905,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_subagent_model_binding_command",
@@ -7209,7 +7917,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_subagents_enabled_command",
@@ -7220,7 +7929,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_tool_conflict_choice_command",
@@ -7231,7 +7941,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_tool_target_decision_command",
@@ -7242,7 +7953,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_external_tool_targets_enabled_command",
@@ -7253,7 +7965,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_file_drop_preview_target",
@@ -7265,7 +7978,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_global_skill_disabled",
@@ -7277,7 +7991,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_macos_edit_menu_mode",
@@ -7289,7 +8004,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_main_window_transient_geometry",
@@ -7301,7 +8017,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_miniapp_draft_storage",
@@ -7313,7 +8030,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_miniapp_storage",
@@ -7325,7 +8043,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_mode_skill_disabled",
@@ -7337,7 +8056,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_native_prompt_command_conflict_choice_command",
@@ -7349,7 +8069,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_prevent_sleep_enabled",
@@ -7361,7 +8082,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_primary_assistant_workspace",
@@ -7373,7 +8095,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_session_memory_mode",
@@ -7385,7 +8108,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_session_thread_goal_status",
@@ -7397,7 +8121,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_subagent_timeout",
@@ -7409,7 +8134,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_subscription_account_enabled",
@@ -7421,7 +8147,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "set_tray_unread_count",
@@ -7433,7 +8160,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "show_agent_companion_desktop_pet",
@@ -7445,7 +8173,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "show_main_window",
@@ -7457,7 +8186,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_append_audio_chunk",
@@ -7469,7 +8199,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_append_realtime_audio",
@@ -7481,7 +8212,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_cancel_input_session",
@@ -7493,7 +8225,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_cancel_model_download",
@@ -7505,7 +8238,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_cancel_realtime_response",
@@ -7517,7 +8251,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_close_realtime_session",
@@ -7529,7 +8264,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_commit_realtime_audio",
@@ -7541,7 +8277,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_delete_model",
@@ -7553,7 +8290,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_download_model",
@@ -7565,7 +8303,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_finish_input_session",
@@ -7577,7 +8316,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_get_realtime_config",
@@ -7589,7 +8329,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_list_models",
@@ -7601,7 +8342,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_save_realtime_config",
@@ -7613,7 +8355,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_send_realtime_tool_result",
@@ -7625,7 +8368,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_speak_realtime_text",
@@ -7637,7 +8381,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_start_input_session",
@@ -7649,7 +8394,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_start_realtime_session",
@@ -7661,7 +8407,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "speech_verify_model",
@@ -7673,7 +8420,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_connect",
@@ -7685,7 +8433,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_delete_connection",
@@ -7697,7 +8446,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_disconnect",
@@ -7709,7 +8459,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_disconnect_all",
@@ -7721,7 +8472,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_get_config",
@@ -7733,7 +8485,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_get_server_info",
@@ -7745,7 +8498,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_has_stored_password",
@@ -7757,7 +8511,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_is_connected",
@@ -7769,7 +8524,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_list_config_hosts",
@@ -7781,7 +8537,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_list_docker_containers",
@@ -7793,7 +8550,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_list_port_forwards",
@@ -7805,7 +8563,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_list_remote_listening_ports",
@@ -7817,7 +8576,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_list_saved_connections",
@@ -7828,7 +8588,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_list_wsl_distributions",
@@ -7840,7 +8601,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_save_connection",
@@ -7852,7 +8614,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_start_port_forward",
@@ -7864,7 +8627,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_stop_port_forward",
@@ -7876,7 +8640,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "ssh_test_connection",
@@ -7888,7 +8653,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host does not run this desktop IDE surface"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_acp_dialog_turn",
@@ -7900,7 +8666,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_dialog_turn",
@@ -7911,7 +8678,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_file_watch",
@@ -7923,7 +8691,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_mcp_remote_oauth",
@@ -7935,7 +8704,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_mcp_server",
@@ -7947,7 +8717,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_search_file_contents_stream",
@@ -7959,7 +8730,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_search_filenames_stream",
@@ -7971,7 +8743,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_subscription_account_login",
@@ -7983,7 +8756,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_subscription_login",
@@ -7995,7 +8769,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "start_user_question_interaction",
@@ -8006,7 +8781,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "startup_window_control",
@@ -8018,7 +8794,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "steer_dialog_turn",
@@ -8030,7 +8807,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "stop_acp_client",
@@ -8042,7 +8820,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "stop_file_watch",
@@ -8054,7 +8833,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "stop_mcp_server",
@@ -8066,7 +8846,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "submit_acp_permission_response",
@@ -8078,7 +8859,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "submit_mcp_interaction_response",
@@ -8090,7 +8872,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "submit_user_answers",
@@ -8101,7 +8884,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "subscribe_permission_requests",
@@ -8112,7 +8896,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_ack",
@@ -8123,7 +8908,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_close",
@@ -8134,7 +8920,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_create",
@@ -8145,7 +8932,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_execute",
@@ -8156,7 +8944,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_get",
@@ -8167,7 +8956,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_get_history",
@@ -8178,7 +8968,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_get_shells",
@@ -8189,7 +8980,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_has_shell_integration",
@@ -8200,7 +8992,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_list",
@@ -8211,7 +9004,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_resize",
@@ -8222,7 +9016,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_send_command",
@@ -8233,7 +9028,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_shutdown_all",
@@ -8244,7 +9040,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_signal",
@@ -8255,7 +9052,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "terminal_write",
@@ -8266,7 +9064,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "test_ai_config_connection",
@@ -8277,7 +9076,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "test_ai_connection",
@@ -8289,7 +9089,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "test_image_generation_service",
@@ -8301,7 +9102,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "toggle_main_window_fullscreen",
@@ -8313,7 +9115,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "touch_session_activity",
@@ -8324,7 +9127,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "unarchive_session",
@@ -8336,7 +9140,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_active_turn_permission_mode",
@@ -8347,7 +9152,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_app_status",
@@ -8359,7 +9165,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_cron_job",
@@ -8371,7 +9178,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_custom_agent",
@@ -8383,7 +9191,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_external_integration_policy_command",
@@ -8394,7 +9203,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_mcp_remote_auth",
@@ -8406,7 +9216,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_miniapp",
@@ -8418,7 +9229,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_session_mode",
@@ -8429,7 +9241,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_session_model",
@@ -8440,7 +9253,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_session_model_target",
@@ -8451,7 +9265,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_session_permission_mode",
@@ -8462,7 +9277,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_session_thread_goal_objective",
@@ -8474,7 +9290,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_session_title",
@@ -8486,7 +9303,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_subagent",
@@ -8498,7 +9316,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_subagent_config",
@@ -8510,7 +9329,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "update_workspace_info",
@@ -8522,7 +9342,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "upload_image_contexts",
@@ -8534,7 +9355,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "validate_config",
@@ -8546,7 +9368,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "validate_skill_path",
@@ -8558,7 +9381,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "validate_tool_input",
@@ -8570,7 +9394,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "webdriver_bridge_result",
@@ -8582,7 +9407,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "workspace_file_upload",
@@ -8593,7 +9419,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "worktree_bind_session",
@@ -8605,7 +9432,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "worktree_create",
@@ -8617,7 +9445,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "worktree_create_branch",
@@ -8629,7 +9458,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "worktree_list",
@@ -8641,7 +9471,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "worktree_list_projects",
@@ -8653,7 +9484,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "worktree_promote",
@@ -8665,7 +9497,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "worktree_recreate",
@@ -8677,7 +9510,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "worktree_remove",
@@ -8689,7 +9523,8 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the CLI peer host has no handler for this command"
-      }
+      },
+      "observeAllowed": false
     },
     {
       "id": "write_file_content",
@@ -8700,7 +9535,8 @@
       },
       "cliPeer": {
         "kind": "handled"
-      }
+      },
+      "observeAllowed": false
     }
   ]
 }

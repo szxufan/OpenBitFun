@@ -538,16 +538,44 @@ class RemoteConnectAPIService {
     }
   }
 
-  async createPeerPskOffer(peerDeviceId: string, peerName?: string): Promise<PeerPskOffer> {
+  async createPeerPskOffer(peerDeviceId: string, peerName?: string, grantId?: string): Promise<PeerPskOffer> {
     return this.adapter.request<PeerPskOffer>('peer_psk_offer_create', {
-      request: { peerDeviceId, peerName: peerName ?? null },
+      request: { peerDeviceId, peerName: peerName ?? null, grantId: grantId ?? null },
     });
   }
 
-  async completePeerPsk(code: string): Promise<PeerPskCompleteResult> {
+  async completePeerPsk(code: string, grantId?: string): Promise<PeerPskCompleteResult> {
     return this.adapter.request<PeerPskCompleteResult>('peer_psk_complete', {
-      request: { code },
+      request: { code, grantId: grantId ?? null },
     });
+  }
+
+  // ── Cross-account device grants (shared hosts) ──────────────────────────
+
+  /** Both grant views for the logged-in account: owned (management) and
+   *  received (shared-with-me roster). Rejects on relays without
+   *  `device_grants_v1` so the UI shows an explicit unsupported state. */
+  async peerGrantList(): Promise<DeviceGrantList> {
+    return this.adapter.request<DeviceGrantList>('peer_grant_list', {});
+  }
+
+  /** Offer this machine to a grantee account from the shared machine itself. */
+  async peerGrantOffer(granteeUserId: string, scope: 'drive' | 'observe', expiresAt?: number): Promise<PeerGrantOfferResult> {
+    return this.adapter.request<PeerGrantOfferResult>('peer_grant_offer', {
+      request: { granteeUserId, scope, expiresAt: expiresAt ?? null },
+    });
+  }
+
+  /** Redeem a one-time invite as the logged-in (grantee) account. */
+  async peerGrantAccept(grantId: string, inviteSecret: string): Promise<DeviceGrantInfo> {
+    return this.adapter.request<DeviceGrantInfo>('peer_grant_accept', {
+      request: { grantId, inviteSecret },
+    });
+  }
+
+  /** Revoke a grant this account owns. */
+  async peerGrantRevoke(grantId: string): Promise<void> {
+    await this.adapter.request<void>('peer_grant_revoke', { request: { grantId } });
   }
 
   async removePeerPsk(peerDeviceId: string): Promise<boolean> {
@@ -558,6 +586,28 @@ class RemoteConnectAPIService {
 
   async listPeerPsks(): Promise<PeerPskStatusEntry[]> {
     return this.adapter.request<PeerPskStatusEntry[]>('peer_psk_list', {});
+  }
+
+  /** Manual config backup: relay support flag plus stored-backup metadata. */
+  async accountConfigBackupStatus(): Promise<AccountConfigBackupStatus> {
+    return this.adapter.request<AccountConfigBackupStatus>('account_config_backup_status', {});
+  }
+
+  /** Export this device's config encrypted with a fresh one-time backup code. */
+  async accountConfigBackupExport(): Promise<AccountConfigBackupExportResult> {
+    return this.adapter.request<AccountConfigBackupExportResult>('account_config_backup_export', {});
+  }
+
+  /** Import the stored backup with the user's backup code; replaces config. */
+  async accountConfigBackupImport(code: string): Promise<AccountConfigBackupImportResult> {
+    return this.adapter.request<AccountConfigBackupImportResult>('account_config_backup_import', {
+      request: { code },
+    });
+  }
+
+  /** Remove the stored backup from the relay; local config is untouched. */
+  async accountConfigBackupDelete(): Promise<void> {
+    await this.adapter.request<void>('account_config_backup_delete', {});
   }
 
   onPeerPskStatusChanged(callback: (event: { peer_device_id: string; status: string; psk_id: string }) => void): () => void {
@@ -572,11 +622,79 @@ export interface PeerPskOffer {
   pskId: string;
 }
 
+/** Relay-side view of the account's manual config backup. */
+export interface AccountConfigBackupStatus {
+  loggedIn: boolean;
+  supportedByRelay: boolean;
+  exists: boolean;
+  scheme?: string | null;
+  keyHint?: string | null;
+  sizeBytes?: number | null;
+  version?: number | null;
+  updatedAt?: number | null;
+}
+
+/** Export result; the one-time code is shown once and never retrievable again. */
+export interface AccountConfigBackupExportResult {
+  code: string;
+  keyHint: string;
+  updatedAt: number;
+}
+
+/** Import outcome mirroring the config import contract. */
+export interface AccountConfigBackupImportResult {
+  success: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
 /** Result of completing a pairing code on this controller's host. */
 export interface PeerPskCompleteResult {
   peerDeviceId: string;
   pskId: string;
   confirmed: boolean;
+}
+
+/** Grant facts as the relay serializes them (snake_case wire shape). */
+export interface DeviceGrantInfo {
+  grant_id: string;
+  owner_user_id: string;
+  device_id: string;
+  grantee_user_id: string;
+  scope: 'drive' | 'observe' | string;
+  state: 'pending' | 'active' | 'revoked' | string;
+  offered_at: number;
+  accepted_at: number | null;
+  expires_at: number | null;
+  revoked_at: number | null;
+}
+
+/** A shared-with-me roster entry with the owner machine's directory projection. */
+export interface SharedDeviceGrant {
+  grant: DeviceGrantInfo;
+  device_name: string;
+  device_kind?: string | null;
+  client_version?: string | null;
+  client_protocol?: number | null;
+  online: boolean;
+  compatible: boolean;
+  /** Composite drive/pairing target computed host-side; pass through to peer RPC. */
+  target_key?: string;
+}
+
+/** Response of `peer_grant_list`: both views for the caller. */
+export interface DeviceGrantList {
+  owned: DeviceGrantInfo[];
+  received: SharedDeviceGrant[];
+}
+
+/** Offer result; the one-time invite secret is shown once, never retrievable. */
+export interface PeerGrantOfferResult {
+  grantId: string;
+  granteeUserId: string;
+  scope: string;
+  inviteSecret: string;
+  inviteExpiresAt: number;
 }
 
 /** One stored pairing entry, without the secret. */

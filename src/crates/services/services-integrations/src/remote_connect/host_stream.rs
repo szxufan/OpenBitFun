@@ -687,11 +687,19 @@ impl HostStreamHub {
 
     /// Presence is authoritative for who can still receive hints. A device that
     /// went offline is dropped now; it resubscribes on its next read.
+    pub fn remove_peer(&self, peer: &str) {
+        let mut state = self.lock();
+        for log in state.streams.values_mut() {
+            log.subscribers.remove(peer);
+        }
+    }
+
     pub fn retain_online(&self, online_device_ids: &[String]) {
         let mut state = self.lock();
         for log in state.streams.values_mut() {
-            log.subscribers
-                .retain(|device, _| online_device_ids.iter().any(|id| id == device));
+            log.subscribers.retain(|device, _| {
+                device.starts_with("grant-v1:") || online_device_ids.iter().any(|id| id == device)
+            });
         }
     }
 

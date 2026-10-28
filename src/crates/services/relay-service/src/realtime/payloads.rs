@@ -17,6 +17,7 @@ const TTL: Duration = Duration::from_secs(300);
 
 struct Payload {
     account: String,
+    device: String,
     file: tempfile::TempPath,
     size: usize,
     expires: std::time::Instant,
@@ -59,6 +60,10 @@ pub(super) async fn upload(
     request: Request,
 ) -> Result<Json<Value>, StatusCode> {
     let auth = crate::routes::devices::validate_user(&state, request.headers()).await?;
+    let device = auth
+        .routing_device_id(&state.db)
+        .await
+        .map_err(|_| StatusCode::FORBIDDEN)?;
     if request
         .headers()
         .get("content-length")
@@ -112,6 +117,7 @@ pub(super) async fn upload(
         id.clone(),
         Arc::new(Payload {
             account: auth.user_id,
+            device,
             file: path,
             size,
             expires: std::time::Instant::now() + TTL,
@@ -133,9 +139,30 @@ pub(super) async fn download(
         .lock()
         .unwrap()
         .get(&id)
-        .filter(|entry| entry.account == auth.user_id && entry.expires > std::time::Instant::now())
+        .filter(|entry| entry.expires > std::time::Instant::now())
         .cloned()
         .ok_or(StatusCode::NOT_FOUND)?;
+    // Same-account downloads need no further check. A cross-account download
+    // is the bulk leg of a granted RPC pair: the other account may fetch only
+    // while an active device grant links the two accounts. The uuid reference
+    // stays unguessable and short-lived on top of this check.
+    if entry.account != auth.user_id {
+        let device = auth
+            .routing_device_id(&state.db)
+            .await
+            .map_err(|_| StatusCode::FORBIDDEN)?;
+        let from_host =
+            DeviceGrantRow::find_active(&state.db, &entry.account, &entry.device, &auth.user_id)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let to_host =
+            DeviceGrantRow::find_active(&state.db, &auth.user_id, &device, &entry.account)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if from_host.is_none() && to_host.is_none() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    }
     let file = tokio::fs::File::open(&entry.file)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;

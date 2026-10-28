@@ -18,6 +18,10 @@ pub const MAX_PAGE_KV_ENTRIES: i64 = 1_024;
 pub const MAX_USER_KV_ENTRIES: i64 = 10_000;
 pub const MAX_PAGE_KV_BYTES: i64 = 5 * 1024 * 1024;
 pub const MAX_USER_KV_BYTES: i64 = 25 * 1024 * 1024;
+pub const MAX_CONFIG_BACKUP_ENCRYPTED_BYTES: usize = 1024 * 1024;
+pub const MAX_CONFIG_BACKUP_NONCE_BYTES: usize = 64;
+pub const MAX_CONFIG_BACKUP_SCHEME_BYTES: usize = 64;
+pub const MAX_CONFIG_BACKUP_KEY_HINT_BYTES: usize = 128;
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS users (
@@ -129,14 +133,42 @@ CREATE TABLE IF NOT EXISTS page_kv (
   PRIMARY KEY (user_id, slug, key)
 );
 CREATE TABLE IF NOT EXISTS page_blobs (
-  user_id    TEXT NOT NULL,
-  slug       TEXT NOT NULL,
-  blob_id    TEXT NOT NULL,
+  user_id     TEXT NOT NULL,
+  slug        TEXT NOT NULL,
+  blob_id     TEXT NOT NULL,
   content_type TEXT NOT NULL DEFAULT 'application/octet-stream',
   size_bytes INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL,
+  created_at  INTEGER NOT NULL,
   PRIMARY KEY (user_id, slug, blob_id)
 );
+CREATE TABLE IF NOT EXISTS account_config_backup (
+  user_id        TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+  scheme         TEXT NOT NULL,
+  key_hint       TEXT NOT NULL,
+  encrypted_data TEXT NOT NULL,
+  nonce          TEXT NOT NULL,
+  size_bytes     INTEGER NOT NULL,
+  version        INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS device_grants (
+  grant_id           TEXT PRIMARY KEY,
+  owner_user_id      TEXT NOT NULL,
+  device_id          TEXT NOT NULL,
+  grantee_user_id    TEXT NOT NULL,
+  scope              TEXT NOT NULL DEFAULT 'drive',
+  state              TEXT NOT NULL DEFAULT 'pending',
+  invite_secret_hash TEXT,
+  offered_at         INTEGER NOT NULL,
+  accepted_at        INTEGER,
+  expires_at         INTEGER,
+  revoked_at         INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_device_grants_owner ON device_grants(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_device_grants_grantee ON device_grants(grantee_user_id);
+CREATE INDEX IF NOT EXISTS idx_device_grants_device ON device_grants(owner_user_id, device_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_device_grants_active_pair
+  ON device_grants(owner_user_id, device_id, grantee_user_id) WHERE state = 'active';
 "#;
 
 // SQLite triggers serialize admission with the insert itself, including concurrent clients.
@@ -150,6 +182,11 @@ CREATE TRIGGER IF NOT EXISTS limit_account_tokens BEFORE INSERT ON auth_tokens
 WHEN NOT EXISTS (SELECT 1 FROM auth_tokens WHERE request_id = NEW.request_id)
  AND (SELECT count(*) FROM auth_tokens WHERE user_id = NEW.user_id AND expires_at > unixepoch()) >= 256
 BEGIN SELECT RAISE(ABORT, 'account token quota exceeded'); END;
+CREATE TRIGGER IF NOT EXISTS limit_device_grants BEFORE INSERT ON device_grants
+WHEN (SELECT count(*) FROM device_grants
+      WHERE owner_user_id = NEW.owner_user_id AND device_id = NEW.device_id
+        AND state IN ('pending','active')) >= 32
+BEGIN SELECT RAISE(ABORT, 'device grant quota exceeded'); END;
 "#;
 
 const MIGRATE_PAGES_DEPLOYED_VERSION: &str = r#"
@@ -332,6 +369,13 @@ async fn connect_with_presence_reset(db_path: &str, reset_presence: bool) -> Res
         .execute(&pool)
         .await
         .map_err(|e| anyhow!("clean expired sms codes: {e}"))?;
+    // Unused grant invites expire with their offer; the secret is one-time, so
+    // this only bounds how long an unredeemed code stays redeemable.
+    sqlx::query("DELETE FROM device_grants WHERE state = 'pending' AND offered_at <= ?")
+        .bind(now - GRANT_INVITE_TTL_SECS)
+        .execute(&pool)
+        .await
+        .map_err(|e| anyhow!("clean expired grant invites: {e}"))?;
     // Keep one week of send history for the per-phone daily cap audit trail.
     sqlx::query("DELETE FROM sms_sends WHERE sent_at <= ?")
         .bind(now - 7 * 24 * 3600)
@@ -778,6 +822,11 @@ impl UserRow {
             .execute(pool)
             .await
             .map_err(|e| anyhow!("delete page_versions: {e}"))?;
+        sqlx::query("DELETE FROM account_config_backup WHERE user_id = ?")
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("delete account_config_backup: {e}"))?;
         sqlx::query("DELETE FROM pages WHERE user_id = ?")
             .bind(user_id)
             .execute(pool)
@@ -810,6 +859,15 @@ impl UserRow {
             .execute(pool)
             .await
             .map_err(|e| anyhow!("delete devices: {e}"))?;
+        // Grants reference the deleted account from both sides; the table
+        // carries no FK, so remove both directions explicitly like the other
+        // child tables.
+        sqlx::query("DELETE FROM device_grants WHERE owner_user_id = ? OR grantee_user_id = ?")
+            .bind(user_id)
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("delete device grants: {e}"))?;
         sqlx::query("DELETE FROM users WHERE user_id = ?")
             .bind(user_id)
             .execute(pool)
@@ -1032,6 +1090,25 @@ impl DeviceRow {
         Ok(rows)
     }
 
+    /// One directory row scoped to its owning account. Cross-account lookups
+    /// simply miss; callers translate that into a 404, never a leak.
+    pub async fn find_by_user_and_device(
+        pool: &DbPool,
+        user_id: &str,
+        device_id: &str,
+    ) -> Result<Option<DeviceRow>> {
+        let row = sqlx::query_as::<_, DeviceRow>(
+            "SELECT device_id, user_id, device_name, device_kind, device_alias, device_model, device_os, device_os_version, client_version, client_protocol, public_key, last_seen_at, online \
+             FROM devices WHERE user_id = ? AND device_id = ?",
+        )
+        .bind(user_id)
+        .bind(device_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("find device: {e}"))?;
+        Ok(row)
+    }
+
     /// Record the client build of the connection that just authenticated.
     ///
     /// Both columns are overwritten from the *current* connection, including
@@ -1080,6 +1157,16 @@ impl DeviceRow {
             .await
             .map_err(|e| anyhow!("revoke device tokens: {e}"))?;
 
+        // Grants naming this device lose their target; the table carries no
+        // FK (the legacy devices rebuild renames tables mid-migration), so
+        // cleanup stays explicit and inside the same transaction.
+        sqlx::query("DELETE FROM device_grants WHERE owner_user_id = ? AND device_id = ?")
+            .bind(user_id)
+            .bind(device_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| anyhow!("delete device grants: {e}"))?;
+
         let result = sqlx::query("DELETE FROM devices WHERE device_id = ? AND user_id = ?")
             .bind(device_id)
             .bind(user_id)
@@ -1090,6 +1177,263 @@ impl DeviceRow {
         tx.commit()
             .await
             .map_err(|e| anyhow!("commit device deletion: {e}"))?;
+        Ok(result.rows_affected() > 0)
+    }
+}
+
+// ── Device grants ───────────────────────────────────────────────────────
+
+/// Full peer control: the grantee drives the shared host like an owner device.
+pub const GRANT_SCOPE_DRIVE: &str = "drive";
+/// Read-only: attach, events, and session hydration; mutation-class
+/// HostInvoke verbs are refused by the host, not by the relay.
+pub const GRANT_SCOPE_OBSERVE: &str = "observe";
+
+pub const GRANT_SCOPES: [&str; 2] = [GRANT_SCOPE_DRIVE, GRANT_SCOPE_OBSERVE];
+
+pub fn is_valid_grant_scope(scope: &str) -> bool {
+    GRANT_SCOPES.contains(&scope)
+}
+
+pub const GRANT_STATE_PENDING: &str = "pending";
+pub const GRANT_STATE_ACTIVE: &str = "active";
+pub const GRANT_STATE_REVOKED: &str = "revoked";
+
+/// How long an unused invite code stays redeemable. The secret is one-time
+/// and cleared on accept; the TTL only bounds unredeemed offers.
+pub const GRANT_INVITE_TTL_SECS: i64 = 15 * 60;
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DeviceGrantRow {
+    pub grant_id: String,
+    pub owner_user_id: String,
+    pub device_id: String,
+    pub grantee_user_id: String,
+    pub scope: String,
+    pub state: String,
+    pub invite_secret_hash: Option<String>,
+    pub offered_at: i64,
+    pub accepted_at: Option<i64>,
+    pub expires_at: Option<i64>,
+    pub revoked_at: Option<i64>,
+}
+
+fn generate_grant_id() -> String {
+    let bytes: [u8; 16] = rand::random();
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Hash an invite secret for storage. The relay keeps only the digest; the
+/// plaintext secret leaves the offer response exactly once.
+pub fn hash_grant_invite_secret(secret: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(secret.as_bytes()))
+}
+
+impl DeviceGrantRow {
+    pub fn scope_is_observe(&self) -> bool {
+        self.scope == GRANT_SCOPE_OBSERVE
+    }
+
+    /// Active and not expired. This is the single predicate behind every
+    /// routing authorization in the grant path.
+    pub fn is_current(&self) -> bool {
+        if self.state != GRANT_STATE_ACTIVE {
+            return false;
+        }
+        match self.expires_at {
+            Some(expires_at) => expires_at > Utc::now().timestamp(),
+            None => true,
+        }
+    }
+
+    /// Create a pending grant. The caller (the shared machine's route handler)
+    /// guarantees `owner_user_id` and `device_id` name the caller's own device
+    /// row and that grantee differs from owner; the unique active-pair index
+    /// serializes a double offer for the same pair into an error.
+    pub async fn offer(
+        pool: &DbPool,
+        owner_user_id: &str,
+        device_id: &str,
+        grantee_user_id: &str,
+        scope: &str,
+        invite_secret_hash: &str,
+        expires_at: Option<i64>,
+    ) -> Result<DeviceGrantRow> {
+        let grant_id = generate_grant_id();
+        let offered_at = Utc::now().timestamp();
+        sqlx::query(
+            "INSERT INTO device_grants \
+               (grant_id, owner_user_id, device_id, grantee_user_id, scope, state, invite_secret_hash, offered_at, expires_at) \
+             VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)",
+        )
+        .bind(&grant_id)
+        .bind(owner_user_id)
+        .bind(device_id)
+        .bind(grantee_user_id)
+        .bind(scope)
+        .bind(invite_secret_hash)
+        .bind(offered_at)
+        .bind(expires_at)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("offer device grant: {e}"))?;
+        Ok(DeviceGrantRow {
+            grant_id,
+            owner_user_id: owner_user_id.to_string(),
+            device_id: device_id.to_string(),
+            grantee_user_id: grantee_user_id.to_string(),
+            scope: scope.to_string(),
+            state: GRANT_STATE_PENDING.to_string(),
+            invite_secret_hash: Some(invite_secret_hash.to_string()),
+            offered_at,
+            accepted_at: None,
+            expires_at,
+            revoked_at: None,
+        })
+    }
+
+    /// Redeem a one-time invite. The pending state, the secret hash, the
+    /// grantee binding, and the offer TTL are all conditions of the same
+    /// UPDATE, so a wrong, replayed, or expired secret changes nothing.
+    /// Returns the activated row, or None when the invite did not match.
+    pub async fn accept(
+        pool: &DbPool,
+        grant_id: &str,
+        grantee_user_id: &str,
+        invite_secret_hash: &str,
+    ) -> Result<Option<DeviceGrantRow>> {
+        let accepted_at = Utc::now().timestamp();
+        let updated = sqlx::query(
+            "UPDATE device_grants \
+               SET state = 'active', accepted_at = ?, invite_secret_hash = NULL \
+             WHERE grant_id = ? AND grantee_user_id = ? AND state = 'pending' \
+               AND invite_secret_hash = ? AND offered_at > ?",
+        )
+        .bind(accepted_at)
+        .bind(grant_id)
+        .bind(grantee_user_id)
+        .bind(invite_secret_hash)
+        .bind(accepted_at - GRANT_INVITE_TTL_SECS)
+        .execute(pool)
+        .await;
+        match updated {
+            Ok(result) if result.rows_affected() == 0 => return Ok(None),
+            Ok(_) => {}
+            // A second accept for the same (owner, device, grantee) pair hits
+            // the active-pair unique index; report it as a failed redemption
+            // instead of an internal error.
+            Err(error) if error.to_string().contains("UNIQUE constraint failed") => {
+                return Ok(None);
+            }
+            Err(error) => return Err(anyhow!("accept device grant: {error}")),
+        }
+        Self::find(pool, grant_id).await
+    }
+
+    pub async fn find(pool: &DbPool, grant_id: &str) -> Result<Option<DeviceGrantRow>> {
+        let row = sqlx::query_as::<_, DeviceGrantRow>(
+            "SELECT grant_id, owner_user_id, device_id, grantee_user_id, scope, state, invite_secret_hash, offered_at, accepted_at, expires_at, revoked_at \
+             FROM device_grants WHERE grant_id = ?",
+        )
+        .bind(grant_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("find device grant: {e}"))?;
+        Ok(row)
+    }
+
+    /// The routing predicate lookup: an active, unexpired grant from the
+    /// device owner to the grantee.
+    pub async fn find_active(
+        pool: &DbPool,
+        owner_user_id: &str,
+        device_id: &str,
+        grantee_user_id: &str,
+    ) -> Result<Option<DeviceGrantRow>> {
+        let row = sqlx::query_as::<_, DeviceGrantRow>(
+            "SELECT grant_id, owner_user_id, device_id, grantee_user_id, scope, state, invite_secret_hash, offered_at, accepted_at, expires_at, revoked_at \
+             FROM device_grants \
+             WHERE owner_user_id = ? AND device_id = ? AND grantee_user_id = ? AND state = 'active' \
+             ORDER BY accepted_at DESC LIMIT 1",
+        )
+        .bind(owner_user_id)
+        .bind(device_id)
+        .bind(grantee_user_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("find active device grant: {e}"))?;
+        Ok(row.filter(|row| row.is_current()))
+    }
+
+    /// All grants for an account as owner, any state — the management view.
+    pub async fn list_for_owner(pool: &DbPool, owner_user_id: &str) -> Result<Vec<DeviceGrantRow>> {
+        let rows = sqlx::query_as::<_, DeviceGrantRow>(
+            "SELECT grant_id, owner_user_id, device_id, grantee_user_id, scope, state, invite_secret_hash, offered_at, accepted_at, expires_at, revoked_at \
+             FROM device_grants WHERE owner_user_id = ? ORDER BY offered_at DESC",
+        )
+        .bind(owner_user_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| anyhow!("list owned device grants: {e}"))?;
+        Ok(rows)
+    }
+
+    /// Current grants where the account is the grantee — the shared-with-me
+    /// roster. Revoked and expired rows are hidden from the grantee entirely.
+    pub async fn list_active_for_grantee(
+        pool: &DbPool,
+        grantee_user_id: &str,
+    ) -> Result<Vec<DeviceGrantRow>> {
+        let rows = sqlx::query_as::<_, DeviceGrantRow>(
+            "SELECT grant_id, owner_user_id, device_id, grantee_user_id, scope, state, invite_secret_hash, offered_at, accepted_at, expires_at, revoked_at \
+             FROM device_grants \
+             WHERE grantee_user_id = ? AND state = 'active' \
+               AND (expires_at IS NULL OR expires_at > unixepoch()) \
+             ORDER BY accepted_at DESC",
+        )
+        .bind(grantee_user_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| anyhow!("list received device grants: {e}"))?;
+        Ok(rows)
+    }
+
+    /// Whether an active, unexpired grant links the two accounts in either
+    /// direction. Used by payload downloads, where the entry records an
+    /// account but not a device, so the device-bound lookup cannot apply.
+    pub async fn active_between(pool: &DbPool, a: &str, b: &str) -> Result<bool> {
+        let linked: Option<(i64,)> = sqlx::query_as(
+            "SELECT 1 FROM device_grants \
+             WHERE state = 'active' AND (expires_at IS NULL OR expires_at > unixepoch()) \
+               AND ((owner_user_id = ? AND grantee_user_id = ?) \
+                 OR (owner_user_id = ? AND grantee_user_id = ?)) LIMIT 1",
+        )
+        .bind(a)
+        .bind(b)
+        .bind(b)
+        .bind(a)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("check grants between accounts: {e}"))?;
+        Ok(linked.is_some())
+    }
+
+    /// Mark a grant revoked. Only the owner side may call this (the route
+    /// validates the caller); returns whether a live row was retired.
+    pub async fn revoke(pool: &DbPool, grant_id: &str, owner_user_id: &str) -> Result<bool> {
+        let revoked_at = Utc::now().timestamp();
+        let result = sqlx::query(
+            "UPDATE device_grants \
+               SET state = 'revoked', revoked_at = ?, invite_secret_hash = NULL \
+             WHERE grant_id = ? AND owner_user_id = ? AND state != 'revoked'",
+        )
+        .bind(revoked_at)
+        .bind(grant_id)
+        .bind(owner_user_id)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("revoke device grant: {e}"))?;
         Ok(result.rows_affected() > 0)
     }
 }
@@ -2962,6 +3306,166 @@ pub mod page_kv {
             assert!(err.to_string().contains("operation limit"));
             assert!(get(&pool, "u1", "site", "key").await.unwrap().is_none());
         }
+    }
+}
+
+/// Single opaque, client-encrypted config backup per account. The relay never
+/// sees the plaintext or the key; this is the only per-account config storage
+/// and must not grow into a session/message/sequence store.
+pub mod account_config_backup {
+    use super::*;
+
+    pub struct Row {
+        pub scheme: String,
+        pub key_hint: String,
+        pub encrypted_data: String,
+        pub nonce: String,
+        pub size_bytes: i64,
+        pub version: i64,
+        pub updated_at: i64,
+    }
+
+    pub struct Meta {
+        pub scheme: String,
+        pub key_hint: String,
+        pub size_bytes: i64,
+        pub version: i64,
+        pub updated_at: i64,
+    }
+
+    fn validate(
+        scheme: &str,
+        key_hint: &str,
+        encrypted_data: &str,
+        nonce: &str,
+        version: i64,
+    ) -> Result<()> {
+        if scheme.is_empty()
+            || scheme.len() > MAX_CONFIG_BACKUP_SCHEME_BYTES
+            || scheme.chars().any(char::is_control)
+        {
+            return Err(anyhow!("config backup scheme is invalid"));
+        }
+        if key_hint.is_empty()
+            || key_hint.len() > MAX_CONFIG_BACKUP_KEY_HINT_BYTES
+            || key_hint.chars().any(char::is_control)
+        {
+            return Err(anyhow!("config backup key hint is invalid"));
+        }
+        if encrypted_data.is_empty()
+            || encrypted_data.len() > MAX_CONFIG_BACKUP_ENCRYPTED_BYTES
+            || encrypted_data.chars().any(char::is_control)
+        {
+            return Err(anyhow!(
+                "config backup ciphertext must be non-empty, control-free, and at most {} bytes",
+                MAX_CONFIG_BACKUP_ENCRYPTED_BYTES
+            ));
+        }
+        if nonce.is_empty()
+            || nonce.len() > MAX_CONFIG_BACKUP_NONCE_BYTES
+            || nonce.chars().any(char::is_control)
+        {
+            return Err(anyhow!("config backup nonce is invalid"));
+        }
+        if version <= 0 {
+            return Err(anyhow!("config backup version must be positive"));
+        }
+        Ok(())
+    }
+
+    pub async fn upsert(
+        pool: &DbPool,
+        user_id: &str,
+        scheme: &str,
+        key_hint: &str,
+        encrypted_data: &str,
+        nonce: &str,
+        version: i64,
+    ) -> Result<Row> {
+        validate(scheme, key_hint, encrypted_data, nonce, version)?;
+        let now = Utc::now().timestamp();
+        let size_bytes = (encrypted_data.len() + nonce.len()) as i64;
+        sqlx::query(
+            "INSERT INTO account_config_backup \
+             (user_id, scheme, key_hint, encrypted_data, nonce, size_bytes, version, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+             ON CONFLICT(user_id) DO UPDATE SET \
+             scheme = excluded.scheme, key_hint = excluded.key_hint, \
+             encrypted_data = excluded.encrypted_data, nonce = excluded.nonce, \
+             size_bytes = excluded.size_bytes, version = excluded.version, \
+             updated_at = excluded.updated_at",
+        )
+        .bind(user_id)
+        .bind(scheme)
+        .bind(key_hint)
+        .bind(encrypted_data)
+        .bind(nonce)
+        .bind(size_bytes)
+        .bind(version)
+        .bind(now)
+        .execute(pool)
+        .await
+        .map_err(|e| anyhow!("account_config_backup upsert: {e}"))?;
+        Ok(Row {
+            scheme: scheme.to_string(),
+            key_hint: key_hint.to_string(),
+            encrypted_data: encrypted_data.to_string(),
+            nonce: nonce.to_string(),
+            size_bytes,
+            version,
+            updated_at: now,
+        })
+    }
+
+    pub async fn get(pool: &DbPool, user_id: &str) -> Result<Option<Row>> {
+        let row = sqlx::query_as::<_, (String, String, String, String, i64, i64, i64)>(
+            "SELECT scheme, key_hint, encrypted_data, nonce, size_bytes, version, updated_at \
+             FROM account_config_backup WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("account_config_backup get: {e}"))?;
+        Ok(row.map(
+            |(scheme, key_hint, encrypted_data, nonce, size_bytes, version, updated_at)| Row {
+                scheme,
+                key_hint,
+                encrypted_data,
+                nonce,
+                size_bytes,
+                version,
+                updated_at,
+            },
+        ))
+    }
+
+    pub async fn get_meta(pool: &DbPool, user_id: &str) -> Result<Option<Meta>> {
+        let row = sqlx::query_as::<_, (String, String, i64, i64, i64)>(
+            "SELECT scheme, key_hint, size_bytes, version, updated_at \
+             FROM account_config_backup WHERE user_id = ?",
+        )
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| anyhow!("account_config_backup get_meta: {e}"))?;
+        Ok(
+            row.map(|(scheme, key_hint, size_bytes, version, updated_at)| Meta {
+                scheme,
+                key_hint,
+                size_bytes,
+                version,
+                updated_at,
+            }),
+        )
+    }
+
+    pub async fn delete(pool: &DbPool, user_id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM account_config_backup WHERE user_id = ?")
+            .bind(user_id)
+            .execute(pool)
+            .await
+            .map_err(|e| anyhow!("account_config_backup delete: {e}"))?;
+        Ok(result.rows_affected() > 0)
     }
 }
 

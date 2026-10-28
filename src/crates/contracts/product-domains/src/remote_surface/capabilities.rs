@@ -94,6 +94,10 @@ pub enum PeerHostCapability {
     /// Out-of-band PSK pairing (`peer_psk_confirm`, key_id envelopes) is
     /// implemented; controllers may offer pairing to this host.
     PskPairingV1,
+    /// This host enforces the device-grant admission policy for cross-account
+    /// controllers: grant roster revalidation, mandatory PSK pairing, and
+    /// observe-scope verb filtering.
+    DeviceGrantV1,
 }
 
 impl PeerHostCapability {
@@ -135,6 +139,7 @@ impl PeerHostCapability {
         Self::UserQuestionResponse,
         Self::UserQuestionInteractionV1,
         Self::PskPairingV1,
+        Self::DeviceGrantV1,
     ];
 
     /// The key used in the `peer_mode_ping` `capabilities` object.
@@ -176,6 +181,7 @@ impl PeerHostCapability {
             Self::UserQuestionResponse => "user_question_response",
             Self::UserQuestionInteractionV1 => "user_question_interaction_v1",
             Self::PskPairingV1 => "psk_pairing_v1",
+            Self::DeviceGrantV1 => "device_grant_v1",
         }
     }
 
@@ -209,6 +215,7 @@ const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::UserQuestionResponse,
     PeerHostCapability::UserQuestionInteractionV1,
     PeerHostCapability::PskPairingV1,
+    PeerHostCapability::DeviceGrantV1,
 ];
 
 /// The capabilities a peer host of the given kind publishes.

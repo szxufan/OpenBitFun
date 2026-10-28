@@ -82,6 +82,8 @@ pub struct AccountSession {
     hints: tokio::sync::broadcast::Sender<Option<StreamHint>>,
     pub user_id: String,
     pub master_key: [u8; MASTER_KEY_LEN],
+    pub grants: Arc<super::device_grants::HostGrantGate>,
+    device_id: Arc<std::sync::RwLock<Option<String>>>,
     peer_keys: Arc<Mutex<HashMap<String, Arc<OnceCell<[u8; 32]>>>>>,
     transports: Arc<Mutex<HashMap<String, Arc<OnceCell<Arc<super::relay_client::RelayClient>>>>>>,
 }
@@ -101,9 +103,138 @@ impl AccountSession {
             hints: tokio::sync::broadcast::channel(64).0,
             user_id,
             master_key: device_secret,
+            grants: Arc::new(super::device_grants::HostGrantGate::new()),
+            device_id: Arc::new(std::sync::RwLock::new(None)),
             peer_keys: Arc::new(Mutex::new(HashMap::new())),
             transports: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn adopt_device_id(&self, device_id: &str) {
+        if let Ok(mut current) = self.device_id.write() {
+            *current = Some(device_id.to_owned());
+        }
+    }
+
+    pub fn local_device_id(&self) -> Result<String> {
+        if let Some(id) = self.device_id.read().ok().and_then(|id| id.clone()) {
+            return Ok(id);
+        }
+        Ok(super::DeviceIdentity::from_current_machine()?.device_id)
+    }
+
+    pub async fn incoming_peer(
+        &self,
+        relay: &str,
+        source_account: Option<&str>,
+        device: &str,
+    ) -> Result<super::device_grants::PeerTarget> {
+        self.grants
+            .incoming_peer(
+                &AccountClient::new(),
+                relay,
+                self,
+                &self.local_device_id()?,
+                source_account,
+                device,
+            )
+            .await
+    }
+
+    pub async fn authorize_peer_command(
+        &self,
+        relay: &str,
+        peer: &super::device_grants::PeerTarget,
+        key_id: Option<&str>,
+        command: &super::RemoteCommand,
+    ) -> Result<Option<super::device_grants::GrantScope>> {
+        self.grants
+            .authorize(
+                &AccountClient::new(),
+                relay,
+                self,
+                &self.local_device_id()?,
+                peer,
+                key_id,
+                command,
+            )
+            .await
+            .map_err(anyhow::Error::msg)
+    }
+
+    pub async fn authorize_peer_delivery(&self, relay: &str, peer: &str) -> Result<()> {
+        let peer = super::device_grants::PeerTarget::parse(peer)?;
+        self.grants
+            .authorize_delivery(
+                &AccountClient::new(),
+                relay,
+                self,
+                &self.local_device_id()?,
+                &peer,
+            )
+            .await
+            .map_err(anyhow::Error::msg)
+    }
+
+    /// grantee 完成配对：依 grant 将主机设备解析为复合对端（owner 账号取本地
+    /// roster），经授权范围 peer-key 路由验证主机公钥并把配对存入该对端。
+    pub async fn complete_grant_pairing(
+        &self,
+        relay: &str,
+        grant_id: &str,
+        host_device_id: &str,
+        psk: &[u8; 32],
+        offerer_public_key: [u8; 32],
+    ) -> Result<super::psk_store::PeerPskEntry> {
+        let target = self
+            .grants
+            .resolve_pairing_target(&AccountClient::new(), relay, self, grant_id, host_device_id)
+            .await?;
+        let directory_key = self.peer_public_key(relay, &target.key()).await?;
+        anyhow::ensure!(directory_key == offerer_public_key,
+            "Pairing refused: the host's grant-scoped directory key does not match the pairing code.");
+        super::psk_store::store_entry(
+            relay,
+            &self.user_id,
+            &target.key(),
+            psk,
+            super::psk_store::PeerPskStatus::Paired,
+            None,
+        )
+    }
+
+    /// 共享机为某个 grant 铸配对邀请：先按 grant id 暂存待提升的 PSK，grantee
+    /// 完成后的首条 PSK 封包消息再把提升为设备级配对。
+    pub async fn offer_grant_pairing(
+        &self,
+        relay: &str,
+        grant_id: &str,
+    ) -> Result<(super::psk_store::PeerPskEntry, [u8; 32], String)> {
+        let my_device = self.local_device_id()?;
+        let (_, list) = self
+            .grants
+            .roster(&AccountClient::new(), relay, self)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let grant = list
+            .owned
+            .iter()
+            .find(|g| {
+                g.grant_id == grant_id
+                    && g.owner_user_id == self.user_id
+                    && g.device_id == my_device
+                    && g.is_current()
+            })
+            .ok_or_else(|| anyhow!("{}", super::device_grants::PEER_GRANT_REQUIRED))?;
+        let psk = super::pairing::generate_psk();
+        let entry = super::psk_store::store_grant_offer(
+            relay,
+            &self.user_id,
+            grant_id,
+            &psk,
+            Some(&grant.grantee_user_id),
+        )?;
+        Ok((entry, psk, grant.grantee_user_id.clone()))
     }
 
     /// Stream change hints from hosts. `None` marks a (re)connect; receiver lag
@@ -147,10 +278,20 @@ impl AccountSession {
     /// Cached per endpoint; invalidation removes the cell so an older lookup
     /// cannot refill it.
     pub async fn peer_public_key(&self, relay_url: &str, device_id: &str) -> Result<[u8; 32]> {
-        let endpoint = AccountClient::endpoint(
-            relay_url,
-            &format!("/api/devices/{}/key", urlencoding::encode(device_id)),
-        )?;
+        let target = super::device_grants::PeerTarget::parse(device_id)?;
+        if target.is_shared() {
+            self.grants
+                .peer_grant(
+                    &AccountClient::new(),
+                    relay_url,
+                    self,
+                    &self.local_device_id()?,
+                    &target,
+                )
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
+        let endpoint = Self::peer_key_endpoint(relay_url, &target)?;
         let cache_id = endpoint.to_string();
         let cell = {
             let mut keys = self.peer_keys.lock().await;
@@ -173,7 +314,7 @@ impl AccountSession {
                 public_key: String,
             }
             let peer: PeerKey = response.json().await?;
-            if peer.device_id != device_id {
+            if peer.device_id != target.device_id {
                 return Err(anyhow!("relay returned a different device identity"));
             }
             super::encryption::parse_public_key(&peer.public_key)
@@ -182,10 +323,25 @@ impl AccountSession {
         .copied()
     }
 
+    fn peer_key_endpoint(
+        relay: &str,
+        peer: &super::device_grants::PeerTarget,
+    ) -> Result<reqwest::Url> {
+        let path = match &peer.grant_id {
+            Some(grant) => format!(
+                "/api/grants/{}/peer-key?device_id={}",
+                urlencoding::encode(grant),
+                urlencoding::encode(&peer.device_id)
+            ),
+            None => format!("/api/devices/{}/key", urlencoding::encode(&peer.device_id)),
+        };
+        AccountClient::endpoint(relay, &path)
+    }
+
     async fn invalidate_peer_public_key(&self, relay_url: &str, device_id: &str) -> Result<()> {
-        let endpoint = AccountClient::endpoint(
+        let endpoint = Self::peer_key_endpoint(
             relay_url,
-            &format!("/api/devices/{}/key", urlencoding::encode(device_id)),
+            &super::device_grants::PeerTarget::parse(device_id)?,
         )?;
         self.peer_keys.lock().await.remove(endpoint.as_str());
         Ok(())
@@ -236,12 +392,38 @@ impl AccountSession {
         let Some(psk_id) = id.strip_prefix(device_crypto::PSK_KEY_ID_PREFIX) else {
             return Err(anyhow!("unsupported device message key id: {id}"));
         };
-        let entry = super::psk_store::lookup_entry(relay_url, &self.user_id, device_id)?
-            .ok_or_else(|| anyhow!("{PAIRING_KEY_MISMATCH_MESSAGE}"))?;
-        if entry.psk_id != psk_id {
-            return Err(anyhow!("{PAIRING_KEY_MISMATCH_MESSAGE}"));
+        if let Some(entry) = super::psk_store::lookup_entry(relay_url, &self.user_id, device_id)? {
+            if entry.psk_id != psk_id {
+                return Err(anyhow!("{PAIRING_KEY_MISMATCH_MESSAGE}"));
+            }
+            return device_crypto::derive_message_key_psk(&self.master_key, &public, &entry.psk);
         }
-        device_crypto::derive_message_key_psk(&self.master_key, &public, &entry.psk)
+        // A shared target with no device-scoped pairing yet: the shared host
+        // minted a grant-keyed offer before it learned this controller device.
+        // Match the confirming PSK id, then promote to a device-scoped entry so
+        // later sealing reuses the paired derivation.
+        let target = super::device_grants::PeerTarget::parse(device_id)?;
+        if let (Some(grant), Some(_)) = (target.grant_id.as_ref(), target.account_id.as_ref()) {
+            if let Some(offer) =
+                super::psk_store::lookup_grant_offer(relay_url, &self.user_id, grant)?
+            {
+                if offer.psk_id == psk_id {
+                    let _ = super::psk_store::promote_grant_offer(
+                        relay_url,
+                        &self.user_id,
+                        grant,
+                        device_id,
+                        psk_id,
+                    );
+                    return device_crypto::derive_message_key_psk(
+                        &self.master_key,
+                        &public,
+                        &offer.psk,
+                    );
+                }
+            }
+        }
+        Err(anyhow!("{PAIRING_KEY_MISMATCH_MESSAGE}"))
     }
 
     pub async fn encrypt_for_peer(
@@ -251,6 +433,16 @@ impl AccountSession {
         plaintext: &str,
     ) -> Result<PeerSealedMessage> {
         let selected = self.sender_key(relay_url, device_id).await?;
+        if super::device_grants::PeerTarget::parse(device_id)?.is_shared()
+            && selected.key_id.is_none()
+        {
+            let command = serde_json::from_str::<super::RemoteCommand>(plaintext)?;
+            anyhow::ensure!(
+                matches!(command, super::RemoteCommand::HostInvoke { command, .. } if command == "peer_mode_ping"),
+                "{}",
+                super::device_grants::PEER_GRANT_PAIRING_REQUIRED
+            );
+        }
         let (data, nonce) = super::encryption::encrypt_to_base64(&selected.key, plaintext)?;
         Ok(PeerSealedMessage {
             data,
@@ -506,6 +698,16 @@ pub const RELAY_CAPABILITY_DEVICE_KIND_CLI: &str = "device_kind_cli_v1";
 /// registration plus the optional-password and refresh endpoints under
 /// `/api/auth/local/*`.
 pub const RELAY_CAPABILITY_LOCAL_AUTH: &str = "local_auth_v1";
+
+/// Relay capability advertising cross-account device grants under
+/// `/api/grants*`. Clients must probe before using the routes; older relays
+/// answer 404 and the feature must surface an unsupported state, not a
+/// silent failure.
+pub const RELAY_CAPABILITY_DEVICE_GRANTS: &str = "device_grants_v1";
+
+/// Relay capability advertising manual, client-encrypted config backup
+/// storage under `/api/account/config-backup*`.
+pub const RELAY_CAPABILITY_CONFIG_BACKUP: &str = "account_config_backup_v1";
 
 /// The GitHub/relay login request body.
 ///
@@ -767,9 +969,8 @@ impl AccountClient {
         if status == reqwest::StatusCode::PAYLOAD_TOO_LARGE {
             return anyhow!(
                 "relay returned HTTP 413 Payload Too Large \
-                 (encrypted session/settings blob exceeds relay body limit; \
-                  raise Axum DefaultBodyLimit on /api/sync/* and any reverse-proxy \
-                  client_max_body_size)"
+                 (encrypted blob exceeds the relay body limit; raise the route's \
+                  Axum DefaultBodyLimit and any reverse-proxy client_max_body_size)"
             );
         }
         if status == reqwest::StatusCode::INSUFFICIENT_STORAGE {
@@ -999,6 +1200,242 @@ impl AccountClient {
             .await
     }
 
+    /// Whether the relay advertises manual config backup storage. Missing
+    /// capabilities (including an old info endpoint) mean unsupported.
+    pub async fn config_backup_supported(&self, relay_url: &str) -> Result<bool> {
+        Ok(self
+            .relay_capabilities(relay_url)
+            .await?
+            .iter()
+            .any(|name| name == RELAY_CAPABILITY_CONFIG_BACKUP))
+    }
+
+    async fn require_config_backup_support(&self, relay_url: &str) -> Result<()> {
+        if !self.config_backup_supported(relay_url).await? {
+            return Err(anyhow!(
+                "this relay does not support config backups (missing {RELAY_CAPABILITY_CONFIG_BACKUP})"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Replace the account's single stored config backup (last export wins).
+    pub async fn upload_config_backup(
+        &self,
+        relay_url: &str,
+        session: &AccountSession,
+        upload: &super::config_backup::ConfigBackupUpload,
+    ) -> Result<super::config_backup::ConfigBackupMeta> {
+        self.require_config_backup_support(relay_url).await?;
+        let resp = send_with_retry(
+            "upload config backup",
+            self.http
+                .put(Self::endpoint(
+                    relay_url,
+                    "/api/account/config-backup/blob",
+                )?)
+                .header("Authorization", Self::auth_header(session))
+                .json(upload),
+            RelayHttpRetry::IdempotentWrite,
+        )
+        .await?;
+        if !resp.status().is_success() {
+            return Err(Self::into_buffered_error(resp));
+        }
+        resp.json().await
+    }
+
+    /// Stored backup metadata without the ciphertext, for import previews.
+    pub async fn get_config_backup_meta(
+        &self,
+        relay_url: &str,
+        session: &AccountSession,
+    ) -> Result<Option<super::config_backup::ConfigBackupMeta>> {
+        self.require_config_backup_support(relay_url).await?;
+        let resp = send_with_retry(
+            "get config backup meta",
+            self.http
+                .get(Self::endpoint(relay_url, "/api/account/config-backup")?)
+                .header("Authorization", Self::auth_header(session)),
+            RelayHttpRetry::SafeRead,
+        )
+        .await?;
+        if !resp.status().is_success() {
+            return Err(Self::into_buffered_error(resp));
+        }
+        resp.json().await
+    }
+
+    /// Download the full encrypted envelope; `None` when no backup exists.
+    pub async fn download_config_backup(
+        &self,
+        relay_url: &str,
+        session: &AccountSession,
+    ) -> Result<Option<super::config_backup::ConfigBackupEnvelope>> {
+        self.require_config_backup_support(relay_url).await?;
+        let resp = send_with_retry(
+            "download config backup",
+            self.http
+                .get(Self::endpoint(
+                    relay_url,
+                    "/api/account/config-backup/blob",
+                )?)
+                .header("Authorization", Self::auth_header(session)),
+            RelayHttpRetry::SafeRead,
+        )
+        .await?;
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            return Err(Self::into_buffered_error(resp));
+        }
+        resp.json().await.map(Some)
+    }
+
+    /// Remove the stored backup. Idempotent: an already-empty slot is success.
+    pub async fn delete_config_backup(
+        &self,
+        relay_url: &str,
+        session: &AccountSession,
+    ) -> Result<()> {
+        self.require_config_backup_support(relay_url).await?;
+        let resp = send_with_retry(
+            "delete config backup",
+            self.http
+                .delete(Self::endpoint(relay_url, "/api/account/config-backup")?)
+                .header("Authorization", Self::auth_header(session)),
+            RelayHttpRetry::IdempotentWrite,
+        )
+        .await?;
+        if resp.status().is_success() || resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        Err(Self::into_buffered_error(resp))
+    }
+
+    async fn require_device_grants_support(&self, relay_url: &str) -> Result<()> {
+        let capabilities = self.relay_capabilities(relay_url).await?;
+        if !capabilities
+            .iter()
+            .any(|capability| capability == RELAY_CAPABILITY_DEVICE_GRANTS)
+        {
+            return Err(anyhow!(
+                "this relay does not support device grants (missing {RELAY_CAPABILITY_DEVICE_GRANTS})"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Both grant views for the caller's account in one request
+    /// (GET /api/grants): grants the account owns (management) and current
+    /// grants where it is the grantee (shared-with-me roster).
+    pub async fn list_device_grants(
+        &self,
+        relay_url: &str,
+        session: &AccountSession,
+    ) -> Result<super::device_grants::DeviceGrantList> {
+        self.require_device_grants_support(relay_url).await?;
+        let resp = send_with_retry(
+            "list device grants",
+            self.http
+                .get(Self::endpoint(relay_url, "/api/grants")?)
+                .header("Authorization", Self::auth_header(session)),
+            RelayHttpRetry::SafeRead,
+        )
+        .await?;
+        if !resp.status().is_success() {
+            return Err(Self::into_buffered_error(resp));
+        }
+        resp.json().await
+    }
+
+    /// Offer a pending grant from this host device. Only the shared machine's
+    /// own device token is accepted by the relay, so callers must pass the
+    /// session of the device being shared.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn offer_device_grant(
+        &self,
+        relay_url: &str,
+        session: &AccountSession,
+        device_id: &str,
+        grantee_user_id: &str,
+        scope: &str,
+        expires_at: Option<i64>,
+    ) -> Result<super::device_grants::DeviceGrantOffer> {
+        self.require_device_grants_support(relay_url).await?;
+        let resp = send_with_retry(
+            "offer device grant",
+            self.http
+                .post(Self::endpoint(relay_url, "/api/grants")?)
+                .header("Authorization", Self::auth_header(session))
+                .json(&serde_json::json!({
+                    "device_id": device_id,
+                    "grantee_user_id": grantee_user_id,
+                    "scope": scope,
+                    "expires_at": expires_at,
+                })),
+            RelayHttpRetry::SingleAttempt,
+        )
+        .await?;
+        if !resp.status().is_success() {
+            return Err(Self::into_buffered_error(resp));
+        }
+        resp.json().await
+    }
+
+    /// Redeem a one-time grant invite as the named grantee account.
+    pub async fn accept_device_grant(
+        &self,
+        relay_url: &str,
+        session: &AccountSession,
+        grant_id: &str,
+        invite_secret: &str,
+    ) -> Result<super::device_grants::DeviceGrantInfo> {
+        self.require_device_grants_support(relay_url).await?;
+        let resp = send_with_retry(
+            "accept device grant",
+            self.http
+                .post(Self::endpoint(
+                    relay_url,
+                    &format!("/api/grants/{}/accept", urlencoding::encode(grant_id)),
+                )?)
+                .header("Authorization", Self::auth_header(session))
+                .json(&serde_json::json!({ "invite_secret": invite_secret })),
+            RelayHttpRetry::SingleAttempt,
+        )
+        .await?;
+        if !resp.status().is_success() {
+            return Err(Self::into_buffered_error(resp));
+        }
+        resp.json().await
+    }
+
+    /// Revoke a grant. Any device token of the owning account may call this.
+    pub async fn revoke_device_grant(
+        &self,
+        relay_url: &str,
+        session: &AccountSession,
+        grant_id: &str,
+    ) -> Result<super::device_grants::DeviceGrantInfo> {
+        self.require_device_grants_support(relay_url).await?;
+        let resp = send_with_retry(
+            "revoke device grant",
+            self.http
+                .delete(Self::endpoint(
+                    relay_url,
+                    &format!("/api/grants/{}", urlencoding::encode(grant_id)),
+                )?)
+                .header("Authorization", Self::auth_header(session)),
+            RelayHttpRetry::IdempotentWrite,
+        )
+        .await?;
+        if !resp.status().is_success() {
+            return Err(Self::into_buffered_error(resp));
+        }
+        resp.json().await
+    }
+
     /// Remove a device from the account (DELETE /api/devices/:id).
     pub async fn delete_device(
         &self,
@@ -1057,6 +1494,7 @@ impl AccountClient {
                         match event {
                             RelayEvent::DeviceMessageReceived {
                                 source_device_id,
+                                source_account_id,
                                 correlation_id,
                                 encrypted_data,
                                 nonce,
@@ -1065,6 +1503,17 @@ impl AccountClient {
                                 // Stream hints arrive as encrypted DeviceEvents on
                                 // the controller transport; RPC requests to this
                                 // device are answered by its routing owner instead.
+                                let Ok(peer) = event_session
+                                    .incoming_peer(
+                                        &event_relay,
+                                        source_account_id.as_deref(),
+                                        &source_device_id,
+                                    )
+                                    .await
+                                else {
+                                    continue;
+                                };
+                                let source_device_id = peer.key();
                                 let Ok(plaintext) = event_session
                                     .decrypt_from_peer(
                                         &event_relay,
@@ -1077,6 +1526,23 @@ impl AccountClient {
                                 else {
                                     continue;
                                 };
+                                let Ok(command) =
+                                    serde_json::from_str::<super::RemoteCommand>(&plaintext)
+                                else {
+                                    continue;
+                                };
+                                if event_session
+                                    .authorize_peer_command(
+                                        &event_relay,
+                                        &peer,
+                                        key_id.as_deref(),
+                                        &command,
+                                    )
+                                    .await
+                                    .is_err()
+                                {
+                                    continue;
+                                }
                                 let Ok(value) =
                                     serde_json::from_str::<serde_json::Value>(&plaintext)
                                 else {
@@ -1092,9 +1558,12 @@ impl AccountClient {
                                     }
                                 }
                             }
-                            RelayEvent::Connected
-                            | RelayEvent::Reconnected
-                            | RelayEvent::AuthOk { .. } => {
+                            RelayEvent::AuthOk { device_id, .. } => {
+                                event_session.adopt_device_id(&device_id);
+                                peer_keys.lock().await.clear();
+                                let _ = hints.send(None);
+                            }
+                            RelayEvent::Connected | RelayEvent::Reconnected => {
                                 peer_keys.lock().await.clear();
                                 let _ = hints.send(None);
                             }

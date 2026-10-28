@@ -378,6 +378,7 @@ impl CliAccountRoutingHost {
                     if session.token != expected_token {
                         return;
                     }
+                    session.adopt_device_id(&device_id);
                     if let Err(error) = runtime
                         .report_local_device_metadata(account_generation, &device_id)
                         .await
@@ -434,6 +435,7 @@ impl CliAccountRoutingHost {
             }
             RelayEvent::DeviceMessageReceived {
                 source_device_id,
+                source_account_id,
                 correlation_id,
                 encrypted_data,
                 nonce,
@@ -452,6 +454,19 @@ impl CliAccountRoutingHost {
                 {
                     return;
                 }
+                let peer = match session
+                    .incoming_peer(&relay_url, source_account_id.as_deref(), &source_device_id)
+                    .await
+                {
+                    Ok(peer) => peer,
+                    Err(error) => {
+                        let _ = relay_client
+                            .reject_device_request(&correlation_id, &error.to_string())
+                            .await;
+                        return;
+                    }
+                };
+                let source_device_id = peer.key();
                 let plaintext = match session
                     .decrypt_from_peer(
                         &relay_url,
@@ -465,6 +480,9 @@ impl CliAccountRoutingHost {
                     Ok(plaintext) => plaintext,
                     Err(error) => {
                         tracing::warn!("Failed to decrypt device message: {error}");
+                        let _ = relay_client
+                            .reject_device_request(&correlation_id, &error.to_string())
+                            .await;
                         return;
                     }
                 };
@@ -479,6 +497,19 @@ impl CliAccountRoutingHost {
                 tracing::info!(
                     "Device command received: source={source_device_id} corr={correlation_id}"
                 );
+                if let Err(error) = session
+                    .authorize_peer_command(&relay_url, &peer, key_id.as_deref(), &command)
+                    .await
+                {
+                    crate::peer_host::remove_controller(&source_device_id).await;
+                    if let Some(hub) = self.host_stream_hub().await {
+                        hub.remove_peer(&source_device_id);
+                    }
+                    let _ = relay_client
+                        .reject_device_request(&correlation_id, &error.to_string())
+                        .await;
+                    return;
+                }
                 let peer_key = match session
                     .peer_envelope_key(&relay_url, &source_device_id, key_id.as_deref())
                     .await
@@ -503,7 +534,22 @@ impl CliAccountRoutingHost {
                         Some(response) => response,
                         None => match &command {
                             RemoteCommand::HostInvoke { command, args } => {
-                                crate::peer_host::handle_host_invoke(command, args.clone()).await
+                                let mut args = args.clone();
+                                if matches!(
+                                    command.as_str(),
+                                    "peer_control_attach"
+                                        | "peer_control_detach"
+                                        | "peer_psk_confirm"
+                                ) {
+                                    if !args.is_object() {
+                                        args = serde_json::json!({});
+                                    }
+                                    args["controllerDeviceId"] =
+                                        serde_json::json!(source_device_id);
+                                    args["controller_device_id"] =
+                                        serde_json::json!(source_device_id);
+                                }
+                                crate::peer_host::handle_host_invoke(command, args).await
                             }
                             RemoteCommand::DeviceEvent { event, payload } => {
                                 // A host is also a controller of its peers: stream
@@ -824,6 +870,21 @@ impl openbitfun_core::service::remote_connect::host_stream::HostStreamNotifier
                     return;
                 }
             };
+            if let Err(error) = lease
+                .session
+                .authorize_peer_delivery(&lease.relay_url, &target)
+                .await
+            {
+                lease
+                    .session
+                    .grants
+                    .drop_peer(&lease.relay_url, &lease.session.user_id, &target);
+                if let Some(hub) = routing.host_stream_hub().await {
+                    hub.remove_peer(&target);
+                }
+                tracing::warn!("Host stream hint authorization refused: {error}");
+                return;
+            }
             let sealed = match lease
                 .session
                 .encrypt_for_peer(&lease.relay_url, &target, &envelope)

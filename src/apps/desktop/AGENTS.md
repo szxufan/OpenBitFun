@@ -28,7 +28,10 @@ Frontend regression guards:
 
 GitHub identity is shared through `account_identity_api.rs`. Relay device
 registration and lifecycle live in `src/api/remote_connect_api.rs`; settings
-remain on their owning device and there is no cloud/local sync choice.
+remain on their owning device and never sync automatically. The only
+cross-device settings transfer is the manual config backup
+(`account_config_backup_*` commands): a one-time-code-encrypted
+`ConfigExport` stored on the relay, imported by explicit user action only.
 
 The Relay deployment wizard is retired. Preserve the developer scripts under
 `src/apps/relay-server` and their [operator guide](../relay-server/README.md).

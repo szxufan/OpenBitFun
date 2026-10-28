@@ -23,6 +23,10 @@ pub mod device_crypto {
     pub use openbitfun_services_integrations::remote_connect::device_crypto::*;
 }
 
+pub mod device_grants {
+    pub use openbitfun_services_integrations::remote_connect::device_grants::*;
+}
+
 pub mod encryption {
     pub use openbitfun_services_integrations::remote_connect::encryption::*;
 }
@@ -49,6 +53,10 @@ pub mod relay_failure {
 
 pub mod account {
     pub use openbitfun_services_integrations::remote_connect::account::*;
+}
+
+pub mod config_backup {
+    pub use openbitfun_services_integrations::remote_connect::config_backup::*;
 }
 
 pub mod host_stream {
@@ -1092,6 +1100,24 @@ impl RemoteConnectService {
     /// Capture the transport under the lifecycle lease, then release that
     /// lease before awaiting IO. Replacement disconnects the captured epoch;
     /// a slow acknowledgement must not block logout or presence delivery.
+    pub async fn reject_device_request_if_connection(
+        &self,
+        expected_connection_id: u64,
+        correlation: &str,
+        reason: &str,
+    ) -> Result<()> {
+        let lifecycle = self.device_relay_lifecycle.lock().await;
+        if *self.active_device_connection_id.read().await != Some(expected_connection_id) {
+            return Ok(());
+        }
+        let client = self.device_relay_client.read().await.clone();
+        drop(lifecycle);
+        if let Some(client) = client {
+            client.reject_device_request(correlation, reason).await?;
+        }
+        Ok(())
+    }
+
     pub async fn send_device_message_if_connection(
         &self,
         expected_connection_id: u64,

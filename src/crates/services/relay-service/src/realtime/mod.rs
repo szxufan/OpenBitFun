@@ -13,7 +13,7 @@ mod payloads;
 pub(crate) mod presence;
 pub(crate) mod retired_session_history;
 
-use crate::{db::AuthToken, routes::api::AppState};
+use crate::{db::AuthToken, db::DeviceGrantRow, routes::api::AppState};
 use axum::{
     http::StatusCode,
     routing::{any, get, post},
@@ -27,7 +27,7 @@ use socketioxide::{
     SocketIo,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex, Weak},
     time::Duration,
 };
@@ -48,6 +48,10 @@ struct Identity {
     client_protocol: Option<u32>,
     account_calls: Arc<Semaphore>,
     server_calls: Arc<Semaphore>,
+    /// Grant ids this socket routed through. Inserted at grant-authorized
+    /// dispatch, revalidated by the revocation monitor, so a revoked or
+    /// expired grant tears the socket down like a revoked token.
+    grants_riding: Arc<Mutex<HashSet<String>>>,
     _connection: Arc<OwnedSemaphorePermit>,
 }
 #[derive(Clone, Copy, Deserialize, PartialEq)]
@@ -85,11 +89,22 @@ struct Call {
     params: Value,
     #[serde(default, rename = "timeoutMs")]
     timeout_ms: Option<u64>,
+    /// Owner account of a cross-account RPC target. The relay never routes by
+    /// this claim alone: the grant row must confirm an active grant from this
+    /// account to the verified caller. Absent for same-account calls, and
+    /// ignored by older relays (additive field).
+    #[serde(default, rename = "targetAccountId")]
+    target_account_id: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MachineEvent {
     target_device_id: String,
+    /// Grantee account for a cross-account push. The relay verifies an active
+    /// grant from this machine to that account before routing. Absent keeps
+    /// the same-account room.
+    #[serde(default)]
+    target_account_id: Option<String>,
     params: Value,
 }
 
@@ -106,6 +121,49 @@ fn failure(error: &str) -> Value {
 async fn authorized(state: &AppState, identity: &Identity) -> bool {
     matches!(AuthToken::find(&state.db,&identity.token).await,
         Ok(Some(auth)) if auth.user_id==identity.account && auth.can_control_devices())
+}
+
+/// Record a grant this socket now rides on, for the revocation monitor.
+fn ride_grant(identity: &Identity, grant_id: &str) {
+    if let Ok(mut grants) = identity.grants_riding.lock() {
+        grants.insert(grant_id.to_string());
+    }
+}
+
+/// Resolve a cross-account RPC routing account. The caller may claim a target
+/// account, but the routing room is only derived from a grant row that the
+/// relay itself resolved: an active grant from the claimed owner to the
+/// verified caller account, bound to the method's device prefix. Device ids
+/// are only unique per account, so without this server-side resolution the
+/// claim could name the wrong account's room.
+async fn routing_account_for_call(
+    state: &AppState,
+    identity: &Identity,
+    data: &Call,
+) -> Option<String> {
+    let claimed_owner = data.target_account_id.as_deref()?;
+    if claimed_owner == identity.account {
+        return None;
+    }
+    let method_device = data.method.split_once(':')?.0;
+    let grant =
+        DeviceGrantRow::find_active(&state.db, claimed_owner, method_device, &identity.account)
+            .await
+            .ok()
+            .flatten()?;
+    ride_grant(identity, &grant.grant_id);
+    Some(grant.owner_user_id)
+}
+
+fn grant_authorizes_socket(
+    row: &DeviceGrantRow,
+    account: &str,
+    device: &str,
+    scope: Scope,
+) -> bool {
+    row.is_current()
+        && (row.grantee_user_id == account
+            || (row.owner_user_id == account && row.device_id == device && scope == Scope::Machine))
 }
 
 fn can_register(identity: &Identity, method: &str) -> bool {
@@ -258,6 +316,7 @@ pub(crate) fn mount(router: Router<AppState>, state: AppState) -> Router<AppStat
                         client_protocol,
                         account_calls,
                         server_calls,
+                        grants_riding: Arc::new(Mutex::new(HashSet::new())),
                         _connection: Arc::new(permit),
                     });
                     Ok(())
@@ -313,7 +372,9 @@ async fn install(socket: SocketRef, state: AppState, io: SocketIo) {
     let auth_identity = identity.clone();
     let auth_state = state.clone();
     // Also applies to idle sockets. Revoked credentials cannot keep receiving
-    // another device's encrypted traffic indefinitely after logout.
+    // another device's encrypted traffic indefinitely after logout. A socket
+    // that routed through a device grant is held to the same standard: a
+    // revoked or expired grant disconnects it within one tick.
     tokio::spawn(async move {
         let mut timer = tokio::time::interval(Duration::from_secs(5));
         loop {
@@ -322,6 +383,35 @@ async fn install(socket: SocketRef, state: AppState, io: SocketIo) {
                 break;
             }
             if !authorized(&auth_state, &auth_identity).await {
+                let _ = auth_socket.disconnect();
+                break;
+            }
+            // Snapshot the grant ids before awaiting: a poisoned lock fails
+            // closed, and no non-Send guard is held across the await.
+            let mut grants_valid = true;
+            let grant_ids = match auth_identity.grants_riding.lock() {
+                Ok(grants) => grants.iter().cloned().collect::<Vec<_>>(),
+                Err(_) => {
+                    grants_valid = false;
+                    Vec::new()
+                }
+            };
+            for grant_id in grant_ids {
+                match DeviceGrantRow::find(&auth_state.db, &grant_id).await {
+                    Ok(Some(row))
+                        if grant_authorizes_socket(
+                            &row,
+                            &auth_identity.account,
+                            &auth_identity.device,
+                            auth_identity.scope,
+                        ) => {}
+                    _ => {
+                        grants_valid = false;
+                        break;
+                    }
+                }
+            }
+            if !grants_valid {
                 let _ = auth_socket.disconnect();
                 break;
             }
@@ -379,7 +469,19 @@ async fn install(socket: SocketRef, state: AppState, io: SocketIo) {
             let Ok(_account_permit) = identity.account_calls.clone().try_acquire_many_owned(reservation) else { let _=ack.send(&failure("account RPC memory budget busy; request was not submitted")); return; };
             let Ok(_server_permit) = identity.server_calls.clone().try_acquire_many_owned(reservation) else { let _=ack.send(&failure("server RPC memory budget busy; request was not submitted")); return; };
             if data.method.len()>256 || !authorized(&state,&identity).await { let _=ack.send(&failure("RPC forbidden")); return; }
-            let room=rpc_room(&identity.account,&data.method);
+            // Same-account calls keep the caller's room. A cross-account call
+            // is only routable through a relay-resolved grant; the claimed
+            // owner never selects the room directly.
+            let routing_account = match routing_account_for_call(&state,&identity,&data).await {
+                Some(owner) => owner,
+                None => {
+                    if data.target_account_id.as_deref().is_some_and(|claimed| claimed != identity.account) {
+                        let _=ack.send(&failure("RPC forbidden: no active device grant")); return;
+                    }
+                    identity.account.clone()
+                }
+            };
+            let room=rpc_room(&routing_account,&data.method);
             // Happy's reconnect grace belongs to target lookup, before dispatch.
             // After dispatch, a missing acknowledgement is UNKNOWN, never a
             // reason to execute the mutation again on a replacement socket.
@@ -405,9 +507,16 @@ async fn install(socket: SocketRef, state: AppState, io: SocketIo) {
             if !crate::db::client_builds_compatible(identity.client_protocol, target_identity.client_protocol) {
                 let _=ack.send(&failure("incompatible client build: remote control requires matching client versions")); return;
             }
+            if routing_account != identity.account
+                && routing_account_for_call(&state, &identity, &data).await.as_deref() != Some(routing_account.as_str()) {
+                let _=ack.send(&failure("RPC forbidden: device grant expired before dispatch")); return;
+            }
             let remaining = call_deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() { let _=ack.send(&failure("RPC deadline elapsed before dispatch")); return; }
-            let request=json!({"method":data.method,"params":data.params,"sourceDeviceId":identity.device,"timeoutMs":remaining.as_millis()});
+            // `sourceAccountId` is relay-derived from the verified token, like
+            // `auth-ok`; the host trusts it to attribute and authorize
+            // grant-riding controllers. Older hosts ignore the additive field.
+            let request=json!({"method":data.method,"params":data.params,"sourceDeviceId":identity.device,"sourceAccountId":identity.account,"timeoutMs":remaining.as_millis()});
             let response=match target.timeout(remaining).emit_with_ack::<_,Value>("rpc-request",&request) {
                 Ok(pending)=>match pending.await {
                     Ok(value)=>match value.get("$relayError").and_then(Value::as_str) {
@@ -429,12 +538,29 @@ async fn install(socket: SocketRef, state: AppState, io: SocketIo) {
             let Some(identity)=socket.extensions.get::<Identity>() else{return;};
             let Ok(data)=data else {let _=ack.send(&failure("invalid event"));return;};
             if identity.scope!=Scope::Machine || !authorized(&state,&identity).await {let _=ack.send(&failure("event forbidden"));return;}
-            let room=format!("user:{}:device:{}",identity.account,data.target_device_id);
+            // A machine may push outside its account only to a grantee of
+            // itself, named by a grant row the relay resolves. The room then
+            // lives in the grantee account, where the controller socket joined.
+            let (room, ridden_grant)=match data.target_account_id.as_deref() {
+                Some(target_account) if target_account != identity.account => {
+                    match DeviceGrantRow::find_active(&state.db,&identity.account,&identity.device,target_account).await {
+                        Ok(Some(grant)) if grant.grantee_user_id == target_account => {
+                            ride_grant(&identity,&grant.grant_id);
+                            (format!("user:{}:device:{}",target_account,data.target_device_id), Some(grant.grant_id))
+                        }
+                        _ => {let _=ack.send(&failure("event forbidden: no active device grant"));return;}
+                    }
+                }
+                _ => (format!("user:{}:device:{}",identity.account,data.target_device_id), None),
+            };
             let targets=io.within(room).sockets();
             if targets.is_empty(){let _=ack.send(&failure("event target offline"));return;}
-            let event=json!({"type":"device-event","sourceDeviceId":identity.device,"params":data.params});
+            let event=json!({"type":"device-event","sourceDeviceId":identity.device,"sourceAccountId":identity.account,"params":data.params});
             let mut sent=false;
             for target in targets {
+                let Some(recipient) = target.extensions.get::<Identity>() else { continue; };
+                if !authorized(&state, &recipient).await { let _=target.disconnect(); continue; }
+                if let Some(grant_id) = &ridden_grant { ride_grant(&recipient, grant_id); }
                 if target.emit("ephemeral",&event).is_ok(){sent=true;}else{let _=target.disconnect();}
             }
             let _=ack.send(&json!({"ok":sent}));
@@ -499,5 +625,85 @@ mod route_tests {
             to_bytes(response.into_body(), 4096).await.unwrap(),
             "static page"
         );
+    }
+
+    fn grant(state: &str, expires_at: Option<i64>) -> DeviceGrantRow {
+        DeviceGrantRow {
+            grant_id: "g1".into(),
+            owner_user_id: "owner".into(),
+            device_id: "shared-host".into(),
+            grantee_user_id: "member".into(),
+            scope: crate::db::GRANT_SCOPE_DRIVE.into(),
+            state: state.into(),
+            invite_secret_hash: None,
+            offered_at: 1,
+            accepted_at: Some(1),
+            expires_at,
+            revoked_at: None,
+        }
+    }
+
+    // Issue 4: the revocation monitor must keep a legitimate owner machine
+    // alive after it pushes a cross-account event, while still tearing down a
+    // grantee that lost its grant and never trusting a wrong owner device.
+    #[test]
+    fn grant_monitor_accepts_grantee_and_bound_owner_machine_only() {
+        let row = grant(crate::db::GRANT_STATE_ACTIVE, None);
+        // Grantee controller socket is authorized by the grant.
+        assert!(grant_authorizes_socket(
+            &row,
+            "member",
+            "member-desk",
+            Scope::User
+        ));
+        // Owner machine that pushed the event is authorized only on the bound device.
+        assert!(grant_authorizes_socket(
+            &row,
+            "owner",
+            "shared-host",
+            Scope::Machine
+        ));
+        // Another owner-account device is not the shared host and never rode it.
+        assert!(!grant_authorizes_socket(
+            &row,
+            "owner",
+            "owner-laptop",
+            Scope::Machine
+        ));
+        // Owner under a user-scoped (non-machine) socket is refused.
+        assert!(!grant_authorizes_socket(
+            &row,
+            "owner",
+            "shared-host",
+            Scope::User
+        ));
+        // A stranger account is refused on either branch.
+        assert!(!grant_authorizes_socket(
+            &row,
+            "outsider",
+            "shared-host",
+            Scope::Machine
+        ));
+        // Revoked and expired grants fail both branches.
+        let gone = grant(crate::db::GRANT_STATE_REVOKED, None);
+        assert!(!grant_authorizes_socket(
+            &gone,
+            "member",
+            "member-desk",
+            Scope::User
+        ));
+        assert!(!grant_authorizes_socket(
+            &gone,
+            "owner",
+            "shared-host",
+            Scope::Machine
+        ));
+        let expired = grant(crate::db::GRANT_STATE_ACTIVE, Some(0));
+        assert!(!grant_authorizes_socket(
+            &expired,
+            "owner",
+            "shared-host",
+            Scope::Machine
+        ));
     }
 }

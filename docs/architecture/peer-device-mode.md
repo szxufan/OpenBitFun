@@ -204,106 +204,54 @@ retain replayable request state and expose it through an attach/snapshot path.
 A one-shot frontend event plus an unresolved channel is not a complete
 multi-device implementation.
 
-## Cloud account sync vs Peer Remote
+## Manual config backup vs Peer Remote
 
-| Concern | Account cloud sync | Peer Device Mode |
+Continuous account settings sync was removed (commit `2f0b61eed`): settings
+live on their owning device, and cross-device access is live remote, not
+replication. The only settings transfer between machines is a manual,
+user-triggered backup.
+
+| Concern | Manual config backup | Peer Device Mode |
 |---|---|---|
-| Purpose | Settings preference sync; optional session **backup upload** | Live full-client remote on another device |
-| Session list on A | Local disk only (cloud sessions are **not** imported) | Peer's live session store via HostInvoke |
-| Settings | May pull/apply cloud settings to this device | Reloaded from peer after enter (via peer transport) |
-| Offline peer | N/A | Must exit Peer Mode; UI must not keep a stale Remote label |
+| Purpose | One-time, user-triggered settings transfer between machines | Live full-client remote on another device |
+| Mechanism | Full `ConfigExport` document encrypted with a one-time backup code (AES-256-GCM, HKDF-derived key), stored as one opaque blob per account on the relay | Peer's live session/config state via HostInvoke over the peer transport |
+| Trigger | Explicit export/import actions in the Remote Connect account panel | Enter/exit Peer Mode |
+| Older relay | Capability `account_config_backup_v1` probed first; the UI shows an explicit unsupported state instead of failing an upload | N/A |
 
-Do **not** treat cloud session blobs as the Remote data plane. Do **not** merge
-cloud session metadata into local disk on login or periodic pull — that pollutes
-A and conflicts with Peer Mode.
+The backup code is a fresh 256-bit secret generated at export, shown to the
+user exactly once, and encoded with the same Crockford-Base32 codec family as
+PSK pairing codes but under a separate domain
+(`OpenBitFun config backup code v1`), so one format can never be mistaken for
+the other. The relay stores only ciphertext, a nonce, and a non-secret key
+hint; see the single-blob storage carve-out in
+`src/crates/services/relay-service/AGENTS.md`.
 
-Settings sync is continuous on every logged-in host (Desktop, interactive CLI,
-and the CLI daemon): local changes upload after a ~5s debounce (content-hash
-deduped); cloud changes are pulled at process start and then every ~30s. After
-applying or uploading settings, a host fans out `account://settings-applied`
-to attached controllers; the controller re-emits it locally so the frontend
-config cache and model selectors refresh without reconnecting.
+Import runs the standard validated config import: product identity and schema
+checks, an automatic local `app_pre-import_*.json` backup, and an atomic
+replace. After a successful import the host emits `account://settings-applied`
+locally and fans it out to attached Peer Mode controllers, so config caches,
+appearance, fonts, and language refresh without reconnecting.
 
-The opened/recent workspace catalog is host-owned in the same way. Whenever a
-host's `WorkspaceService` persists a catalog change — including one made by a
-mobile controller, an IM bot, or a Peer Mode controller through
-`set_workspace` / `create_session` — `start_workspace_catalog_publication`
-emits a `workspace-catalog-changed` hint (payload: `{ revision }`, no catalog
-data). The host's own webview re-reads `get_opened_workspaces` /
-`get_recent_workspaces` / `get_current_workspace` on that hint so a workspace
-another surface opened appears in its list without a manual open; the hint is
-also fanned out to attached controllers (Desktop through
-`should_fanout_peer_ui_event`, CLI through `PeerControllerEventEmitter`) and is
-surface-scoped on the controller, so only the rendered device's catalog is
-re-read. A surface never lets a host-side selection change steal its active
-workspace unless it had no usable selection.
-
-The account settings payload is the complete `ConfigExport.config` document,
-not a whitelist assembled by the login UI. Its scope is:
-
-| Persisted configuration | Account sync coverage |
-|---|---|
-| `app` | Language, startup/window preferences, logging, notifications, layout, FlowChat, AI experience/quick actions, voice input/call settings, keybindings, tool/Skill groups, hook enablement gates, worktree defaults |
-| `ai` | Persisted models and credentials, default/task/subagent model selectors, Agent profile overrides, Skill availability, Review Teams, concurrency/timeouts, proxy, browser/tool preferences, non-secret WebSearch settings |
-| `editor`, `terminal`, `workspace` | Preferences in the global document; workspace files and machine connection records are separate |
-| `tool_permissions`, `memories` | User permission policy and memory preferences; project permission files and generated memory content are separate |
-| `mcp_servers`, `acp_clients`, `plugin`, `project` | Declarations present in the global document; external executables, installed packages and separately stored project overlays are not copied |
-| `appearance`, `font` | Appearance selection and UI font preferences; imported skin assets are stored separately |
-
-The frontend refreshes the config cache and the appearance, font and language
-runtimes after a settings-applied event. Keybindings register a path watcher
-even when their initial value came from the bootstrap hint, and an empty or
-removed override restores the registered default. Applying these preferences
-does not save them again. An unavailable imported skin keeps the persisted
-selection and exposes the existing degraded/unavailable state.
-
-This is settings synchronization, not a user-home backup: custom Agent and Skill
-source files, `hooks.json` declarations/scripts, plugin packages, skin/pet
-assets, local credential-vault entries, SSH profiles and browser storage are
-outside this payload. A synchronized declaration or asset path does not imply
-that its dependency is installed or usable on another host. Runtime-only model
-credentials are also excluded. Session backup upload has a separate lifecycle.
-
-The sync engine subscribes to successful local mutations at `ConfigService`,
-in addition to legacy host notifications. This covers model, Skill, Agent
-profile, and individual preference mutations through Desktop and CLI. Failed
-writes, runtime-only credentials, reloads, and cloud imports do not emit this
-local-change signal. Pending local edits take priority over the periodic pull;
-a fetched blob is applied only if the local document still matches its
-pre-fetch snapshot. The comparison and import share the config write lock.
-
-Imports validate the OpenBitFun product identity, export format and config
-schema, then replace the document. Within the supported schema, omitted fields
-with serde defaults acquire those defaults; they do not retain the receiving
-host's prior value. Arrays and dynamic maps remain authoritative, so deleted
-models, profiles and list entries are not resurrected. Pre-OpenBitFun formats
-and retired fields require the explicit migration tool. Configuration write
-timestamps and informational build versions are excluded from the sync content
-hash so a reload or unchanged save does not cause a redundant upload.
-
-Realtime voice credentials live in `app.voice_call` in the same persisted
-configuration and export/backup format as model settings. Account settings
-apply is authoritative here too: a supplied empty voice key clears the local
-key, and absent voice fields receive defaults. Explicit file imports can
-restore or clear a supplied key; local voice saves and resets can also clear
-it. A valid whole-config import creates a raw
-`app_pre-import_*.json` backup before replacement, under the existing backup
-retention policy. Config reload and model-reference reconciliation serialize
-their reads and writes with local saves so stale snapshots cannot undo a
-completed credential save. These rules do not change speech command routing:
-capture, configuration and realtime connections remain on the controller.
-
-Config mutations publish in-memory values and change notifications only after
-atomic persistence succeeds. Model CRUD and Agent/Skill map edits use a shared
-read/modify/write operation; startup profile canonicalization updates only its
-map. User backups have unique names even within the same second. Web UI reads
-resolve legacy model metadata without writing it back, model edits read fresh
-host data inside the client mutation queue, and AI-experience controls save
-only edited fields. An explicit empty quick-action list stays empty across
-reloads; defaults are supplied only when absent or when explicitly reset.
+The backup contains the same payload as the file-based `ConfigExport`: the
+complete global config document with subscription-account-owned models
+redacted. Custom Agent and Skill source files, `hooks.json` declarations and
+scripts, plugin packages, skin/pet assets, SSH profiles, and browser storage
+stay outside it; a synchronized declaration does not imply its dependency is
+installed or usable on the importing host. Runtime-only model credentials are
+excluded. Sessions are never part of this payload: cloud session blobs are not
+a Remote data plane and must not be merged into local disk on login or pull.
 
 SSH `WorkspaceKind.Remote` remains a separate path (local session mirror + remote
 FS) and must not be mixed with Peer Device Mode.
+
+## Cross-account device grants
+
+Peer Device Mode is same-account by default. Sharing one host device with
+other accounts goes through device grants: the relay routes a cross-account
+call only through a server-resolved grant row, and the host independently
+requires a current grant, completed PSK pairing, and observe-scope-safe
+verbs before dispatch. See
+[`peer-device-grants.md`](peer-device-grants.md).
 
 ## Out-of-band PSK pairing
 

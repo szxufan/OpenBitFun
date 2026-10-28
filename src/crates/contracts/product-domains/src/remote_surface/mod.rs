@@ -150,9 +150,16 @@ pub struct OperationDefinition {
     pub remote_workspace: RemoteWorkspaceStance,
     pub peer: PeerStance,
     pub cli_peer: HostSupport,
+    /// observe 授权的最小只读表面；未声明的操作默认拒绝。
+    pub observe_allowed: bool,
 }
 
 impl OperationDefinition {
+    pub const fn observe(mut self) -> Self {
+        self.observe_allowed = true;
+        self
+    }
+
     /// Support on a peer host of the given kind.
     ///
     /// Desktop support is derived rather than tabulated: every registered Tauri

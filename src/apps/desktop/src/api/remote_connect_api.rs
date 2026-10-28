@@ -492,6 +492,25 @@ async fn fanout_peer_device_event_current(item: PeerEventFanoutItem) {
         }
     };
     for target in targets {
+        if let Err(error) = session.authorize_peer_delivery(&relay_url, &target).await {
+            session
+                .grants
+                .drop_peer(&relay_url, &session.user_id, &target);
+            let pending = crate::api::peer_host_invoke::detach_route_controller(
+                item.routing_owner.route,
+                &target,
+            );
+            let _ = crate::api::peer_host_invoke::fail_closed_permission_requests(
+                pending,
+                "Peer grant expired",
+            )
+            .await;
+            if let Some(hub) = route_host_stream_hub(item.routing_owner.route).await {
+                hub.remove_peer(&target);
+            }
+            log::warn!("Peer event authorization refused: {error}");
+            continue;
+        }
         let sealed = match session
             .encrypt_for_peer(&relay_url, &target, &envelope)
             .await
@@ -587,6 +606,18 @@ pub fn wrap_peer_aware_emitter(
     inner: Arc<dyn openbitfun_core::infrastructure::events::EventEmitter>,
 ) -> Arc<dyn openbitfun_core::infrastructure::events::EventEmitter> {
     Arc::new(PeerAwareEmitter::new(inner))
+}
+
+async fn reject_rpc_request(owner: &DeviceRoutingOwner, correlation: &str, reason: &str) {
+    if correlation.is_empty() || !device_routing_owner_is_current(owner).await {
+        return;
+    }
+    let holder = owner.route.service().read().await;
+    if let Some(service) = holder.as_ref() {
+        let _ = service
+            .reject_device_request_if_connection(owner.service_connection_id, correlation, reason)
+            .await;
+    }
 }
 
 async fn send_device_message_with_routing_lease(
@@ -2801,6 +2832,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
 
     // Background task: consume events (presence / device messages / auth errors)
     // Note: AuthOk is consumed inside start_device_connection (adopt happens there).
+    session.adopt_device_id(&auth_device_id);
     let event_relay_url = relay_url.clone();
     let event_session = session.clone();
     let event_owner = routing_owner.clone();
@@ -2860,11 +2892,29 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                 }
                 RelayEvent::DeviceMessageReceived {
                     source_device_id,
+                    source_account_id,
                     correlation_id,
                     encrypted_data,
                     nonce,
                     key_id,
                 } => {
+                    let peer = match event_session
+                        .incoming_peer(
+                            &event_relay_url,
+                            source_account_id.as_deref(),
+                            &source_device_id,
+                        )
+                        .await
+                    {
+                        Ok(peer) => peer,
+                        Err(error) => {
+                            log::warn!("Peer identity resolution refused: {error}");
+                            reject_rpc_request(&event_owner, &correlation_id, &error.to_string())
+                                .await;
+                            continue;
+                        }
+                    };
+                    let source_device_id = peer.key();
                     match event_session
                         .decrypt_from_peer(
                             &event_relay_url,
@@ -2877,6 +2927,39 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                     {
                         Ok(plaintext) => {
                             use openbitfun_core::service::remote_connect::remote_server::RemoteCommand;
+                            if let Ok(command) = serde_json::from_str::<RemoteCommand>(&plaintext) {
+                                if let Err(error) = event_session
+                                    .authorize_peer_command(
+                                        &event_relay_url,
+                                        &peer,
+                                        key_id.as_deref(),
+                                        &command,
+                                    )
+                                    .await
+                                {
+                                    let pending =
+                                        crate::api::peer_host_invoke::detach_route_controller(
+                                            route,
+                                            &source_device_id,
+                                        );
+                                    let _ = crate::api::peer_host_invoke::fail_closed_permission_requests(pending, "Peer grant refused").await;
+                                    if let Some(hub) = route_host_stream_hub(route).await {
+                                        hub.remove_peer(&source_device_id);
+                                    }
+                                    if !correlation_id.is_empty() {
+                                        send_rpc_error(
+                                            &event_owner,
+                                            &event_session,
+                                            &source_device_id,
+                                            &correlation_id,
+                                            key_id.as_deref(),
+                                            error.to_string(),
+                                        )
+                                        .await;
+                                    }
+                                    continue;
+                                }
+                            }
                             match serde_json::from_str::<RemoteCommand>(&plaintext) {
                                 Ok(RemoteCommand::DeviceEvent { event, payload }) => {
                                     let Some(_routing_effect) =
@@ -3023,7 +3106,13 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                         {
                                             Some(response) => serde_json::to_value(response)
                                                 .map_err(anyhow::Error::from),
-                                            None => execute_local_remote_command(&cmd, route, &source_device_id).await,
+                                            None => execute_local_remote_command(
+                                                &cmd,
+                                                route,
+                                                &source_device_id,
+                                                source_account_id.as_deref(),
+                                            )
+                                            .await,
                                         };
                                         // Returning drops this reply only. The loop
                                         // re-checks ownership at the top of every
@@ -3412,6 +3501,10 @@ pub async fn account_device_rpc(
 pub struct PeerPskOfferCreateRequest {
     pub peer_device_id: String,
     pub peer_name: Option<String>,
+    /// 共享机为跨账号 grant 发起配对时传入；此时 peer_device_id 忽略，
+    /// 主机先按 grant id 暂存待提升的 PSK。
+    #[serde(default)]
+    pub grant_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -3426,6 +3519,10 @@ pub struct PeerPskOffer {
 #[serde(rename_all = "camelCase")]
 pub struct PeerPskCompleteRequest {
     pub code: String,
+    /// 跨账号完成配对时传入已接受的 grant id；此时主机公钥经授权范围的
+    /// peer-key 路由解析，并把配对存入复合对端。
+    #[serde(default)]
+    pub grant_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -3452,12 +3549,51 @@ pub struct PeerPskRemoveRequest {
 pub async fn peer_psk_offer_create(
     request: PeerPskOfferCreateRequest,
 ) -> Result<PeerPskOffer, String> {
+    let (session, relay_url) = read_account_context().await?;
+    let identity = DeviceIdentity::from_current_machine().map_err(|e| format!("{e}"))?;
+    if let Some(grant_id) = request
+        .grant_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        // Cross-account: the shared host mints a grant-keyed pending offer
+        // before it knows the grantee's controller device.
+        let (entry, psk, grantee) = session
+            .offer_grant_pairing(&relay_url, grant_id)
+            .await
+            .map_err(|e| format!("{e}"))?;
+        let payload = openbitfun_core::service::remote_connect::pairing::PskPairingPayload {
+            psk,
+            offerer_device_id: identity.device_id.clone(),
+            offerer_public_key: device_crypto::public_key(&session.master_key),
+        };
+        let code =
+            openbitfun_core::service::remote_connect::pairing::encode_psk_pairing_code(&payload)
+                .map_err(|e| format!("{e}"))?;
+        let qr_url = openbitfun_core::service::remote_connect::QrGenerator::build_psk_pairing_url(
+            &relay_url,
+            &identity.device_id,
+            &code,
+        )
+        .map_err(|e| format!("{e}"))?;
+        append_grant_audit(
+            "pairing_offered",
+            Some(&grantee),
+            None,
+            Some(grant_id),
+            None,
+        );
+        return Ok(PeerPskOffer {
+            code,
+            qr_url,
+            psk_id: entry.psk_id,
+        });
+    }
     let peer_device_id = request.peer_device_id.trim().to_string();
     if peer_device_id.is_empty() {
         return Err("peer_device_id is required".to_string());
     }
-    let (session, relay_url) = read_account_context().await?;
-    let identity = DeviceIdentity::from_current_machine().map_err(|e| format!("{e}"))?;
     let psk = openbitfun_core::service::remote_connect::pairing::generate_psk();
     let entry = openbitfun_core::service::remote_connect::psk_store::store_entry(
         &relay_url,
@@ -3503,26 +3639,71 @@ pub async fn peer_psk_complete(
         .map_err(|e| format!("invalid pairing code: {e}"))?;
     let (session, relay_url) = read_account_context().await?;
     let identity = DeviceIdentity::from_current_machine().map_err(|e| format!("{e}"))?;
-    let directory_key = session
-        .peer_public_key(&relay_url, &payload.offerer_device_id)
-        .await
-        .map_err(|e| format!("resolve offerer device key: {e}"))?;
-    if directory_key != payload.offerer_public_key {
-        return Err(
-            "Pairing refused: the offerer's relay directory key does not match the pairing code. \
-             The directory may be tampered with; do not complete this pairing."
-                .to_string(),
-        );
-    }
-    let entry = openbitfun_core::service::remote_connect::psk_store::store_entry(
-        &relay_url,
-        &session.user_id,
-        &payload.offerer_device_id,
-        &payload.psk,
-        openbitfun_core::service::remote_connect::psk_store::PeerPskStatus::Paired,
-        None,
-    )
-    .map_err(|e| format!("{e}"))?;
+    let grant_id = request
+        .grant_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    // Resolve the offerer's authenticated key and the pairing store key. For a
+    // cross-account grant the key is looked up through the grant-scoped peer-key
+    // route (the account directory stays closed to grantees) and the pairing is
+    // stored under the composite PeerTarget; the raw offerer device id never
+    // borrows the internal composite namespace.
+    let (peer_key, entry) = match grant_id {
+        Some(grant_id) => {
+            if payload.offerer_device_id.starts_with("grant-v1:") {
+                return Err(
+                    "invalid pairing code: offerer device id collides with the composite namespace"
+                        .to_string(),
+                );
+            }
+            let entry = session
+                .complete_grant_pairing(
+                    &relay_url,
+                    grant_id,
+                    &payload.offerer_device_id,
+                    &payload.psk,
+                    payload.offerer_public_key,
+                )
+                .await
+                .map_err(|e| format!("complete grant pairing: {e}"))?;
+            let target = session
+                .grants
+                .resolve_pairing_target(
+                    &AccountClient::new(),
+                    &relay_url,
+                    &session,
+                    grant_id,
+                    &payload.offerer_device_id,
+                )
+                .await
+                .map_err(|e| format!("{e}"))?;
+            (target.key(), entry)
+        }
+        None => {
+            let directory_key = session
+                .peer_public_key(&relay_url, &payload.offerer_device_id)
+                .await
+                .map_err(|e| format!("resolve offerer device key: {e}"))?;
+            if directory_key != payload.offerer_public_key {
+                return Err(
+                    "Pairing refused: the offerer's relay directory key does not match the pairing code. \
+                     The directory may be tampered with; do not complete this pairing."
+                        .to_string(),
+                );
+            }
+            let entry = openbitfun_core::service::remote_connect::psk_store::store_entry(
+                &relay_url,
+                &session.user_id,
+                &payload.offerer_device_id,
+                &payload.psk,
+                openbitfun_core::service::remote_connect::psk_store::PeerPskStatus::Paired,
+                None,
+            )
+            .map_err(|e| format!("{e}"))?;
+            (payload.offerer_device_id.clone(), entry)
+        }
+    };
     // Confirm through a PSK-sealed RPC: the offerer marking its offer paired
     // after decrypting this envelope is the cryptographic proof both devices
     // hold the secret. Failure leaves the pairing stored; it activates on the
@@ -3538,20 +3719,12 @@ pub async fn peer_psk_complete(
     .to_string();
     let client = AccountClient::new();
     let confirmed = match client
-        .device_rpc(
-            &relay_url,
-            &session,
-            &payload.offerer_device_id,
-            &command_json,
-        )
+        .device_rpc(&relay_url, &session, &peer_key, &command_json)
         .await
     {
         Ok(_) => true,
         Err(error) => {
-            log::warn!(
-                "PSK pairing stored, but confirmation to {} failed: {error}",
-                payload.offerer_device_id
-            );
+            log::warn!("PSK pairing stored, but confirmation to {peer_key} failed: {error}");
             false
         }
     };
@@ -3588,7 +3761,325 @@ pub async fn peer_psk_list(
         .map_err(|e| format!("{e}"))
 }
 
-/// Result of an auto-sync operation, returned to the frontend.
+// ── Device grants (cross-account shared hosts) ───────────────────────────
+
+use openbitfun_core::service::remote_connect::device_grants::{
+    append_grant_audit, shared_target_key, DeviceGrantInfo, DeviceGrantList, GRANT_SCOPE_DRIVE,
+    GRANT_SCOPE_OBSERVE,
+};
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerGrantOfferRequest {
+    pub grantee_user_id: String,
+    #[serde(default)]
+    pub scope: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<i64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerGrantOfferResult {
+    pub grant_id: String,
+    pub grantee_user_id: String,
+    pub scope: String,
+    /// One-time invite secret: shown once, never stored by the relay in
+    /// plaintext, and never returned by any later call.
+    pub invite_secret: String,
+    pub invite_expires_at: i64,
+}
+
+/// Offer a device grant from this machine. Only the shared machine's own
+/// device session can mint invites; the relay enforces the same binding, so
+/// an owner's other devices cannot offer on this machine's behalf.
+#[tauri::command]
+pub async fn peer_grant_offer(
+    request: PeerGrantOfferRequest,
+) -> Result<PeerGrantOfferResult, String> {
+    let (session, relay_url) = read_account_context().await?;
+    let device_id = current_device_id_for_peer()?;
+    let scope = request.scope.as_deref().unwrap_or(GRANT_SCOPE_DRIVE);
+    if scope != GRANT_SCOPE_DRIVE && scope != GRANT_SCOPE_OBSERVE {
+        return Err(format!("unsupported grant scope: {scope}"));
+    }
+    let offered = AccountClient::new()
+        .offer_device_grant(
+            &relay_url,
+            &session,
+            &device_id,
+            &request.grantee_user_id,
+            scope,
+            request.expires_at,
+        )
+        .await
+        .map_err(|e| format!("Failed to offer device grant: {e}"))?;
+    append_grant_audit(
+        "offered",
+        Some(&request.grantee_user_id),
+        None,
+        Some(&offered.grant.grant_id),
+        Some(scope),
+    );
+    Ok(PeerGrantOfferResult {
+        grant_id: offered.grant.grant_id,
+        grantee_user_id: offered.grant.grantee_user_id,
+        scope: offered.grant.scope,
+        invite_secret: offered.invite_secret,
+        invite_expires_at: offered.invite_expires_at,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerGrantAcceptRequest {
+    pub grant_id: String,
+    pub invite_secret: String,
+}
+
+/// Redeem a one-time grant invite as the logged-in (grantee) account.
+#[tauri::command]
+pub async fn peer_grant_accept(request: PeerGrantAcceptRequest) -> Result<DeviceGrantInfo, String> {
+    let (session, relay_url) = read_account_context().await?;
+    let grant = AccountClient::new()
+        .accept_device_grant(
+            &relay_url,
+            &session,
+            &request.grant_id,
+            &request.invite_secret,
+        )
+        .await
+        .map_err(|e| format!("Failed to accept device grant: {e}"))?;
+    append_grant_audit(
+        "accepted",
+        Some(&grant.grantee_user_id),
+        None,
+        Some(&grant.grant_id),
+        None,
+    );
+    Ok(grant)
+}
+
+/// Both grant views for the logged-in account: owned (management) and
+/// received (shared-with-me roster). Returns an error on relays without
+/// `device_grants_v1` so the UI can show an explicit unsupported state.
+#[tauri::command]
+pub async fn peer_grant_list() -> Result<DeviceGrantList, String> {
+    let (session, relay_url) = read_account_context().await?;
+    let mut list = AccountClient::new()
+        .list_device_grants(&relay_url, &session)
+        .await
+        .map_err(|e| format!("Failed to list device grants: {e}"))?;
+    // The composite drive/pairing target is computed here so the encoding lives
+    // only in Rust; the frontend passes `target_key` through opaquely.
+    for entry in &mut list.received {
+        entry.target_key = shared_target_key(&entry.grant);
+    }
+    Ok(list)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerGrantRevokeRequest {
+    pub grant_id: String,
+}
+
+/// Revoke a grant owned by this account. Any device of the owner account may
+/// call this; the shared machine tears admitted sessions down through its
+/// own roster revalidation.
+#[tauri::command]
+pub async fn peer_grant_revoke(request: PeerGrantRevokeRequest) -> Result<(), String> {
+    let (session, relay_url) = read_account_context().await?;
+    let grant = AccountClient::new()
+        .revoke_device_grant(&relay_url, &session, &request.grant_id)
+        .await
+        .map_err(|e| format!("Failed to revoke device grant: {e}"))?;
+    append_grant_audit(
+        "revoked",
+        Some(&grant.grantee_user_id),
+        None,
+        Some(&grant.grant_id),
+        None,
+    );
+    Ok(())
+}
+
+// ── Manual encrypted config backup (relay-stored, one-time code) ────────
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountConfigBackupStatus {
+    pub logged_in: bool,
+    /// The relay advertises `account_config_backup_v1`. False on old relays:
+    /// the UI must show an explicit unsupported state, not hide the feature.
+    pub supported_by_relay: bool,
+    pub exists: bool,
+    pub scheme: Option<String>,
+    pub key_hint: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub version: Option<i64>,
+    pub updated_at: Option<i64>,
+}
+
+#[tauri::command]
+pub async fn account_config_backup_status() -> Result<AccountConfigBackupStatus, String> {
+    let Ok((session, relay_url)) = read_account_context().await else {
+        return Ok(AccountConfigBackupStatus {
+            logged_in: false,
+            supported_by_relay: false,
+            exists: false,
+            scheme: None,
+            key_hint: None,
+            size_bytes: None,
+            version: None,
+            updated_at: None,
+        });
+    };
+    let client = AccountClient::new();
+    let supported = client
+        .config_backup_supported(&relay_url)
+        .await
+        .unwrap_or(false);
+    let meta = if supported {
+        client
+            .get_config_backup_meta(&relay_url, &session)
+            .await
+            .map_err(|e| format!("Failed to read config backup status: {e}"))?
+    } else {
+        None
+    };
+    Ok(AccountConfigBackupStatus {
+        logged_in: true,
+        supported_by_relay: supported,
+        exists: meta.is_some(),
+        scheme: meta.as_ref().map(|m| m.scheme.clone()),
+        key_hint: meta.as_ref().map(|m| m.key_hint.clone()),
+        size_bytes: meta.as_ref().map(|m| m.size_bytes),
+        version: meta.as_ref().map(|m| m.version),
+        updated_at: meta.as_ref().map(|m| m.updated_at),
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountConfigBackupExportResult {
+    /// One-time backup code. Shown once at export; the user must save it.
+    pub code: String,
+    pub key_hint: String,
+    pub updated_at: i64,
+}
+
+/// Export the full config document, encrypted with a fresh one-time backup
+/// code, and store it on the relay. Manual only: nothing syncs automatically,
+/// and a second export replaces the stored backup.
+#[tauri::command]
+pub async fn account_config_backup_export(
+    state: tauri::State<'_, crate::api::app_state::AppState>,
+) -> Result<AccountConfigBackupExportResult, String> {
+    let (session, relay_url) = read_account_context().await?;
+    let export = state
+        .config_service
+        .export_config()
+        .await
+        .map_err(|e| format!("Failed to export config: {e}"))?;
+    let plaintext = serde_json::to_string(&export)
+        .map_err(|e| format!("Failed to serialize config export: {e}"))?;
+    let code =
+        openbitfun_core::service::remote_connect::config_backup::generate_config_backup_code();
+    let secret =
+        openbitfun_core::service::remote_connect::config_backup::parse_config_backup_code(&code)
+            .map_err(|e| format!("Failed to decode generated backup code: {e}"))?;
+    let upload = openbitfun_core::service::remote_connect::config_backup::seal_config_backup(
+        &secret,
+        &plaintext,
+        openbitfun_core::service::remote_connect::config_backup::unix_millis(),
+    )
+    .map_err(|e| format!("Failed to encrypt config backup: {e}"))?;
+    let key_hint = upload.key_hint.clone();
+    let client = AccountClient::new();
+    let meta = client
+        .upload_config_backup(&relay_url, &session, &upload)
+        .await
+        .map_err(|e| format!("Failed to upload config backup: {e}"))?;
+    log::info!(
+        "Config backup uploaded to relay ({} bytes, version {})",
+        meta.size_bytes,
+        meta.version
+    );
+    Ok(AccountConfigBackupExportResult {
+        code,
+        key_hint,
+        updated_at: meta.updated_at,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountConfigBackupImportRequest {
+    pub code: String,
+}
+
+/// Download the stored backup from the relay, decrypt it with the user's
+/// backup code, and run the standard validated config import. Reuses the
+/// existing `account://settings-applied` frontend listener so config caches,
+/// appearance, fonts, and language refresh without a reconnect.
+#[tauri::command]
+pub async fn account_config_backup_import(
+    state: tauri::State<'_, crate::api::app_state::AppState>,
+    request: AccountConfigBackupImportRequest,
+) -> Result<serde_json::Value, String> {
+    let code = request.code.trim().to_string();
+    if code.is_empty() {
+        return Err("backup code is required".to_string());
+    }
+    let secret =
+        openbitfun_core::service::remote_connect::config_backup::parse_config_backup_code(&code)
+            .map_err(|e| format!("Invalid backup code: {e}"))?;
+    let (session, relay_url) = read_account_context().await?;
+    let envelope = AccountClient::new()
+        .download_config_backup(&relay_url, &session)
+        .await
+        .map_err(|e| format!("Failed to download config backup: {e}"))?
+        .ok_or("No config backup is stored on the relay")?;
+    let plaintext = openbitfun_core::service::remote_connect::config_backup::open_config_backup(
+        &secret, &envelope,
+    )
+    .map_err(|e| format!("Failed to decrypt config backup: {e}"))?;
+    let export: openbitfun_core::service::config::ConfigExport =
+        serde_json::from_str(&plaintext)
+            .map_err(|e| format!("Failed to parse OpenBitFun config export: {e}"))?;
+    let result = state
+        .config_service
+        .import_config(export)
+        .await
+        .map_err(|e| format!("Failed to import config: {e}"))?;
+    if result.success {
+        state.ai_client_factory.invalidate_cache();
+        log::info!("Config imported from relay backup; AI client cache invalidated");
+        emit_account_event(
+            "account://settings-applied",
+            serde_json::json!({ "applied": true }),
+        );
+        // Attached Peer Mode controllers refresh their config cache from this
+        // host without reconnecting; the event is surface-scoped downstream.
+        fanout_peer_device_event(
+            "account://settings-applied".to_string(),
+            serde_json::json!({ "applied": true }),
+        );
+    }
+    serde_json::to_value(result).map_err(|e| format!("serialize import result: {e}"))
+}
+
+/// Remove the stored backup from the relay. Local config is untouched.
+#[tauri::command]
+pub async fn account_config_backup_delete() -> Result<(), String> {
+    let (session, relay_url) = read_account_context().await?;
+    AccountClient::new()
+        .delete_config_backup(&relay_url, &session)
+        .await
+        .map_err(|e| format!("Failed to delete config backup: {e}"))
+}
+
 fn resolve_requested_local_workspace_path(workspace_path: Option<&str>) -> Result<String, String> {
     let requested = workspace_path
         .map(str::trim)
@@ -3616,11 +4107,14 @@ async fn execute_local_remote_command(
     cmd: &openbitfun_core::service::remote_connect::remote_server::RemoteCommand,
     route: RelayRoute,
     source_device_id: &str,
+    _source_account_id: Option<&str>,
 ) -> anyhow::Result<serde_json::Value> {
     use openbitfun_core::service::remote_connect::remote_server::{RemoteCommand, RemoteResponse};
 
     match cmd {
         RemoteCommand::HostInvoke { command, args } => {
+            // 全命令授权已在接收入口完成，流读取与快捷执行路径也必须经过同一 gate。
+
             // Detached jobs are independent of Peer controller attachment.
             // Route their distinct target command family directly to the
             // durable dispatch runner before the generic webview bridge.
@@ -3691,11 +4185,7 @@ async fn execute_local_remote_command(
                 };
                 // The confirming peer names itself; the wire source id is the
                 // fallback for controllers that omit it.
-                let completer_id = args
-                    .get("controller_device_id")
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
-                    .unwrap_or_else(|| source_device_id.to_string());
+                let completer_id = source_device_id.to_string();
                 // Decryption already promoted a matching offer; this handler
                 // verifies the id, keeps the promotion idempotent, and tells
                 // the completing peer the offerer is now active.

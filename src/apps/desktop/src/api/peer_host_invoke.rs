@@ -141,7 +141,9 @@ fn retain_online_in_state(
 ) -> Vec<String> {
     let had_controllers = !state.controllers.is_empty();
     state.controllers.retain(|(route, device_id)| {
-        *route != RelayRoute::Official || online_device_ids.contains(device_id)
+        *route != RelayRoute::Official
+            || device_id.starts_with("grant-v1:")
+            || online_device_ids.contains(device_id)
     });
     if had_controllers && state.controllers.is_empty() {
         return state.permission_request_ids.drain().collect();

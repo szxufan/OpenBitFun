@@ -58,13 +58,136 @@ struct VaultFile {
     entries: HashMap<String, String>,
 }
 
-fn entry_key(relay_url: &str, user_id: &str, peer_device_id: &str) -> String {
+fn entry_key(relay_url: &str, user_id: &str, peer_device_id: &str) -> Result<String> {
+    let peer = super::device_grants::PeerTarget::parse(peer_device_id)?;
+    if peer.is_shared() {
+        let tuple = serde_json::to_vec(&(
+            "psk-peer-v1",
+            relay_url.trim_end_matches('/'),
+            user_id,
+            peer.account_id,
+            peer.device_id,
+        ))?;
+        return Ok(hex::encode(Sha256::digest(tuple)));
+    }
     let digest = Sha256::new()
         .chain_update(relay_url.as_bytes())
         .chain_update(user_id.as_bytes())
         .chain_update(peer_device_id.as_bytes())
         .finalize();
-    hex::encode(digest)
+    Ok(hex::encode(digest))
+}
+
+/// A cross-account pairing offer is minted by the shared host before it learns
+/// the grantee's controller device, so it is keyed by the grant id rather than
+/// a device. The grantee's first PSK-sealed message (whose relay-derived source
+/// account resolves back to this grant) promotes it to a device-scoped entry.
+fn grant_offer_key(relay_url: &str, owner_user_id: &str, grant_id: &str) -> String {
+    let tuple = serde_json::to_vec(&(
+        "psk-grant-offer-v1",
+        relay_url.trim_end_matches('/'),
+        owner_user_id,
+        grant_id,
+    ))
+    .expect("grant offer key tuple");
+    hex::encode(Sha256::digest(tuple))
+}
+
+/// Store a pending cross-account pairing offer under its grant id.
+pub fn store_grant_offer(
+    relay_url: &str,
+    owner_user_id: &str,
+    grant_id: &str,
+    psk: &[u8; 32],
+    peer_name: Option<&str>,
+) -> Result<PeerPskEntry> {
+    let entry = PeerPskEntry {
+        peer_device_id: String::new(),
+        psk: *psk,
+        psk_id: device_crypto::psk_key_id(psk),
+        status: PeerPskStatus::Offered,
+        created_at_unix: now_unix(),
+        peer_name: peer_name.map(str::to_string),
+    };
+    with_vault_lock(|| {
+        let (key_path, vault_path, _) = vault_paths()?;
+        let key = ensure_key(&key_path)?;
+        let mut file = read_vault(&vault_path)?;
+        file.entries.insert(
+            grant_offer_key(relay_url, owner_user_id, grant_id),
+            encrypt_entry(&key, &entry)?,
+        );
+        write_vault(&vault_path, &file)
+    })?;
+    Ok(entry)
+}
+
+/// Load the pending pairing offer for one grant, if the host minted one.
+pub fn lookup_grant_offer(
+    relay_url: &str,
+    owner_user_id: &str,
+    grant_id: &str,
+) -> Result<Option<PeerPskEntry>> {
+    with_vault_lock(|| {
+        let (key_path, vault_path, _) = vault_paths()?;
+        if !vault_path.exists() || !key_path.exists() {
+            return Ok(None);
+        }
+        let key = ensure_key(&key_path)?;
+        let file = read_vault(&vault_path)?;
+        let Some(blob) = file
+            .entries
+            .get(&grant_offer_key(relay_url, owner_user_id, grant_id))
+        else {
+            return Ok(None);
+        };
+        match decrypt_entry(&key, blob) {
+            Ok(entry) => Ok(Some(entry)),
+            Err(error) => {
+                log::warn!("Failed to decrypt grant pairing offer for grant {grant_id}: {error}");
+                Ok(None)
+            }
+        }
+    })
+}
+
+/// Promote a grant's pending offer to a device-scoped paired entry when the
+/// confirming PSK id matches, then drop the grant-keyed offer. The device-scoped
+/// entry uses the shared [`PeerTarget`] so the pairing survives grant renewal.
+pub fn promote_grant_offer(
+    relay_url: &str,
+    owner_user_id: &str,
+    grant_id: &str,
+    peer_key: &str,
+    psk_id: &str,
+) -> Result<bool> {
+    with_vault_lock(|| {
+        let (key_path, vault_path, _) = vault_paths()?;
+        if !vault_path.exists() || !key_path.exists() {
+            return Ok(false);
+        }
+        let key = ensure_key(&key_path)?;
+        let mut file = read_vault(&vault_path)?;
+        let offer_key = grant_offer_key(relay_url, owner_user_id, grant_id);
+        let Some(blob) = file.entries.get(&offer_key) else {
+            return Ok(false);
+        };
+        let Ok(mut entry) = decrypt_entry(&key, blob) else {
+            return Ok(false);
+        };
+        if entry.psk_id != psk_id {
+            return Ok(false);
+        }
+        entry.peer_device_id = super::device_grants::PeerTarget::parse(peer_key)?.device_id;
+        entry.status = PeerPskStatus::Paired;
+        file.entries.remove(&offer_key);
+        file.entries.insert(
+            entry_key(relay_url, owner_user_id, peer_key)?,
+            encrypt_entry(&key, &entry)?,
+        );
+        write_vault(&vault_path, &file)?;
+        Ok(true)
+    })
 }
 
 fn vault_paths() -> Result<(PathBuf, PathBuf, PathBuf)> {
@@ -104,6 +227,10 @@ fn ensure_key(key_path: &PathBuf) -> Result<[u8; 32]> {
         key.copy_from_slice(&bytes);
         return Ok(key);
     }
+    anyhow::ensure!(
+        !key_path.with_file_name("psk_vault.json").exists(),
+        "pairing vault key is missing; existing pairings were preserved"
+    );
     if let Some(parent) = key_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -184,12 +311,13 @@ fn decrypt_entry(key: &[u8; 32], blob_b64: &str) -> Result<PeerPskEntry> {
     })
 }
 
-fn read_vault(vault_path: &PathBuf) -> VaultFile {
-    if !vault_path.exists() {
-        return VaultFile::default();
+fn read_vault(vault_path: &PathBuf) -> Result<VaultFile> {
+    match std::fs::read(vault_path) {
+        Ok(data) => serde_json::from_slice(&data)
+            .context("parse pairing vault; existing data was preserved"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(VaultFile::default()),
+        Err(error) => Err(error).context("read pairing vault"),
     }
-    let data = std::fs::read_to_string(vault_path).unwrap_or_default();
-    serde_json::from_str(&data).unwrap_or_default()
 }
 
 fn write_vault(vault_path: &PathBuf, file: &VaultFile) -> Result<()> {
@@ -231,9 +359,9 @@ pub fn store_entry(
     with_vault_lock(|| {
         let (key_path, vault_path, _) = vault_paths()?;
         let key = ensure_key(&key_path)?;
-        let mut file = read_vault(&vault_path);
+        let mut file = read_vault(&vault_path)?;
         file.entries.insert(
-            entry_key(relay_url, user_id, peer_device_id),
+            entry_key(relay_url, user_id, peer_device_id)?,
             encrypt_entry(&key, &entry)?,
         );
         write_vault(&vault_path, &file)
@@ -253,10 +381,10 @@ pub fn lookup_entry(
             return Ok(None);
         }
         let key = ensure_key(&key_path)?;
-        let file = read_vault(&vault_path);
+        let file = read_vault(&vault_path)?;
         let Some(blob) = file
             .entries
-            .get(&entry_key(relay_url, user_id, peer_device_id))
+            .get(&entry_key(relay_url, user_id, peer_device_id)?)
         else {
             return Ok(None);
         };
@@ -288,8 +416,8 @@ pub fn mark_paired(
             return Ok(false);
         }
         let key = ensure_key(&key_path)?;
-        let mut file = read_vault(&vault_path);
-        let entry_key = entry_key(relay_url, user_id, peer_device_id);
+        let mut file = read_vault(&vault_path)?;
+        let entry_key = entry_key(relay_url, user_id, peer_device_id)?;
         let Some(blob) = file.entries.get(&entry_key) else {
             return Ok(false);
         };
@@ -319,10 +447,10 @@ pub fn remove_entry(relay_url: &str, user_id: &str, peer_device_id: &str) -> Res
         if !vault_path.exists() {
             return Ok(false);
         }
-        let mut file = read_vault(&vault_path);
+        let mut file = read_vault(&vault_path)?;
         let removed = file
             .entries
-            .remove(&entry_key(relay_url, user_id, peer_device_id))
+            .remove(&entry_key(relay_url, user_id, peer_device_id)?)
             .is_some();
         write_vault(&vault_path, &file)?;
         Ok(removed)
@@ -337,17 +465,25 @@ pub fn list_entries(relay_url: &str, user_id: &str) -> Result<Vec<PeerPskListing
             return Ok(Vec::new());
         }
         let key = ensure_key(&key_path)?;
-        let file = read_vault(&vault_path);
+        let file = read_vault(&vault_path)?;
         let mut listings = Vec::new();
-        for blob in file.entries.values() {
+        for (stored_key, blob) in &file.entries {
             match decrypt_entry(&key, blob) {
-                Ok(entry) if !entry.peer_device_id.is_empty() => listings.push(PeerPskListing {
-                    peer_device_id: entry.peer_device_id,
-                    psk_id: entry.psk_id,
-                    status: entry.status,
-                    created_at_unix: entry.created_at_unix,
-                    peer_name: entry.peer_name,
-                }),
+                Ok(entry)
+                    if !entry.peer_device_id.is_empty()
+                        && entry_key(relay_url, user_id, &entry.peer_device_id)
+                            .as_ref()
+                            .ok()
+                            == Some(stored_key) =>
+                {
+                    listings.push(PeerPskListing {
+                        peer_device_id: entry.peer_device_id,
+                        psk_id: entry.psk_id,
+                        status: entry.status,
+                        created_at_unix: entry.created_at_unix,
+                        peer_name: entry.peer_name,
+                    })
+                }
                 Ok(_) => {}
                 Err(error) => {
                     log::warn!("Failed to decrypt psk vault entry while listing: {error}");
@@ -363,6 +499,91 @@ pub fn list_entries(relay_url: &str, user_id: &str) -> Result<Vec<PeerPskListing
 mod tests {
     use super::*;
 
+    /// `test_dir()` repoints a process-global session-store directory, so the
+    /// two tests that exercise the on-disk vault must not interleave.
+    static STORE_TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn cross_account_keys_are_disjoint_and_legacy_keys_stay_stable() {
+        use super::super::device_grants::PeerTarget;
+        let a = PeerTarget::shared("owner-a", "device", "grant-a").key();
+        let b = PeerTarget::shared("owner-b", "device", "grant-b").key();
+        let renewed = PeerTarget::shared("owner-a", "device", "new-grant").key();
+        assert_ne!(
+            entry_key("r", "me", &a).unwrap(),
+            entry_key("r", "me", &b).unwrap()
+        );
+        assert_eq!(
+            entry_key("r", "me", &a).unwrap(),
+            entry_key("r", "me", &renewed).unwrap()
+        );
+        assert_ne!(
+            entry_key("r", "me", &a).unwrap(),
+            entry_key("r", "me", "device").unwrap()
+        );
+        assert_eq!(
+            entry_key("r", "me", "device").unwrap(),
+            hex::encode(Sha256::digest(b"rmedevice"))
+        );
+    }
+
+    #[test]
+    fn grant_offer_promotes_to_device_scoped_pairing() {
+        let _serial = STORE_TEST_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        test_dir();
+        use super::super::device_grants::PeerTarget;
+        let psk = [63u8; 32];
+        let offer = store_grant_offer("https://relay", "owner", "g1", &psk, Some("shared"))
+            .expect("store grant offer");
+        assert_eq!(offer.status, PeerPskStatus::Offered);
+        assert!(lookup_grant_offer("https://relay", "owner", "g1")
+            .unwrap()
+            .is_some());
+        // A wrong grant is invisible.
+        assert!(lookup_grant_offer("https://relay", "owner", "g2")
+            .unwrap()
+            .is_none());
+        let grantee = PeerTarget::shared("member", "member-desk", "g1");
+        // Mismatched psk id does not promote.
+        assert!(
+            !promote_grant_offer("https://relay", "owner", "g1", &grantee.key(), "deadbeef")
+                .unwrap()
+        );
+        assert!(promote_grant_offer(
+            "https://relay",
+            "owner",
+            "g1",
+            &grantee.key(),
+            &offer.psk_id
+        )
+        .unwrap());
+        // The grant-keyed offer is consumed; the device-scoped entry is paired.
+        assert!(lookup_grant_offer("https://relay", "owner", "g1")
+            .unwrap()
+            .is_none());
+        let paired = lookup_entry("https://relay", "owner", &grantee.key())
+            .unwrap()
+            .expect("paired entry");
+        assert_eq!(paired.status, PeerPskStatus::Paired);
+        assert_eq!(paired.psk, psk);
+        // Renewing the grant keeps the pairing (identity is account+device).
+        let renewed = PeerTarget::shared("member", "member-desk", "g-new");
+        assert_eq!(
+            entry_key("https://relay", "owner", &renewed.key()).unwrap(),
+            entry_key("https://relay", "owner", &grantee.key()).unwrap()
+        );
+    }
+
+    #[test]
+    fn corrupted_vault_is_not_an_empty_success() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("psk_vault.json");
+        std::fs::write(&path, b"{broken").unwrap();
+        assert!(read_vault(&path).is_err());
+        assert!(ensure_key(&dir.path().join(".psk_vault.key")).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"{broken");
+    }
+
     fn test_dir() -> PathBuf {
         let dir = tempfile::tempdir().unwrap().keep();
         let _store_guard = super::super::session_store::test_store_guard()
@@ -374,6 +595,7 @@ mod tests {
 
     #[test]
     fn entries_round_trip_and_remove() {
+        let _serial = STORE_TEST_SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         test_dir();
         let psk = [77u8; 32];
         let entry = store_entry(

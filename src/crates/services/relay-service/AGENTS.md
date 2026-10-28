@@ -14,7 +14,14 @@ and embedded hosts.
   start/stop sequencing through a narrow host port.
 - Hosts supply the version reported by the shared health and info routes.
 - Keep relay messages opaque. Devices retain their own private keys; public-key
-  lookup and message routing must enforce authenticated account ownership.
+  lookup and message routing must enforce authenticated account ownership. The
+  single sanctioned exception is device grants (`device_grants`, routes under
+  `/api/grants*`): one host device shared with named grantee accounts, routing
+  metadata only, resolved server-side per
+  [peer-device-grants.md](../../../docs/architecture/peer-device-grants.md). A
+  cross-account rpc-call or machine-event may route only through a
+  relay-resolved active grant row; the account-scoped directory routes
+  (`/api/devices*`) stay closed to grantees.
 - Keep admission before body buffering and preserve resource permits through
   cancellation and slow-reader failures. Test quota boundaries and isolation.
 - The relay forwards; it does not store user content. Session transcripts,
@@ -22,7 +29,11 @@ and embedded hosts.
   online device through device RPC (`read_stream`) and encrypted device-event
   hints. Do not reintroduce relay-side session, message or per-account sequence
   tables. The only persisted request bodies are short-lived encrypted RPC
-  payload references. Retired history routes stay mapped to `410 Gone` with the
+  payload references. The single sanctioned exception is the per-account
+  config backup row (`account_config_backup`): one opaque, client-encrypted,
+  quota-capped blob under `/api/account/config-backup*`, written and read only
+  by explicit user action. It must not grow history, plaintext, or a second
+  per-account store. Retired history routes stay mapped to `410 Gone` with the
   `relay_session_history_retired` reason (`realtime/retired_session_history.rs`)
   so older clients degrade loudly rather than silently.
 

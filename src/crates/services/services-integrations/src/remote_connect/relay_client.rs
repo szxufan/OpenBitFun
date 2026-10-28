@@ -87,6 +87,10 @@ pub enum RelayEvent {
     },
     DeviceMessageReceived {
         source_device_id: String,
+        /// Relay-derived account of the sender, stamped on every rpc-request
+        /// and cross-account device-event. `None` means an older relay; hosts
+        /// treat that as the same-account path.
+        source_account_id: Option<String>,
         correlation_id: String,
         encrypted_data: String,
         nonce: String,
@@ -117,6 +121,7 @@ struct Reply {
     id: AckId<JsonAck>,
     deadline: Instant,
     source: String,
+    account: Option<String>,
 }
 struct Owner {
     epoch: u64,
@@ -375,12 +380,14 @@ impl RelayClient {
                             id: event.id,
                             deadline: reply_deadline(&value),
                             source: source.into(),
+                            account: value["sourceAccountId"].as_str().map(str::to_owned),
                         },
                     );
                 }
                 events
                     .send(RelayEvent::DeviceMessageReceived {
                         source_device_id: source.into(),
+                        source_account_id: value["sourceAccountId"].as_str().map(str::to_string),
                         correlation_id: correlation,
                         encrypted_data: data.into(),
                         nonce: nonce.into(),
@@ -410,6 +417,9 @@ impl RelayClient {
                     events
                         .send(RelayEvent::DeviceMessageReceived {
                             source_device_id: source.into(),
+                            source_account_id: value["sourceAccountId"]
+                                .as_str()
+                                .map(str::to_string),
                             correlation_id: String::new(),
                             encrypted_data: data.into(),
                             nonce: nonce.into(),
@@ -441,10 +451,7 @@ impl RelayClient {
             .clone()
             .ok_or_else(|| anyhow!("Relay is disconnected; request was not submitted"))?;
         let result = sender
-            .call(
-                target,
-                envelope_params(encrypted_data, nonce, key_id),
-            )
+            .call(target, envelope_params(encrypted_data, nonce, key_id))
             .await?;
         let data = result["encrypted_data"]
             .as_str()
@@ -472,27 +479,41 @@ impl RelayClient {
             (sender, state.replies.remove(correlation))
         };
         if let Some(reply) = reply {
-            if reply.source != target || reply.deadline <= Instant::now() {
+            let peer = super::device_grants::PeerTarget::parse(target)?;
+            if reply.source != peer.device_id
+                || (peer.is_shared() && reply.account != peer.account_id)
+                || reply.deadline <= Instant::now()
+            {
                 bail!("RPC response owner expired");
             }
             sender
-                .respond(
-                    reply.id,
-                    envelope_params(encrypted_data, nonce, key_id),
-                )
+                .respond(reply.id, envelope_params(encrypted_data, nonce, key_id))
                 .await
         } else {
             if correlation.starts_with("rpc-") {
                 bail!("RPC acknowledgement is no longer pending");
             }
             sender
-                .event(
-                    target,
-                    envelope_params(encrypted_data, nonce, key_id),
-                )
+                .event(target, envelope_params(encrypted_data, nonce, key_id))
                 .await
         }
     }
+    /// 无法建立加密身份时只返回传输级拒绝，不发送任何产品数据。
+    pub async fn reject_device_request(&self, correlation: &str, reason: &str) -> Result<()> {
+        let (sender, reply) = {
+            let mut state = self.owner.lock().unwrap();
+            (state.sender.clone(), state.replies.remove(correlation))
+        };
+        if let (Some(sender), Some(reply)) = (sender, reply) {
+            if reply.deadline > Instant::now() {
+                sender
+                    .respond(reply.id, json!({"$relayError":reason}))
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
     pub async fn disconnect(&self) {
         let task = {
             let mut state = self.owner.lock().unwrap();

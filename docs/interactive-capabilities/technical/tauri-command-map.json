@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "40fada109d5dbcfdbc1b289af574f7ac736da1620d4eee26128a40d3f0f5818c",
-  "commandCount": 709,
+  "catalogDigest": "ce3449c9298e138a981243b202aae9c901e15311d8a9e940bebbf12e1d99b881",
+  "commandCount": 717,
   "coverage": {
-    "commandCount": 709,
+    "commandCount": 717,
     "documentedCommandCount": 643,
-    "implementationCommandCount": 66,
-    "implementationDigest": "eec9451ccd8f9b3640879d1a6cfdd267748d7eaccd138ede6e377f1a03167fd4"
+    "implementationCommandCount": 74,
+    "implementationDigest": "1b5d93c5b4d324d25485eed0a01e27783d50a82808f659b2bb69904f0faf69af"
   },
   "commands": [
     {
@@ -57,6 +57,62 @@
       "sourceFile": "src/apps/desktop/src/api/snapshot_service.rs",
       "signature": "fn accept_session( app_handle: AppHandle, runtime: State<'_, DesktopRuntimeContext>, mut request: AcceptSessionRequest, ) -> Result<serde_json::Value, String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
+    },
+    {
+      "id": "account_config_backup_delete",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::account_config_backup_delete",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn account_config_backup_delete() -> Result<(), String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "account_config_backup_export",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::account_config_backup_export",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn account_config_backup_export( state: tauri::State<'_, crate::api::app_state::AppState>, ) -> Result<AccountConfigBackupExportResult, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "account_config_backup_import",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::account_config_backup_import",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn account_config_backup_import( state: tauri::State<'_, crate::api::app_state::AppState>, request: AccountConfigBackupImportRequest, ) -> Result<serde_json::Value, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "account_config_backup_status",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::account_config_backup_status",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn account_config_backup_status() -> Result<AccountConfigBackupStatus, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "account_connect_devices",
@@ -6999,6 +7055,62 @@
       "rustPath": "api::peer_host_invoke::peer_controller_set_active",
       "sourceFile": "src/apps/desktop/src/api/peer_host_invoke.rs",
       "signature": "fn peer_controller_set_active(active: bool) -> Result<(), String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "peer_grant_accept",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::peer_grant_accept",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn peer_grant_accept(request: PeerGrantAcceptRequest) -> Result<DeviceGrantInfo, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "peer_grant_list",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::peer_grant_list",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn peer_grant_list() -> Result<DeviceGrantList, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "peer_grant_offer",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::peer_grant_offer",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn peer_grant_offer( request: PeerGrantOfferRequest, ) -> Result<PeerGrantOfferResult, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "peer_grant_revoke",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::peer_grant_revoke",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn peer_grant_revoke(request: PeerGrantRevokeRequest) -> Result<(), String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {

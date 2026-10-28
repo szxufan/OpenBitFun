@@ -17,15 +17,24 @@ use openbitfun_core::service::remote_connect::{AccountClient, AccountSession, De
 pub enum PeerPairingAction {
     /// Generate a pairing code for one peer device (transfer it yourself).
     Offer {
-        /// Peer device id from the account device list.
+        /// Peer device id from the account device list. Required for a
+        /// same-account offer; ignored when `--grant` names a shared host.
         #[arg(long)]
-        peer: String,
+        peer: Option<String>,
+        /// Cross-account shared host: mint a grant-keyed pairing offer instead
+        /// of a same-account device offer. Requires an accepted grant id.
+        #[arg(long)]
+        grant: Option<String>,
     },
     /// Accept a pairing code generated on a peer device.
     Complete {
         /// The pairing code copied from the peer.
         #[arg(long)]
         code: String,
+        /// Cross-account shared host: resolve the host key through this grant
+        /// (the account directory stays closed to grantees).
+        #[arg(long)]
+        grant: Option<String>,
     },
     /// List pairing entries for the logged-in account.
     List,
@@ -33,6 +42,42 @@ pub enum PeerPairingAction {
     Remove {
         #[arg(long)]
         peer: String,
+    },
+    /// Manage cross-account device grants (shared hosts).
+    Grants {
+        #[command(subcommand)]
+        action: GrantAction,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum GrantAction {
+    /// Offer this machine to another account. Only the shared machine's own
+    /// device session can mint an invite.
+    Offer {
+        /// Grantee account id to share this machine with.
+        #[arg(long)]
+        grantee: String,
+        /// Grant scope: drive (default) or observe (read-only).
+        #[arg(long, default_value = "drive")]
+        scope: String,
+        /// Optional unix expiry.
+        #[arg(long)]
+        expires_at: Option<i64>,
+    },
+    /// Redeem a one-time invite as the logged-in (grantee) account.
+    Accept {
+        #[arg(long)]
+        grant: String,
+        #[arg(long)]
+        secret: String,
+    },
+    /// List owned (management) and received (shared-with-me) grants.
+    List,
+    /// Revoke a grant this account owns.
+    Revoke {
+        #[arg(long)]
+        grant: String,
     },
 }
 
@@ -65,17 +110,119 @@ fn load_pairing_context() -> Result<PairingContext> {
 
 pub async fn run(action: PeerPairingAction) -> Result<()> {
     match action {
-        PeerPairingAction::Offer { peer } => offer(&peer).await,
-        PeerPairingAction::Complete { code } => complete(&code).await,
+        PeerPairingAction::Offer { peer, grant } => {
+            offer(peer.as_deref().unwrap_or(""), grant.as_deref()).await
+        }
+        PeerPairingAction::Complete { code, grant } => complete(&code, grant.as_deref()).await,
         PeerPairingAction::List => list().await,
         PeerPairingAction::Remove { peer } => remove(&peer).await,
+        PeerPairingAction::Grants { action } => run_grants(action).await,
     }
 }
 
-async fn offer(peer_device_id: &str) -> Result<()> {
+async fn run_grants(action: GrantAction) -> Result<()> {
+    let context = load_pairing_context()?;
+    let client = AccountClient::new();
+    match action {
+        GrantAction::Offer {
+            grantee,
+            scope,
+            expires_at,
+        } => {
+            anyhow::ensure!(
+                scope == "drive" || scope == "observe",
+                "scope must be drive or observe"
+            );
+            let offered = client
+                .offer_device_grant(
+                    &context.relay_url,
+                    &context.session,
+                    &context.device_id,
+                    &grantee,
+                    &scope,
+                    expires_at,
+                )
+                .await
+                .context("offer device grant")?;
+            println!(
+                "Grant {} offered to {} (scope {}).",
+                offered.grant.grant_id, grantee, offered.grant.scope
+            );
+            println!(
+                "One-time invite secret (shown once, expires at {}):",
+                offered.invite_expires_at
+            );
+            println!("{}", offered.invite_secret);
+        }
+        GrantAction::Accept { grant, secret } => {
+            let accepted = client
+                .accept_device_grant(&context.relay_url, &context.session, &grant, &secret)
+                .await
+                .context("accept device grant")?;
+            println!(
+                "Accepted grant {} for device {}.",
+                accepted.grant_id, accepted.device_id
+            );
+        }
+        GrantAction::List => {
+            let list = client
+                .list_device_grants(&context.relay_url, &context.session)
+                .await
+                .context("list device grants")?;
+            println!("Owned grants:");
+            for g in list.owned {
+                println!(
+                    "  {}  -> {}  device {}  {}  {}",
+                    g.grant_id, g.grantee_user_id, g.device_id, g.scope, g.state
+                );
+            }
+            println!("Shared with me:");
+            for entry in list.received {
+                println!(
+                    "  {}  owner {}  device {} ({})  {}  online={}",
+                    entry.grant.grant_id,
+                    entry.grant.owner_user_id,
+                    entry.grant.device_id,
+                    entry.device_name,
+                    entry.grant.scope,
+                    entry.online
+                );
+            }
+        }
+        GrantAction::Revoke { grant } => {
+            client
+                .revoke_device_grant(&context.relay_url, &context.session, &grant)
+                .await
+                .context("revoke device grant")?;
+            println!("Revoked grant {grant}.");
+        }
+    }
+    Ok(())
+}
+
+async fn offer(peer_device_id: &str, grant: Option<&str>) -> Result<()> {
+    let context = load_pairing_context()?;
+    if let Some(grant_id) = grant.map(str::trim).filter(|id| !id.is_empty()) {
+        let (entry, psk, _grantee) = context
+            .session
+            .offer_grant_pairing(&context.relay_url, grant_id)
+            .await
+            .context("offer grant pairing")?;
+        let payload = pairing::PskPairingPayload {
+            psk,
+            offerer_device_id: context.device_id.clone(),
+            offerer_public_key: openbitfun_core::service::remote_connect::device_crypto::public_key(
+                &context.session.master_key,
+            ),
+        };
+        let code = pairing::encode_psk_pairing_code(&payload).context("encode pairing code")?;
+        println!("Pairing code for shared-host grant {grant_id} (transfer it to the grantee):");
+        println!("{code}");
+        println!("Pairing id: {}", entry.psk_id);
+        return Ok(());
+    }
     let peer_device_id = peer_device_id.trim();
     anyhow::ensure!(!peer_device_id.is_empty(), "--peer is required");
-    let context = load_pairing_context()?;
     let psk = pairing::generate_psk();
     let entry = psk_store::store_entry(
         &context.relay_url,
@@ -103,30 +250,68 @@ async fn offer(peer_device_id: &str) -> Result<()> {
     Ok(())
 }
 
-async fn complete(code: &str) -> Result<()> {
+async fn complete(code: &str, grant: Option<&str>) -> Result<()> {
     let code = code.trim();
     anyhow::ensure!(!code.is_empty(), "--code is required");
     let payload = pairing::parse_psk_pairing_code(code).context("invalid pairing code")?;
     let context = load_pairing_context()?;
-    let directory_key = context
-        .session
-        .peer_public_key(&context.relay_url, &payload.offerer_device_id)
-        .await
-        .context("resolve offerer device key from the relay directory")?;
-    anyhow::ensure!(
-        directory_key == payload.offerer_public_key,
-        "pairing refused: the offerer's relay directory key does not match the pairing code; \
-         the directory may be tampered with"
-    );
-    let entry = psk_store::store_entry(
-        &context.relay_url,
-        &context.session.user_id,
-        &payload.offerer_device_id,
-        &payload.psk,
-        PeerPskStatus::Paired,
-        None,
-    )
-    .context("store completed pairing")?;
+    // For a shared host the host key is resolved through the grant's peer-key
+    // route and the pairing is stored under the composite PeerTarget; the raw
+    // offerer device id must not collide with the internal composite namespace.
+    let (peer_key, entry) = match grant.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(grant_id) => {
+            anyhow::ensure!(
+                !payload.offerer_device_id.starts_with("grant-v1:"),
+                "invalid pairing code: offerer device id collides with the composite namespace"
+            );
+            let entry = context
+                .session
+                .complete_grant_pairing(
+                    &context.relay_url,
+                    grant_id,
+                    &payload.offerer_device_id,
+                    &payload.psk,
+                    payload.offerer_public_key,
+                )
+                .await
+                .context("complete grant pairing")?;
+            let target = context
+                .session
+                .grants
+                .resolve_pairing_target(
+                    &AccountClient::new(),
+                    &context.relay_url,
+                    &context.session,
+                    grant_id,
+                    &payload.offerer_device_id,
+                )
+                .await
+                .context("resolve grant pairing target")?;
+            (target.key(), entry)
+        }
+        None => {
+            let directory_key = context
+                .session
+                .peer_public_key(&context.relay_url, &payload.offerer_device_id)
+                .await
+                .context("resolve offerer device key from the relay directory")?;
+            anyhow::ensure!(
+                directory_key == payload.offerer_public_key,
+                "pairing refused: the offerer's relay directory key does not match the pairing code; \
+                 the directory may be tampered with"
+            );
+            let entry = psk_store::store_entry(
+                &context.relay_url,
+                &context.session.user_id,
+                &payload.offerer_device_id,
+                &payload.psk,
+                PeerPskStatus::Paired,
+                None,
+            )
+            .context("store completed pairing")?;
+            (payload.offerer_device_id.clone(), entry)
+        }
+    };
     let command_json = serde_json::json!({
         "cmd": "host_invoke",
         "command": "peer_psk_confirm",
@@ -140,7 +325,7 @@ async fn complete(code: &str) -> Result<()> {
         .device_rpc(
             &context.relay_url,
             &context.session,
-            &payload.offerer_device_id,
+            &peer_key,
             &command_json,
         )
         .await

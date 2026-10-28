@@ -1200,6 +1200,8 @@ pub fn build_relay_router_with_page_data_origins_and_page_auth(
             post(routes::auth::provision_device),
         )
         .merge(routes::devices::device_router())
+        .merge(routes::grants::grants_router())
+        .merge(routes::config_backup::config_backup_router())
         .merge(routes::pages::pages_router());
     let router = realtime::mount(router, state.clone())
         .layer(axum::middleware::from_fn_with_state(

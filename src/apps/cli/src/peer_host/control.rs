@@ -83,9 +83,10 @@ fn detach_from_registry(registry: &mut ControllerRegistry, device_id: &str) {
 }
 
 fn retain_online_in_registry(registry: &mut ControllerRegistry, online: &HashSet<&str>) {
-    registry
-        .ids
-        .retain(|device_id| online.contains(device_id.as_str()));
+    registry.ids.retain(|device_id| {
+        online.contains(device_id.as_str())
+            || (!online.is_empty() && device_id.starts_with("grant-v1:"))
+    });
 }
 
 pub(crate) fn attached_controllers() -> Vec<String> {

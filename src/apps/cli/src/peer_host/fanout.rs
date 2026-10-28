@@ -830,6 +830,17 @@ async fn fanout_peer_device_event_current(queued: QueuedPeerDeviceEvent) {
         if !continuity_is_current(&continuity) {
             break;
         }
+        if let Err(error) = session
+            .authorize_peer_delivery(&routing_lease.relay_url, target)
+            .await
+        {
+            session
+                .grants
+                .drop_peer(&routing_lease.relay_url, &session.user_id, target);
+            super::control::detach_controller(target).await;
+            tracing::warn!("Peer event authorization refused: {error}");
+            continue;
+        }
         let Some(_delivery_lease) = controller_delivery_lease(target).await else {
             continue;
         };

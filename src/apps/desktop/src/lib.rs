@@ -1906,6 +1906,10 @@ pub async fn run() {
             api::remote_connect_api::account_subscribe_session,
             api::remote_connect_api::account_unsubscribe_session,
             api::remote_connect_api::account_load_older_session,
+            api::remote_connect_api::account_config_backup_status,
+            api::remote_connect_api::account_config_backup_export,
+            api::remote_connect_api::account_config_backup_import,
+            api::remote_connect_api::account_config_backup_delete,
             // OpenBitFun Page API
             api::pages_api::page_publish,
             api::pages_api::page_save_version,
@@ -1926,6 +1930,10 @@ pub async fn run() {
             api::remote_connect_api::peer_psk_complete,
             api::remote_connect_api::peer_psk_remove,
             api::remote_connect_api::peer_psk_list,
+            api::remote_connect_api::peer_grant_offer,
+            api::remote_connect_api::peer_grant_accept,
+            api::remote_connect_api::peer_grant_list,
+            api::remote_connect_api::peer_grant_revoke,
             // MiniApp API
             api::miniapp_api::list_miniapps,
             api::miniapp_api::get_miniapp,

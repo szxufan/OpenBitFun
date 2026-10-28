@@ -10,8 +10,10 @@
 pub mod account;
 pub mod bot;
 mod chat_projection;
+pub mod config_backup;
 pub mod device;
 pub mod device_crypto;
+pub mod device_grants;
 pub mod encryption;
 pub mod file_projection;
 pub mod host_stream;

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   relogin: vi.fn(), refresh: vi.fn(), logout: vi.fn(), setPassword: vi.fn(),
   getDeviceInfo: vi.fn(), accountStatus: vi.fn(), accountRefreshRelogin: vi.fn(),
   accountRelayCapabilities: vi.fn(), accountUpdateDevice: vi.fn(),
+  accountConfigBackupStatus: vi.fn(),
   accountConnectDevices: vi.fn(), accountListDevices: vi.fn(),
   checkForUpdates: vi.fn(), installUpdate: vi.fn(),
   peerMode: { active: false } as { active: boolean },
@@ -85,6 +86,7 @@ beforeEach(() => {
   mocks.signInWithCode.mockResolvedValue({ user_id: '42' });
   mocks.signInWithPassword.mockResolvedValue({ user_id: '42' });
   mocks.accountRelayCapabilities.mockResolvedValue([]);
+  mocks.accountConfigBackupStatus.mockResolvedValue({ loggedIn: true, supportedByRelay: true, exists: false });
   mocks.accountConnectDevices.mockResolvedValue([{ device_id: 'local', device_name: 'My computer' }]);
   mocks.accountListDevices.mockResolvedValue([{ device_id: 'local', device_name: 'My computer', online: true }]);
   // Discovery is initialized up front so an explicit check never starts a version read.
@@ -407,6 +409,7 @@ it('falls back to the SMS form when the refresh token cannot renew', async () =>
 
 it('shows explicit old Relay capability state before any mutation', async () => {
   mocks.accountRelayCapabilities.mockResolvedValue([]);
+  mocks.accountConfigBackupStatus.mockResolvedValue({ loggedIn: true, supportedByRelay: true, exists: false });
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
   expect(container.textContent).toContain('accountLogin.deviceAliasUnsupported');
   expect(mocks.accountUpdateDevice).not.toHaveBeenCalled();
@@ -595,7 +598,7 @@ it('groups the account and its devices into titled sections with fixed row colum
   ]);
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
   const titles = Array.from(container.querySelectorAll('.account-panel__section-title')).map(node => node.textContent);
-  expect(titles).toEqual(['accountLogin.accountSectionTitle', 'accountLogin.linkedDevices']);
+  expect(titles).toEqual(['accountLogin.accountSectionTitle', 'accountLogin.linkedDevices', 'accountLogin.configBackup.title', 'accountLogin.sharedHosts.title']);
   const statuses = Array.from(container.querySelectorAll('.account-panel__device-status'))
     .map(node => node.getAttribute('data-openbitfun-state'));
   expect(statuses).toEqual(['online', 'offline']);

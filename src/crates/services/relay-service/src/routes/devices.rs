@@ -11,7 +11,7 @@ use crate::routes::api::AppState;
 
 const MAX_DEVICE_ID_BYTES: usize = 128;
 
-fn is_valid_device_id(value: &str) -> bool {
+pub(crate) fn is_valid_device_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_DEVICE_ID_BYTES
         && value

@@ -69,8 +69,14 @@ fn check_value(payload_prefix: &[u8]) -> [u8; CHECK_LEN] {
     check
 }
 
-fn base32_encode(data: &[u8]) -> String {
-    debug_assert_eq!(data.len() % 5, 0, "payload length must pack into 5-byte groups");
+/// Shared with other out-of-band code formats under `remote_connect` (e.g.
+/// the config backup code); not part of the crate's public API.
+pub(super) fn base32_encode(data: &[u8]) -> String {
+    debug_assert_eq!(
+        data.len() % 5,
+        0,
+        "payload length must pack into 5-byte groups"
+    );
     let mut out = String::with_capacity(data.len() / 5 * 8);
     for chunk in data.chunks(5) {
         let mut buf = 0u64;
@@ -86,18 +92,20 @@ fn base32_encode(data: &[u8]) -> String {
     out
 }
 
-fn base32_decode(text: &str) -> Result<Vec<u8>, anyhow::Error> {
+pub(super) fn base32_decode(text: &str) -> Result<Vec<u8>, anyhow::Error> {
     let mut bits: Vec<u8> = Vec::with_capacity(text.len() * 5);
     for ch in text.chars() {
+        // Case-insensitive entry: normalize first so every Crockford letter
+        // (and the O/I/L confusables) maps through the uppercase arms.
+        let ch = ch.to_ascii_uppercase();
         let value = match ch {
-            '0' | 'O' | 'o' => 0,
-            '1' | 'I' | 'i' | 'L' | 'l' => 1,
+            '0' | 'O' => 0,
+            '1' | 'I' | 'L' => 1,
             '2'..='9' => ch as u8 - b'0',
             'A'..='H' | 'J'..='K' | 'M'..='N' | 'P'..='T' | 'V'..='Z' => {
-                let upper = ch.to_ascii_uppercase();
                 let index = CROCKFORD_ALPHABET
                     .iter()
-                    .position(|candidate| *candidate == upper as u8)
+                    .position(|candidate| *candidate == ch as u8)
                     .expect("character class checked above");
                 index as u8
             }

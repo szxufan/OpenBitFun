@@ -321,6 +321,18 @@
       "peer_psk_list",
       "peer_psk_offer_create",
       "peer_psk_remove"
+    ],
+    "accountConfigBackup": [
+      "account_config_backup_delete",
+      "account_config_backup_export",
+      "account_config_backup_import",
+      "account_config_backup_status"
+    ],
+    "peerDeviceGrants": [
+      "peer_grant_accept",
+      "peer_grant_list",
+      "peer_grant_offer",
+      "peer_grant_revoke"
     ]
   },
   "capabilities": [
@@ -1763,22 +1775,23 @@
         },
         {
           "id": "command-control",
-          "titleZh": "执行命令、写入输入并发送中断或其他信号",
-          "titleEn": "Execute commands, write input, and send interrupt or other signals",
+          "titleZh": "执行命令、读取输出、写入输入并发送中断或其他信号",
+          "titleEn": "Execute commands, read output, write input, and send interrupt or other signals",
           "control": {
             "kind": "delegate",
             "tools": [
               "ExecCommand",
               "WriteStdin",
-              "ExecControl"
+              "ExecControl",
+              "ExecReadOutput"
             ],
             "workflowZh": [
               "用 ExecCommand 启动命令；需要交互时启用 TTY，并保留返回的 session_id",
-              "用 WriteStdin 输入或轮询输出，用 ExecControl 发送中断或强制终止"
+              "用 WriteStdin 输入或轮询输出，用 ExecReadOutput 读取后台命令的增量输出，用 ExecControl 发送中断或强制终止"
             ],
             "workflowEn": [
               "Start the command with ExecCommand; enable TTY for interactive programs and keep the returned session_id",
-              "Use WriteStdin to enter text or poll output, and ExecControl to interrupt or terminate the process"
+              "Use WriteStdin to enter text or poll output, ExecReadOutput to read a background command's incremental output, and ExecControl to interrupt or terminate the process"
             ]
           },
           "evidence": [

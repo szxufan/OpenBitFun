@@ -1,7 +1,7 @@
 //! Administrative listing, provisioning, and explicit deletion of relay-local
 //! account records.
 
-use crate::db::{self, DbPool, LocalAuthToken, UserRow};
+use crate::db::{self, DbPool, DeviceGrantRow, LocalAuthToken, UserRow};
 use anyhow::{anyhow, Result};
 
 const MIN_PASSWORD_BYTES: usize = 8;
@@ -84,6 +84,57 @@ pub async fn set_password(pool: &DbPool, raw_phone: &str, password: &str) -> Res
         .await?
         .ok_or_else(|| anyhow!("no account registered for {}", db::mask_phone(&phone)))?;
     set_account_password(pool, &user.user_id, password).await
+}
+
+pub struct DeviceGrantSummary {
+    pub grant_id: String,
+    pub owner_user_id: String,
+    pub device_id: String,
+    pub grantee_user_id: String,
+    pub scope: String,
+    pub state: String,
+    pub accepted_at: Option<i64>,
+}
+
+/// List every device grant, any state — the operator's incident-response view.
+pub async fn list_device_grants(pool: &DbPool) -> Result<Vec<DeviceGrantSummary>> {
+    let rows = sqlx::query_as::<_, DeviceGrantRow>(
+        "SELECT grant_id, owner_user_id, device_id, grantee_user_id, scope, state, invite_secret_hash, offered_at, accepted_at, expires_at, revoked_at \
+         FROM device_grants ORDER BY offered_at DESC",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|e| anyhow!("list device grants: {e}"))?;
+    Ok(rows
+        .into_iter()
+        .map(|row| DeviceGrantSummary {
+            grant_id: row.grant_id,
+            owner_user_id: row.owner_user_id,
+            device_id: row.device_id,
+            grantee_user_id: row.grantee_user_id,
+            scope: row.scope,
+            state: row.state,
+            accepted_at: row.accepted_at,
+        })
+        .collect())
+}
+
+/// Force-revoke a grant by id. Unlike the owner-facing route, this operator
+/// action does not require the caller to be the owning account; live routing
+/// still tears down through the grant monitor within one tick.
+pub async fn revoke_device_grant(pool: &DbPool, grant_id: &str) -> Result<bool> {
+    let revoked_at = chrono::Utc::now().timestamp();
+    let result = sqlx::query(
+        "UPDATE device_grants \
+           SET state = 'revoked', revoked_at = ?, invite_secret_hash = NULL \
+         WHERE grant_id = ? AND state != 'revoked'",
+    )
+    .bind(revoked_at)
+    .bind(grant_id)
+    .execute(pool)
+    .await
+    .map_err(|e| anyhow!("revoke device grant: {e}"))?;
+    Ok(result.rows_affected() > 0)
 }
 
 async fn set_account_password(pool: &DbPool, user_id: &str, password: &str) -> Result<()> {

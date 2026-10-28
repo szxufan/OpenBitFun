@@ -39,6 +39,14 @@ enum Command {
         #[arg(long)]
         password_stdin: bool,
     },
+    /// List device grants (grant id, owner, device, grantee, scope, state).
+    ListGrants,
+    /// Force-revoke a device grant by id. Operator action; ownership is not
+    /// required, and live routing tears down through the grant monitor.
+    RevokeGrant {
+        #[arg(long)]
+        grant_id: String,
+    },
 }
 
 fn read_stdin_line(prompt: &str) -> Result<String> {
@@ -105,6 +113,30 @@ async fn main() -> Result<()> {
             let password = read_stdin_line("Enter new password (stdin):")?;
             openbitfun_relay_service::admin::set_password(&pool, &phone, &password).await?;
             println!("Password updated for {phone}; its sessions were revoked");
+        }
+        Command::ListGrants => {
+            for grant in openbitfun_relay_service::admin::list_device_grants(&pool).await? {
+                println!(
+                    "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                    grant.grant_id,
+                    grant.owner_user_id,
+                    grant.device_id,
+                    grant.grantee_user_id,
+                    grant.scope,
+                    grant.state,
+                    grant
+                        .accepted_at
+                        .map(|at| at.to_string())
+                        .unwrap_or_else(|| "-".to_string())
+                );
+            }
+        }
+        Command::RevokeGrant { grant_id } => {
+            if openbitfun_relay_service::admin::revoke_device_grant(&pool, &grant_id).await? {
+                println!("Revoked device grant {grant_id}");
+            } else {
+                println!("No live device grant {grant_id}");
+            }
         }
     }
     Ok(())
