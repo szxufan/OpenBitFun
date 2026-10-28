@@ -4426,9 +4426,15 @@ mod tests {
         );
         assert!(ensure_remote_model_strategy_editable(&session).is_ok());
         session.config.model_routing = Some("smart".into());
-        assert!(ensure_remote_model_strategy_editable(&session)
-            .unwrap_err()
-            .contains("Smart routing is active"));
+        // The release gate keeps smart routing off; a saved "smart" selection
+        // only blocks remote edits once the gate is flipped back on.
+        if crate::agentic::execution::round_model_routing::configuration::available() {
+            assert!(ensure_remote_model_strategy_editable(&session)
+                .unwrap_err()
+                .contains("Smart routing is active"));
+        } else {
+            assert!(ensure_remote_model_strategy_editable(&session).is_ok());
+        }
 
         session.kind = SessionKind::Subagent;
         session.config.delegation_model_routing = Some("smart".into());

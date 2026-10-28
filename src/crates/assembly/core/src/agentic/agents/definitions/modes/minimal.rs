@@ -87,7 +87,8 @@ mod tests {
                 "Write",
                 "ExecCommand",
                 "WriteStdin",
-                "ExecControl"
+                "ExecControl",
+                "ExecReadOutput"
             ]
             .into_iter()
             .map(str::to_string)
