@@ -197,10 +197,13 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
       # ubuntu-latest (24.04) ships leptonica 1.84 headers whose environ.h
-      # uses C11 atomic types, but leptonica-sys 0.4.9's bindgen invocation
-      # does not preinclude <stdatomic.h>, so binding generation fails with
-      # "unknown type name 'atomic_int'". Preincluding it restores the parse.
-      BINDGEN_EXTRA_CLANG_ARGS: ${{ matrix.os == 'ubuntu-latest' && '-include stdatomic.h' || '' }}
+      # derives `l_atomic` from C11 <stdatomic.h>, and leptonica-sys 0.4.9's
+      # bindgen parse fails with "unknown type name 'atomic_int'" (already
+      # tried preincluding <stdatomic.h> — did not fix the runner's parse).
+      # Declaring __STDC_NO_ATOMICS__ makes environ.h take its
+      # `typedef int l_atomic` fallback, which is object-layout identical for
+      # FFI and removes the <stdatomic.h> dependency from the parse entirely.
+      BINDGEN_EXTRA_CLANG_ARGS: ${{ matrix.os == 'ubuntu-latest' && '-D__STDC_NO_ATOMICS__' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -244,6 +247,8 @@ jobs:
 
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
+            clang \
+            libclang-dev \
             libglib2.0-dev \
             libgtk-3-dev \
             libgstreamer1.0-dev \

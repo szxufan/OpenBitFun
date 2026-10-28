@@ -202,10 +202,13 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=6144
       OPENBITFUN_ENABLE_UPDATER_ARTIFACTS: ${{ needs.prepare.outputs.upload_to_release }}
       # ubuntu-latest (24.04) ships leptonica 1.84 headers whose environ.h
-      # uses C11 atomic types, but leptonica-sys 0.4.9's bindgen invocation
-      # does not preinclude <stdatomic.h>, so binding generation fails with
-      # "unknown type name 'atomic_int'". Preincluding it restores the parse.
-      BINDGEN_EXTRA_CLANG_ARGS: ${{ startsWith(matrix.platform.name, 'linux') && '-include stdatomic.h' || '' }}
+      # derives `l_atomic` from C11 <stdatomic.h>, and leptonica-sys 0.4.9's
+      # bindgen parse fails with "unknown type name 'atomic_int'" (already
+      # tried preincluding <stdatomic.h> — did not fix the runner's parse).
+      # Declaring __STDC_NO_ATOMICS__ makes environ.h take its
+      # `typedef int l_atomic` fallback, which is object-layout identical for
+      # FFI and removes the <stdatomic.h> dependency from the parse entirely.
+      BINDGEN_EXTRA_CLANG_ARGS: ${{ startsWith(matrix.platform.name, 'linux') && '-D__STDC_NO_ATOMICS__' || '' }}
       OPENBITFUN_RELEASE_CHANNEL: ${{ needs.prepare.outputs.release_channel }}
       TAURI_UPDATER_ENDPOINT: ${{ github.repository != 'GCWing/OpenBitFun' && (needs.prepare.outputs.release_channel == 'beta' && format('https://github.com/{0}/releases/download/channel-v1-beta/latest-v1.json', github.repository) || format('https://github.com/{0}/releases/latest/download/latest-v1.json', github.repository)) || '' }}
       TAURI_UPDATER_FALLBACK_ENDPOINT: ${{ github.repository != 'GCWing/OpenBitFun' && (needs.prepare.outputs.release_channel == 'beta' && format('https://github.com/{0}/releases/download/channel-v1-beta/latest-v1.json', github.repository) || format('https://github.com/{0}/releases/latest/download/latest-v1.json', github.repository)) || '' }}
@@ -306,6 +309,8 @@ jobs:
           # fcitx5 GTK3 bridge must be present before linuxdeploy builds it.
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
+            clang \
+            libclang-dev \
             xdg-utils \
             libglib2.0-dev \
             libgtk-3-dev \
