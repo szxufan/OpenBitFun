@@ -326,6 +326,10 @@ jobs:
 
       - name: Run full core library tests on Linux
         if: runner.os == 'Linux'
+        # The product-full feature union makes debug-mode async futures much
+        # larger; the scheduler suites overflow the default test-thread stack.
+        env:
+          RUST_MIN_STACK: "33554432"
         run: cargo test --locked -p openbitfun-core --features product-full --lib
 
       - name: Run desktop library tests
