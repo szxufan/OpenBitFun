@@ -200,7 +200,7 @@
     min-width: 0;
     overflow-wrap: anywhere;
     user-select: text;
-    font-family: var(--openbitfun-font-mono, monospace);
+    font-family: monospace;
   }
 
   &__backup-actions,
@@ -240,7 +240,7 @@
 
   &__shared-scope {
     padding: var(--openbitfun-space-1) var(--openbitfun-space-2);
-    border-radius: var(--openbitfun-radius-sm, 6px);
+    border-radius: var(--openbitfun-radius-sm);
   }
 
   // ---------- Devices ----------
