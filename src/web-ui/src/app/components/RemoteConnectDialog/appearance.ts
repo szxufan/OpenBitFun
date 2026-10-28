@@ -43,6 +43,8 @@ export const remoteAccountPanelAppearanceDescriptor: AppearanceSurfaceDescriptor
     { id: 'actions' },
     { id: 'deviceList' },
     { id: 'deviceCard' },
+    { id: 'configBackupCard' },
+    { id: 'sharedHostsCard' },
   ],
   facets: [
     { id: 'view', attribute: 'data-openbitfun-view', values: ['login', 'devices'] },
