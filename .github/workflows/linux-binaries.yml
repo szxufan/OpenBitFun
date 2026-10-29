@@ -44,10 +44,7 @@ on:
         description: "stable keeps quality-first codegen; beta builds fast."
         required: false
         default: stable
-        type: choice
-        options:
-          - stable
-          - beta
+        type: string
     secrets:
       release_signing_key:
         description: "Tauri/minisign private key, base64. Absent on forks: archives ship unsigned."
