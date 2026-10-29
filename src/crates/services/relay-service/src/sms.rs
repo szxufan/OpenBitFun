@@ -267,7 +267,7 @@ pub fn signed_request(
         body,
         SMS_ACTION_SEND,
         SMS_API_VERSION,
-        &chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string(),
+        &chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
         &uuid::Uuid::new_v4().to_string(),
     )
 }
@@ -423,7 +423,7 @@ mod tests {
             b"",
             "SendSms",
             "2017-05-25",
-            "20260101T000000Z",
+            "2026-01-01T00:00:00Z",
             "fixed-nonce",
         );
         let empty_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -435,7 +435,7 @@ mod tests {
             "host:dysmsapi.aliyuncs.com\n",
             "x-acs-action:SendSms\n",
             &format!("x-acs-content-sha256:{empty_hash}\n"),
-            "x-acs-date:20260101T000000Z\n",
+            "x-acs-date:2026-01-01T00:00:00Z\n",
             "x-acs-signature-nonce:fixed-nonce\n",
             "x-acs-version:2017-05-25\n",
             "\n",
