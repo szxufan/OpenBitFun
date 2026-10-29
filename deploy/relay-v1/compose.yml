@@ -50,9 +50,11 @@ services:
       RELAY_LOCAL_REGISTRATION: ${RELAY_LOCAL_REGISTRATION:-open}
       RUST_LOG: info
     volumes:
+      # Static is baked into the image (/app/static); the host-side staging
+      # directory was retired because a mounted copy can drift from the
+      # binary's protocol build.
       - ${RELAY_DATA_ROOT:-/srv/openbitfun-relay-v1.0.2}/data:/app/data
       - ${RELAY_DATA_ROOT:-/srv/openbitfun-relay-v1.0.2}/assets:/app/room-web
-      - ${RELAY_DATA_ROOT:-/srv/openbitfun-relay-v1.0.2}/static:/app/static:ro
     logging:
       driver: json-file
       options:

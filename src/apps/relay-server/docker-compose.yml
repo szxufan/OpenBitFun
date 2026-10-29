@@ -41,7 +41,8 @@ services:
       - RELAY_SMS_CODE_SECRET=${RELAY_SMS_CODE_SECRET:-}
       - RELAY_LOCAL_REGISTRATION=${RELAY_LOCAL_REGISTRATION:-open}
     volumes:
-      - ./static:/app/static:ro
+      # Static is baked into the image (/app/static); mounting over it would
+      # shadow the image copy and silently serve a mismatched frontend build.
       - room-web:/app/room-web
       - relay-db:/app/data
     healthcheck:

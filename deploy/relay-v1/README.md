@@ -7,10 +7,16 @@ container, image, database, assets, and proxy location: clients built for 1.0.1 
 and the two releases do not share a credential database.
 
 Deploy from a committed checkout at `/srv/openbitfun-relay-v1.0.2/app`. Set
-`RELAY_GIT_COMMIT` to that checkout's verified full commit. Build mobile web
-from the same checkout with `pnpm run build:mobile-web` and stage its `dist`
-contents into `/srv/openbitfun-relay-v1.0.2/static`. Create `data` and `assets`
-under that root owned by UID/GID 10001 before starting Compose.
+`RELAY_GIT_COMMIT` to that checkout's verified full commit, then build the
+image with Compose from that checkout: the Dockerfile bakes the mobile-web
+static bundle (`src/apps/relay-server/static/`) into the image at
+`/app/static`, so the frontend always ships from the same build as the
+binary. Before starting Compose, create `data` and `assets` under the root
+owned by UID/GID 10001. (Older deployments staged `static` on the host and
+mounted it; that mount is retired — a staged copy could drift from the
+binary's protocol build. Remove the mount and the host directory when
+upgrading such a deployment, and rebuild the image so it carries the
+frontend.)
 
 The Linux host network plus explicit `127.0.0.1:19702` listener lets the service
 verify the immediate proxy peer before trusting its overwritten forwarded IP.
