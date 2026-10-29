@@ -137,10 +137,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p desktop-assets
-          # All artifacts of the artifact-only desktop run land in one tree;
-          # staging filters installers by file extension.
+          # Only the per-platform Desktop bundles carry installers. Downloading
+          # every artifact would also pull the Desktop run's buildx
+          # `.dockerbuild` recovery artifact, which `gh` cannot extract (it is
+          # not a stored-zip archive), and the relay/CLI archives the previous
+          # step already fetched from this release run.
           gh run download "$DESKTOP_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --dir desktop-assets
+            --pattern 'openbitfun-*-bundle' --dir desktop-assets
           find desktop-assets -type f | wc -l
 
       - name: Verify release inputs
