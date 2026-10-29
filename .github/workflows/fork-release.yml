@@ -144,7 +144,7 @@ jobs:
             (cd linux-release-assets && sha256sum --check "$(basename "${archive}").sha256")
           done
           cp src/apps/relay-server/Dockerfile.release linux-release-assets/Dockerfile.release
-          shopt -s nullglob
+          shopt -s nullglob globstar
           installers=(
             desktop-assets/**/*.exe desktop-assets/**/*.dmg
             desktop-assets/**/*.AppImage desktop-assets/**/*.deb desktop-assets/**/*.rpm
