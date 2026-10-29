@@ -3,6 +3,7 @@
 # Start every published Relay platform under the runner's native/QEMU runtime
 # and require the image's own HEALTHCHECK to pass before release metadata is
 # signed. Usage: smoke-image.sh <repository>@sha256:<multi-platform-digest>
+# SMOKE_ARCHES optionally narrows the loop (e.g. "amd64" for amd64-only builds).
 
 set -euo pipefail
 
@@ -23,6 +24,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 for arch in amd64 arm64; do
+  [[ " ${SMOKE_ARCHES:-amd64 arm64} " == *" ${arch} "* ]] || continue
   container="openbitfun-relay-smoke-${arch}"
   containers+=("$container")
   echo ">>> Smoke-testing ${IMAGE_REF} on linux/${arch}..."

@@ -52,6 +52,10 @@ jobs:
       version: ${{ needs.meta.outputs.version }}
       artifact_prefix: ${{ github.ref_name }}
       upload_artifacts: true
+      # Fork policy: no Linux arm64 demand, and an amd64-only relay image
+      # skips the QEMU-emulated half of the docker build.
+      include_arm64: false
+      release_channel: ${{ contains(github.ref_name, '-') && 'beta' || 'stable' }}
 
   desktop-packages:
     name: Desktop installers (artifact-only)
@@ -67,11 +71,16 @@ jobs:
         run: |
           set -euo pipefail
           echo "dispatched_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          # Tags carrying a SemVer pre-release segment (v1.2.3-beta.1) publish
+          # as the beta channel: fast codegen and a prerelease GitHub Release.
+          CHANNEL=stable
+          [[ "${TAG_NAME}" == *-* ]] && CHANNEL=beta
           gh workflow run desktop-package.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref "${TAG_NAME}" \
             -f "tag_name=${TAG_NAME}" \
-            -f "release_channel=stable" \
+            -f "release_channel=${CHANNEL}" \
+            -f "skip_linux_arm64=true" \
             -f "upload_to_release=false"
 
       - name: Wait for the desktop-package run
@@ -139,7 +148,6 @@ jobs:
         run: |
           set -euo pipefail
           test -f linux-release-assets/openbitfun-relay-server-x86_64-unknown-linux-gnu.tar.gz
-          test -f linux-release-assets/openbitfun-relay-server-aarch64-unknown-linux-gnu.tar.gz
           for archive in linux-release-assets/openbitfun-relay-server-*.tar.gz; do
             (cd linux-release-assets && sha256sum --check "$(basename "${archive}").sha256")
           done
@@ -153,9 +161,6 @@ jobs:
             echo "No desktop installers were produced." >&2
             exit 1
           fi
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -173,7 +178,10 @@ jobs:
         with:
           context: linux-release-assets
           file: linux-release-assets/Dockerfile.release
-          platforms: linux/amd64,linux/arm64
+          # Fork policy: amd64 only. Without the arm64 relay archive there is
+          # nothing to layer, and skipping arm64 also drops the slow QEMU
+          # emulation entirely.
+          platforms: linux/amd64
           push: true
           provenance: false
           sbom: false
@@ -185,9 +193,10 @@ jobs:
             ${{ env.IMAGE }}:${{ env.RELEASE_VERSION }}
             ${{ env.IMAGE }}:latest
 
-      - name: Smoke-test published image on both platforms
+      - name: Smoke-test published relay image
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          SMOKE_ARCHES: amd64
         run: bash scripts/relay/smoke-image.sh "${IMAGE}@${IMAGE_DIGEST}"
 
       - name: Stage unsigned image descriptor
@@ -207,7 +216,7 @@ jobs:
               tag: $tag,
               version: $version,
               digest: $digest,
-              platforms: ["linux/amd64", "linux/arm64"],
+              platforms: ["linux/amd64"],
               signature: "unsigned fork build"
             }' > relay-image.json
 
@@ -238,7 +247,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          prerelease=()
+          [[ "${RELEASE_TAG}" == *-* ]] && prerelease+=(--prerelease)
           gh release create "${RELEASE_TAG}" \
+            "${prerelease[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "OpenBitFun ${RELEASE_VERSION#v} (fork, unsigned)" \

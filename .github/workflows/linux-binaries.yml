@@ -35,6 +35,19 @@ on:
         required: false
         default: true
         type: boolean
+      include_arm64:
+        description: "Build the aarch64 targets. Forks may drop them to halve wall time."
+        required: false
+        default: true
+        type: boolean
+      release_channel:
+        description: "stable keeps quality-first codegen; beta builds fast."
+        required: false
+        default: stable
+        type: choice
+        options:
+          - stable
+          - beta
     secrets:
       release_signing_key:
         description: "Tauri/minisign private key, base64. Absent on forks: archives ship unsigned."
@@ -53,7 +66,14 @@ jobs:
   build:
     name: Linux Binaries (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.os }}
+    if: ${{ inputs.include_arm64 || matrix.platform.name != 'linux-arm64' }}
     timeout-minutes: 90
+    env:
+      # Beta artifacts trade density for wall time: dropping thin LTO and
+      # restoring per-crate parallel codegen keeps every runner core busy.
+      # Stable releases keep the quality profile declared in Cargo.toml.
+      CARGO_PROFILE_RELEASE_LTO: ${{ inputs.release_channel == 'beta' && 'false' || 'thin' }}
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ inputs.release_channel == 'beta' && '16' || '1' }}
 
     strategy:
       fail-fast: false

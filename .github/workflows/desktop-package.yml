@@ -49,6 +49,11 @@ on:
         required: false
         default: false
         type: boolean
+      skip_linux_arm64:
+        description: "Omit Linux arm64 Desktop packages, CLI/relay archives, and the arm64 Relay image (fork policy)."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -166,6 +171,7 @@ jobs:
           ARTIFACT_RUN_IDS: ${{ inputs.artifact_run_ids }}
           VERIFICATION_RECOVERY_RUN_ID: ${{ inputs.verification_recovery_run_id }}
           UPLOAD_TO_RELEASE: ${{ steps.meta.outputs.upload_to_release }}
+          SKIP_LINUX_ARM64: ${{ inputs.skip_linux_arm64 }}
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -187,7 +193,13 @@ jobs:
                process.env.UPLOAD_TO_RELEASE !== 'true')) {
             throw new Error('Verification recovery requires one Mac target, signing, and no other recovery mode');
           }
-          const selected = target === 'all' ? all : all.filter((platform) => platform.name === target);
+          let selected = target === 'all' ? all : all.filter((platform) => platform.name === target);
+          // Fork policy: an explicit recovery target always wins; only the
+          // full-release fan-out may drop Linux arm64, and it must still keep
+          // at least one platform selected.
+          if (target === 'all' && process.env.SKIP_LINUX_ARM64 === 'true') {
+            selected = selected.filter((platform) => platform.name !== 'linux-arm64');
+          }
           if (selected.length === 0) throw new Error('No Desktop package platforms selected');
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify(selected)}\n`);
           NODE
@@ -200,6 +212,11 @@ jobs:
     if: needs.prepare.outputs.relay_image_only != 'true' && !inputs.artifact_run_ids && !inputs.verification_recovery_run_id
     env:
       NODE_OPTIONS: --max-old-space-size=6144
+      # Beta artifacts trade density for wall time: dropping thin LTO and
+      # restoring per-crate parallel codegen keeps every runner core busy.
+      # Stable releases keep the quality profile declared in Cargo.toml.
+      CARGO_PROFILE_RELEASE_LTO: ${{ needs.prepare.outputs.release_channel == 'beta' && 'false' || 'thin' }}
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ needs.prepare.outputs.release_channel == 'beta' && '16' || '1' }}
       OPENBITFUN_ENABLE_UPDATER_ARTIFACTS: ${{ needs.prepare.outputs.upload_to_release }}
       # ubuntu-latest (24.04) ships leptonica 1.84 headers whose environ.h
       # derives `l_atomic` from C11 <stdatomic.h>, and leptonica-sys 0.4.9's
@@ -588,6 +605,8 @@ jobs:
       checkout_ref: ${{ needs.prepare.outputs.checkout_ref }}
       version: ${{ needs.prepare.outputs.version }}
       artifact_prefix: ${{ needs.prepare.outputs.release_tag }}
+      include_arm64: ${{ !inputs.skip_linux_arm64 }}
+      release_channel: ${{ needs.prepare.outputs.release_channel }}
 
   # Publish the Relay once, as a multi-platform image. User servers only pull
   # this image; they no longer download an archive and build a runtime image.
