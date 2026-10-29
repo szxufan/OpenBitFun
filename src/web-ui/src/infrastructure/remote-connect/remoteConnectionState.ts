@@ -1,10 +1,12 @@
 import type { ConnectionResult, RemoteConnectionMethod, RemoteConnectStatus } from '../api/service-api/RemoteConnectAPI';
 
 export type RemoteNetworkMethod = 'lan' | 'openbitfun_server';
-export const OFFICIAL_RELAY_URL = 'https://remote.openbitfun.com/v/1.0.2';
+// The fork's hosted relay, served at the origin root (no `/v/<version>` prefix).
+// The `openbitfun_server` wire value above is a protocol enum and stays unchanged.
+export const OFFICIAL_RELAY_URL = 'https://obf.test.linkerpi.com';
 
 /** The relay the host dials for the server method: the self-hosted override
- *  when configured, the official endpoint otherwise (and on older hosts). */
+ *  when configured, the hosted endpoint otherwise (and on older hosts). */
 export function serverRelayUrl(status: RemoteConnectStatus | null | undefined): string {
   return normalizeRelayUrl(status?.server_relay_url) ?? OFFICIAL_RELAY_URL;
 }

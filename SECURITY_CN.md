@@ -13,7 +13,7 @@ OpenBitFun 从 `1.0.0` 开启全新的稳定产品线，采用滚动发布。安
 | 最新发布版（`main`） | ✅ |
 | 较旧的发布版 | ❌ |
 
-在上报问题前，请先升级到最新[发布版](https://github.com/GCWing/OpenBitFun/releases)，确认问题仍可复现。
+在上报问题前，请先升级到最新[发布版](https://github.com/szxufan/OpenBitFun/releases)，确认问题仍可复现。
 
 ## 如何上报漏洞
 
@@ -21,7 +21,7 @@ OpenBitFun 从 `1.0.0` 开启全新的稳定产品线，采用滚动发布。安
 
 请通过 GitHub Security Advisories 私密上报：
 
-➡️ **[上报漏洞](https://github.com/GCWing/OpenBitFun/security/advisories/new)**
+➡️ **[上报漏洞](https://github.com/szxufan/OpenBitFun/security/advisories/new)**
 
 该入口会开启一个仅维护者可见的私密渠道。如果你无法使用 GitHub Security Advisories，可以新建一个极简的公开 Issue，仅写明「我想私下上报一个安全问题」——不要附带任何细节——维护者会与你建立私密沟通渠道。
 

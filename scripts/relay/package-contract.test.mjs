@@ -83,7 +83,7 @@ test('formal and nightly releases publish signed anonymous multi-platform Relay 
   assert.match(smoke, /docker image rm "\$IMAGE_REF"/);
   assert.match(smoke, /docker logs --tail/);
 
-  assert.match(dockerfile, /org\.opencontainers\.image\.source="https:\/\/github\.com\/GCWing\/OpenBitFun"/);
+  assert.match(dockerfile, /org\.opencontainers\.image\.source="https:\/\/github\.com\/szxufan\/OpenBitFun"/);
   assert.match(dockerfile, /TARGETARCH/);
   assert.match(dockerfile, /openbitfun-relay-server/);
   assert.match(dockerfile, /relay-admin/);

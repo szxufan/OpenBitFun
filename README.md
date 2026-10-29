@@ -12,7 +12,7 @@ OpenBitFun is a highly customizable, open-source agent workspace that keeps work
 
 **If this is the kind of agent workspace you want, ⭐ Star OpenBitFun and help more people discover it.**
 
-[Download Desktop](https://openbitfun.com/download) · [Mobile Releases](https://github.com/GCWing/OpenBitFun/releases?q=mobile-&expanded=true) · [Mini App Marketplace](https://market.openbitfun.com/miniapp/) · [Join the community](#join-the-community) · [Contribute](./CONTRIBUTING.md)
+[Download Desktop](https://openbitfun.com/download) · [Mobile Releases](https://github.com/szxufan/OpenBitFun/releases?q=mobile-&expanded=true) · [Mini App Marketplace](https://market.openbitfun.com/miniapp/) · [Join the community](#join-the-community) · [Contribute](./CONTRIBUTING.md)
 
 [![Website](https://img.shields.io/badge/Website-openbitfun.com-0b7285?style=flat-square)](https://openbitfun.com/)
 [![Core code: MIT](https://img.shields.io/badge/core_code-MIT-yellow?style=flat-square)](./LICENSE)

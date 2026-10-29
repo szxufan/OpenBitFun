@@ -1,4 +1,5 @@
-export const OFFICIAL_RELAY_URL = 'https://remote.openbitfun.com/v/1.0.2';
+// The fork's hosted relay, served at the origin root (no `/v/<version>` prefix).
+export const OFFICIAL_RELAY_URL = 'https://obf.test.linkerpi.com';
 
 export function normalizeRelayUrl(value: string): string | null {
   try {

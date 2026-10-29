@@ -2,7 +2,7 @@ import { Icon as CatalogIcon, type IconName } from "@openbitfun/ui";
 import { BookOpen, Boxes, FileCode2, FileText, ShieldCheck } from "lucide-react";
 import { useI18n, type MessageKey } from "../i18n";
 
-const repositoryBase = "https://github.com/GCWing/OpenBitFun/blob/main/design-system";
+const repositoryBase = "https://github.com/szxufan/OpenBitFun/blob/main/design-system";
 
 const resources: readonly {
   description: MessageKey;

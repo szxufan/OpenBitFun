@@ -195,7 +195,9 @@ const ACTIVE_DISPATCH_STATES = new Set<DeviceOverviewDispatchJob['state']>([
   'running',
 ]);
 
-const OFFICIAL_RELAY_HOST = 'remote.openbitfun.com';
+// The fork's hosted relay origin; the `official` kind below means "this build's
+// hosted relay", not the upstream deployment.
+const OFFICIAL_RELAY_HOST = 'obf.test.linkerpi.com';
 
 // Device names reach us as discovery host names, so macOS reports
 // `<name>.local` and LAN hosts add their own zone. That suffix identifies a

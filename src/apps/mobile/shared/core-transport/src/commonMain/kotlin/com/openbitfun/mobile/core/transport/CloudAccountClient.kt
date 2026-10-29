@@ -54,7 +54,8 @@ import kotlin.uuid.Uuid
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.time.TimeSource
 
-public const val DEFAULT_CLOUD_RELAY_URL: String = "https://remote.openbitfun.com/v/1.0.2"
+// The fork's hosted relay, served at the origin root (no `/v/<version>` prefix).
+public const val DEFAULT_CLOUD_RELAY_URL: String = "https://obf.test.linkerpi.com"
 
 /** A relayed stream page slower than this is worth a breadcrumb; faster ones are not. */
 internal const val SLOW_STREAM_PAGE_MS: Long = 300L

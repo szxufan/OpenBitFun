@@ -31,7 +31,7 @@ import { OpenBitFunBrandMotion } from '@openbitfun/ui/brand';
 import './AboutDialog.scss';
 
 const log = createLogger('AboutDialog');
-const GITHUB_REPOSITORY_URL = 'https://github.com/GCWing/OpenBitFun';
+const GITHUB_REPOSITORY_URL = 'https://github.com/szxufan/OpenBitFun';
 
 interface AboutDialogProps {
   /** Whether visible */

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { ConnectionResult, RemoteConnectStatus, RemoteConnectionMethod } from '../api/service-api/RemoteConnectAPI';
-import { remoteNetworkMethod, selectRemoteNetworkConnection, invitationRelayUrl, serverRelayUrl } from './remoteConnectionState';
+import { remoteNetworkMethod, selectRemoteNetworkConnection, invitationRelayUrl, serverRelayUrl, OFFICIAL_RELAY_URL } from './remoteConnectionState';
 
-const official = 'https://remote.openbitfun.com/v/1.0.2';
+// Bound to the production constant so the hosted-relay default cannot drift here.
+const official = OFFICIAL_RELAY_URL;
 const lan = 'http://192.168.1.2:9700';
 const method = (url: string): RemoteConnectionMethod => url === official ? 'openbitfun_server' : { lan: { ip: '192.168.1.2' } };
 const status = (url: string): RemoteConnectStatus => ({

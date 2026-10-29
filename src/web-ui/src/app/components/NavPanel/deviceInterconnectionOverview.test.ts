@@ -50,7 +50,7 @@ describe('projectDeviceInterconnectionOverview', () => {
   it('does not turn account service availability into a connected-device state', () => {
     const overview = projectDeviceInterconnectionOverview(baseInput({
       accountService: connectionServiceFromRelayUrl(
-        'https://remote.openbitfun.com/relay',
+        'https://obf.test.linkerpi.com/relay',
       ),
     }));
 
@@ -64,7 +64,7 @@ describe('projectDeviceInterconnectionOverview', () => {
       remoteStatus: {
         ...disconnectedStatus,
         relay_connected: true,
-        relay_url: 'https://remote.openbitfun.com/v/1.0.2',
+        relay_url: 'https://obf.test.linkerpi.com',
         active_method: 'openbitfun_server' as const,
         clients: [{ id: 'mobile-user', name: 'My iPhone' }],
       },
@@ -84,7 +84,7 @@ describe('projectDeviceInterconnectionOverview', () => {
   it('includes controllers from both Relay routes without duplicating one browser', () => {
     const overview = projectDeviceInterconnectionOverview(baseInput({ remoteStatus: {
       ...disconnectedStatus, connections: [
-        { method: 'openbitfun_server', relay_connected: true, relay_url: 'https://remote.openbitfun.com/v/1.0.2', clients: [{ id: 'same', name: 'Shared browser' }] },
+        { method: 'openbitfun_server', relay_connected: true, relay_url: 'https://obf.test.linkerpi.com', clients: [{ id: 'same', name: 'Shared browser' }] },
         { method: 'lan', relay_connected: true, relay_url: 'http://192.168.1.2:9700', clients: [{ id: 'same', name: 'Shared browser' }, { id: 'lan', name: 'LAN phone' }] },
       ],
     } }));
@@ -247,7 +247,7 @@ describe('selectActivityFacts', () => {
   const connectedPhone = {
     ...disconnectedStatus,
     relay_connected: true,
-        relay_url: 'https://remote.openbitfun.com/v/1.0.2',
+        relay_url: 'https://obf.test.linkerpi.com',
         active_method: 'openbitfun_server' as const,
         clients: [{ id: 'mobile-user', name: 'My iPhone' }],
   };
@@ -327,7 +327,7 @@ describe('selectAttachedGroups', () => {
       remoteStatus: {
         ...disconnectedStatus,
         relay_connected: true,
-        relay_url: 'https://remote.openbitfun.com/v/1.0.2',
+        relay_url: 'https://obf.test.linkerpi.com',
         active_method: 'openbitfun_server' as const,
         clients: [{ id: 'mobile-user', name: 'My iPhone' }],
         bot_connected: 'Weixin (family group)',
@@ -390,7 +390,7 @@ describe('device display names', () => {
       remoteStatus: {
         ...disconnectedStatus,
         relay_connected: true,
-        relay_url: 'https://remote.openbitfun.com/v/1.0.2',
+        relay_url: 'https://obf.test.linkerpi.com',
         active_method: 'openbitfun_server' as const,
         clients: [{ id: 'mobile-user', name: 'Pixel.lan' }],
       },
@@ -414,7 +414,7 @@ describe('device display names', () => {
 
 describe('connection service classification', () => {
   it('only classifies the canonical OpenBitFun relay host as official', () => {
-    expect(classifyAccountRelayUrl('https://remote.openbitfun.com/relay')).toBe('official-relay');
+    expect(classifyAccountRelayUrl('https://obf.test.linkerpi.com/relay')).toBe('official-relay');
     expect(classifyAccountRelayUrl('https://relay.example.com')).toBe('self-hosted-relay');
     expect(classifyAccountRelayUrl('not a url')).toBe('unknown');
   });

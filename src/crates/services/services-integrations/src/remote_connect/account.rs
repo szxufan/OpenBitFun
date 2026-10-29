@@ -36,11 +36,14 @@ struct PeerCipherKey {
     key_id: Option<String>,
 }
 
-/// A retired official deployment has its own credential database. Authenticate
-/// with the new deployment instead of replaying its token or deleting the record.
+/// A retired hosted deployment has its own credential database. Authenticate
+/// with the current deployment instead of replaying its token or deleting the
+/// record.
 ///
-/// Every official release lives under `https://remote.openbitfun.com/v/<version>`;
-/// any such endpoint other than the one this build targets is retired.
+/// Hosted deployments are served under `https://<relay-host>/v/<version>` paths;
+/// any such endpoint on this build's relay host that is not the endpoint this
+/// build targets is retired. The fork's own relay lives at the origin root, so a
+/// leftover `/v/<version>` pointer on that host is retired too.
 pub fn is_retired_official_relay(value: &str) -> bool {
     let current = reqwest::Url::parse(openbitfun_product_domains::account::DEFAULT_RELAY_URL)
         .expect("official relay endpoint is a valid URL");
@@ -2006,29 +2009,32 @@ mod tests {
     #[test]
     fn retired_official_endpoint_does_not_capture_custom_relays() {
         let current = openbitfun_product_domains::account::DEFAULT_RELAY_URL;
-        assert_eq!(current, "https://remote.openbitfun.com/v/1.0.2");
+        assert_eq!(current, "https://obf.test.linkerpi.com");
+        let hosted_origin = current;
         for old in [
-            ["https://remote.openbitfun.com", "/v/1.0.0"].concat(),
-            ["https://remote.openbitfun.com", "/v/1.0.1"].concat(),
+            [hosted_origin, "/v/1.0.0"].concat(),
+            [hosted_origin, "/v/1.0.1"].concat(),
         ] {
             assert!(is_retired_official_relay(&old), "{old}");
             assert!(is_retired_official_relay(&format!("{old}/")), "{old}/");
             assert!(!is_retired_official_relay(&format!("{old}?other=1")));
             assert!(!is_retired_official_relay(&format!("{old}#pair")));
         }
-        for endpoint in [
-            current,
-            &format!("{current}/"),
-            "https://custom.example/v/1.0.0",
-            "http://127.0.0.1:9700",
-            "https://remote.openbitfun.com/relay",
-            "https://remote.openbitfun.com/v/",
-            "https://remote.openbitfun.com/v/1.0.0/p/alice/demo",
-            "https://user@remote.openbitfun.com/v/1.0.0",
-            "https://remote.openbitfun.com:444/v/1.0.0",
-            "http://remote.openbitfun.com/v/1.0.1",
-        ] {
-            assert!(!is_retired_official_relay(endpoint), "{endpoint}");
+        let hosted_host = current.trim_start_matches("https://");
+        let endpoints = [
+            current.to_string(),
+            format!("{current}/"),
+            "https://custom.example/v/1.0.0".to_string(),
+            "http://127.0.0.1:9700".to_string(),
+            format!("{hosted_origin}/relay"),
+            format!("{hosted_origin}/v/"),
+            format!("{hosted_origin}/v/1.0.0/p/alice/demo"),
+            format!("https://user@{hosted_host}/v/1.0.0"),
+            format!("{hosted_origin}:444/v/1.0.0"),
+            format!("{}", hosted_origin.replace("https://", "http://")) + "/v/1.0.1",
+        ];
+        for endpoint in endpoints {
+            assert!(!is_retired_official_relay(&endpoint), "{endpoint}");
         }
     }
 

@@ -13,7 +13,7 @@ OpenBitFun starts a new stable product line at `1.0.0` and ships as a rolling re
 | Latest release (`main`) | ✅ |
 | Older releases | ❌ |
 
-Please upgrade to the latest [release](https://github.com/GCWing/OpenBitFun/releases) before reporting an issue to confirm it still reproduces.
+Please upgrade to the latest [release](https://github.com/szxufan/OpenBitFun/releases) before reporting an issue to confirm it still reproduces.
 
 ## Reporting a Vulnerability
 
@@ -21,7 +21,7 @@ Please upgrade to the latest [release](https://github.com/GCWing/OpenBitFun/rele
 
 Instead, report privately through GitHub Security Advisories:
 
-➡️ **[Report a vulnerability](https://github.com/GCWing/OpenBitFun/security/advisories/new)**
+➡️ **[Report a vulnerability](https://github.com/szxufan/OpenBitFun/security/advisories/new)**
 
 This opens a private channel visible only to the maintainers. If you are unable to use GitHub Security Advisories, open a minimal public issue that says only "I'd like to report a security issue privately"—without any details—and a maintainer will follow up with a private channel.
 

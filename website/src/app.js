@@ -150,7 +150,7 @@ function header() {
           <span aria-hidden="true">☰</span>${text('目录', 'Contents')}
         </button>
         ${themeControl()}
-        <a class="header-link" href="https://github.com/GCWing/OpenBitFun">GitHub</a>
+        <a class="header-link" href="https://github.com/szxufan/OpenBitFun">GitHub</a>
         <button class="language-toggle" id="language-toggle" type="button" aria-label="${text('Switch to English', '切换到中文')}">
           ${state.language === 'zh' ? 'EN' : '中文'}
         </button>

@@ -126,8 +126,8 @@ const BOT_TABS: { id: BotTab; label: string }[] = [
 ];
 
 const FEISHU_SETUP_GUIDE_URLS = {
-  'zh-CN': 'https://github.com/GCWing/OpenBitFun/blob/main/docs/remote-connect/feishu-bot-setup.zh-CN.md',
-  'en-US': 'https://github.com/GCWing/OpenBitFun/blob/main/docs/remote-connect/feishu-bot-setup.md',
+  'zh-CN': 'https://github.com/szxufan/OpenBitFun/blob/main/docs/remote-connect/feishu-bot-setup.zh-CN.md',
+  'en-US': 'https://github.com/szxufan/OpenBitFun/blob/main/docs/remote-connect/feishu-bot-setup.md',
 } as const satisfies Partial<Record<LocaleId, string>>;
 
 const FEISHU_OPEN_PLATFORM_URL = 'https://open.feishu.cn/app';

@@ -1,4 +1,7 @@
-export const OFFICIAL_RELAY_URL: string = 'https://remote.openbitfun.com/v/1.0.2';
+// The fork's hosted relay, served at the origin root (no `/v/<version>` prefix).
+// `normalizeAccountRelayUrl` below only admits this exact origin plus loopback /
+// private-LAN hosts, so a named hosted relay has to be listed here.
+export const OFFICIAL_RELAY_URL: string = 'https://obf.test.linkerpi.com';
 export interface AccountDeviceLink { relayUrl: string; deviceId: string; }
 
 export function normalizeAccountRelayUrl(value: string): string {

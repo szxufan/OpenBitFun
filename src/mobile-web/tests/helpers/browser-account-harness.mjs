@@ -12,8 +12,12 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { gcm } from '@noble/ciphers/aes.js';
 
 export const LAN = 'http://192.168.50.7:9700';
-export const OFFICIAL = 'https://remote.openbitfun.com/v/1.0.2';
-// The reverse proxy strips the official version prefix before the Relay sees a path.
+// Must stay identical to OFFICIAL_RELAY_URL in src/services/pairingLink.ts: the app
+// only accepts the exact hosted endpoint, and this fork's relay is served at the
+// origin root, so no version prefix is stripped here.
+export const OFFICIAL = 'https://obf.test.linkerpi.com';
+export const OFFICIAL_HOSTNAME = new URL(OFFICIAL).hostname;
+// A versioned deployment would carry a prefix the reverse proxy strips.
 const OFFICIAL_PREFIX = new URL(OFFICIAL).pathname.replace(/\/+$/, '');
 export const invitation = (endpoint = LAN, device = 'desktop-a') => `${endpoint}/#/pair?did=${device}`;
 const mobileRoot = fileURLToPath(new URL('../../', import.meta.url));
@@ -307,7 +311,7 @@ export class RelayFixture {
         constructor(url, protocols) {
           const target = new URL(url);
           if (target.pathname.endsWith('/v1/updates/')) {
-            const endpoint = target.hostname === 'remote.openbitfun.com' ? official : lan;
+            const endpoint = target.hostname === new URL(official).hostname ? official : lan;
             url = `${origin.replace('http:', 'ws:')}/__relay_fixture/${id}?endpoint=${encodeURIComponent(endpoint)}`;
           }
           super(url, protocols);
@@ -327,7 +331,7 @@ export class RelayFixture {
             body: JSON.stringify({ id, login: `user-${id}`, avatar_url: '' }) });
           return;
         }
-        const endpoint = requested.hostname === 'remote.openbitfun.com' ? OFFICIAL : LAN;
+        const endpoint = requested.hostname === OFFICIAL_HOSTNAME ? OFFICIAL : LAN;
         if (![new URL(LAN).origin, new URL(OFFICIAL).origin].includes(requested.origin)) {
           await request.abort(); return;
         }

@@ -2,8 +2,13 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Versioned hosted Relay deployment for the GitHub account/device-key protocol.
-pub const DEFAULT_RELAY_URL: &str = "https://remote.openbitfun.com/v/1.0.2";
+/// Hosted Relay deployment for the GitHub account/device-key protocol.
+///
+/// This fork points at its own relay, which is served at the origin root rather
+/// than under a `/v/<version>` prefix; the relay reports its own version over
+/// `/health`. A stored endpoint on this host that still carries a `/v/<version>`
+/// prefix is reported as retired by the account layer's relay-retirement check.
+pub const DEFAULT_RELAY_URL: &str = "https://obf.test.linkerpi.com";
 
 /// Control-contract protocol number reported to the Relay alongside the build
 /// string when a device registers or opens its realtime connection.

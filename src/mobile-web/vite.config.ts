@@ -12,10 +12,13 @@ export default defineConfig({
   server: {
     proxy: {
       '/relay': {
-        target: 'https://remote.openbitfun.com',
+        // The fork's relay is served at the origin root, so the local `/relay`
+        // prefix has to be stripped before the request reaches it.
+        target: 'https://obf.test.linkerpi.com',
         changeOrigin: true,
         secure: true,
         ws: true,
+        rewrite: (pathname) => pathname.replace(/^\/relay/, ''),
       },
     },
   },

@@ -114,7 +114,7 @@ async function withLocalClient(handler) {
     if (originalWindow === undefined) delete globalThis.window;
     else globalThis.window = originalWindow;
   };
-  const client = new loaded.CloudAccountClient('https://remote.openbitfun.com/v/1.0.2');
+  const client = new loaded.CloudAccountClient('https://obf.test.linkerpi.com');
   return {
     client, requests, restore,
     CloudAccountRequestError: loaded.CloudAccountRequestError,
@@ -363,7 +363,7 @@ test('alias editing replaces the device row instead of repeating its name', asyn
 
 test('official and local invitations share strict device-only targeting', async () => {
   const { currentRelayUrl, pairingRelayUrl, accountDeviceIdFromHash } = await import(links.url);
-  for (const base of ['https://remote.openbitfun.com/v/1.0.2/', 'http://192.168.1.9:9700/']) {
+  for (const base of ['https://obf.test.linkerpi.com/', 'http://192.168.1.9:9700/']) {
     const url = new URL(`${base}#/pair?did=desktop-1`);
     assert.equal(currentRelayUrl(url), base.replace(/\/$/, ''));
     assert.equal(accountDeviceIdFromHash(url.hash), 'desktop-1');
@@ -372,9 +372,9 @@ test('official and local invitations share strict device-only targeting', async 
       assert.equal(accountDeviceIdFromHash(`#/pair?${hash}`), null);
     }
   }
-  for (const base of ['https://evil.example/', 'https://remote.openbitfun.com.evil.example/v/1.0.0/',
-    'https://user@remote.openbitfun.com/v/1.0.2/', 'http://remote.openbitfun.com/v/1.0.2/',
-    'https://remote.openbitfun.com/relay/']) {
+  for (const base of ['https://evil.example/', 'https://obf.test.linkerpi.com.evil.example/',
+    'https://user@obf.test.linkerpi.com/', 'http://obf.test.linkerpi.com/',
+    'https://obf.test.linkerpi.com/relay/']) {
     assert.equal(pairingRelayUrl(base), null);
   }
   assert.equal(accountDeviceIdFromHash('#/pair?did=desktop'), 'desktop');
@@ -465,7 +465,7 @@ test('legacy v2 account proof remains readable and scoped for migration', () => 
   accountStore.saveCloudAccountSession(restored, storage);
   assert.deepEqual(JSON.parse(storage.getItem('openbitfun.mobile.account_session.v2')), JSON.parse(legacy));
   for (const [relay, username, controllerId] of [
-    ['https://remote.openbitfun.com/v/1.0.2', '', 'browser-a'],
+    ['https://obf.test.linkerpi.com', '', 'browser-a'],
     [storedAccount.relayUrl, '', 'browser-b'], [storedAccount.relayUrl, '456', 'browser-a'],
   ]) assert.equal(accountStore.loadMatchingCloudAccountSession(relay, username, controllerId, storage), null);
   assert.equal(storage.getItem('openbitfun.mobile.account_session.v2'), legacy);
