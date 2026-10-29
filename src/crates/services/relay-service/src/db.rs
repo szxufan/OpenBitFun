@@ -251,7 +251,20 @@ pub async fn connect_for_admin(db_path: &str) -> Result<DbPool> {
 }
 
 async fn connect_with_presence_reset(db_path: &str, reset_presence: bool) -> Result<DbPool> {
-    let options = SqliteConnectOptions::from_str(&format!("sqlite://{db_path}"))?
+    let url = if db_path == ":memory:" {
+        // A bare `:memory:` database is private to each connection, so an
+        // eight-connection pool would silently hand every connection its own
+        // empty schema. Callers that ask for `:memory:` expect one database
+        // shared by the whole pool; a uniquely named shared-cache memory
+        // database gives that while keeping separate calls isolated.
+        static SHARED_MEMORY_DB_SEQ: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
+        let seq = SHARED_MEMORY_DB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("sqlite://file:openbitfun_relay_memdb{seq}?mode=memory&cache=shared")
+    } else {
+        format!("sqlite://{db_path}")
+    };
+    let options = SqliteConnectOptions::from_str(&url)?
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)

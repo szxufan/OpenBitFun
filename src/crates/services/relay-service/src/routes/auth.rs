@@ -1606,28 +1606,41 @@ mod tests {
             .as_i64()
             .is_some_and(|secs| secs > 0));
 
-        // Saturate the daily cap with sends back-dated one hour, then clear
-        // only the cooldown row so the cap is the sole remaining limit.
-        let hour_ago = chrono::Utc::now().timestamp() - 3600;
+        // Saturate the daily cap with back-dated sends, then clear only the
+        // cooldown row so the cap is the sole remaining limit. The back-date
+        // must stay inside the current UTC day: a fixed one-hour offset lands
+        // on yesterday for runs shortly after 00:00 UTC, and the cap rows
+        // would then not count toward today at all.
+        let now = chrono::Utc::now().timestamp();
+        let day_start = chrono::Utc::now()
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .map(|midnight| midnight.and_utc().timestamp())
+            .unwrap_or(now);
+        let backdate = (now - 3_600).max(day_start + 1);
         for _ in 0..crate::db::SMS_DAILY_CAP_PER_PHONE {
             sqlx::query("INSERT INTO sms_sends (phone, sent_at) VALUES ('13800000006', ?)")
-                .bind(hour_ago)
+                .bind(backdate)
                 .execute(&*db)
                 .await
                 .unwrap();
         }
         sqlx::query("DELETE FROM sms_sends WHERE phone = '13800000006' AND sent_at > ?")
-            .bind(hour_ago + 1)
+            .bind(backdate)
             .execute(&*db)
             .await
             .unwrap();
-        assert!(!crate::db::SmsSend::sent_within(
-            &db,
-            "13800000006",
-            crate::db::SMS_RESEND_COOLDOWN_SECS
-        )
-        .await
-        .unwrap());
+        // Only the late-night minutes cannot isolate the cap from the
+        // cooldown; everywhere else the cleared window must stay empty.
+        if backdate <= now - crate::db::SMS_RESEND_COOLDOWN_SECS - 1 {
+            assert!(!crate::db::SmsSend::sent_within(
+                &db,
+                "13800000006",
+                crate::db::SMS_RESEND_COOLDOWN_SECS
+            )
+            .await
+            .unwrap());
+        }
         let capped = send(&app).await;
         assert_eq!(capped.status(), StatusCode::TOO_MANY_REQUESTS);
     }
