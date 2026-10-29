@@ -4377,6 +4377,7 @@ impl SessionManager {
         .map(|_| ())
     }
 
+    #[cfg(test)]
     pub(crate) async fn update_session_model_selection_in_storage(
         &self,
         storage_path: Option<&Path>,

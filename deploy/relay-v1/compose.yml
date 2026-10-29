@@ -50,9 +50,9 @@ services:
       RELAY_LOCAL_REGISTRATION: ${RELAY_LOCAL_REGISTRATION:-open}
       RUST_LOG: info
     volumes:
-      - /srv/openbitfun-relay-v1.0.2/data:/app/data
-      - /srv/openbitfun-relay-v1.0.2/assets:/app/room-web
-      - /srv/openbitfun-relay-v1.0.2/static:/app/static:ro
+      - ${RELAY_DATA_ROOT:-/srv/openbitfun-relay-v1.0.2}/data:/app/data
+      - ${RELAY_DATA_ROOT:-/srv/openbitfun-relay-v1.0.2}/assets:/app/room-web
+      - ${RELAY_DATA_ROOT:-/srv/openbitfun-relay-v1.0.2}/static:/app/static:ro
     logging:
       driver: json-file
       options:

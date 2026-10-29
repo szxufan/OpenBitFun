@@ -493,6 +493,9 @@
       "allSourceAgents": "全部 Agent",
       "sourceAgentLabel": "来自 {{name}} 的会话",
       "discoveryPartial": "部分外部会话无法发现，已有会话仍可使用。",
+      "discoveryWarningTitle": "外部会话发现",
+      "discoveryReadFailed": "部分 {{source}} 会话记录无法读取，已有会话仍可使用。",
+      "discoveryWorkspaceUnresolved": "部分 {{source}} 会话无法匹配到工作区，已有会话仍可使用。",
       "discoveringExternal": "正在发现外部会话…"
     },
     "scheduledJobs": {
@@ -1759,6 +1762,7 @@
     "panelView": "面板视图"
   },
   "sceneBar": {
+    "recentSessions": "最近打开的会话",
     "tabsLabel": "场景标签页",
     "scrollPrevious": "向左滚动标签页",
     "scrollNext": "向右滚动标签页",
@@ -2142,6 +2146,7 @@
       "targetIsPullRequest": "此条目是拉取请求，请按拉取请求打开，而不是按问题打开。"
     },
     "messages": {
+      "hostUnsupported": "当前设备不支持内置 PR 查看，请使用系统浏览器打开 PR 链接。",
       "noWorkspace": "没有可用的活动工作区。",
       "unsupportedLink": "此链接不是受支持的拉取请求链接。",
       "detailsFailed": "加载拉取请求详情失败。",

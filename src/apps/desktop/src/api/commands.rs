@@ -1260,7 +1260,7 @@ pub async fn test_image_generation_service(
     request: TestImageGenerationServiceRequest,
 ) -> Result<openbitfun_core::agentic::image_generation::ImageServiceTestOutcome, String> {
     const DEFAULT_PROMPT: &str =
-        "A simple red circle centered on a plain white background, flat vector style";
+        "A cute minimalist mascot icon with a rounded-rectangle body, two small friendly oval eyes, and a short top antenna ending in a round joystick knob. Use a playful, harmonious color palette selected randomly for each generation, with no fixed colors. Centered composition, clean uncluttered background, polished product illustration.";
 
     let prompt = request
         .prompt

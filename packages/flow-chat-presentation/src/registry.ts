@@ -74,6 +74,24 @@ export type ToolNameForOwner<Owner extends 'standard' | 'product'> = {
   [Name in RegisteredToolName]: typeof toolPresentationRegistry[Name]['owner'] extends Owner ? Name : never
 }[RegisteredToolName];
 
+/** Retained adapters for historical or explicitly configured calls, outside the current Lab catalog. */
+export const compatibilityToolPresentationOwners = {
+  AgentInterrupt: 'standard',
+  AgentDelete: 'standard',
+  Task: 'product',
+} as const;
+
+export type CompatibilityToolNameForOwner<Owner extends 'standard' | 'product'> = {
+  [Name in keyof typeof compatibilityToolPresentationOwners]: typeof compatibilityToolPresentationOwners[Name] extends Owner ? Name : never
+}[keyof typeof compatibilityToolPresentationOwners];
+
+/** Current tools whose request/result records use DefaultToolCard rather than a dedicated view. */
+export const genericToolNames: ReadonlySet<string> = new Set([
+  'AgentControl',
+  'ListWorkspaces',
+  'MiniAppBrowser',
+]);
+
 export const dedicatedToolNames: ReadonlySet<string> = new Set(Object.keys(toolPresentationRegistry));
 
 /** The public component catalog is distinct from the current product tool map. */

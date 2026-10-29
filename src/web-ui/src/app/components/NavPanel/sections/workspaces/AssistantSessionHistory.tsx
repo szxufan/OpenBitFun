@@ -1,9 +1,5 @@
-import { resolveAssistantName } from '@/shared/utils/assistantName';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Button, Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader,
-  DialogHeading, DialogTitle,
-} from '@openbitfun/ui';
+import { Button } from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
 import { getActiveSurfaceScope, isSurfaceChangedError } from '@/infrastructure/peer-device/deviceSurface';
 import { flowChatStore } from '@/flow_chat/store/FlowChatStore';
@@ -14,21 +10,19 @@ import { notificationService } from '@/shared/notification-system';
 import type { WorkspaceInfo } from '@/shared/types';
 import SessionsSection from '../sessions/SessionsSection';
 import { readAssistantDefaultSession, saveAssistantDefaultSession } from './assistantSessionPreferences';
-import './AssistantSessionHistoryDialog.scss';
+import './AssistantSessionHistory.scss';
 
 interface Props {
   workspace: WorkspaceInfo;
   isActive: boolean;
-  onClose: () => void;
 }
 
-export default function AssistantSessionHistoryDialog({ workspace, isActive, onClose }: Props) {
+export default function AssistantSessionHistory({ workspace, isActive }: Props) {
   const { t } = useI18n('common');
   const [preference, setPreference] = useState<{ supported: boolean; sessionId: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
-  const name = resolveAssistantName(workspace, t('shared:agents.Claw'));
 
   const loadPreference = useCallback(async () => {
     const scope = getActiveSurfaceScope();
@@ -78,42 +72,28 @@ export default function AssistantSessionHistoryDialog({ workspace, isActive, onC
       : !preference?.supported ? t('nav.sessions.defaultUnsupported') : undefined;
 
   return (
-    <Dialog open onOpenChange={open => { if (!open) onClose(); }} size="md">
-      <DialogHeader>
-        <DialogHeading>
-          <DialogTitle>{t('nav.sessions.assistantHistory', { name })}</DialogTitle>
-        </DialogHeading>
-        <DialogClose />
-      </DialogHeader>
-      <DialogBody className="assistant-session-history__body">
-        {loadFailed && (
-          <Button variant="text" size="sm" onClick={() => { void loadPreference(); }}>
-            {t('nav.sessions.defaultReadFailed')}
-          </Button>
-        )}
-        <div className="assistant-session-history" data-openbitfun-component="sessions-section" data-openbitfun-part="root">
-          <SessionsSection
-            workspaceId={workspace.id}
-            workspacePath={workspace.rootPath}
-            isActiveWorkspace={isActive}
-            layout="flat"
-            onSessionOpened={onClose}
-            defaultSessionAction={{
-              sessionId: preference?.sessionId ?? null,
-              disabled: Boolean(disabledReason) || saving,
-              disabledReason,
-              onChange: sessionId => { void changeDefault(sessionId); },
-            }}
-          />
-        </div>
-      </DialogBody>
-      {preference?.sessionId && (
-        <DialogFooter>
-          <Button variant="text" size="sm" disabled={saving || loading || loadFailed} onClick={() => { void changeDefault(null); }}>
-            {t('nav.sessions.clearDefault')}
-          </Button>
-        </DialogFooter>
+    <div className="assistant-session-history" data-openbitfun-component="sessions-section" data-openbitfun-part="root">
+      {loadFailed && (
+        <Button variant="text" size="sm" onClick={() => { void loadPreference(); }}>
+          {t('nav.sessions.defaultReadFailed')}
+        </Button>
       )}
-    </Dialog>
+      <SessionsSection
+        workspaceId={workspace.id}
+        workspacePath={workspace.rootPath}
+        isActiveWorkspace={isActive}
+        defaultSessionAction={{
+          sessionId: preference?.sessionId ?? null,
+          disabled: Boolean(disabledReason) || saving,
+          disabledReason,
+          onChange: sessionId => { void changeDefault(sessionId); },
+        }}
+      />
+      {preference?.sessionId && (
+        <Button variant="text" size="sm" disabled={saving || loading || loadFailed} onClick={() => { void changeDefault(null); }}>
+          {t('nav.sessions.clearDefault')}
+        </Button>
+      )}
+    </div>
   );
 }

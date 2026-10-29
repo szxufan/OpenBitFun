@@ -597,6 +597,7 @@ impl AIClientFactory {
             })
     }
 
+    #[cfg(test)]
     pub(crate) async fn account_client_source(
         self: &Arc<Self>,
         model_id: &str,

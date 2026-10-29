@@ -297,6 +297,7 @@ run the subscription-auth command below after changing those interpretations.
 ```bash
 cargo test -p openbitfun-agent-stream
 cargo test -p openbitfun-ai-adapters
+cargo test --locked -p openbitfun-ai-adapters --lib client::healthcheck::tests
 cargo test --locked -p openbitfun-ai-adapters --lib providers::anthropic::request::tests
 cargo test -p openbitfun-ai-adapters --lib opencode_catalog
 cargo test --locked -p openbitfun-ai-adapters --lib providers::opencode::tests

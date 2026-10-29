@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Activity, AlertTriangle, Database, FileText, GitCompare, ShieldCheck, Wrench } from 'lucide-react';
 import { MarkdownRenderer } from '@/infrastructure/markdown';
 import { Checkbox, Button, OverflowText, TabGroup, Tooltip } from '@openbitfun/ui';
-import { snapshotAPI } from '@/infrastructure/api';
+import { snapshotAPI } from '@/infrastructure/api/service-api/SnapshotAPI';
 import type { SessionUsageReport } from '@/infrastructure/api/service-api/SessionAPI';
 import { globalEventBus } from '@/infrastructure/event-bus';
 import { createDiffEditorTab } from '@/shared/utils/tabUtils';

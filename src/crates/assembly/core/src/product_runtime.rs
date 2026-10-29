@@ -1305,6 +1305,7 @@ impl CoreAgentRuntimeCompatibility {
         #[cfg(feature = "external-sources")]
         {
             page.discovery_warnings.extend(warnings.warnings);
+            page.discovery_diagnostics.extend(warnings.diagnostics);
             page.discovery_pending = warnings.pending;
         }
         Ok(page)

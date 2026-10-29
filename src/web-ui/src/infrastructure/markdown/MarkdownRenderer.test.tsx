@@ -14,6 +14,9 @@ import { appManager } from '@/app/services/AppManager';
 import { flowChatStore } from '@/flow_chat/store/FlowChatStore';
 import type { Session } from '@/flow_chat/types/flow-chat';
 import { activateSurface, getActiveSurfaceId } from '@/infrastructure/peer-device/deviceSurface';
+import { PeerDeviceContext, type PeerDeviceContextValue } from '@/infrastructure/peer-device/peerDeviceContextState';
+import type { PeerHostCapabilities } from '@/infrastructure/peer-device/PeerConnectionManager';
+import { useFlowChatHttpLinkClick } from '@/flow_chat/components/modern/useFlowChatHttpLinkClick';
 
 /** The chat session's workspace record; content opened from chat links is routed by its ID. */
 const SESSION_WORKSPACE = vi.hoisted(() => ({
@@ -46,6 +49,10 @@ vi.mock('@/infrastructure/api', () => ({
   systemAPI: {
     openExternal: (...args: unknown[]) => mocks.openExternal(...args),
   },
+}));
+
+vi.mock('@/infrastructure/api/service-api/SystemAPI', () => ({
+  systemAPI: { openExternal: (...args: unknown[]) => mocks.openExternal(...args) },
 }));
 
 vi.mock('@/infrastructure/i18n', () => ({
@@ -120,6 +127,34 @@ vi.mock('@/infrastructure/services/business/workspaceManager', () => ({
 const EXAMPLE_WORKSPACE = 'C:\\ExampleWorkspace';
 const EXAMPLE_ABSOLUTE_README = 'D:\\SampleDocs\\Guides\\README.md';
 
+function ChatPullRequestLink({ url, workspaceId = SESSION_WORKSPACE.id }: { url: string; workspaceId?: string }) {
+  const onHttpLinkClick = useFlowChatHttpLinkClick(workspaceId, SESSION_WORKSPACE.rootPath);
+  return <MarkdownRenderer content={`[PR](${url})`} onHttpLinkClick={onHttpLinkClick} />;
+}
+
+function peerContext(capabilities: Partial<PeerHostCapabilities> | null): PeerDeviceContextValue {
+  return {
+    peerMode: { active: true, deviceId: 'linux-peer', deviceName: 'Linux CLI' },
+    attachments: [],
+    currentPeerCapabilities: capabilities === null ? null : {
+      idempotentDialogSubmit: false,
+      targetedSessionRollback: false,
+      tokenUsageStatistics: false,
+      miniAppAgentContextFilesV1: false,
+      miniAppAgentImagesV1: false,
+      cancelTool: null,
+      toolCatalog: null,
+      userQuestionResponse: null,
+      hostKind: null,
+      ...capabilities,
+    },
+    switchToDevice: vi.fn(),
+    switchToLocal: vi.fn(),
+    disconnectDevice: vi.fn(),
+    disconnectAllDevices: vi.fn(),
+  };
+}
+
 describe('Markdown file links', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -170,6 +205,7 @@ describe('Markdown file links', () => {
     mocks.revealInExplorer.mockReset();
     mocks.readFileContent.mockReset();
     mocks.openExternal.mockReset();
+    mocks.openExternal.mockResolvedValue(undefined);
     mocks.openFileInBestTarget.mockReset();
     mocks.openHtmlFileInExternalBrowser.mockReset();
     mocks.renderMath.mockReset();
@@ -477,6 +513,88 @@ Second paragraph.
     } finally {
       useAgentCanvasStore.getState().reset();
     }
+  });
+
+  it.each([
+    ['legacy CLI', { hostKind: 'cli' }],
+    ['unprobed peer', null],
+    ['unknown peer', { hostKind: null }],
+    ['explicitly unsupported Desktop', { hostKind: 'desktop', reviewPlatformV1: false }],
+  ] as const)('opens PR links in the system browser for %s without creating a panel', async (_label, capabilities) => {
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+    activateSurface('linux-peer');
+    openSessionHost();
+    const url = 'https://github.com/GCWing/OpenBitFun/pull/3573/files?diff=split#diff-example';
+    await act(async () => root.render(
+      <PeerDeviceContext.Provider value={peerContext(capabilities)}>
+        <ChatPullRequestLink url={url} />
+      </PeerDeviceContext.Provider>,
+    ));
+    await act(async () => container.querySelector<HTMLAnchorElement>('a')?.click());
+
+    expect(mocks.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+    expect(useAgentCanvasStore.getState().primaryGroup.tabs).toHaveLength(0);
+    expect(selectSessionPaneMode(sessionPaneLayoutStore.getState())).toBe('chat-only');
+    expect(mocks.getCurrentWorkspacePath).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['local', null],
+    ['legacy Desktop', peerContext({ hostKind: 'desktop' })],
+    ['capable peer', peerContext({ hostKind: 'cli', reviewPlatformV1: true })],
+  ] as const)('keeps supported PR links in the detail panel on %s', async (_label, peer) => {
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+    if (peer) activateSurface('linux-peer');
+    openSessionHost();
+    const url = 'https://github.com/GCWing/OpenBitFun/pull/3573';
+    await act(async () => root.render(
+      <PeerDeviceContext.Provider value={peer}>
+        <ChatPullRequestLink url={url} />
+      </PeerDeviceContext.Provider>,
+    ));
+    await act(async () => container.querySelector<HTMLAnchorElement>('a')?.click());
+
+    expect(mocks.openExternal).not.toHaveBeenCalled();
+    expect(useAgentCanvasStore.getState().primaryGroup.tabs).toHaveLength(1);
+    expect(useAgentCanvasStore.getState().primaryGroup.tabs[0].content).toMatchObject({
+      type: 'review-platform-pr-detail',
+      data: { workspaceId: SESSION_WORKSPACE.id, pullRequestId: '3573', pullRequestUrl: url },
+    });
+  });
+
+  it('updates PR link routing when switching from a Desktop peer to a CLI peer', async () => {
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+    const url = 'https://gitlab.example.com/team/repo/-/merge_requests/12';
+    const renderLink = (hostKind: 'desktop' | 'cli') => root.render(
+      <PeerDeviceContext.Provider value={peerContext({ hostKind })}>
+        <ChatPullRequestLink url={url} />
+      </PeerDeviceContext.Provider>,
+    );
+    await act(async () => renderLink('desktop'));
+    await act(async () => renderLink('cli'));
+    await act(async () => container.querySelector<HTMLAnchorElement>('a')?.click());
+    expect(mocks.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+    expect(useAgentCanvasStore.getState().primaryGroup.tabs).toHaveLength(0);
+  });
+
+  it.each(['metaKey', 'ctrlKey', 'shiftKey', 'altKey'])('honors %s on a PR link', async modifier => {
+    container.className = 'openbitfun-session-scene modern-flowchat-container';
+    openSessionHost();
+    const url = 'https://github.com/GCWing/OpenBitFun/pull/3573';
+    await act(async () => root.render(<ChatPullRequestLink url={url} />));
+    await act(async () => container.querySelector<HTMLAnchorElement>('a')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true, [modifier]: true }),
+    ));
+    expect(mocks.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+    expect(useAgentCanvasStore.getState().primaryGroup.tabs).toHaveLength(0);
+  });
+
+  it('opens PR links without a workspace in the system browser', async () => {
+    const url = 'https://gitee.com/team/repo/pulls/12';
+    await act(async () => root.render(<ChatPullRequestLink url={url} workspaceId="" />));
+    await act(async () => container.querySelector<HTMLAnchorElement>('a')?.click());
+    expect(mocks.openExternal).toHaveBeenCalledExactlyOnceWith(url);
+    expect(useAgentCanvasStore.getState().primaryGroup.tabs).toHaveLength(0);
   });
 
   it('opens chat http links in the built-in browser by default', async () => {

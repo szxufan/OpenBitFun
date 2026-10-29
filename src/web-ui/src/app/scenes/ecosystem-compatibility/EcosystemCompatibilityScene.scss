@@ -57,22 +57,6 @@
     max-inline-size: 100%;
   }
 
-  &__brand-image {
-    display: block;
-    flex: none;
-    object-fit: contain;
-    user-select: none;
-  }
-
-  &__brand-image--monochrome {
-    max-inline-size: 100%;
-    max-block-size: 100%;
-    background-color: currentColor;
-    mask-position: center;
-    mask-size: contain;
-    mask-repeat: no-repeat;
-  }
-
   &__main {
     min-inline-size: 0;
     display: flex;

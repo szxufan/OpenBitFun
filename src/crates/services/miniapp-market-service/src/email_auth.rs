@@ -433,9 +433,10 @@ impl AuthService {
                 return_to,
                 ..
             } => (session_token, return_to),
-            CompletedOAuth::Desktop { session_token, .. } => {
-                (session_token, "https://auth.openbitfun.com/complete".into())
-            }
+            CompletedOAuth::Desktop { session_token, .. } => (
+                session_token,
+                format!("{}/complete", self.config.auth_base_url()),
+            ),
         };
         let grant = random_token(32);
         let now = Utc::now().timestamp();
@@ -489,7 +490,9 @@ mod tests {
             database_path: dir.path().join("db"),
             artifact_dir: dir.path().join("artifacts"),
             web_dir: dir.path().into(),
-            github_callback_url: None,
+            github_callback_url: Some(
+                "https://auth.openbitfun.com/api/v1/auth/github/callback".into(),
+            ),
             github_client_id: Some("id".into()),
             github_client_secret: Some("secret".into()),
             session_secret: "test-only-session-secret-at-least-24".into(),

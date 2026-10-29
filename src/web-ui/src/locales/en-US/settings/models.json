@@ -53,6 +53,9 @@
     "rescan": "Refresh status",
     "import": "Use as model",
     "login": "Sign in",
+    "loginTitle": "{{provider}} sign-in",
+    "backToProviders": "Back to providers",
+    "cancelAndBack": "Cancel sign-in and go back",
     "browserLogin": "Browser sign-in",
     "deviceLogin": "Device-code sign-in",
     "cancel": "Cancel",
@@ -70,6 +73,8 @@
     "userCodeHint": "Enter this code in the browser: {{code}}",
     "openUrlManually": "Could not open the browser automatically. Open this URL manually: {{url}}",
     "expiresAt": "Authorization valid until {{time}}",
+    "expiresIn": "Authorization expires in {{time}}",
+    "authorizationExpired": "Authorization expired",
     "tokenValid": "Connected",
     "notSignedIn": "Not signed in",
     "label": "Authentication",
@@ -86,18 +91,22 @@
       "zcode": "ZCode"
     },
     "details": {
-      "codex": "ChatGPT subscription",
-      "antigravity": "Google subscription",
-      "opencode": "Console · Zen",
-      "grok": "SuperGrok subscription",
-      "hermes": "Nous Portal subscription",
+      "codex": "ChatGPT",
+      "antigravity": "Google",
+      "opencode": "Zen",
+      "grok": "SuperGrok",
+      "hermes": "Nous Portal",
       "workbuddy": "Removed · vendor no longer supports sign-in",
       "workbuddy_ai": "Removed · international",
-      "zcode": "GLM Coding Plan"
+      "zcode": "GLM Coding"
     },
     "regions": {
-      "zai": "Z.ai",
+      "zai": "Z.ai (International)",
       "bigmodel": "BigModel (China)"
+    },
+    "regionsShort": {
+      "zai": "Global",
+      "bigmodel": "China"
     },
     "options": {
       "opencode": "OpenCode",
@@ -243,6 +252,14 @@
       "urlOptions": {
         "default": "Anthropic Format",
         "openai": "OpenAI Compatible Format - Default"
+      }
+    },
+    "openai": {
+      "name": "OpenAI",
+      "description": "OpenAI GPT and reasoning models",
+      "urlOptions": {
+        "default": "Responses API - Default",
+        "chatCompletions": "Chat Completions API"
       }
     },
     "gemini": {
@@ -737,10 +754,12 @@
     "subscriptions": "Subscriptions",
     "importedSummary": "{{models}} models imported from {{providers}} services",
     "noneImported": "No subscriptions imported yet",
-    "import": "Import",
+    "addSubscription": "Add subscription",
     "importTitle": "Import subscriptions",
     "loadFailed": "Could not load subscriptions. Retry to refresh; existing model configurations are retained.",
-    "noServices": "No subscriptions are available to import on this host"
+    "noServices": "No subscriptions are available to import on this host",
+    "more": "More",
+    "noSignedInAccounts": "No signed-in accounts"
   },
   "selectionModes": {
     "unavailable": "Not available yet",
@@ -842,6 +861,15 @@
       "connected": "Connected",
       "failed": "Connection failed",
       "unconfigured": "No available model configured"
+    },
+    "connectionFailures": {
+      "protocol": "Choose an OpenAI Chat Completions classifier service that returns token IDs and logprobs",
+      "authentication": "Router authentication failed; check the API key and service permissions",
+      "addressOrModel": "Check the Router service address and model name; the endpoint or model may not exist",
+      "rateLimited": "Router requests are rate limited; wait and retry",
+      "serviceUnavailable": "The Router service is temporarily unavailable; wait and retry",
+      "http": "The Router returned an unsuccessful HTTP response; check service settings and retry",
+      "network": "The Router could not be reached or timed out; check the service, network, and timeout settings"
     },
     "notReady": "Router not ready",
     "unsupported": "This execution host does not support smart routing",

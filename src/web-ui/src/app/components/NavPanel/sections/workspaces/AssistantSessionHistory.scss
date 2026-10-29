@@ -1,17 +1,4 @@
 .assistant-session-history {
-  &__body {
-    padding-inline: var(--openbitfun-overlay-dialog-header-padding-inline);
-  }
-
-  .openbitfun-nav-panel__inline-list.is-flat-workspace-view {
-    --openbitfun-nav-session-rail: var(--openbitfun-space-2);
-
-    // Text follows the dialog heading; row feedback extends into the gutter.
-    max-width: none;
-    margin-inline: calc(-1 * var(--openbitfun-space-2));
-    padding-block: 0;
-  }
-
   .openbitfun-nav-panel__inline-item,
   .openbitfun-nav-panel__inline-toggle {
     padding-right: var(--openbitfun-space-2);

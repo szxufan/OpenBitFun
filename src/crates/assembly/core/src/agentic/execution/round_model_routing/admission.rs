@@ -98,8 +98,8 @@ impl RouterAdmission {
         Ok(gate)
     }
 
-    /// Compatibility for callers without a task hierarchy, including old probes.
-    /// Each anonymous request is an independent fair-share participant.
+    /// Give each anonymous test request an independent fair-share participant.
+    #[cfg(test)]
     pub(super) async fn acquire(
         self: &Arc<Self>,
         deadline: Instant,

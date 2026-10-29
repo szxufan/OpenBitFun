@@ -386,7 +386,6 @@ const ExecutionSettingsPage: React.FC = () => {
 
           <ConfigPageSection
             title={t('deferredToolLoading.sectionTitle')}
-            description={t('deferredToolLoading.sectionDescription')}
           >
             <ConfigPageRow
               label={t('common.enable')}
@@ -405,7 +404,6 @@ const ExecutionSettingsPage: React.FC = () => {
 
           <ConfigPageSection
             title={t('toolPresentation.sectionTitle')}
-            description={t('toolPresentation.sectionDescription')}
           >
             <ConfigPageRow
               label={t('toolPresentation.mode')}
@@ -430,7 +428,6 @@ const ExecutionSettingsPage: React.FC = () => {
           {/* ── Tool execution behavior ────────────────────────────── */}
           <ConfigPageSection
             title={t('toolExecution.sectionTitle')}
-            description={t('toolExecution.sectionDescription')}
           >
             <ConfigPageRow
               label={tTools('config.executionTimeout')}
@@ -474,7 +471,6 @@ const ExecutionSettingsPage: React.FC = () => {
 
           <ConfigPageSection
             title={tTools('section.subagents.title')}
-            description={tTools('section.subagents.description')}
           >
             <ConfigPageRow
               className="openbitfun-runtime-settings__subagent-model-row"

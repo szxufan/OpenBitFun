@@ -907,7 +907,8 @@ pub struct ImageGenerationParams {
     pub n: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negative_prompt: Option<String>,
-    /// OpenAI Images quality preset (`auto` / `low` / `medium` / `high`).
+    /// OpenAI Images quality preset (`auto` / `low` / `medium` / `high` /
+    /// `xhigh` / `max`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<String>,
     /// OpenAI Images background (`auto` / `opaque` / `transparent`).

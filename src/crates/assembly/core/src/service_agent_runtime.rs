@@ -4412,39 +4412,46 @@ mod tests {
     }
 
     #[test]
-    fn remote_model_strategy_guard_distinguishes_legacy_children_from_smart_main_sessions() {
+    fn remote_model_strategy_guard_preserves_stored_intent_in_closed_release() {
         use crate::agentic::core::SessionConfig;
+        use crate::agentic::execution::round_model_routing::configuration::available;
+
+        assert!(!available());
 
         let mut session = Session::new(
             "Model selection".into(),
             "Standard".into(),
             SessionConfig {
                 model_id: Some("saved-model".into()),
-                model_routing: Some("manual".into()),
+                model_routing: Some("smart".into()),
                 ..Default::default()
             },
         );
-        assert!(ensure_remote_model_strategy_editable(&session).is_ok());
-        session.config.model_routing = Some("smart".into());
-        // The release gate keeps smart routing off; a saved "smart" selection
-        // only blocks remote edits once the gate is flipped back on.
-        if crate::agentic::execution::round_model_routing::configuration::available() {
-            assert!(ensure_remote_model_strategy_editable(&session)
-                .unwrap_err()
-                .contains("Smart routing is active"));
-        } else {
-            assert!(ensure_remote_model_strategy_editable(&session).is_ok());
+        // Persisted Smart intent must not block explicit model selection while
+        // routing is unavailable, or be rewritten by this read-only guard.
+        for mode in [None, Some("manual"), Some("smart")] {
+            session.config.model_routing = mode.map(str::to_owned);
+            let before = serde_json::to_value(&session).unwrap();
+            assert_eq!(ensure_remote_model_strategy_editable(&session), Ok(()));
+            assert_eq!(serde_json::to_value(&session).unwrap(), before);
         }
+
+        session.config.model_routing = Some("future-mode".into());
+        let before = serde_json::to_value(&session).unwrap();
+        assert!(ensure_remote_model_strategy_editable(&session)
+            .unwrap_err()
+            .contains("Unsupported model routing strategy"));
+        assert_eq!(serde_json::to_value(&session).unwrap(), before);
 
         session.kind = SessionKind::Subagent;
         session.config.delegation_model_routing = Some("smart".into());
-        for mode in ["smart", "manual", "future-mode"] {
-            session.config.model_routing = Some(mode.into());
-            let before = serde_json::to_value(&session.config).unwrap();
+        for mode in [None, Some("smart"), Some("manual"), Some("future-mode")] {
+            session.config.model_routing = mode.map(str::to_owned);
+            let before = serde_json::to_value(&session).unwrap();
             let error = ensure_remote_model_strategy_editable(&session).unwrap_err();
             assert!(error.contains("Subagent models are configured independently"));
             assert!(!error.contains("Smart routing is active"));
-            assert_eq!(serde_json::to_value(&session.config).unwrap(), before);
+            assert_eq!(serde_json::to_value(&session).unwrap(), before);
         }
     }
 

@@ -3422,6 +3422,8 @@
     "model": "Model",
     "modelExplanation": "Model explanation",
     "modelSettings": "Model settings",
+    "configure": "Configure models",
+    "noModelSelected": "No model selected",
     "modelSelection": "Select Model",
     "searchModels": "Search models",
     "collapseSearch": "Collapse search",

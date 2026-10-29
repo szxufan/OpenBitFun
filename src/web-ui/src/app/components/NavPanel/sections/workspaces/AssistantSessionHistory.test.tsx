@@ -17,7 +17,7 @@ vi.mock('@/flow_chat/store/FlowChatStore', () => ({
 vi.mock('../sessions/SessionsSection', () => ({
   default: ({ defaultSessionAction: action, onSessionOpened }: {
     defaultSessionAction: { sessionId: string | null; disabled: boolean; onChange: (id: string) => void };
-    onSessionOpened: () => void;
+    onSessionOpened?: () => void;
   }) => <>
     <span data-default={action.sessionId ?? ''} />
     <button data-set-default disabled={action.disabled} onClick={() => action.onChange('chosen')}>Pin</button>
@@ -25,25 +25,21 @@ vi.mock('../sessions/SessionsSection', () => ({
   </>,
 }));
 vi.mock('@openbitfun/ui', () => {
-  const Wrapper = ({ children }: React.PropsWithChildren) => <div>{children}</div>;
   return {
-    Dialog: Wrapper, DialogBody: Wrapper, DialogFooter: Wrapper, DialogHeader: Wrapper,
-    DialogHeading: Wrapper, DialogTitle: Wrapper, DialogClose: () => null,
     Button: ({ children, disabled, onClick }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
       <button disabled={disabled} onClick={onClick}>{children}</button>
     ),
   };
 });
 
-import AssistantSessionHistoryDialog from './AssistantSessionHistoryDialog';
+import AssistantSessionHistory from './AssistantSessionHistory';
 
 describe('assistant history default selection', () => {
   let root: Root;
   let container: HTMLDivElement;
   const workspace = { id: 'assistant', name: 'Assistant', rootPath: '/assistant', workspaceKind: 'assistant' } as WorkspaceInfo;
-  const onClose = vi.fn();
   const render = async () => {
-    await act(async () => root.render(<AssistantSessionHistoryDialog workspace={workspace} isActive onClose={onClose} />));
+    await act(async () => root.render(<AssistantSessionHistory workspace={workspace} isActive />));
   };
   beforeEach(() => {
     vi.clearAllMocks();
@@ -67,7 +63,6 @@ describe('assistant history default selection', () => {
     await act(async () => clear.click());
     expect(mocks.save).toHaveBeenLastCalledWith('assistant', null);
     expect(container.querySelector('[data-default]')?.getAttribute('data-default')).toBe('');
-    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('retains the previous default if saving fails', async () => {
@@ -83,7 +78,8 @@ describe('assistant history default selection', () => {
     await render();
     expect(container.querySelector<HTMLButtonElement>('[data-set-default]')!.disabled).toBe(true);
     await act(async () => container.querySelector<HTMLButtonElement>('[data-open-session]')!.click());
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(container.querySelector('[data-open-session]')).not.toBeNull();
+    expect(container.querySelector('[data-set-default]')).not.toBeNull();
     expect(mocks.save).not.toHaveBeenCalled();
   });
 });

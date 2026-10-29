@@ -53,6 +53,9 @@
     "rescan": "重新整理狀態",
     "import": "匯入使用",
     "login": "登入",
+    "loginTitle": "{{provider}} 登入",
+    "backToProviders": "返回服務商清單",
+    "cancelAndBack": "取消登入並返回",
     "browserLogin": "瀏覽器登入",
     "deviceLogin": "裝置碼登入",
     "cancel": "取消",
@@ -70,6 +73,8 @@
     "userCodeHint": "請在瀏覽器中輸入驗證碼：{{code}}",
     "openUrlManually": "無法自動開啟瀏覽器，請手動造訪：{{url}}",
     "expiresAt": "授權有效期至 {{time}}",
+    "expiresIn": "授權有效期：{{time}}",
+    "authorizationExpired": "授權已過期",
     "tokenValid": "已連接",
     "notSignedIn": "未登入",
     "label": "認證方式",
@@ -86,18 +91,22 @@
       "zcode": "ZCode"
     },
     "details": {
-      "codex": "ChatGPT 訂閱",
-      "antigravity": "Google 訂閱",
-      "opencode": "Console · Zen",
-      "grok": "SuperGrok 訂閱",
-      "hermes": "Nous Portal 訂閱",
+      "codex": "ChatGPT",
+      "antigravity": "Google",
+      "opencode": "Zen",
+      "grok": "SuperGrok",
+      "hermes": "Nous Portal",
       "workbuddy": "已下線 · 廠商不再支援訂閱授權",
       "workbuddy_ai": "已下線 · 國際版",
-      "zcode": "GLM Coding Plan"
+      "zcode": "GLM Coding"
     },
     "regions": {
-      "zai": "Z.ai",
-      "bigmodel": "智譜"
+      "zai": "Z.ai（國際版）",
+      "bigmodel": "智譜 BigModel（中國版）"
+    },
+    "regionsShort": {
+      "zai": "國際",
+      "bigmodel": "國內"
     },
     "options": {
       "opencode": "OpenCode",
@@ -243,6 +252,14 @@
       "urlOptions": {
         "default": "Anthropic格式",
         "openai": "OpenAI兼容格式-默認"
+      }
+    },
+    "openai": {
+      "name": "OpenAI",
+      "description": "OpenAI GPT 與推理模型",
+      "urlOptions": {
+        "default": "Responses API（預設）",
+        "chatCompletions": "Chat Completions API"
       }
     },
     "gemini": {
@@ -737,10 +754,12 @@
     "subscriptions": "訂閱服務",
     "importedSummary": "已匯入 {{providers}} 個服務，共 {{models}} 個模型",
     "noneImported": "尚未匯入訂閱服務",
-    "import": "匯入",
+    "addSubscription": "新增訂閱",
     "importTitle": "匯入訂閱服務",
     "loadFailed": "無法讀取訂閱服務，請重試；既有模型設定仍會保留",
-    "noServices": "目前主機沒有可匯入的訂閱服務"
+    "noServices": "目前主機沒有可匯入的訂閱服務",
+    "more": "更多",
+    "noSignedInAccounts": "暫無已登入帳號"
   },
   "selectionModes": {
     "unavailable": "暫未開放",
@@ -842,6 +861,15 @@
       "connected": "連線正常",
       "failed": "連線失敗",
       "unconfigured": "尚未設定可用模型"
+    },
+    "connectionFailures": {
+      "protocol": "請選擇支援 OpenAI Chat Completions 且回傳 token IDs 和 logprobs 的分類服務",
+      "authentication": "Router 驗證失敗，請檢查 API Key 和服務存取權限",
+      "addressOrModel": "請檢查 Router 服務位址和模型名稱，介面或模型可能不存在",
+      "rateLimited": "Router 請求受到速率限制，請稍後重試",
+      "serviceUnavailable": "Router 服務暫時無法使用，請稍後重試",
+      "http": "Router 回傳非成功的 HTTP 回應，請檢查服務設定後重試",
+      "network": "無法連線至 Router 或請求逾時，請檢查服務、網路和逾時設定"
     },
     "notReady": "路由未就緒",
     "unsupported": "目前執行端不支援智慧路由",

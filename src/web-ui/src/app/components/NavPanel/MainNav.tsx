@@ -333,7 +333,7 @@ const MainNav: React.FC = () => {
             />
           </StickySectionHeader>
           <div ref={sessionContentRef} className="openbitfun-nav-panel__items" data-openbitfun-component="nav-panel" data-openbitfun-part="sectionContent">
-            <WorkspaceListSection variant="all" />
+            <WorkspaceListSection variant="all" scrollRootRef={sectionsScrollRef} />
           </div>
         </div>
         </div>

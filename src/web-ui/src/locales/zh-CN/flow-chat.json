@@ -3422,6 +3422,8 @@
     "model": "模型",
     "modelExplanation": "模型说明",
     "modelSettings": "模型设置",
+    "configure": "配置模型",
+    "noModelSelected": "未选择模型",
     "modelSelection": "选择模型",
     "searchModels": "搜索模型",
     "collapseSearch": "收起搜索",

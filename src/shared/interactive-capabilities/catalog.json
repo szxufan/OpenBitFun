@@ -290,6 +290,7 @@
     ],
     "htmlPreview": [
       "html_preview_create",
+      "html_preview_read_resource",
       "html_preview_release"
     ],
     "githubDeviceRouting": [
@@ -4012,14 +4013,14 @@
       ],
       "highlightsZh": [
         "按已识别与更多应用浏览；可发现表示支持查找，分类状态表示当前结果",
-        "自动发现只控制列表更新；关闭后保留结果，仍可手动刷新，已接入的功能照常运行",
+        "自动发现控制列表更新；关闭后立即隐藏对应来源的跟随会话，已分叉副本继续保留",
         "审阅并导入受支持的 Skill、MCP 与 Hook；Command、Tool、子智能体暂无副本导入",
         "已导入表示副本已保存；在对应管理页确认启用与连接",
         "Codex、Zcode 会话按工作区自动发现；打开来源时刷新历史，首次发送创建独立分支，可移除和重新添加来源"
       ],
       "highlightsEn": [
         "Browse identified and more apps; discovery coverage and current category results are separate",
-        "Automatic discovery controls list updates; pausing retains results and allows manual refresh without changing active integrations",
+        "Automatic discovery controls list updates; disabling immediately hides source-following sessions while retaining local forks",
         "Review and import supported Skills, MCP and Hooks; command, tool and subagent copy import is unavailable",
         "Imported means a copy was saved; confirm activation and connection in the relevant settings",
         "Discover Codex and Zcode sessions by workspace, refresh history on open, continue in a new branch on first send, and remove or restore source views"
@@ -4211,14 +4212,14 @@
       ],
       "stepsZh": [
         "打开“外部导入”并选择应用",
-        "在左侧导航搜索框上方切换自动发现，悬停查看说明；关闭后保留结果，也可手动刷新",
+        "在左侧导航搜索框上方切换自动发现，悬停查看说明；关闭后立即隐藏对应来源的跟随会话，已分叉副本继续保留",
         "查看分类状态，打开分类弹窗浏览、搜索并选择内容",
         "审阅可导入项目并确认创建副本；Command、Tool、子智能体按已有兼容功能使用",
         "前往对应管理页确认副本启用或连接；当前页不将“已导入”视为可用"
       ],
       "stepsEn": [
         "Open External Import and choose an app",
-        "Toggle automatic discovery above the sidebar search and hover for details; pausing retains results and manual refresh remains available",
+        "Toggle automatic discovery above the sidebar search and hover for details; disabling immediately hides source-following sessions while local forks remain visible",
         "Inspect category status, then open a category dialog to browse, search, and select content",
         "Review importable items and confirm copies; use commands, tools and subagents through existing compatibility features",
         "Confirm copy activation or connection in the relevant settings; Imported does not mean available"

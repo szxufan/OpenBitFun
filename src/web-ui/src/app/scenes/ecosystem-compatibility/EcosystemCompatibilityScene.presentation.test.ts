@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ExternalSourceCatalogSnapshot } from '@/infrastructure/api/service-api/ExternalSourcesAPI';
+import { getProductBrandIcon } from '@/shared/ui/productBrandIcons';
 import {
   buildEcosystemImportItems,
   buildEcosystemProductRuntimes,
@@ -364,20 +365,19 @@ describe('ecosystem compatibility scene presentation contract', () => {
 
   it('uses locally cached official product marks instead of generic product glyphs', () => {
     const scene = source('./EcosystemCompatibilityScene.tsx');
-    const assetRoot = '../../../../public/assets/ecosystem-compatibility/';
-
-    for (const file of [
-      'claude-code.svg',
-      'codex.svg',
-      'pi.svg',
-      'deepseek-harness.svg',
-      'opencode.svg',
-    ]) {
-      expect(source(`${assetRoot}${file}`)).toContain('<svg');
-      expect(scene).toContain(`/assets/ecosystem-compatibility/${file}`);
+    for (const productId of ['claude-code', 'codex', 'zcode', 'pi', 'dsh', 'opencode', 'cursor']) {
+      const icon = getProductBrandIcon(productId);
+      expect(icon).toBeDefined();
+      for (const path of [icon!.src, icon!.darkSrc].filter(Boolean)) {
+        expect(path).toMatch(/^\/assets\/ecosystem-compatibility\//);
+        expect(source(`../../../../public${path}`).length).toBeGreaterThan(0);
+      }
     }
-    expect(scene).toContain('<EcosystemProductIcon productId={runtime.spec.id} />');
-    expect(scene).toContain('<EcosystemProductIcon productId={selectedRuntime.spec.id} size={38} />');
+    expect(getProductBrandIcon('zcode_cn')).toBe(getProductBrandIcon('zcode'));
+    expect(scene).toContain("from '@/shared/ui/ProductBrandIcon'");
+    expect(scene).toContain('<ProductBrandIcon productId={runtime.spec.id} size="100%" />');
+    expect(scene).toContain('<ProductBrandIcon productId={selectedRuntime.spec.id} size={38} />');
+    expect(scene).not.toContain('PRODUCT_ICON_SOURCES');
     expect(scene).not.toContain('PRODUCT_FALLBACK_ICONS');
     expect(scene).not.toContain("'other-acp'");
   });

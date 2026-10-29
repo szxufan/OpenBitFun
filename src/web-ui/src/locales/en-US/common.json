@@ -493,6 +493,9 @@
       "allSourceAgents": "All agents",
       "sourceAgentLabel": "Imported from {{name}}",
       "discoveryPartial": "Some external sessions could not be discovered. Existing sessions remain available.",
+      "discoveryWarningTitle": "External session discovery",
+      "discoveryReadFailed": "Some {{source}} session records could not be read. Existing sessions remain available.",
+      "discoveryWorkspaceUnresolved": "Some {{source}} sessions could not be matched to a workspace. Existing sessions remain available.",
       "discoveringExternal": "Discovering external sessions…"
     },
     "scheduledJobs": {
@@ -1759,6 +1762,7 @@
     "panelView": "Panel View"
   },
   "sceneBar": {
+    "recentSessions": "Recently opened sessions",
     "tabsLabel": "Scene tabs",
     "scrollPrevious": "Scroll tabs left",
     "scrollNext": "Scroll tabs right",
@@ -2142,6 +2146,7 @@
       "targetIsPullRequest": "This item is a pull request. Open it as a pull request instead of an issue."
     },
     "messages": {
+      "hostUnsupported": "The pull request viewer is unavailable on this device. Open pull request links in the system browser.",
       "noWorkspace": "No active workspace is available.",
       "unsupportedLink": "This link is not a supported pull request URL.",
       "detailsFailed": "Failed to load pull request details.",

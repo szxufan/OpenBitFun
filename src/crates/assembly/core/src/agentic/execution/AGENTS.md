@@ -74,6 +74,16 @@ lineage and fence recovered execution generations before writing. Legacy per-tur
 sidecars without lineage proof are retained but cannot establish continuity. Never feed Router summaries back into the main transcript or
 use the main compactor's summary/model/config as Router state.
 
+Router summary text is admitted against a conservative token estimate separately
+from the provider's combined reasoning/output limit. Live updates and history
+bootstrap share one bounded generation path: an oversized complete response gets
+one tighter rewrite from the same full source under the original deadline and
+queue permit. If it still exceeds the budget or fails, retain the previous
+summary and all pending observations. Never clip a candidate or advance coverage
+for a rejected response. Older oversized sidecars remain readable until a valid
+rewrite replaces them. Attempt traces retain known usage even if a rewrite times
+out; estimated text counts are not provider billing tokens.
+
 Router HTTP transport and classifier wire parsing live in
 `openbitfun-ai-adapters::round_router`. Keep the existing Core router facade and
 error categories; thresholds, execution-model slots, traces and fallback stay

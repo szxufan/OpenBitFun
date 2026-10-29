@@ -92,6 +92,8 @@ export interface PeerHostCapabilities {
    * (older host); resolve via `hostKind` the same way as `cancelTool`.
    */
   readonly toolCatalog: boolean | null;
+  /** Missing on older hosts: Desktop implements PR details, CLI does not. */
+  readonly reviewPlatformV1?: boolean | null;
   /** Scoped MCP choices must be explicitly advertised by the host. */
   readonly chatMcpCatalogV1?: boolean;
   readonly workspaceIdReferencesV1?: boolean;
@@ -215,6 +217,7 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   // Consumers treat `null` optimistically so an unprobed host is not gated off.
   cancelTool: null,
   toolCatalog: null,
+  reviewPlatformV1: null,
   chatMcpCatalogV1: false,
   workspaceIdReferencesV1: false,
   userQuestionResponse: null,
@@ -573,6 +576,7 @@ export class PeerConnectionManager {
         caps?.product_control_presentation_v1 === true,
       cancelTool,
       toolCatalog,
+      reviewPlatformV1: caps?.review_platform_v1 === undefined ? null : caps.review_platform_v1 === true,
       chatMcpCatalogV1: caps?.chat_mcp_catalog_v1 === true,
       workspaceIdReferencesV1: caps?.workspace_id_references_v1 === true,
       userQuestionResponse,
@@ -826,6 +830,7 @@ function capabilitiesEqual(
     a.computerUseSharingV1 === b.computerUseSharingV1 &&
     a.cancelTool === b.cancelTool &&
     a.toolCatalog === b.toolCatalog &&
+    a.reviewPlatformV1 === b.reviewPlatformV1 &&
     a.chatMcpCatalogV1 === b.chatMcpCatalogV1 &&
     a.workspaceIdReferencesV1 === b.workspaceIdReferencesV1 &&
     a.userQuestionResponse === b.userQuestionResponse &&

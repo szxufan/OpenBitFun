@@ -351,3 +351,24 @@ The host resolves the saved model, rejects non-API authentication and custom aut
 and rechecks its authorization binding before publishing the result. Model-scoped
 requests require the separately advertised `subscription_model_quota_v1` capability;
 legacy requests retain the exact account-slot path. These tests do not contact billing.
+
+For workspace HTML gateway authentication, chunking, cancellation, site-root
+entry URLs, document-route fallback, owner-error preservation, peer capability
+negotiation and encrypted loopback Relay transfer, run:
+
+```bash
+cargo test --locked -p openbitfun-desktop --lib html_preview
+```
+
+For encrypted peer resource-load timings, run the same command with
+`--lib html_preview_encrypted_peer_loading_benchmark -- --ignored --nocapture`.
+The isolated Relay fixture adds 40 ms per resource RPC and compares the previous
+serial reader with cold and warm HTTP gateway loads of the same HTML/assets.
+It reports three samples and verifies payload bytes; it does not time native
+rendering or use a physical remote host. Cache and prefetch limits belong to
+`services-integrations::remote_connect::html_preview::transfer`; the Desktop
+adapter owns HTTP authentication, explicit-refresh headers and peer RPC wiring.
+
+Use `node tests/e2e/scripts/run-html-preview.mjs` after building Desktop and Web UI
+to verify CSS, JavaScript modules, images and concurrent preview cookies in native
+browser child views. The fixture uses isolated storage; see `tests/e2e/AGENTS.md`.

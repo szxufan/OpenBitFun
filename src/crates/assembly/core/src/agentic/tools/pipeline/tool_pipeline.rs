@@ -134,6 +134,7 @@ fn local_plugin_workspace_scope(workspace: &WorkspaceBinding) -> Option<String> 
 /// Convert framework::ToolResult to core::ToolResult
 ///
 /// Ensure always has result_for_assistant, avoid tool message content being empty
+#[cfg(test)]
 fn convert_tool_result(
     framework_result: FrameworkToolResult,
     tool_id: &str,

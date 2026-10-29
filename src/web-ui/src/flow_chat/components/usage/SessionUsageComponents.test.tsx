@@ -36,7 +36,7 @@ const tabUtilsMocks = vi.hoisted(() => ({
   createDiffEditorTab: vi.fn(),
 }));
 
-vi.mock('@/infrastructure/api', () => ({
+vi.mock('@/infrastructure/api/service-api/SnapshotAPI', () => ({
   snapshotAPI: {
     getOperationDiff: snapshotApiMocks.getOperationDiff,
   },

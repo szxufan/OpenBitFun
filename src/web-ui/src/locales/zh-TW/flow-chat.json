@@ -3422,6 +3422,8 @@
     "model": "模型",
     "modelExplanation": "模型說明",
     "modelSettings": "模型設定",
+    "configure": "設定模型",
+    "noModelSelected": "尚未選擇模型",
     "modelSelection": "選擇模型",
     "searchModels": "搜尋模型",
     "collapseSearch": "收合搜尋",

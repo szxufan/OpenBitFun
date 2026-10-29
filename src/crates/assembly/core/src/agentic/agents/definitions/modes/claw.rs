@@ -44,6 +44,7 @@ impl ClawMode {
                 "get_goal".to_string(),
                 "create_goal".to_string(),
                 "update_goal".to_string(),
+                "GenerativeUI".to_string(),
                 "Skill".to_string(),
                 "ListWorkspaces".to_string(),
                 "SessionControl".to_string(),

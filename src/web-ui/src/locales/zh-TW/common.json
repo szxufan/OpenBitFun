@@ -493,6 +493,9 @@
       "allSourceAgents": "全部 Agent",
       "sourceAgentLabel": "來自 {{name}} 的工作階段",
       "discoveryPartial": "部分外部工作階段無法探索，既有工作階段仍可使用。",
+      "discoveryWarningTitle": "外部工作階段探索",
+      "discoveryReadFailed": "部分 {{source}} 工作階段記錄無法讀取，既有工作階段仍可使用。",
+      "discoveryWorkspaceUnresolved": "部分 {{source}} 工作階段無法對應到工作區，既有工作階段仍可使用。",
       "discoveringExternal": "正在探索外部工作階段…"
     },
     "scheduledJobs": {
@@ -1759,6 +1762,7 @@
     "panelView": "面板視圖"
   },
   "sceneBar": {
+    "recentSessions": "最近開啟的工作階段",
     "tabsLabel": "場景標籤頁",
     "scrollPrevious": "向左捲動標籤頁",
     "scrollNext": "向右捲動標籤頁",
@@ -2142,6 +2146,7 @@
       "targetIsPullRequest": "此項目是提取請求，請以提取請求開啟，而非以問題開啟。"
     },
     "messages": {
+      "hostUnsupported": "目前裝置不支援內建 PR 檢視，請使用系統瀏覽器開啟 PR 連結。",
       "noWorkspace": "沒有可用的作用中工作區。",
       "unsupportedLink": "此連結不是支援的提取請求連結。",
       "detailsFailed": "載入提取請求詳細資料失敗。",

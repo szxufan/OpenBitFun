@@ -8,7 +8,7 @@
 
 1. 先阅读仓库根 `AGENTS.md`、上级 `src/crates/services/AGENTS.md`、
    [Server README](../../../apps/miniapp-market-server/README.md) 和
-   [生产部署手册](../../../../deploy/miniapp-market/README.md)。
+   [部署手册](../../../../deploy/miniapp-market/README.md)。
 2. 本 crate 负责具体 SQLite、文件存储、GitHub OAuth、包校验和市场 HTTP
    路由。纯 DTO、状态机和策略属于
    `../../contracts/product-domains/src/miniapp/market.rs`。
@@ -135,7 +135,7 @@ yank、上传和 migration 变化不能只测试成功路径。
 此 crate 被 `openbitfun-miniapp-market-server` 编译进与网页相同的 Docker 镜像。
 不要在生产服务器直接执行 `cargo run`，不要手工替换 binary，也不要直接编辑
 SQLite/artifacts。完整流程见
-[生产部署手册](../../../../deploy/miniapp-market/README.md)。
+[部署手册](../../../../deploy/miniapp-market/README.md)。
 
 ## 邮箱验证码登录
 

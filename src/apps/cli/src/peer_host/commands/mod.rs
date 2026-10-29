@@ -109,11 +109,15 @@ pub(crate) fn dispatch<'a>(
         "terminal_shutdown_all" => Box::pin(terminal::shutdown_all()),
         // Filesystem
         "workspace_file_upload" => Box::pin(filesystem::workspace_file_upload(state, args)),
-        "get_directory_children" | "list_files" => {
-            Box::pin(filesystem::get_directory_children(state, args))
+        "html_preview_read_resource" => Box::pin(filesystem::html_preview_read_resource(args)),
+        "get_directory_children" | "explorer_get_children" | "list_files" => {
+            Box::pin(filesystem::get_directory_children(&state.filesystem_service, &state.workspace_service, args))
         }
-        "get_directory_children_paginated" => {
-            Box::pin(filesystem::get_directory_children_paginated(state, args))
+        "get_directory_children_paginated" | "explorer_get_children_paginated" => {
+            Box::pin(filesystem::get_directory_children_paginated(&state.filesystem_service, &state.workspace_service, args))
+        }
+        "get_file_tree" | "explorer_get_file_tree" => {
+            Box::pin(filesystem::get_file_tree(&state.filesystem_service, &state.workspace_service, args))
         }
         "check_path_exists" => Box::pin(filesystem::check_path_exists(state, args)),
         "create_directory" => Box::pin(filesystem::create_directory(state, args)),
@@ -296,8 +300,13 @@ pub(crate) const HANDLED_COMMANDS: &[&str] = &[
     "get_configs",
     "get_current_workspace",
     "workspace_file_upload",
+    "html_preview_read_resource",
     "get_directory_children",
     "get_directory_children_paginated",
+    "get_file_tree",
+    "explorer_get_children",
+    "explorer_get_children_paginated",
+    "explorer_get_file_tree",
     "get_external_source_control_snapshot",
     "get_external_source_discovery_snapshot",
     "get_external_source_snapshot",

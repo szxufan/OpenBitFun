@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canCopySessionsOnSurface,
+  canViewPullRequestsOnSurface,
   canQueryToolCatalogOnSurface,
   canSubmitUserQuestionsOnSurface,
   canQuerySubscriptionQuotaOnSurface,
@@ -22,6 +23,24 @@ function caps(overrides: Partial<PeerHostCapabilities>): PeerHostCapabilities {
     ...overrides,
   };
 }
+
+describe('canViewPullRequestsOnSurface', () => {
+  it('keeps local and legacy Desktop PR viewers available', () => {
+    expect(canViewPullRequestsOnSurface(false, null)).toBe(true);
+    expect(canViewPullRequestsOnSurface(true, caps({ hostKind: 'desktop' }))).toBe(true);
+  });
+
+  it('uses the external URL for CLI, unknown and unprobed peers', () => {
+    expect(canViewPullRequestsOnSurface(true, null)).toBe(false);
+    expect(canViewPullRequestsOnSurface(true, caps({ hostKind: null }))).toBe(false);
+    expect(canViewPullRequestsOnSurface(true, caps({ hostKind: 'cli' }))).toBe(false);
+  });
+
+  it('prefers negotiated support over host kind', () => {
+    expect(canViewPullRequestsOnSurface(true, caps({ hostKind: 'cli', reviewPlatformV1: true }))).toBe(true);
+    expect(canViewPullRequestsOnSurface(true, caps({ hostKind: 'desktop', reviewPlatformV1: false }))).toBe(false);
+  });
+});
 
 it('requires explicit host allowance-query capability and never falls back to controller credentials', () => {
   expect(canQuerySubscriptionQuotaOnSurface(false, null)).toBe(true);

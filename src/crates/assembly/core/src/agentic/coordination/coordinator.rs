@@ -6435,7 +6435,44 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn start_dialog_turn_internal(
+    fn start_dialog_turn_internal(
+        &self,
+        session_id: String,
+        user_input: String,
+        original_user_input: Option<String>,
+        image_contexts: Option<Vec<ImageContextData>>,
+        turn_id: Option<String>,
+        agent_type: String,
+        workspace_path: Option<String>,
+        remote_connection_id: Option<String>,
+        remote_ssh_host: Option<String>,
+        submission_policy: DialogSubmissionPolicy,
+        extra_user_message_metadata: Option<serde_json::Value>,
+        additional_prepended_messages: Vec<Message>,
+        suppress_session_title_generation: bool,
+    ) -> futures::future::BoxFuture<'_, OpenBitFunResult<()>> {
+        // All admission surfaces share this allocation boundary. Keeping the
+        // startup state inline multiplies debug poll temporaries in the public
+        // wrappers and scheduler, exhausting the stack during cold skill initialization.
+        Box::pin(self.start_dialog_turn_internal_impl(
+            session_id,
+            user_input,
+            original_user_input,
+            image_contexts,
+            turn_id,
+            agent_type,
+            workspace_path,
+            remote_connection_id,
+            remote_ssh_host,
+            submission_policy,
+            extra_user_message_metadata,
+            additional_prepended_messages,
+            suppress_session_title_generation,
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn start_dialog_turn_internal_impl(
         &self,
         session_id: String,
         user_input: String,

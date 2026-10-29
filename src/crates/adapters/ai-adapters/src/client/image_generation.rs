@@ -24,6 +24,14 @@ const REQUEST_TIMEOUT_SECS: u64 = 180;
 /// Guard against a provider streaming an unbounded body.
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 const DEFAULT_MIME: &str = "image/png";
+/// The Responses API has a separate image-tool model. Keep this independent
+/// from the subscription's top-level chat model, which is only responsible for
+/// orchestrating the tool call and revising the prompt.
+const DEFAULT_CODEX_IMAGE_MODEL: &str = "gpt-image-2.5-sunburst";
+/// `high` is supported by the current GPT Image models and older GPT Image
+/// models, so existing subscription configurations can opt into a quality
+/// setting without a persisted-config migration.
+const DEFAULT_CODEX_IMAGE_QUALITY: &str = "high";
 
 /// Substrings that mean the provider refused on safety grounds rather than
 /// failing. Reported separately so the UI can say "blocked" instead of "failed".
@@ -282,8 +290,16 @@ fn build_body(target: &ImageGenerationTarget<'_>, request: &ImageGenerationReque
 /// output item. `store: false` is required by the Codex backend, and `stream`
 /// is what produces the SSE events the caller parses.
 fn chatgpt_codex_body(model: &str, request: &ImageGenerationRequest) -> Value {
-    let mut tool = json!({ "type": "image_generation" });
-    // The tool accepts the same knobs as the image API, but only when set.
+    let mut tool = json!({
+        "type": "image_generation",
+        "model": DEFAULT_CODEX_IMAGE_MODEL,
+        "quality": request
+            .quality
+            .as_deref()
+            .unwrap_or(DEFAULT_CODEX_IMAGE_QUALITY),
+    });
+    // The tool accepts the same knobs as the image API. Quality defaults to a
+    // high-quality setting above, while an explicit service setting wins.
     if let Some(size) = request.size.as_deref() {
         tool["size"] = json!(normalize_size(size, 'x'));
     }
@@ -1078,6 +1094,36 @@ mod tests {
     }
 
     #[test]
+    fn codex_body_selects_explicit_high_quality_image_model() {
+        let body = chatgpt_codex_body(
+            "gpt-6-astra",
+            &ImageGenerationRequest {
+                prompt: "a red fox".to_string(),
+                ..ImageGenerationRequest::default()
+            },
+        );
+
+        assert_eq!(body["model"], "gpt-6-astra");
+        assert_eq!(body["tools"][0]["type"], "image_generation");
+        assert_eq!(body["tools"][0]["model"], "gpt-image-2.5-sunburst");
+        assert_eq!(body["tools"][0]["quality"], "high");
+    }
+
+    #[test]
+    fn codex_body_preserves_an_explicit_quality_override() {
+        let body = chatgpt_codex_body(
+            "gpt-6-astra",
+            &ImageGenerationRequest {
+                prompt: "a red fox".to_string(),
+                quality: Some("max".to_string()),
+                ..ImageGenerationRequest::default()
+            },
+        );
+
+        assert_eq!(body["tools"][0]["quality"], "max");
+    }
+
+    #[test]
     fn dashscope_body_nests_prompt_and_uses_star_separator() {
         let body = dashscope_body(
             &target(
@@ -1306,7 +1352,7 @@ mod tests {
         let response = generate(
             &target,
             ImageGenerationRequest {
-                prompt: "A simple red circle on a white background".to_string(),
+                prompt: "A cute minimalist mascot icon with a rounded-rectangle body, two small friendly oval eyes, and a short top antenna ending in a round joystick knob. Use a playful, harmonious color palette selected randomly for each generation, with no fixed colors. Centered composition, clean uncluttered background, polished product illustration.".to_string(),
                 size: Some("1024x1024".to_string()),
                 n: Some(1),
                 ..ImageGenerationRequest::default()

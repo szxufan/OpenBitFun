@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "ce3449c9298e138a981243b202aae9c901e15311d8a9e940bebbf12e1d99b881",
-  "commandCount": 717,
+  "catalogDigest": "e648b2bd03a974cdc8ee6542703a831e1bcb3d7ac088035b47d7259cc50a374b",
+  "commandCount": 718,
   "coverage": {
-    "commandCount": 717,
+    "commandCount": 718,
     "documentedCommandCount": 643,
-    "implementationCommandCount": 74,
-    "implementationDigest": "1b5d93c5b4d324d25485eed0a01e27783d50a82808f659b2bb69904f0faf69af"
+    "implementationCommandCount": 75,
+    "implementationDigest": "76745a51fbac5a5d89a15491843801d89ec85eebc89e86f0759b54a24455e732"
   },
   "commands": [
     {
@@ -5051,6 +5051,20 @@
       "rustPath": "api::html_preview_api::html_preview_create",
       "sourceFile": "src/apps/desktop/src/api/html_preview_api.rs",
       "signature": "fn html_preview_create( app_state: tauri::State<'_, AppState>, request: HtmlPreviewCreateRequest, ) -> Result<HtmlPreviewCreateResponse, String>",
+      "remoteWorkspacePolicy": "RemoteRouted"
+    },
+    {
+      "id": "html_preview_read_resource",
+      "moduleId": "html_preview",
+      "capabilityId": "feature.files-editor",
+      "capabilityIds": [
+        "feature.files-editor"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::html_preview_api::html_preview_read_resource",
+      "sourceFile": "src/apps/desktop/src/api/html_preview_api.rs",
+      "signature": "fn html_preview_read_resource( request: HtmlPreviewResourceRequest, ) -> HtmlPreviewResourceReply",
       "remoteWorkspacePolicy": "RemoteRouted"
     },
     {

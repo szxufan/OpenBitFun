@@ -192,6 +192,15 @@ Narrower local guides already exist for some subtrees:
 
 ## Verification
 
+For Agent name references, enabled-catalog admission, and prompt catalog names:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib agentic::tools::implementations::task::tests
+```
+
+These fixtures cover prompt name mappings and simulated workspace policies;
+they do not establish live SSH, relay, Peer, or Detached Dispatch behavior.
+
 For smart routing, unchanged subagent model policy and resumed subagent choices:
 
 ```bash
@@ -273,6 +282,16 @@ storage fixtures do not require or validate a live SSH connection. CI also runs
 them under `product-full`. `PathManager::with_user_root_for_tests` derives product
 home from the user root's parent, so a fixture that relocates managed paths must
 place its user root below the directory it means to exercise.
+
+For cold dialog startup and the production-feature scheduler stack regression:
+
+```bash
+cargo test --locked -p openbitfun-core --features product-full --lib agentic::coordination::scheduler::tests::idle_background_result_uses_the_session_logical_agent_route -- --exact
+```
+
+Run this filter alone with `RUST_MIN_STACK` unset so prior skill discovery cannot
+warm the cold-start path. The shared coordinator keeps startup state behind one
+allocation boundary for every admission surface.
 
 For direct user follow-ups to reusable subagent sessions, legacy route defaults,
 source binding, and FreshOnly admission:
@@ -583,4 +602,10 @@ Assistant naming, concurrent host allocation, and user-title protection:
 ```bash
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib service::workspace::service::tests::assistant_
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib title_
+```
+
+For HTML preview workspace identity and shared resource-service wiring:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service::filesystem::html_preview::tests
 ```

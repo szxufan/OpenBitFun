@@ -18,6 +18,7 @@ pub mod encryption;
 pub mod file_projection;
 pub mod host_stream;
 pub mod host_stream_subscriber;
+pub mod html_preview;
 mod lan;
 mod page_upload;
 pub mod pairing;
