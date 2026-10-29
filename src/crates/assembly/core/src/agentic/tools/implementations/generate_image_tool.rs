@@ -245,7 +245,7 @@ impl Tool for GenerateImageTool {
                 },
                 "service_id": {
                     "type": "string",
-                    "description": "Optional image service id. Omit to use the default service."
+                    "description": "Optional configured image model id. Omit to use the default image model."
                 }
             },
             "required": ["prompt"],

@@ -1,4 +1,5 @@
-import type { AIModelConfig, ImageServiceConfig, MediaConfig } from '../../types';
+import type { AIModelConfig, ImageDialect, ImageServiceConfig, MediaConfig } from '../../types';
+import { getEffectiveModelCapabilities } from '../../services/modelCategory';
 import { stableJson } from '../modelConnectionTestPlan';
 import { resolveImageEndpoint, withImageServiceAuth } from './imageDialects';
 
@@ -54,20 +55,58 @@ export function imageModelLabel(service: ImageServiceConfig): string {
   return service.name || service.model_name || 'ChatGPT';
 }
 
-/** A configured Codex model drives the subscription image tool directly. */
+/**
+ * Configured models that can drive image generation: Codex subscription chats
+ * (built-in image tool) and models the user explicitly categorized as image
+ * generation (their endpoint facts come from the chat-model record).
+ */
 export function configuredSubscriptionImageModels(models: readonly AIModelConfig[]): AIModelConfig[] {
-  return models.filter(model => model.enabled && model.id && model.auth?.type === 'subscription' && model.auth.provider === 'codex');
+  return models.filter(model => model.enabled && model.id && (
+    (model.auth?.type === 'subscription' && model.auth.provider === 'codex')
+    || getEffectiveModelCapabilities(model).includes('image_generation')
+  ));
+}
+
+/** DashScope hosts serve images on the native dialect, everything else on OpenAI images. */
+function imageDialectForConfiguredModel(model: AIModelConfig): ImageDialect {
+  const host = `${model.base_url ?? ''} ${model.request_url ?? ''}`.toLowerCase();
+  if (host.includes('dashscope') || host.includes('aliyuncs.com')) return 'dashscope_native';
+  return 'openai_images';
+}
+
+/** Re-root a chat endpoint onto the dialect's own API root when possible. */
+function imageBaseFromModelBaseUrl(baseUrl: string, dialect: ImageDialect): string {
+  const root = baseUrl.trim().replace(/\/+$/, '');
+  if (dialect === 'dashscope_native') {
+    // The OpenAI-compatible-mode chat root cannot serve the native image
+    // endpoint; rebuild the native root on the same host.
+    const compatible = root.match(/^(https?:\/\/[^/]+dashscope[^/]*)\/compatible-mode/);
+    if (compatible) return `${compatible[1]}/api/v1`;
+    return root.endsWith('/api/v1') || root.endsWith('/services/aigc/multimodal-generation/generation')
+      ? root : `${root}/api/v1`;
+  }
+  return root.endsWith('/v1') || root.endsWith('/images/generations') ? root : `${root}/v1`;
 }
 
 export function imageServiceFromSubscriptionModel(model: AIModelConfig): ImageServiceConfig {
-  if (model.auth?.type !== 'subscription' || model.auth.provider !== 'codex') {
+  if (model.auth?.type === 'subscription' && model.auth.provider === 'codex') {
+    return {
+      id: `configured-image:${model.id}`, name: model.name || model.model_name,
+      dialect: 'chatgpt_codex', base_url: 'https://chatgpt.com/backend-api/codex',
+      model_name: model.model_name, api_key: '', auth: { ...model.auth }, enabled: true,
+      params: { n: 1 }, skip_ssl_verify: model.skip_ssl_verify,
+    };
+  }
+  if (!getEffectiveModelCapabilities(model).includes('image_generation') || !model.base_url?.trim()) {
     throw new Error('This configured model does not support subscription image generation');
   }
+  const dialect = imageDialectForConfiguredModel(model);
   return {
     id: `configured-image:${model.id}`, name: model.name || model.model_name,
-    dialect: 'chatgpt_codex', base_url: 'https://chatgpt.com/backend-api/codex',
-    model_name: model.model_name, api_key: '', auth: { ...model.auth }, enabled: true,
-    params: { n: 1 }, skip_ssl_verify: model.skip_ssl_verify,
+    dialect, base_url: imageBaseFromModelBaseUrl(model.base_url ?? '', dialect), model_name: model.model_name,
+    api_key: model.api_key ?? '', auth: model.auth ?? { type: 'api_key' }, enabled: true,
+    custom_headers: model.custom_headers, custom_headers_mode: model.custom_headers_mode,
+    skip_ssl_verify: model.skip_ssl_verify, params: { n: 1 },
   };
 }
 

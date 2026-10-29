@@ -1,8 +1,11 @@
 {
   "title": "Image generation",
-  "subtitle": "Image services are separate from chat models: whenever an image is generated, the service selected here is used, whatever model the session is running.",
+  "subtitle": "Image models belong to their provider: pick the \"Image Generation\" category when adding or editing a model, and the address and key follow that provider.",
   "loadFailed": "Unable to load image generation settings.",
   "retry": "Retry",
+  "legacy": {
+    "badge": "Legacy image service"
+  },
   "default": {
     "label": "Default service",
     "description": "Default model for generating images. You can also choose an existing Codex subscription model.",

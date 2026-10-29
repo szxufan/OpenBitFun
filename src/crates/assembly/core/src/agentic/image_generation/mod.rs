@@ -1,14 +1,18 @@
-//! Resolution of the configured image generation service.
+//! Resolution of the image generation service.
 //!
-//! The image service is selected in settings and is independent of the session's
-//! text model: a session never decides which image provider is called. This
-//! module is the single place that turns the persisted `media` section into a
-//! callable adapter target.
+//! The primary path is provider-attached: an `ai.models` record whose category
+//! or capabilities declare image generation carries its provider connection
+//! facts (base URL, key, auth), and the default-models slot selects it. The
+//! legacy standalone `media.image_services` section stays read-only for
+//! migration: existing services keep working until a model-based selection
+//! replaces them. This module turns either persisted shape into a callable
+//! adapter target.
 
 use crate::infrastructure::ai::client_factory::apply_subscription_auth;
 use crate::service::config::get_global_config_service;
 use crate::service::config::types::{
-    AIConfig as ServiceAIConfig, AuthConfig, ImageServiceConfig, MediaConfig, SubscriptionProvider,
+    AIConfig as ServiceAIConfig, AIModelConfig, AuthConfig, ImageServiceConfig, MediaConfig,
+    ModelCapability, SubscriptionProvider,
 };
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use openbitfun_ai_adapters::client::image_generation::{
@@ -55,7 +59,7 @@ pub struct ResolvedImageService {
 
 fn no_service_error() -> OpenBitFunError {
     OpenBitFunError::tool(
-        "No image generation service is configured. Add one in Settings > Models > Image generation."
+        "No image generation model is configured. Add a model in Settings > Models and select the \"Image Generation\" category, or choose the default in Settings > Models > Default models."
             .to_string(),
     )
 }
@@ -196,11 +200,163 @@ pub fn resolve_from_media(
     })
 }
 
+/// Derive the image dialect from a provider-attached model's connection facts.
+///
+/// DashScope hosts serve images on the native multimodal endpoint (the
+/// OpenAI-compatible chat root cannot), Codex subscription logins drive the
+/// built-in image tool, and everything else is probed at `<root>/v1/images
+/// /generations` like any OpenAI-compatible gateway.
+fn image_dialect_for_model(model: &AIModelConfig) -> (ImageDialect, String, Option<String>) {
+    let root = model.base_url.trim().trim_end_matches('/').to_string();
+    let lowered = format!("{root} {}", model.request_url.as_deref().unwrap_or("")).to_lowercase();
+    if matches!(
+        model.auth,
+        AuthConfig::Subscription {
+            provider: SubscriptionProvider::Codex,
+            ..
+        }
+    ) {
+        return (ImageDialect::ChatgptCodex, root, model.request_url.clone());
+    }
+    if lowered.contains("dashscope") || lowered.contains("aliyuncs.com") {
+        let native = root
+            .split("/compatible-mode")
+            .next()
+            .unwrap_or(root.as_str())
+            .to_string();
+        let base = if native.ends_with("/api/v1") || native.is_empty() {
+            native
+        } else {
+            format!("{native}/api/v1")
+        };
+        return (ImageDialect::DashScopeNative, base, None);
+    }
+    let base = if root.is_empty() || root.ends_with("/v1") || root.ends_with("/images/generations")
+    {
+        root
+    } else {
+        format!("{root}/v1")
+    };
+    (ImageDialect::OpenAiImages, base, None)
+}
+
+/// Build a callable image service from a provider-attached model record.
+///
+/// The model owns its provider connection; nothing here lets an image model
+/// carry a service address or key independent of that provider.
+pub fn image_service_from_model(model: &AIModelConfig) -> ImageServiceConfig {
+    let (dialect, base_url, request_url) = image_dialect_for_model(model);
+    ImageServiceConfig {
+        id: model.id.clone(),
+        name: if model.name.trim().is_empty() {
+            model.model_name.clone()
+        } else {
+            model.name.clone()
+        },
+        dialect,
+        base_url,
+        // A subscription dialect resolves its endpoint from the login; only
+        // API-key models keep the recorded chat request URL as an override.
+        request_url: if model.auth == AuthConfig::ApiKey {
+            request_url
+        } else {
+            None
+        },
+        model_name: model.model_name.clone(),
+        api_key: model.api_key.clone(),
+        auth: model.auth.clone(),
+        enabled: model.enabled,
+        params: Default::default(),
+        custom_headers: model.custom_headers.clone(),
+        custom_headers_mode: model.custom_headers_mode.clone(),
+        skip_ssl_verify: model.skip_ssl_verify,
+    }
+}
+
+/// Whether a model record declares image generation (explicit capabilities
+/// win; otherwise the persisted category decides, matching validation).
+fn model_supports_image_generation(model: &AIModelConfig) -> bool {
+    model.enabled && model.supports_capability(ModelCapability::ImageGeneration)
+}
+
+/// Resolve a provider-attached image model into a callable service.
+fn resolve_from_ai_models(
+    ai: &ServiceAIConfig,
+    requested: Option<&str>,
+) -> Option<Result<ImageServiceConfig, OpenBitFunError>> {
+    let matched = match requested.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => {
+            let Some(model) = ai.models.iter().find(|model| model.id == id) else {
+                return None;
+            };
+            if !model_supports_image_generation(model) {
+                return Some(Err(OpenBitFunError::tool(format!(
+                    "Model '{id}' is not an enabled image generation model in Settings > Models."
+                ))));
+            }
+            model
+        }
+        None => {
+            if let Some(id) = ai
+                .default_models
+                .image_generation
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+            {
+                let Some(model) = ai.models.iter().find(|model| model.id == id) else {
+                    return None;
+                };
+                if !model_supports_image_generation(model) {
+                    return Some(Err(OpenBitFunError::tool(format!(
+                        "The default image generation model '{id}' is missing or disabled in Settings > Models."
+                    ))));
+                }
+                model
+            } else {
+                let candidates: Vec<&AIModelConfig> = ai
+                    .models
+                    .iter()
+                    .filter(|model| model_supports_image_generation(model))
+                    .collect();
+                match candidates.as_slice() {
+                    [] => return None,
+                    [model] => *model,
+                    _ => {
+                        return Some(Err(OpenBitFunError::tool(
+                            "Multiple image generation models are enabled but no default is selected. Choose one in Settings > Models > Default models."
+                                .to_string(),
+                        )));
+                    }
+                }
+            }
+        }
+    };
+    Some(Ok(image_service_from_model(matched)))
+}
+
 /// Resolve the service the `generate_image` tool should call.
+///
+/// Provider-attached models take priority. The legacy standalone `media`
+/// services remain callable so existing installs keep generating images until
+/// a model-based selection exists.
 pub async fn resolve_image_service(
     requested: Option<&str>,
 ) -> OpenBitFunResult<ResolvedImageService> {
     let config_service = get_global_config_service().await?;
+    let ai: ServiceAIConfig = config_service.get_config(Some("ai")).await.map_err(|err| {
+        OpenBitFunError::service(format!("Failed to read image generation config: {err}"))
+    })?;
+    if let Some(resolved) = resolve_from_ai_models(&ai, requested) {
+        let service = resolved?;
+        let credentials = resolve_credentials(&service).await?;
+        return Ok(ResolvedImageService {
+            service,
+            credentials,
+            proxy: ai.proxy.enabled.then_some(ai.proxy),
+        });
+    }
+
     let media: MediaConfig = config_service
         .get_config(Some("media"))
         .await
@@ -221,6 +377,18 @@ pub async fn has_enabled_image_service() -> bool {
     let Ok(config_service) = get_global_config_service().await else {
         return false;
     };
+    let ai_available = config_service
+        .get_config::<ServiceAIConfig>(Some("ai"))
+        .await
+        .map(|ai| {
+            ai.models
+                .iter()
+                .any(|model| model_supports_image_generation(model))
+        })
+        .unwrap_or(false);
+    if ai_available {
+        return true;
+    }
     config_service
         .get_config::<MediaConfig>(Some("media"))
         .await
@@ -521,7 +689,7 @@ mod tests {
 
         assert!(error
             .to_string()
-            .contains("Settings > Models > Image generation"));
+            .contains("select the \"Image Generation\" category"));
     }
 
     #[test]
@@ -592,5 +760,160 @@ mod tests {
         assert_eq!(target.custom_headers_mode, Some("replace"));
         assert_eq!(target.dialect, ImageDialect::OpenAiImages);
         assert_eq!(target.api_key, "sk-test");
+    }
+
+    fn model(value: serde_json::Value) -> AIModelConfig {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn ai(models: Vec<AIModelConfig>, default_image: Option<&str>) -> ServiceAIConfig {
+        ServiceAIConfig {
+            models,
+            default_models: serde_json::from_value(serde_json::json!({
+                "image_generation": default_image
+            }))
+            .unwrap(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn image_category_model_derives_openai_images_from_its_provider_connection() {
+        let parsed = model(serde_json::json!({
+            "id": "gateway-image", "name": "Gateway", "provider": "openai",
+            "model_name": "gpt-image-1", "base_url": "https://gw.example.com/v1",
+            "api_key": "sk-gw", "category": "image_generation", "capabilities": [],
+            "enabled": true
+        }));
+        let service = image_service_from_model(&parsed);
+        assert_eq!(service.dialect, ImageDialect::OpenAiImages);
+        assert_eq!(service.base_url, "https://gw.example.com/v1");
+        assert_eq!(service.api_key, "sk-gw");
+        assert_eq!(service.id, "gateway-image");
+    }
+
+    #[test]
+    fn dashscope_compatible_chat_root_rebases_to_the_native_image_api() {
+        let parsed = model(serde_json::json!({
+            "id": "wanx", "name": "Bailian", "provider": "openai",
+            "model_name": "wan2.5-t2i-preview",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "request_url": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+            "api_key": "sk-ds", "category": "image_generation", "enabled": true
+        }));
+        let service = image_service_from_model(&parsed);
+        assert_eq!(service.dialect, ImageDialect::DashScopeNative);
+        assert_eq!(service.base_url, "https://dashscope.aliyuncs.com/api/v1");
+        // The chat request URL must not override the native image endpoint.
+        assert_eq!(service.request_url, None);
+    }
+
+    #[test]
+    fn gateway_without_version_prefix_gains_the_openai_images_root() {
+        let parsed = model(serde_json::json!({
+            "id": "root-gw", "name": "Root", "provider": "openai",
+            "model_name": "flux", "base_url": "https://gw.example.com",
+            "api_key": "sk", "category": "image_generation", "enabled": true
+        }));
+        assert_eq!(
+            image_service_from_model(&parsed).base_url,
+            "https://gw.example.com/v1"
+        );
+    }
+
+    #[test]
+    fn codex_subscription_models_resolve_through_the_subscription_route() {
+        let parsed = model(serde_json::json!({
+            "id": "codex-chat", "name": "Codex", "provider": "responses",
+            "model_name": "gpt-5.1", "base_url": "", "api_key": "",
+            "category": "image_generation", "enabled": true,
+            "auth": { "type": "subscription", "provider": "codex" }
+        }));
+        let service = image_service_from_model(&parsed);
+        assert_eq!(service.dialect, ImageDialect::ChatgptCodex);
+        assert_eq!(service.request_url, None);
+        assert!(matches!(
+            service.auth,
+            AuthConfig::Subscription {
+                provider: SubscriptionProvider::Codex,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn explicit_capability_drives_selection_when_category_stays_chat() {
+        let parsed = model(serde_json::json!({
+            "id": "dual", "name": "Gateway", "provider": "openai",
+            "model_name": "gpt-image-1", "base_url": "https://gw.example.com/v1",
+            "api_key": "sk", "category": "general_chat", "enabled": true,
+            "capabilities": ["text_chat", "image_generation"]
+        }));
+        let resolved = resolve_from_ai_models(&ai(vec![parsed], None), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.id, "dual");
+    }
+
+    #[test]
+    fn default_slot_model_wins_over_other_enabled_image_models() {
+        let image_a = model(serde_json::json!({
+            "id": "img-a", "name": "A", "provider": "openai", "model_name": "a",
+            "base_url": "https://a.example/v1", "api_key": "k",
+            "category": "image_generation", "enabled": true
+        }));
+        let image_b = model(serde_json::json!({
+            "id": "img-b", "name": "B", "provider": "openai", "model_name": "b",
+            "base_url": "https://b.example/v1", "api_key": "k",
+            "category": "image_generation", "enabled": true
+        }));
+        let resolved = resolve_from_ai_models(&ai(vec![image_a, image_b], Some("img-b")), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.id, "img-b");
+    }
+
+    #[test]
+    fn multiple_image_models_without_a_default_are_reported() {
+        let image_a = model(serde_json::json!({
+            "id": "img-a", "name": "A", "provider": "openai", "model_name": "a",
+            "base_url": "https://a.example/v1", "api_key": "k",
+            "category": "image_generation", "enabled": true
+        }));
+        let image_b = model(serde_json::json!({
+            "id": "img-b", "name": "B", "provider": "openai", "model_name": "b",
+            "base_url": "https://b.example/v1", "api_key": "k",
+            "category": "image_generation", "enabled": true
+        }));
+        let error = resolve_from_ai_models(&ai(vec![image_a, image_b], None), None)
+            .unwrap()
+            .unwrap_err();
+        assert!(error.to_string().contains("no default is selected"));
+    }
+
+    #[test]
+    fn requested_non_image_model_is_reported_not_silently_dropped() {
+        let chat = model(serde_json::json!({
+            "id": "chat-only", "name": "Chat", "provider": "openai",
+            "model_name": "gpt-5", "base_url": "https://a.example/v1",
+            "api_key": "k", "category": "general_chat", "enabled": true
+        }));
+        let error = resolve_from_ai_models(&ai(vec![chat], None), Some("chat-only"))
+            .unwrap()
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("not an enabled image generation model"));
+    }
+
+    #[test]
+    fn missing_image_models_fall_back_to_the_legacy_media_path() {
+        let chat = model(serde_json::json!({
+            "id": "chat-only", "name": "Chat", "provider": "openai",
+            "model_name": "gpt-5", "base_url": "https://a.example/v1",
+            "api_key": "k", "category": "general_chat", "enabled": true
+        }));
+        assert!(resolve_from_ai_models(&ai(vec![chat], None), None).is_none());
+        assert!(resolve_from_ai_models(&ai(Vec::new(), Some("gone")), None).is_none());
     }
 }

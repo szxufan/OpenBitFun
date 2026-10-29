@@ -48,8 +48,8 @@ export interface ModelConfig {
   contextWindow?: number; 
   maxTokens?: number; 
   maxImagesPerRequest?: number;
-  category?: 'general_chat' | 'multimodal' | 'speech_recognition';
-  capabilities?: Array<'text_chat' | 'function_calling' | 'image_understanding' | 'speech_recognition'>;
+  category?: 'general_chat' | 'multimodal' | 'image_generation' | 'speech_recognition';
+  capabilities?: Array<'text_chat' | 'function_calling' | 'image_understanding' | 'image_generation' | 'speech_recognition'>;
 }
 
 

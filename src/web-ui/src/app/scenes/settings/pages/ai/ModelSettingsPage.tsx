@@ -15,6 +15,7 @@ import { getProductBrandIcon } from '@/shared/ui/productBrandIcons';
 import { SubscriptionAccountList, SubscriptionServiceGroup } from './SubscriptionServiceGroup';
 import { managedSubscriptionAccounts, modelsUsingSubscriptionAccount, groupSubscriptionServices, isRetiredSubscriptionProvider, isZcodeProvider, preferredZcodeProvider, subscriptionManagerAccounts } from './subscriptionServices';
 import { aiApi, systemAPI } from '@/infrastructure/api';
+import { mediaAPI } from '@/infrastructure/api/service-api/MediaApi';
 import { agentAPI, type ModelRoutingStatus } from '@/infrastructure/api/service-api/AgentAPI';
 import type {
   SubscriptionAccount,
@@ -36,9 +37,9 @@ import {
 } from '@/infrastructure/config/components/common';
 import DefaultModelConfig from '@/infrastructure/config/components/DefaultModelConfig';
 import { ModelRouterSettings } from '@/infrastructure/config/components/ModelRouterSettings';
-import { ImageGenerationAcquisitionRow, ImageGenerationDefaultSlot, ImageGenerationDialogs, ImageGenerationModelCard } from '@/infrastructure/config/components/image-generation/ImageGenerationSection';
+import { ImageGenerationModelCard } from '@/infrastructure/config/components/image-generation/ImageGenerationSection';
 import { useImageGenerationSettings } from '@/infrastructure/config/components/image-generation/useImageGenerationSettings';
-import { matchesImageModel } from '@/infrastructure/config/components/image-generation/imageModels';
+import { imageServiceFromSubscriptionModel, matchesImageModel } from '@/infrastructure/config/components/image-generation/imageModels';
 import ModelTagsField from '@/infrastructure/config/components/ModelTagsField';
 import {
   configsNeedingAutoTest,
@@ -483,7 +484,7 @@ const ModelSettingsPage: React.FC = () => {
   const imageSettings = useImageGenerationSettings();
   const [poolDefaults, setPoolDefaults] = useState<DefaultModelsConfig>(modelSeed.get<DefaultModelsConfig | null>('ai.default_models', null) ?? {});
   const [poolQuery, setPoolQuery] = useState('');
-  const [poolCapability, setPoolCapability] = useState<ModelCapability | 'image_generation' | ''>('');
+  const [poolCapability, setPoolCapability] = useState<ModelCapability | ''>('');
   const [poolProvider, setPoolProvider] = useState('');
   const [showTagSyncNotice, setShowTagSyncNotice] = useState(false);
   const [showSubscriptionManager, setShowSubscriptionManager] = useState(false);
@@ -696,6 +697,7 @@ const ModelSettingsPage: React.FC = () => {
     () => [
       { label: t('category.general_chat'), value: 'general_chat' },
       { label: t('category.multimodal'), value: 'multimodal' },
+      { label: t('category.image_generation'), value: 'image_generation' },
       { label: t('category.speech_recognition'), value: 'speech_recognition' },
     ],
     [t]
@@ -2434,7 +2436,45 @@ const ModelSettingsPage: React.FC = () => {
   };
 
   const handleTest = async (config: AIModelConfigType) => {
+    if (getEffectiveModelCapabilities(config).includes('image_generation')) {
+      await runImageModelTest(config);
+      return;
+    }
     await runConfigConnectionTest(config);
+  };
+
+  // Image models answer with one real generation through their provider
+  // connection, mirroring the tool's runtime path; the chat probe cannot reach
+  // the image endpoint. The backend bills the call, same as the old wizard test.
+  const runImageModelTest = async (config: AIModelConfigType) => {
+    const configId = config.id;
+    if (!configId || !connectionTestSupported) return;
+    const signature = stableJson(config);
+    const activeTest = activeConnectionTestsRef.current[configId];
+    if (activeTest?.signature === signature) return;
+    const token = Symbol(configId);
+    activeConnectionTestsRef.current[configId] = { token, signature };
+    setTestingConfigs(previous => ({ ...previous, [configId]: true }));
+    setTestResults(previous => ({ ...previous, [configId]: null }));
+    try {
+      const result = await mediaAPI.testImageGenerationService(imageServiceFromSubscriptionModel(config));
+      if (activeConnectionTestsRef.current[configId]?.token !== token) return;
+      const baseMessage = result.success
+        ? `${t('messages.testSuccess')}${result.elapsed_ms ? ` (${result.elapsed_ms}ms)` : ''}`
+        : `${t('messages.testFailed')}${result.message ? `\n${t('messages.errorDetails')}: ${result.message}` : ''}`;
+      setTestResults(previous => ({ ...previous, [configId]: { success: result.success, message: baseMessage } }));
+    } catch (error) {
+      if (activeConnectionTestsRef.current[configId]?.token !== token) return;
+      setTestResults(previous => ({
+        ...previous,
+        [configId]: { success: false, message: `${t('messages.testFailed')}\n${t('messages.errorDetails')}: ${error}` },
+      }));
+    } finally {
+      if (activeConnectionTestsRef.current[configId]?.token === token) {
+        delete activeConnectionTestsRef.current[configId];
+        setTestingConfigs(previous => ({ ...previous, [configId]: false }));
+      }
+    }
   };
 
   const handleToggleEnabled = async (config: AIModelConfigType, enabled: boolean) => {
@@ -2670,6 +2710,7 @@ const ModelSettingsPage: React.FC = () => {
     { modelId: poolDefaults.fast, label: tDefault('core.fast.label') },
     { modelId: poolDefaults.economy, label: tDefault('core.economy.label') },
     { modelId: poolDefaults.image_understanding, label: tDefault('optional.capabilities.image_understanding.label') },
+    { modelId: poolDefaults.image_generation, label: tDefault('optional.capabilities.image_generation.label') },
     { modelId: poolDefaults.speech_recognition, label: tDefault('optional.capabilities.speech_recognition.label') },
   ], [poolDefaults, tDefault]);
 
@@ -2708,15 +2749,24 @@ const ModelSettingsPage: React.FC = () => {
       model.id === poolDefaults.primary ? 0 : model.id === poolDefaults.fast ? 1 : 2
     );
     return aiModels.filter(model => {
-      if (poolCapability === 'image_generation') return false;
-      if (poolCapability && !getEffectiveModelCapabilities(model).includes(poolCapability)) return false;
+      const imageCapable = getEffectiveModelCapabilities(model).includes('image_generation');
+      // Image models leave the chat pool unless filtered for; dual-capability
+      // models stay wherever their text_chat capability points them.
+      if (imageCapable && !getEffectiveModelCapabilities(model).includes('text_chat') && poolCapability !== 'image_generation') return false;
+      if (poolCapability === 'image_generation' && !imageCapable) return false;
+      if (poolCapability && poolCapability !== 'image_generation' && !getEffectiveModelCapabilities(model).includes(poolCapability)) return false;
       if (poolProvider && getPoolProviderKey(model) !== poolProvider) return false;
       const labels = poolRoles.filter(role => role.modelId && role.modelId === model.id).map(role => role.label);
       return !query || [model.model_name, getProviderDisplayName(model), ...labels, ...getModelTags(model)]
         .join(' ').toLowerCase().includes(query);
     }).sort((a, b) => priority(a) - priority(b));
   }, [aiModels, poolQuery, poolCapability, poolProvider, poolRoles, poolDefaults]);
-  const visibleImageModels = imageSettings.media.image_services.filter(service => matchesImageModel(service, poolQuery, poolCapability, poolProvider));
+  // Legacy standalone image services stay visible and manageable until they are
+  // removed; the creation path is gone now that image models attach to providers.
+  const visibleImageModels = imageSettings.media.image_services.filter(service => (
+    matchesImageModel(service, poolQuery, poolCapability, poolProvider)
+    && !(poolCapability === '' && poolProvider === '' && !poolQuery.trim())
+  ));
 
   if (creationMode === 'selection') {
     return (
@@ -4550,6 +4600,7 @@ const ModelSettingsPage: React.FC = () => {
       const roles = poolRoles.filter(role => role.modelId && role.modelId === config.id);
       const roleLabels = new Set(roles.map(role => role.label));
       const tags = getModelTags(config).filter(tag => !roleLabels.has(tag));
+      const imageCapable = getEffectiveModelCapabilities(config).includes('image_generation');
       return (
         <div key={config.id} className="openbitfun-model-settings__pool-item"
           data-openbitfun-component="model-settings" data-openbitfun-part="modelItem"
@@ -4566,8 +4617,9 @@ const ModelSettingsPage: React.FC = () => {
                   {(isTesting || testResult) && badge}
                 </div>
               )}
-              description={(roles.length > 0 || tags.length > 0) ? (
+              description={(roles.length > 0 || tags.length > 0 || imageCapable) ? (
                 <div className="openbitfun-model-settings__pool-tags">
+                  {imageCapable && <StatusPill tone="neutral">{t('capabilities.image_generation')}</StatusPill>}
                   {roles.map(role => <StatusPill key={role.label} tone="neutral">{role.label}</StatusPill>)}
                   {tags.map(tag => <StatusPill key={tag} tone="neutral">{tag}</StatusPill>)}
                 </div>
@@ -4858,7 +4910,6 @@ const ModelSettingsPage: React.FC = () => {
                   : !subscriptionLoadError && <span className="openbitfun-model-settings__pool-caption">{t('acquisition.noneImported')}</span>}
             </div>
           </ConfigPageRow>
-          <ImageGenerationAcquisitionRow settings={imageSettings} />
         </ConfigPageSection>
 
         <ConfigPageSection title={t('sections.selectionModes')}>
@@ -4906,7 +4957,6 @@ const ModelSettingsPage: React.FC = () => {
             )}>
             <div className="openbitfun-model-settings__pool-slots">
               <DefaultModelConfig compact models={aiModels} defaultModels={poolDefaults}
-                imageGenerationSlot={<ImageGenerationDefaultSlot settings={imageSettings} />}
                 loading={isConfigLoading} disabled={configLoadError} onDefaultModelsChange={setPoolDefaults} />
             </div>
             {hasSuspendedEditorDraft && (
@@ -4919,12 +4969,12 @@ const ModelSettingsPage: React.FC = () => {
                 onChange={event => setPoolQuery(event.target.value)} placeholder={t('pool.search')}
                 aria-label={t('pool.search')} />
               <Select size="sm" value={poolCapability} aria-label={t('pool.capabilityFilter')}
-                onValueChange={value => setPoolCapability(String(value) as ModelCapability | 'image_generation' | '')}
+                onValueChange={value => setPoolCapability(String(value) as ModelCapability | '')}
                 options={[
                   { value: '', label: t('pool.allCapabilities') },
                   { value: 'text_chat', label: t('capabilities.text_chat') },
                   { value: 'image_understanding', label: t('capabilities.image_understanding') },
-                  { value: 'image_generation', label: tMedia('title') },
+                  { value: 'image_generation', label: t('capabilities.image_generation') },
                   { value: 'speech_recognition', label: t('capabilities.speech_recognition') },
                   { value: 'function_calling', label: t('capabilities.function_calling') },
                 ]} />
@@ -5069,8 +5119,6 @@ const ModelSettingsPage: React.FC = () => {
           </div>
         </Disclosure>
       </ConfigPageContent>
-
-      <ImageGenerationDialogs settings={imageSettings} />
 
       <Dialog open={showSubscriptionManager}
         className="openbitfun-model-settings__subscription-dialog"

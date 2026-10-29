@@ -54,6 +54,12 @@ export function resolveModelCategory(
     return 'speech_recognition';
   }
 
+  // Image-generation is a deliberate user selection with its own execution
+  // path; name inference must never upgrade or downgrade it.
+  if (category === 'image_generation') {
+    return 'image_generation';
+  }
+
   if (category === 'general_chat' && inferred === 'multimodal') {
     return 'multimodal';
   }
@@ -69,6 +75,8 @@ export function getCapabilitiesByCategory(category?: ModelCategory | string | nu
   switch (category) {
     case 'speech_recognition':
       return ['speech_recognition'];
+    case 'image_generation':
+      return ['image_generation'];
     case 'multimodal':
       return ['text_chat', 'image_understanding', 'function_calling'];
     case 'general_chat':
@@ -88,6 +96,7 @@ export function getEffectiveModelCapabilities(model: ModelCapabilitySource): Mod
       capability === 'text_chat'
       || capability === 'function_calling'
       || capability === 'image_understanding'
+      || capability === 'image_generation'
       || capability === 'speech_recognition'
     ))
     : [];

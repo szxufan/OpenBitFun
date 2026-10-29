@@ -629,9 +629,10 @@ describe('ModelSettingsPage loading and provider actions', () => {
       base_url: 'https://images.example/v1', model_name: 'image-model', api_key: 'fixture-key',
       enabled: true, params: { n: 1 },
     };
+    // Legacy standalone services keep working at runtime but no longer populate
+    // the default-model slot: only provider-attached image models select there.
     await act(async () => { reads.get('media')!.resolve({ image_services: [image], default_image_service: image.id }); });
-    expect(imageSelector.disabled).toBe(false);
-    expect(imageSelector.textContent).toContain(image.name);
+    expect(imageSelector.disabled).toBe(true);
     expect(selectors()[0].textContent).toContain(model.model_name);
   });
 
