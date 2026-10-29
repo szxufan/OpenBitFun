@@ -605,7 +605,7 @@ jobs:
       checkout_ref: ${{ needs.prepare.outputs.checkout_ref }}
       version: ${{ needs.prepare.outputs.version }}
       artifact_prefix: ${{ needs.prepare.outputs.release_tag }}
-      include_arm64: ${{ !inputs.skip_linux_arm64 }}
+      linux_platforms: ${{ inputs.skip_linux_arm64 && '[{"os":"ubuntu-22.04","name":"linux-x64","target":"x86_64-unknown-linux-gnu","docker_arch":"amd64"}]' || '' }}
       release_channel: ${{ needs.prepare.outputs.release_channel }}
 
   # Publish the Relay once, as a multi-platform image. User servers only pull

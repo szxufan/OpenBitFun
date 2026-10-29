@@ -35,11 +35,13 @@ on:
         required: false
         default: true
         type: boolean
-      include_arm64:
-        description: "Build the aarch64 targets. Forks may drop them to halve wall time."
+      linux_platforms:
+        description: >-
+          JSON array of platform entries (name/os/target/docker_arch). Defaults
+          to both arches; forks pass the x64-only list to skip arm64.
         required: false
-        default: true
-        type: boolean
+        default: ''
+        type: string
       release_channel:
         description: "stable keeps quality-first codegen; beta builds fast."
         required: false
@@ -63,7 +65,6 @@ jobs:
   build:
     name: Linux Binaries (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.os }}
-    if: ${{ inputs.include_arm64 || matrix.platform.name != 'linux-arm64' }}
     timeout-minutes: 90
     env:
       # Beta artifacts trade density for wall time: dropping thin LTO and
@@ -75,20 +76,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          # Both arches build on 22.04 (glibc 2.35) to keep one supported floor.
-          # arm64 used to build on ubuntu-24.04-arm (glibc 2.39), which produced
-          # a relay needing GLIBC_2.38 — unable to start on Debian 12 / Ubuntu
-          # 22.04 arm64, or in the deploy runtime image. The floor is asserted
-          # below rather than left to whatever the runner image happens to ship.
-          - os: ubuntu-22.04
-            name: linux-x64
-            target: x86_64-unknown-linux-gnu
-            docker_arch: amd64
-          - os: ubuntu-22.04-arm
-            name: linux-arm64
-            target: aarch64-unknown-linux-gnu
-            docker_arch: arm64
+        # Both arches build on 22.04 (glibc 2.35) to keep one supported floor.
+        # arm64 used to build on ubuntu-24.04-arm (glibc 2.39), which produced
+        # a relay needing GLIBC_2.38 — unable to start on Debian 12 / Ubuntu
+        # 22.04 arm64, or in the deploy runtime image. The floor is asserted
+        # below rather than left to whatever the runner image happens to ship.
+        # Callers may narrow the list via linux_platforms (forks drop
+        # ubuntu-22.04-arm and aarch64-unknown-linux-gnu entirely).
+        platform: ${{ fromJSON(inputs.linux_platforms != '' && inputs.linux_platforms || '[{"os":"ubuntu-22.04","name":"linux-x64","target":"x86_64-unknown-linux-gnu","docker_arch":"amd64"},{"os":"ubuntu-22.04-arm","name":"linux-arm64","target":"aarch64-unknown-linux-gnu","docker_arch":"arm64"}]') }}
 
     steps:
       - name: Checkout

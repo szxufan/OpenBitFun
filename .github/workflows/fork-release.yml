@@ -54,7 +54,7 @@ jobs:
       upload_artifacts: true
       # Fork policy: no Linux arm64 demand, and an amd64-only relay image
       # skips the QEMU-emulated half of the docker build.
-      include_arm64: false
+      linux_platforms: '[{"os":"ubuntu-22.04","name":"linux-x64","target":"x86_64-unknown-linux-gnu","docker_arch":"amd64"}]'
       release_channel: ${{ contains(github.ref_name, '-') && 'beta' || 'stable' }}
 
   desktop-packages:
