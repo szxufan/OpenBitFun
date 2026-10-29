@@ -572,6 +572,8 @@ async fn peer_preview_fixture(benchmark: bool) {
                 correlation_id,
                 encrypted_data,
                 nonce,
+                key_id,
+                ..
             } = event
             else {
                 continue;
@@ -589,7 +591,13 @@ async fn peer_preview_fixture(benchmark: bool) {
             let serving_requests = serving_requests.clone();
             handlers.spawn(async move {
                 let plaintext = target
-                    .decrypt_from_peer(&relay_url, &source_device_id, &encrypted_data, &nonce)
+                    .decrypt_from_peer(
+                        &relay_url,
+                        &source_device_id,
+                        &encrypted_data,
+                        &nonce,
+                        key_id.as_deref(),
+                    )
                     .await
                     .unwrap();
                 let RemoteCommand::HostInvoke { command, args } =
@@ -619,7 +627,7 @@ async fn peer_preview_fixture(benchmark: bool) {
                     value: Some(value),
                     error: None,
                 };
-                let (data, nonce) = target
+                let sealed = target
                     .encrypt_for_peer(
                         &relay_url,
                         &source_device_id,
@@ -628,7 +636,13 @@ async fn peer_preview_fixture(benchmark: bool) {
                     .await
                     .unwrap();
                 serving_client
-                    .send_device_message(&source_device_id, &correlation_id, &data, &nonce)
+                    .send_device_message(
+                        &source_device_id,
+                        &correlation_id,
+                        &sealed.data,
+                        &sealed.nonce,
+                        sealed.key_id.as_deref(),
+                    )
                     .await
                     .unwrap();
             });

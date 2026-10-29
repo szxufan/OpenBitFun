@@ -147,8 +147,12 @@ mod tests {
 
     #[test]
     fn the_endpoint_variant_prefers_a_retired_official_endpoint() {
-        let older = DEFAULT_RELAY_URL.replace("/v/1.0.2", "/v/1.0.1");
-        let retired = account_failure_guidance_for_endpoint("some generic error", &older);
+        // The fork relay lives at the origin root, so a leftover `/v/<version>`
+        // pointer on the same host is retired by definition. Derive it from
+        // DEFAULT_RELAY_URL instead of hard-coding a release path so the case
+        // still holds when the hosted endpoint changes.
+        let retired_url = format!("{}/v/1.0.1", DEFAULT_RELAY_URL.trim_end_matches('/'));
+        let retired = account_failure_guidance_for_endpoint("some generic error", &retired_url);
         assert_eq!(retired.0, UPDATE_SENTENCE);
         assert_eq!(retired.1, Some(UPDATE_HINT));
 
