@@ -418,6 +418,8 @@ async fn query_in_store(
                     workspace_path: Some(job.request.workspace_path.clone()),
                     remote_connection_id: None,
                     remote_ssh_host: None,
+                    include_system_prompt_preview: false,
+                    context_preview_category: None,
                     include_hidden_subagents: false,
                 },
             )

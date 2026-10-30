@@ -146,6 +146,7 @@ pub(crate) fn dispatch<'a>(
             Box::pin(session::list_persisted_sessions_count(state, args))
         }
         "search_session_content" => Box::pin(session::search_session_content(state, args)),
+        "load_session_trajectory" => Box::pin(session::load_session_trajectory(state, args)),
         "load_session_turn_window" => Box::pin(session::load_session_turn_window(state, args)),
         "load_session_turns" => Box::pin(session::load_session_turns(state, args)),
         "load_session_event_backfill" => Box::pin(std::future::ready(session::load_session_event_backfill(state, args))),
@@ -332,6 +333,7 @@ pub(crate) const HANDLED_COMMANDS: &[&str] = &[
     "list_project_permission_grants",
     "load_session_event_backfill",
     "load_session_turn_window",
+    "load_session_trajectory",
     "load_session_turns",
     "open_workspace",
     "product_control_invoke",

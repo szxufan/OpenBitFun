@@ -30,6 +30,7 @@ export const toolPresentationRegistry = {
   ExecCommand: { owner: 'standard', component: 'CommandToolCard' },
   WriteStdin: { owner: 'standard', component: 'CommandToolCard' },
   ExecControl: { owner: 'standard', component: 'CommandToolCard' },
+  PageManage: { owner: 'standard', component: 'PagePublishToolCard' },
   PageDeploy: { owner: 'standard', component: 'PageDeployToolCard' },
   PagePublish: { owner: 'standard', component: 'PagePublishToolCard' },
   view_image: { owner: 'standard', component: 'ViewImageToolCard' },

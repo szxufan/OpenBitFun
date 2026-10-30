@@ -147,15 +147,15 @@ describe('prompt suggestion projection', () => {
     usePromptSuggestionStore.setState({ suggestions: {} });
   });
 
-  it('preserves the model text for the latest turn without post-processing', () => {
+  it('trims surrounding whitespace in legacy suggestion events while preserving message content', () => {
     createSessionWithTurn(createFinishingTurn());
 
     handlePromptSuggestion(createFlowChatContext(), {
-      sessionId: 'session-1', sourceTurnId: 'turn-1', suggestion: '  Run the tests  ',
+      sessionId: 'session-1', sourceTurnId: 'turn-1', suggestion: '\n\n  Run  the tests\n  Then commit.  \r\n',
     });
 
     expect(usePromptSuggestionStore.getState().suggestions[promptSuggestionKey('session-1')]).toEqual({
-      suggestion: '  Run the tests  ', sourceTurnId: 'turn-1',
+      suggestion: 'Run  the tests\n  Then commit.', sourceTurnId: 'turn-1',
     });
   });
 

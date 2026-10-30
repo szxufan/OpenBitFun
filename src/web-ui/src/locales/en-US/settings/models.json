@@ -402,6 +402,7 @@
     "modelSelection": "Select Models",
     "modelNameHint": "GLM-ASR uses glm-asr, other speech models use their corresponding model names",
     "baseUrl": "API URL",
+    "baseUrlPlaceholder": "https://api.example.com/v1",
     "resolvedUrlLabel": "Request URL: ",
     "forceUrlHint": "Append # to force use the exact URL you entered",
     "apiKey": "API Key",
@@ -596,9 +597,9 @@
   "draftClose": {
     "title": "Keep this editing draft?",
     "message": "These changes have not been written to the model configuration. Keeping the draft will not run a connection test, and you can resume it when you reopen this editor.",
-    "keepAndClose": "Keep draft and close",
-    "discard": "Discard changes",
-    "continueEditing": "Continue editing",
+    "keepAndClose": "Keep draft",
+    "discard": "Discard",
+    "continueEditing": "Keep editing",
     "discardDraft": "Discard draft",
     "retainedHint": "The model editing draft is retained and has not been written to the active configuration."
   },

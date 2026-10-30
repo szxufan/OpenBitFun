@@ -621,6 +621,8 @@ fn compute_active_duration_millis(
             workspace_path: Some(workspace_path.to_string_lossy().to_string()),
             remote_connection_id: None,
             remote_ssh_host: None,
+            include_system_prompt_preview: false,
+            context_preview_category: None,
             include_hidden_subagents: false,
         },
         turns,

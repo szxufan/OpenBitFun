@@ -475,6 +475,7 @@ pub(super) const OPERATIONS: &[OperationDefinition] = &[
     op("load_mcp_json_config",                                       Unaudited,   Proxied,          CLI_NOT_IMPLEMENTED),
     op("load_persisted_session_metadata",                            Unaudited,   Proxied,          CLI_NOT_IMPLEMENTED),
     op("load_session_event_backfill",                                Agnostic,    Proxied,          HANDLED).observe(),
+    op("load_session_trajectory",                                    Routed,      Proxied,          HANDLED),
     op("load_session_turn_window",                                   Routed,      Proxied,          HANDLED).observe(),
     op("load_session_turns",                                         Unaudited,   Proxied,          HANDLED),
     op("local_file_download",                                       Agnostic,    ControllerLocal,  REFUSED),

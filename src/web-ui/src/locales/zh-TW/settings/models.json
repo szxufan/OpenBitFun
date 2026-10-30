@@ -402,6 +402,7 @@
     "modelSelection": "選擇模型",
     "modelNameHint": "智譜 GLM-ASR 使用 glm-asr，其他語音模型填寫對應的模型名稱",
     "baseUrl": "API地址",
+    "baseUrlPlaceholder": "https://api.example.com/v1",
     "resolvedUrlLabel": "實際請求地址：",
     "forceUrlHint": "以 # 結尾可強制使用輸入地址",
     "apiKey": "API密鑰",
@@ -596,7 +597,7 @@
   "draftClose": {
     "title": "保留這次編輯草稿？",
     "message": "這些修改尚未寫入模型設定。保留草稿不會觸發連接測試，再次開啟此編輯器時可以繼續。",
-    "keepAndClose": "保留草稿並關閉",
+    "keepAndClose": "保留草稿",
     "discard": "放棄修改",
     "continueEditing": "繼續編輯",
     "discardDraft": "放棄草稿",

@@ -83,12 +83,210 @@ describe('ModelSettingsPage loading and provider actions', () => {
     root = createRoot(container);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     act(() => root.unmount());
+    await i18nService.applyPersistedLanguage('en-US');
     container.remove();
     vi.useRealTimers();
     vi.restoreAllMocks();
     activateSurface('local');
+  });
+
+  const editor = () => document.querySelector<HTMLElement>(
+    '.openbitfun-model-settings__editor-dialog:not([data-state="exiting"])',
+  );
+  const editorButton = (key: string) => [...editor()!.querySelectorAll<HTMLButtonElement>('button')]
+    .find(element => element.textContent === copy(key))!;
+  const editorDraft = () => getSettingsDraftSnapshot().resources.find(resource => resource.id === 'model-provider-editor')!;
+  const inputValue = async (input: HTMLInputElement, value: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const openNewProvider = async (provider = 'custom') => {
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => {
+      reads.get('ai.models')!.resolve([]);
+      reads.get('ai.default_models')!.resolve({});
+    });
+    await act(async () => button('actions.addModel').click());
+    if (provider !== 'custom') {
+      await inputValue(container.querySelector<HTMLInputElement>('[data-testid="settings-model-provider-search"]')!, provider);
+    }
+    await act(async () => container.querySelector<HTMLButtonElement>(`button[data-provider-id="${provider}"]`)!.click());
+  };
+
+  it.each([
+    ['en-US', 'cancel'], ['zh-CN', 'escape'], ['zh-TW', 'close'],
+  ] as const)('opens a neutral, pristine custom provider in %s and dismisses with %s', async (locale, dismissal) => {
+    await i18nService.applyPersistedLanguage(locale);
+    const update = vi.spyOn(configManager, 'updateConfig');
+    const probe = vi.spyOn(aiApi, 'testAIConfigConnection');
+    const discover = vi.spyOn(aiApi, 'listModelsByConfig');
+    await openNewProvider();
+    expect(editor()!.querySelector('[data-testid="settings-provider-editor-brand"]')?.textContent).toBe(copy('providerSelection.customTitle'));
+    expect(editor()!.querySelector<HTMLInputElement>('[data-testid="settings-model-provider-name-input"]')!.value).toBe('');
+    const endpoint = editor()!.querySelector<HTMLInputElement>('[data-testid="settings-model-base-url-input"]')!;
+    expect(endpoint.value).toBe('');
+    expect(endpoint.placeholder).toBe(copy('form.baseUrlPlaceholder'));
+    expect(editor()!.textContent).not.toContain('bigmodel.cn');
+    expect(editor()!.querySelector('.openbitfun-model-settings__resolved-url')).toBeNull();
+    expect(editorDraft().dirty).toBe(false);
+    expect(editor()!.getAttribute('data-preset')).toBe('default');
+    expect(editor()!.getAttribute('data-size')).toBe('lg');
+    expect(endpoint.closest('[data-field-surface]')?.getAttribute('data-field-surface')).toBe('filled');
+    await act(async () => editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-advanced-toggle"] button')!.click());
+    expect(editorDraft().dirty).toBe(false);
+    await act(async () => {
+      if (dismissal === 'escape') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      else if (dismissal === 'close') editor()!.querySelector<HTMLButtonElement>('[data-openbitfun-part="close"]')!.click();
+      else editorButton('actions.cancel').click();
+    });
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(editor()).toBeNull();
+    expect(editorDraft().dirty).toBe(false);
+    expect(container.querySelector('[data-openbitfun-view="selection"]')).not.toBeNull();
+    expect(document.activeElement).toBe(container.querySelector('button[data-provider-id="custom"]'));
+    await act(async () => button('actions.cancel').click());
+    expect(container.querySelector('[data-openbitfun-view="settings"]')).not.toBeNull();
+    expect(update).not.toHaveBeenCalled();
+    expect(probe).not.toHaveBeenCalled();
+    expect(discover).not.toHaveBeenCalled();
+  });
+
+  it.each(['custom', 'zhipu'])('treats reverted %s fields as pristine and preserves real changes across reopen', async provider => {
+    await openNewProvider(provider);
+    const endpoint = () => editor()!.querySelector<HTMLInputElement>('[data-testid="settings-model-base-url-input"]')!;
+    const initialUrl = endpoint().value;
+    expect(editorDraft().dirty).toBe(false);
+    if (provider === 'zhipu') expect(initialUrl).toContain('bigmodel.cn');
+    await inputValue(endpoint(), 'https://custom.example.test/v1');
+    expect(editorDraft().dirty).toBe(true);
+    await inputValue(endpoint(), initialUrl);
+    expect(editorDraft().dirty).toBe(false);
+    await inputValue(endpoint(), 'https://custom.example.test/v1');
+    await act(async () => editorButton('actions.cancel').click());
+    const confirmation = document.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    expect(confirmation.textContent).toContain(copy('draftClose.title'));
+    await act(async () => [...confirmation.querySelectorAll<HTMLButtonElement>('button')]
+      .find(element => element.textContent === copy('draftClose.keepAndClose'))!.click());
+    expect(editor()).toBeNull();
+    expect(editorDraft().dirty).toBe(true);
+    await act(async () => button('actions.addModel').click());
+    expect(endpoint().value).toBe('https://custom.example.test/v1');
+    expect(editorDraft().dirty).toBe(true);
+    await inputValue(endpoint(), initialUrl);
+    expect(editorDraft().dirty).toBe(false);
+    await act(async () => editorButton('actions.cancel').click());
+    expect(editor()).toBeNull();
+    expect(container.querySelector('[data-openbitfun-view="selection"]')).not.toBeNull();
+    expect(container.querySelector<HTMLInputElement>('[data-testid="settings-model-provider-search"]')!.value)
+      .toBe(provider === 'custom' ? '' : provider);
+  });
+
+  it.each(['custom', 'zhipu'])('returns a discarded %s draft to the same provider selection', async provider => {
+    const update = vi.spyOn(configManager, 'updateConfig');
+    await openNewProvider(provider);
+    await act(async () => editorButton('actions.cancel').click());
+    if (provider === 'custom') {
+      await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="settings-model-provider-expand-btn"]')!.click());
+    }
+    const providerCount = container.querySelectorAll('button[data-provider-id]').length;
+    await act(async () => container.querySelector<HTMLButtonElement>(`button[data-provider-id="${provider}"]`)!.click());
+    const name = () => editor()!.querySelector<HTMLInputElement>('[data-testid="settings-model-provider-name-input"]')!;
+    const initialName = name().value;
+    await inputValue(name(), 'Unsaved provider');
+    await act(async () => editorButton('actions.cancel').click());
+    const confirmation = document.querySelector<HTMLElement>('[role="alertdialog"]')!;
+    await act(async () => [...confirmation.querySelectorAll<HTMLButtonElement>('button')]
+      .find(element => element.textContent === copy('draftClose.discard'))!.click());
+    expect(editor()).toBeNull();
+    expect(editorDraft().dirty).toBe(false);
+    expect(container.querySelector('[data-openbitfun-view="selection"]')).not.toBeNull();
+    expect(container.querySelectorAll('button[data-provider-id]')).toHaveLength(providerCount);
+    expect(document.activeElement).toBe(container.querySelector(`button[data-provider-id="${provider}"]`));
+    expect(container.querySelector<HTMLInputElement>('[data-testid="settings-model-provider-search"]')!.value)
+      .toBe(provider === 'custom' ? '' : provider);
+    await act(async () => container.querySelector<HTMLButtonElement>(`button[data-provider-id="${provider}"]`)!.click());
+    expect(name().value).toBe(initialName);
+    expect(editorDraft().dirty).toBe(false);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('returns an existing provider editor to the model overview', async () => {
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => {
+      reads.get('ai.models')!.resolve([model]);
+      reads.get('ai.default_models')!.resolve({});
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>('.openbitfun-model-settings__source-pill')!.click());
+    expect(editorDraft().dirty).toBe(false);
+    await act(async () => editorButton('actions.cancel').click());
+    expect(editor()).toBeNull();
+    expect(container.querySelector('[data-openbitfun-view="settings"]')).not.toBeNull();
+    expect(container.querySelector('[data-openbitfun-view="selection"]')).toBeNull();
+  });
+
+  it.each(['provider', 'model'])('does not dirty an existing %s when reselecting or restoring default request modes', async target => {
+    const update = vi.spyOn(configManager, 'updateConfig');
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => {
+      reads.get('ai.models')!.resolve([model]);
+      reads.get('ai.default_models')!.resolve({});
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>(target === 'provider'
+      ? '.openbitfun-model-settings__source-pill'
+      : `[data-config-id="${model.id}"] button[aria-label="${copy('actions.edit')}"]`,
+    )!.click());
+    await act(async () => editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-advanced-toggle"] button')!.click());
+    const mergeButtons = () => [...editor()!.querySelectorAll<HTMLButtonElement>('.openbitfun-model-settings__mode-button')]
+      .filter(element => element.textContent === copy('advancedSettings.customHeaders.modeMerge'));
+    expect(mergeButtons()).toHaveLength(2);
+    await act(async () => mergeButtons().forEach(element => element.click()));
+    expect(editorDraft().dirty).toBe(false);
+    await act(async () => editorButton('advancedSettings.customHeaders.modeReplace').click());
+    expect(editorDraft().dirty).toBe(true);
+    await act(async () => mergeButtons().forEach(element => element.click()));
+    expect(editorDraft().dirty).toBe(false);
+    await act(async () => editorButton('advancedSettings.customRequestBody.modeTrim').click());
+    expect(editorDraft().dirty).toBe(true);
+    await act(async () => mergeButtons().forEach(element => element.click()));
+    expect(editorDraft().dirty).toBe(false);
+    await act(async () => editorButton('actions.cancel').click());
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(editor()).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it.each(['en-US', 'zh-CN', 'zh-TW'] as const)('saves nested model edits into the provider draft in %s', async locale => {
+    await i18nService.applyPersistedLanguage(locale);
+    const update = vi.spyOn(configManager, 'updateConfig');
+    await openNewProvider();
+    await act(async () => editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-add-custom-btn"]')!.click());
+    const manualName = editor()!.querySelector<HTMLInputElement>('[data-testid="settings-model-manual-name-input"]')!;
+    await inputValue(manualName, 'custom-model');
+    await act(async () => manualName.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    await act(async () => editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-capsule-edit"]')!.click());
+    await inputValue(editor()!.querySelector<HTMLInputElement>('[data-testid="settings-model-name-input"]')!, 'renamed-model');
+    const save = editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-save-btn"]')!;
+    expect(save.textContent).toBe(copy('actions.save'));
+    await act(async () => save.click());
+    expect(editor()!.querySelector('[data-testid="settings-model-name-input"]')).toBeNull();
+    expect(editor()!.querySelector('[data-testid="settings-model-selected-row"]')?.getAttribute('data-model-name')).toBe('renamed-model');
+    expect(editorDraft().dirty).toBe(true);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('protects a typed custom model and clears dirty state when that model is removed', async () => {
+    await openNewProvider();
+    await act(async () => editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-add-custom-btn"]')!.click());
+    const name = editor()!.querySelector<HTMLInputElement>('[data-testid="settings-model-manual-name-input"]')!;
+    await inputValue(name, 'custom-model');
+    expect(editorDraft().dirty).toBe(true);
+    await act(async () => name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    expect(editor()!.querySelector('[data-testid="settings-model-selected-row"]')).not.toBeNull();
+    expect(editorDraft().dirty).toBe(true);
+    await act(async () => editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-selected-remove-btn"]')!.click());
+    expect(editorDraft().dirty).toBe(false);
   });
 
   it.each([false, true])('shows host accounts on the page without importing a model (account slots: %s)', async slotsSupported => {
@@ -816,7 +1014,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
         const editor = document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
         const brand = editor.querySelector<HTMLElement>('[data-testid="settings-provider-editor-brand"]')!;
         expect(brand.getAttribute('aria-label')).toBe(model.name);
-        expect(editor.getAttribute('data-preset')).toBe('panel');
+        expect(editor.getAttribute('data-preset')).toBe('default');
         expect(editor.querySelector('[data-openbitfun-part="title"]')?.classList.contains('sr-only')).toBe(true);
         expect(brand.closest('[data-openbitfun-part="heading"]')).not.toBeNull();
         if (kind === 'subscription') expect(brand.querySelector<HTMLElement>('[data-product-logo="codex"]')?.style.width).toBe('64px');

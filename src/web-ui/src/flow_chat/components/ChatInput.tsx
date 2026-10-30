@@ -9,6 +9,8 @@ import { withConversationExcerpts } from '../utils/composerPresentation';
  */
 
 import React, { useRef, useCallback, useEffect, useReducer, useState, useMemo, useSyncExternalStore } from 'react';
+import type { UsageContextBreakdown } from '@/infrastructure/api/service-api/SessionAPI';
+import type { UsageReportUiParams } from '../session-drivers/types';
 import path from 'path-browserify';
 import { useTranslation } from 'react-i18next';
 import { RotateCcw, Loader2, Play, Goal, Clock } from 'lucide-react';
@@ -555,6 +557,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const richTextInputRef = useRef<RichTextInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const externalFileDropTargetRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const [nativeFileDragOver, setNativeFileDragOver] = useState(false);
   const [contextFileDragOver, setContextFileDragOver] = useState(false);
   const inputAreaAnchorRef = useRef<HTMLDivElement>(null);
@@ -3793,7 +3796,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     t,
   ]);
 
-  const runEffectiveSessionUsageReport = useCallback(async () => {
+  const runEffectiveSessionUsageReport = useCallback(async (presentReport?: UsageReportUiParams['presentReport']) => {
     if (!effectiveTargetSessionId || !effectiveTargetSession) {
       notificationService.error(
         t('chatInput.usageNoSession')
@@ -3806,6 +3809,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         effectiveTargetSessionId,
         {
           isProcessing: !!derivedState?.isProcessing,
+          presentReport,
+          reportTitle: t('usage.panel.report'),
           busyMessage: t('chatInput.usageBusy'),
           noWorkspaceMessage: t('chatInput.usageNoWorkspace'),
           failedTitle: t('chatInput.usageFailed'),
@@ -3865,6 +3870,15 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     void runEffectiveSessionUsageReport().catch(() => {
       /* errors surfaced by runUsageReportCommand */
     });
+  }, [runEffectiveSessionUsageReport]);
+
+  const loadContextUsageOverview = useCallback(async () => {
+    let context: UsageContextBreakdown | undefined;
+    await runEffectiveSessionUsageReport(report => {
+      context = report.context;
+      return true;
+    });
+    return context;
   }, [runEffectiveSessionUsageReport]);
 
   const submitInitFromInput = useCallback(async () => {
@@ -6436,7 +6450,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           } : undefined}
       workspaceId={executionWorkspaceId ?? ''}
       repositoryPath={chatStripRepositoryPath}
-      workspaceLabel={chatStripWorkspaceLabel}
+      workspaceLabel={isAssistantWorkspace || chatInputModePolicy.fixedModeId === 'Claw'
+        ? '' : chatStripWorkspaceLabel}
       executionTarget={effectiveTargetSession?.config.executionTarget}
       dispatchControl={dispatchControl}
       worktreeControl={worktreeControl}
@@ -6495,6 +6510,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               visible: true,
               currentTokens: tokenUsage.current,
               maxTokens: tokenUsage.max,
+              sessionKey: deviceSurfaceScope.key(effectiveTargetSessionId),
+              anchorRef: composerRef,
+              previewSession: {
+                sessionId: effectiveTargetSessionId,
+                workspaceId: effectiveTargetSession.workspaceId ?? effectiveTargetSession.config.workspaceId,
+              },
+              loadContext: loadContextUsageOverview,
               onOpen: handleToolbarUsageReport,
             }
           : undefined
@@ -6584,6 +6606,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           ) : null}
           <div ref={externalFileDropTargetRef} className="openbitfun-chat-input__box" data-openbitfun-component="chat-input" data-openbitfun-part="box">
             <ChatComposer
+              ref={composerRef}
               className="openbitfun-chat-input__composer"
               contextBar={workspaceStrip}
               layout={isMultiLine ? 'expanded' : 'compact'}

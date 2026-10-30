@@ -173,6 +173,27 @@ final class MobileCoreAdapter {
         }
     }
 
+    private func reconcileDirectorySessionSnapshot(
+        _ state: RemoteSessionUiState,
+        sessionStore: RemoteSessionStore,
+        targetKey: String
+    ) {
+        guard let ready = state as? RemoteSessionUiStateReady,
+              ready.query.isEmpty,
+              ready.agentFilter.name == "ALL",
+              !ready.busy,
+              let workspaceIdentity = sessionStore.activeWorkspaceIdentity,
+              targetKey.hasPrefix("account:") else { return }
+        let deviceID = String(targetKey.dropFirst("account:".count))
+        guard !deviceID.isEmpty else { return }
+        _ = deviceDirectory.reconcileWorkspaceSessions(
+            deviceId: deviceID,
+            identity: workspaceIdentity,
+            sessions: ready.sessions,
+            hasMore: ready.hasMore
+        )
+    }
+
     @discardableResult
     func syncDeviceDirectory(_ devices: [MobileAccountDevice]) -> UInt64 {
         directoryGeneration &+= 1
@@ -615,6 +636,7 @@ final class MobileCoreAdapter {
         onRemoteTargetBound?(targetKey, boundEpoch, accountGeneration)
 
         let sessionFlow = SkieSwiftStateFlow<RemoteSessionUiState>(sessionStore.state)
+        reconcileDirectorySessionSnapshot(sessionFlow.value, sessionStore: sessionStore, targetKey: targetKey)
         onRemoteState?(sessionFlow.value, targetKey, boundEpoch)
         remoteObservations.append(Task { [weak self] in
             var lastHealthSignature = ""
@@ -628,6 +650,7 @@ final class MobileCoreAdapter {
                     lastHealthSignature = signature
                 }
                 #endif
+                self?.reconcileDirectorySessionSnapshot(state, sessionStore: sessionStore, targetKey: targetKey)
                 self?.onRemoteState?(state, targetKey, boundEpoch)
             }
         })

@@ -91,6 +91,8 @@ pub enum PeerHostCapability {
     WorkspaceHtmlPreviewV1,
     /// `copy_session` copies a whole session without a caller-selected turn id.
     WholeSessionCopyV1,
+    /// Bounded session trajectory summaries and host-side body search.
+    SessionTrajectoryV1,
     /// `submit_user_answers` is implemented for Runtime-owned questions.
     UserQuestionResponse,
     /// First human interaction disables the unattended question timeout.
@@ -142,6 +144,7 @@ impl PeerHostCapability {
         Self::WorkspaceIdReferencesV1,
         Self::WorkspaceHtmlPreviewV1,
         Self::WholeSessionCopyV1,
+        Self::SessionTrajectoryV1,
         Self::UserQuestionResponse,
         Self::UserQuestionInteractionV1,
         Self::PskPairingV1,
@@ -185,6 +188,7 @@ impl PeerHostCapability {
             Self::ChatMcpCatalogV1 => "chat_mcp_catalog_v1",
             Self::WorkspaceIdReferencesV1 => "workspace_id_references_v1",
             Self::WorkspaceHtmlPreviewV1 => "workspace_html_preview_v1",
+            Self::SessionTrajectoryV1 => "session_trajectory_v1",
             Self::WholeSessionCopyV1 => "whole_session_copy_v1",
             Self::UserQuestionResponse => "user_question_response",
             Self::UserQuestionInteractionV1 => "user_question_interaction_v1",
@@ -218,6 +222,7 @@ const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::ProductControlV1,
     PeerHostCapability::CancelTool,
     PeerHostCapability::ToolCatalog,
+    PeerHostCapability::SessionTrajectoryV1,
     PeerHostCapability::ChatMcpCatalogV1,
     PeerHostCapability::WorkspaceIdReferencesV1,
     PeerHostCapability::WorkspaceHtmlPreviewV1,

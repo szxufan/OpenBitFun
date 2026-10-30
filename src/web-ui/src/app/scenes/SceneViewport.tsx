@@ -43,9 +43,6 @@ const ProfileScene    = lazyWithRecovery(() => import('./profile/ProfileScene'))
 const PersonalOverviewScene = lazyWithRecovery(() => import('./personal-overview/PersonalOverviewScene'));
 const AgentsScene       = lazyWithRecovery(() => import('./agents/AgentsScene'));
 const SkillsScene     = lazyWithRecovery(() => import('./skills/SkillsScene'));
-const EcosystemCompatibilityScene = lazyWithRecovery(
-  () => import('./ecosystem-compatibility/EcosystemCompatibilityScene'),
-);
 const MiniAppGalleryScene = lazyWithRecovery(() => import('./miniapps/MiniAppGalleryScene'));
 const PagesScene      = lazyWithRecovery(() => import('./pages/PagesScene'));
 const BrowserScene    = lazyWithRecovery(() => import('./browser/BrowserScene'));
@@ -349,8 +346,6 @@ function renderScene(
       return <AgentsScene />;
     case 'skills':
       return <SkillsScene />;
-    case 'ecosystem-compatibility':
-      return <EcosystemCompatibilityScene />;
     case 'miniapps':
       return <MiniAppGalleryScene />;
     case 'pages':

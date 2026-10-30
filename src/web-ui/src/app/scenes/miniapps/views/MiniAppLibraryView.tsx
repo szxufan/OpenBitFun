@@ -80,6 +80,8 @@ import { useMiniAppLaunch } from '../hooks/useMiniAppLaunch';
 import { MiniAppLaunchActions } from '../components/MiniAppLaunchActions';
 import { MiniAppSystemAppActions } from '../components/MiniAppSystemAppActions';
 import { useMiniAppSystemInstallation } from '../hooks/useMiniAppSystemInstallation';
+import { MiniAppNavigationAction } from '../components/MiniAppNavigationAction';
+import { useMiniAppNavigationStore } from '../miniAppNavigationStore';
 
 const log = createLogger('MiniAppLibraryView');
 const MINIAPP_MARKET_WEBSITE_URL = 'https://market.openbitfun.com/miniapp/';
@@ -386,6 +388,8 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
     setPendingDeleteId(null);
     try {
       await miniAppAPI.deleteMiniApp(appId);
+      if (!surfaceScope.isCurrent()) return;
+      useMiniAppNavigationStore.getState().setPinned(surfaceScope.surfaceId, appId, false);
       if (selectedApp?.id === appId) closeDetail();
       setApps(useMiniAppStore.getState().apps.filter((app) => app.id !== appId));
       markWorkerStopped(appId);
@@ -1034,6 +1038,7 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
               </span>
             ) : null}
             {installed ? renderLaunchActions(installed.appId, busyListingId === detail.listingId || detailWorkspaceUnsupported, 'menu') : null}
+            {installed ? <MiniAppNavigationAction appId={installed.appId} /> : null}
             {!installed || canUpdate ? (
               <Button
                 size="sm"

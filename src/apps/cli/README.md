@@ -259,13 +259,32 @@ the limit is enforced at the stdin reader. stdin EOF is a deterministic
 disconnect: the Host cancels in-flight turns and exits. `app/initialize`
 advertises only the methods this Host actually serves.
 
-### Publishing Pages
+### Managing Pages
 
-After `/login`, Standard and Claw sessions can use `PagePublish` to save page
-content and optionally publish it, and `PageDeploy` to deploy or roll back to a
-saved version. The tools appear only while the executing CLI Runtime has an
+After `/login`, Standard and Claw sessions use `PageManage` to list, publish,
+update, delete, and manage access to Pages. `list` returns published Pages with
+their name, absolute URL, visibility, and update time; set `published_only=false`
+to include unpublished Pages. `publish` saves a complete content bundle;
+`update` changes an existing Page's title or content while preserving visibility.
+Both save a preview unless `deploy=true` is requested. `permissions` sets
+`private` (owner), `relay` (signed-in Relay users), or `public` access.
+`versions` lists saved versions; `deploy` promotes or rolls back to one;
+`unpublish` takes a Page offline without deleting versions. `delete` removes the
+whole Page, or only the supplied `version_id`.
+
+Content updates require a Relay that supports metadata preconditions. If another
+device changes the title or permissions during upload, the save is rejected;
+list the Page again before retrying. Older Relays return an unsupported state
+for content updates while retaining their existing publish and management paths.
+Do not replace a failed `update` with `publish`, which can change access settings.
+
+The tool appears only while the executing CLI Runtime has an
 account session. Existing tool permissions still apply; unattended `exec` and
 dispatch runs use their configured approval policy.
+
+`PagePublish` and `PageDeploy` remain available for legacy explicit Agent tool
+configurations and existing calls, but are no longer included in new defaults.
+Legacy Pages exclusions remain effective after upgrading.
 
 The CLI restores its saved account session at startup, including for `exec` and
 Shared Runtime hosts. Shared TUI account login remains unsupported: sign in

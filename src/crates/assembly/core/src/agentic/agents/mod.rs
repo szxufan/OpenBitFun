@@ -133,8 +133,7 @@ pub fn standard_harness_tools() -> Vec<String> {
         // for the interval.
         "Cron".to_string(),
         "PublishAppearance".to_string(),
-        "PageDeploy".to_string(),
-        "PagePublish".to_string(),
+        "PageManage".to_string(),
     ]
 }
 

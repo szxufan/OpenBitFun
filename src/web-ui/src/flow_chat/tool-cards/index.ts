@@ -68,6 +68,7 @@ import { ExecControlToolCard } from './ExecControlToolCard';
 import { InitMiniAppDisplay } from './MiniAppToolDisplay';
 import { PageDeployDisplay } from './PageDeployToolDisplay';
 import { PagePublishDisplay } from './PagePublishToolDisplay';
+import { PageManageDisplay } from './PageManageToolDisplay';
 import { GenerativeWidgetToolCard } from './GenerativeWidgetToolCard';
 import { CanvasToolCard } from './CanvasToolCard';
 import { ReviewSessionSummaryCard } from './ReviewSessionSummaryCard';
@@ -141,6 +142,7 @@ export const STANDARD_TOOL_CARD_ADAPTERS = {
   'ExecControl': ExecControlToolCard,
 
   // OpenBitFun Page (session-only publish)
+  'PageManage': PageManageDisplay,
   'PageDeploy': PageDeployDisplay,
   'PagePublish': PagePublishDisplay,
 

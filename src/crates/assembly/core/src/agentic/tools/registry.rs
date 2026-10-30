@@ -615,6 +615,7 @@ mod tests {
             "MiniAppBrowser",
             "FrontendWorkbench",
             "PublishAppearance",
+            "PageManage",
             "PageDeploy",
             "PagePublish",
             "ControlHub",

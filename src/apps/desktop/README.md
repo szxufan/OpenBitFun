@@ -669,20 +669,27 @@ main Git checkout's target cache. If absent, curl downloads the version-specific
 archive, supporting HTTP and SOCKS proxies; Cargo handles extraction and linking.
 Explicit `SHERPA_ONNX_LIB_DIR` and `SHERPA_ONNX_ARCHIVE_DIR` overrides are preserved.
 
-Development uses separate data by default. Add `--shared-data` to run alongside
-the installed app and share its data:
+Development shares the installed app's existing settings, workspaces and sessions
+by default. Both launchers keep a separate development host channel and retain
+the existing session writer and scheduler leases:
 
 ```sh
-pnpm run desktop:dev -- --shared-data
-pnpm run desktop:preview:debug -- --shared-data
+pnpm run desktop:dev
+pnpm run desktop:preview:debug
 ```
 
-Use `--isolated-data` for separate development data (the default).
+Use `--isolated-data` for separate development data under the current checkout's
+`.openbitfun/desktop-dev/{user,home}` directories. Existing isolated data stays in
+place and remains accessible with this flag; switching modes does not move or
+delete sessions. Explicit storage environment overrides remain authoritative,
+and `--shared-data` is still accepted as an explicit alias for the default.
 
-When another worktree uses the default ports, start a separate dev server:
+To run an independent instance in another worktree, isolate its data and choose
+different ports. Changing ports alone does not separate the development host
+that owns the shared product data:
 
 ```sh
-OPENBITFUN_DEV_PORT=1432 pnpm run desktop:dev
+OPENBITFUN_DEV_PORT=1432 pnpm run desktop:dev -- --isolated-data
 ```
 
 HMR uses port 1431 in this example; `OPENBITFUN_DEV_HMR_PORT` can override it.

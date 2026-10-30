@@ -212,6 +212,15 @@ For text-entry guards, composer sanitization, or keyboard focus routing, run
 These cover DOM event ownership, controlled fields, IME and selection preservation;
 they do not establish native OS keyboard or remote transport behavior.
 
+For prompt suggestion whitespace normalization, visibility, acceptance keys, and legacy host events:
+
+```bash
+pnpm --dir src/web-ui run test:run src/flow_chat/store/promptSuggestionStore.test.ts src/flow_chat/hooks/usePromptSuggestionsEnabled.test.tsx src/flow_chat/services/flow-chat-manager/EventHandlerModule.test.ts
+```
+
+These local store/event fixtures include simulated Peer identities and legacy payloads;
+they do not establish native WebView rendering or live remote behavior.
+
 For ecosystem discovery, import, or compatibility status presentation changes:
 
 ```bash
@@ -309,3 +318,20 @@ These DOM and handshake fixtures cover local, legacy Desktop, CLI and unknown pe
 device changes, per-device remote preferences and legacy local migration, stale
 review launches, overview/tool-card gates, restored panels, and the controller-owned
 URL opener. They do not establish live macOS-to-Linux Peer Device or native browser behavior.
+
+For the composer context overview, category highlighting/previews, Session Usage side-panel loading, report summaries, navigation, and retained session ownership:
+
+```bash
+pnpm --dir src/web-ui run test:run src/flow_chat/components/ChatInputWorkspaceStrip.test.tsx src/flow_chat/services/usageReportService.test.ts src/flow_chat/services/openSessionContextPreview.test.ts src/flow_chat/components/usage/SessionUsageComponents.test.tsx src/flow_chat/components/usage/ToolDefinitionsPreview.test.tsx src/flow_chat/components/usage/usageReportUtils.test.ts src/app/components/panels/content-canvas/hooks/canvasPanelOwnership.test.tsx
+```
+
+These local DOM/store fixtures include simulated SSH report data, Peer surface switches,
+and the dispatch report source; they do not establish live remote behavior or visual fidelity.
+
+For canvas split tab placement, layout transitions, and lower-pane tab actions:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/components/panels/content-canvas/editor-area/EditorArea.test.tsx src/app/components/panels/content-canvas/CanvasToolbar.test.tsx src/app/components/panels/content-canvas/tab-bar/TabBar.test.tsx
+```
+
+These local DOM/store fixtures do not establish native rendering or live remote behavior.

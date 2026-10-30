@@ -49,6 +49,7 @@ import {
 } from '../scenes/registry';
 import { getSceneNav } from '../scenes/nav-registry';
 import { useNavSceneStore } from './navSceneStore';
+import { useSettingsStore } from '../scenes/settings/settingsStore';
 import {
   getInteractionMotion,
   type InteractionMotion,
@@ -238,6 +239,12 @@ export const useSceneStore = create<SceneState>((set, get) => ({
   },
 
   openScene: (requestedId) => {
+    // Keep scene destinations sent by older clients on the owning settings page.
+    if (requestedId === 'ecosystem-compatibility') {
+      useSettingsStore.getState().openPage('tools.external-import');
+      openSceneTarget('settings');
+      return;
+    }
     if (requestedId === 'file-viewer') {
       useNavSceneStore.getState().openNavScene('file-viewer');
       return;

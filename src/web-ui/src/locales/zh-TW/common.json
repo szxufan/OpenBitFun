@@ -87,7 +87,8 @@
       "terminal": "Shell",
       "git": "Git",
       "miniApps": "小應用",
-      "insights": "洞察"
+      "insights": "洞察",
+      "discoverSkills": "探索技能"
     },
     "tooltips": {
       "persona": "智能成員 — 展開查看基於角色和記憶的成員會話",
@@ -737,11 +738,16 @@
     "notifications": "通知",
     "settingsMenu": {
       "floatingWindow": "懸浮窗",
-      "theme": "主題",
-      "themeConfiguration": "主題配置",
-      "appearanceSwitchFailed": "主題切換失敗，請重試。",
+      "feedback": "意見回饋",
+      "feedbackUnavailable": "回饋問卷尚未設定。",
+      "feedbackOpenFailed": "無法開啟回饋問卷。",
       "openSettings": "開啟設定",
       "about": "關於"
+    },
+    "customization": {
+      "localDesktopOnly": "僅支援本機桌面。切換裝置時會保留固定設定。",
+      "unavailableEntry": "暫不可用的入口（{{id}}）",
+      "openFailed": "無法開啟{{name}}，請重試。"
     }
   },
   "window": {

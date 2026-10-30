@@ -467,6 +467,9 @@ except for error tone. Use `showIcon={false}` for text-only notices.
 uncontrolled open state, trigger/region accessibility wiring, focus exclusion
 while collapsed, reduced-motion behavior, and independent header actions.
 Product copy and the revealed content remain consumer-owned.
+Use `headerClassName` to style the default header surface while retaining its
+trigger, actions, and focus behavior. `triggerClassName` and `contentInnerClassName`
+allow consumers to align the indicator and revealed content without replacing the trigger.
 
 Use `Disclosure presentation="native"` when the browser must own the existing
 `details`/`summary` behavior. This mode renders a real details element, a direct
@@ -674,6 +677,10 @@ the SearchField over that anchor.
 `FieldGroup fieldSurface="ambient"` keeps text and picker field borders while
 letting their shells reuse the grouped surface. The default field surface stays
 theme-owned, and portalled menus remain on the opaque panel surface.
+
+`FieldGroup fieldSurface="filled"` uses the theme's grouped field background with
+the standard resting, hover, focus, invalid, and forced-color borders. It applies to Input, Select, Combobox, Textarea, and NumberInput; nested
+groups can explicitly restore the default surface.
 
 `Menu` remains composable inline anatomy. `MenuPopover` composes it into a
 controlled anchored or coordinate popup. Pass `items`, `open`, `onClose` and

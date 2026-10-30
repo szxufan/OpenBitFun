@@ -4,6 +4,7 @@ use crate::embedded_relay_host::DesktopEmbeddedRelayHost;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use openbitfun_core::agentic::tools::account_login_capability::set_account_login_available;
 use openbitfun_core::agentic::tools::page_deploy_host::set_page_deploy_handler;
+use openbitfun_core::agentic::tools::page_manage_host::set_page_manage_handler;
 use openbitfun_core::agentic::tools::page_publish_host::set_page_publish_handler;
 use openbitfun_core::service::dispatch::{
     DispatchAccountDaemonIdentity, DispatchAccountDaemonProvisionRequest,
@@ -35,6 +36,8 @@ use std::sync::{Arc, OnceLock};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::RwLock;
 
+#[cfg(test)]
+mod page_tool_tests;
 mod relay_routes;
 #[cfg(test)]
 mod relay_routes_tests;
@@ -795,6 +798,25 @@ fn sync_account_login_capability(logged_in: bool) {
     set_account_login_available(logged_in);
 }
 
+fn register_page_manage_host() {
+    set_page_manage_handler(Arc::new(|request| {
+        Box::pin(async move {
+            if TOKEN_EXPIRED.load(Ordering::Relaxed) {
+                return Err("Pages account session expired; sign in again".into());
+            }
+            let generation = account_context_generation();
+            let (session, relay_url) = read_account_context_for_generation(generation).await?;
+            openbitfun_core::product_runtime::account_pages::manage_with_account_context(
+                &relay_url,
+                &session.token,
+                request,
+                || account_context_is_current(generation),
+            )
+            .await
+        })
+    }));
+}
+
 fn register_page_deploy_host() {
     set_page_deploy_handler(Arc::new(|slug, version_id| {
         Box::pin(async move {
@@ -1416,9 +1438,14 @@ async fn register_delegated_identity_providers() {
     });
 }
 
-pub fn init_on_startup() {
+fn register_page_tool_hosts() {
+    register_page_manage_host();
     register_page_deploy_host();
     register_page_publish_host();
+}
+
+pub fn init_on_startup() {
+    register_page_tool_hosts();
     tokio::spawn(async {
         let startup_generation = account_context_generation();
         // Restore persisted account session (if any) before anything else

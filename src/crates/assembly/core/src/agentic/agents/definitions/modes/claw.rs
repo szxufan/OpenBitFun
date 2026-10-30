@@ -58,8 +58,7 @@ impl ClawMode {
                 "ComputerUse".to_string(),
                 "OpenBitFunControl".to_string(),
                 "PublishAppearance".to_string(),
-                "PageDeploy".to_string(),
-                "PagePublish".to_string(),
+                "PageManage".to_string(),
             ],
         }
     }

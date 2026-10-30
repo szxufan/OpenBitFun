@@ -1444,6 +1444,7 @@ pub async fn run() {
             api::agentic_api::restore_session_view,
             api::agentic_api::load_session_event_backfill,
             api::agentic_api::load_session_turn_window,
+            api::agentic_api::load_session_trajectory,
             api::agentic_api::restore_session_with_turns,
             api::agentic_api::reset_memory,
             api::agentic_api::get_memory_paths,

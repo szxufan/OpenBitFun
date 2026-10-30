@@ -93,6 +93,7 @@ describe('tool card registry', () => {
       'ExecCommand',
       'WriteStdin',
       'ExecControl',
+      'PageManage',
       'PageDeploy',
       'PagePublish',
       'view_image',

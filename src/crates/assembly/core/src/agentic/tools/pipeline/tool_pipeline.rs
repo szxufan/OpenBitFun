@@ -4517,12 +4517,24 @@ mod tests {
     #[tokio::test]
     async fn presentation_tools_follow_permission_mode_without_weakening_denials() {
         use crate::agentic::tools::implementations::{
-            DesktopCardTool, PageDeployTool, PagePublishTool,
+            DesktopCardTool, PageDeployTool, PageManageTool, PagePublishTool,
         };
         use openbitfun_agent_runtime::permission::PERMISSION_MODE_CONTEXT_KEY;
         use openbitfun_runtime_ports::PermissionMode;
 
         let tools: Vec<(Box<dyn Tool>, serde_json::Value)> = vec![
+            (
+                Box::new(PageManageTool::new()),
+                json!({"action": "permissions", "slug": "demo", "visibility": "public"}),
+            ),
+            (
+                Box::new(PageManageTool::new()),
+                json!({"action": "update", "slug": "demo", "files": {"index.html": "Updated"}, "deploy": true}),
+            ),
+            (
+                Box::new(PageManageTool::new()),
+                json!({"action": "delete", "slug": "demo"}),
+            ),
             (
                 Box::new(DesktopCardTool::new()),
                 json!({"action": "create", "card": {

@@ -64,8 +64,8 @@ pub use page_upload::{
     deploy_page_version_on_relay, join_relay_url, list_page_versions_from_relay,
     list_pages_from_relay, publish_page_content_on_relay, publish_page_to_relay,
     save_page_version_from_inline_files, save_page_version_to_relay, unpublish_page_from_relay,
-    update_page_on_relay, PageContentPublishResult, PageInfo, PageOpenLink, PagePublishResult,
-    PageSaveVersionResult, PageVersionInfo,
+    update_page_content_on_relay, update_page_on_relay, PageContentPublishResult, PageInfo,
+    PageOpenLink, PagePublishResult, PageSaveVersionResult, PageVersionInfo,
 };
 pub use pairing::PairingState;
 pub use qr_generator::QrGenerator;

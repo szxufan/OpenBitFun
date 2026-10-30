@@ -326,4 +326,13 @@
       color: Highlight;
     }
   }
+
+  /* Filled fields keep standard borders over the grouped-field background. */
+  .root[data-field-surface="filled"] .trigger {
+    background: var(--openbitfun-color-field-group-background);
+  }
+
+  .root[data-field-surface="filled"] .trigger:hover:not(:disabled) {
+    background: var(--openbitfun-color-field-background-hover);
+  }
 }

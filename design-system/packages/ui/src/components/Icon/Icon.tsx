@@ -16,6 +16,7 @@ import {
   BookOpen,
   BookSearch,
   CalendarClock,
+  ChartSpline,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -93,6 +94,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { classNames } from "../../internal/classNames";
+import { CloudGit } from './cloudGit';
 import { Galaxy } from './galaxy';
 import { LayersPlus } from './layersPlus';
 import { PlayingCardsFan } from './playingCardsFan';
@@ -127,6 +129,7 @@ export const iconNames = [
   "book-search",
   "browser",
   "calendar-clock",
+  "chart-spline",
   "check-circle",
   "check-fill",
   "check-line",
@@ -136,6 +139,7 @@ export const iconNames = [
   "circle",
   "circle-arrow-right",
   "clock",
+  "cloud-git",
   "code",
   "command-mac",
   "commit",
@@ -258,6 +262,7 @@ const lineGlyphs = {
   "book-search": BookSearch,
   "browser": Globe,
   "calendar-clock": CalendarClock,
+  "chart-spline": ChartSpline,
   "check-circle": CircleCheck,
   "check-fill": CircleCheck,
   "check-line": Check,
@@ -267,6 +272,7 @@ const lineGlyphs = {
   "circle": Circle,
   "circle-arrow-right": CircleArrowRight,
   "clock": Clock,
+  "cloud-git": CloudGit,
   "git-pull-request": GitPullRequest,
   "history": History,
   "target": Target,

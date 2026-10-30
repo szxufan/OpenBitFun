@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "e648b2bd03a974cdc8ee6542703a831e1bcb3d7ac088035b47d7259cc50a374b",
-  "commandCount": 720,
+  "catalogDigest": "59a3101e9d03908311b31cff3998b384a7d603fe825955fbfa5625dd10664d99",
+  "commandCount": 721,
   "coverage": {
-    "commandCount": 720,
-    "documentedCommandCount": 643,
+    "commandCount": 721,
+    "documentedCommandCount": 644,
     "implementationCommandCount": 77,
     "implementationDigest": "e04860a09a39739eda904349b9941a0de3e603523d5a9b1ac06594d10e9e0b39"
   },
@@ -5856,6 +5856,22 @@
       "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
       "signature": "fn load_session_event_backfill( runtime: State<'_, DesktopRuntimeContext>, request: LoadSessionEventBackfillRequest, ) -> Result<serde_json::Value, String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "load_session_trajectory",
+      "moduleId": "agentic",
+      "capabilityId": "feature.ai-assistant",
+      "capabilityIds": [
+        "feature.ai-assistant"
+      ],
+      "documentedItemIds": [
+        "feature.ai-assistant:history-search"
+      ],
+      "visibility": "documented",
+      "rustPath": "api::agentic_api::load_session_trajectory",
+      "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
+      "signature": "fn load_session_trajectory( runtime: State<'_, DesktopRuntimeContext>, request: LoadSessionTrajectoryRequest, ) -> Result<openbitfun_services_core::session::trajectory::SessionTrajectoryPage, String>",
+      "remoteWorkspacePolicy": "RemoteRouted"
     },
     {
       "id": "load_session_turn_window",

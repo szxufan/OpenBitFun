@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "e648b2bd03a974cdc8ee6542703a831e1bcb3d7ac088035b47d7259cc50a374b",
-  "count": 213,
+  "catalogDigest": "59a3101e9d03908311b31cff3998b384a7d603fe825955fbfa5625dd10664d99",
+  "count": 208,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
-    "unstructuredInteraction": 179,
+    "unstructuredInteraction": 174,
     "visualSelection": 25
   },
   "entries": [
@@ -1622,8 +1622,8 @@
       "reasonZh": "“发现 OpenCode、Claude Code、Codex 等外部 AI 来源与可用内容”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
       "reasonEn": "“Discover OpenCode, Claude Code, Codex, and other external AI sources and content” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:get_external_ecosystem_awareness_command",
@@ -1642,8 +1642,8 @@
       "reasonZh": "“按来源启用或停用集成，并选择管理、预览或只读策略”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
       "reasonEn": "“Enable or disable each source and choose managed, preview, or read-only policy” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:set_external_source_enabled_command",
@@ -1660,8 +1660,8 @@
       "reasonZh": "“发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊”由用户在生态兼容页开启发现或选择已移除的来源。打开来源时刷新历史，首次发送创建独立分支。归档、移除和分支删除各自独立，原应用历史保持不变。智能体打开入口，由用户选择具体会话。",
       "reasonEn": "“Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches” requires the user to enable discovery or select a removed source in ecosystem compatibility. Opening a source refreshes its history and first send creates an independent branch. Archives, source removal and branch deletion stay independent; original history is preserved. The Agent opens the entry for the user to choose a session.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:list_removed_external_sessions",
@@ -1679,8 +1679,8 @@
       "reasonZh": "“发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊”由用户在生态兼容页开启发现或选择已移除的来源。打开来源时刷新历史，首次发送创建独立分支。归档、移除和分支删除各自独立，原应用历史保持不变。智能体打开入口，由用户选择具体会话。",
       "reasonEn": "“Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches” requires the user to enable discovery or select a removed source in ecosystem compatibility. Opening a source refreshes its history and first send creates an independent branch. Archives, source removal and branch deletion stay independent; original history is preserved. The Agent opens the entry for the user to choose a session.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:list_removed_external_sessions",
@@ -1698,8 +1698,8 @@
       "reasonZh": "“展开外部 Prompt/Command 内容并处理与原生命令的冲突”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
       "reasonEn": "“Expand external prompt/command content and resolve conflicts with native commands” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:expand_external_prompt_command_command",
@@ -1716,8 +1716,8 @@
       "reasonZh": "“启用外部智能体，处理同名冲突并绑定模型”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
       "reasonEn": "“Enable external agents, resolve naming conflicts, and bind models” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:choose_external_subagent_conflict_command",
@@ -1735,8 +1735,8 @@
       "reasonZh": "“预览 MCP 导入计划，逐个处理服务器冲突并应用”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
       "reasonEn": "“Preview MCP import plans, resolve server conflicts individually, and apply them” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:plan_external_mcp_import_command",
@@ -1755,8 +1755,8 @@
       "reasonZh": "“选择外部工具目标、解决冲突并控制是否启用”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
       "reasonEn": "“Choose external tool targets, resolve conflicts, and control activation” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:set_external_tool_target_decision_command",
@@ -1773,8 +1773,8 @@
       "reasonZh": "“查看外部 Hooks 目录、规划导入、修改选择并应用”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
       "reasonEn": "“Inspect external hook catalogs, plan imports, edit selections, and apply” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:get_external_hook_catalog",
@@ -1792,8 +1792,8 @@
       "reasonZh": "“在迁移前查看冲突、安全影响和来源控制快照”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
       "reasonEn": "“Review conflicts, security impact, and source-control snapshots before migration” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:get_external_source_control_snapshot",
@@ -1810,8 +1810,8 @@
       "reasonZh": "“在文件管理器或远程环境中定位外部配置来源”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
       "reasonEn": "“Reveal external configuration sources in the file manager or remote environment” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
       "presentationTarget": {
-        "kind": "action",
-        "actionId": "surface.ecosystemCompatibility.open"
+        "kind": "settings",
+        "pageId": "tools.external-import"
       },
       "evidence": [
         "command:reveal_external_source_location",
@@ -2243,55 +2243,6 @@
     },
     {
       "capabilityId": "feature.pages",
-      "itemId": "pages-list",
-      "titleZh": "查看账户下的 Pages 与每个页面的当前发布状态",
-      "titleEn": "List account Pages and inspect each page's current publishing state",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“查看账户下的 Pages 与每个页面的当前发布状态”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“List account Pages and inspect each page's current publishing state” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "scene",
-        "sceneId": "pages"
-      },
-      "evidence": [
-        "command:page_list"
-      ]
-    },
-    {
-      "capabilityId": "feature.pages",
-      "itemId": "immutable-versions",
-      "titleZh": "保存不可变页面版本并浏览版本历史",
-      "titleEn": "Save immutable page versions and browse version history",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“保存不可变页面版本并浏览版本历史”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Save immutable page versions and browse version history” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "scene",
-        "sceneId": "pages"
-      },
-      "evidence": [
-        "command:page_save_version",
-        "command:page_list_versions"
-      ]
-    },
-    {
-      "capabilityId": "feature.pages",
-      "itemId": "visibility",
-      "titleZh": "更新标题、公开/私有可见性和访问设置",
-      "titleEn": "Update titles, public/private visibility, and access settings",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“更新标题、公开/私有可见性和访问设置”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Update titles, public/private visibility, and access settings” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "scene",
-        "sceneId": "pages"
-      },
-      "evidence": [
-        "command:page_update"
-      ]
-    },
-    {
-      "capabilityId": "feature.pages",
       "itemId": "share-open",
       "titleZh": "创建可打开和分享的页面链接",
       "titleEn": "Create an openable, shareable link for a page",
@@ -2304,39 +2255,6 @@
       },
       "evidence": [
         "command:page_create_open_link"
-      ]
-    },
-    {
-      "capabilityId": "feature.pages",
-      "itemId": "unpublish",
-      "titleZh": "取消发布页面，同时保留可再次发布的版本",
-      "titleEn": "Unpublish a page while retaining versions for later publication",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“取消发布页面，同时保留可再次发布的版本”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Unpublish a page while retaining versions for later publication” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "scene",
-        "sceneId": "pages"
-      },
-      "evidence": [
-        "command:page_unpublish"
-      ]
-    },
-    {
-      "capabilityId": "feature.pages",
-      "itemId": "delete",
-      "titleZh": "删除单个版本或整个 Page",
-      "titleEn": "Delete an individual version or an entire Page",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“删除单个版本或整个 Page”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Delete an individual version or an entire Page” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "scene",
-        "sceneId": "pages"
-      },
-      "evidence": [
-        "command:page_delete_version",
-        "command:page_delete"
       ]
     },
     {

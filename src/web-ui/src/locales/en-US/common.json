@@ -87,7 +87,8 @@
       "terminal": "Shell",
       "git": "Git",
       "miniApps": "Mini App",
-      "insights": "Insights"
+      "insights": "Insights",
+      "discoverSkills": "Discover skills"
     },
     "tooltips": {
       "persona": "Smart Members — expand role- and memory-based member sessions",
@@ -737,11 +738,16 @@
     "notifications": "Notifications",
     "settingsMenu": {
       "floatingWindow": "Floating Window",
-      "theme": "Theme",
-      "themeConfiguration": "Theme Settings",
-      "appearanceSwitchFailed": "Could not switch the theme. Try again.",
+      "feedback": "Feedback",
+      "feedbackUnavailable": "Feedback form is not configured.",
+      "feedbackOpenFailed": "Could not open the feedback form.",
       "openSettings": "$t(shared:features.settings)",
       "about": "About OpenBitFun"
+    },
+    "customization": {
+      "localDesktopOnly": "Available on the local desktop only. Your pin is kept when switching devices.",
+      "unavailableEntry": "Unavailable entry ({{id}})",
+      "openFailed": "Could not open {{name}}. Try again."
     }
   },
   "window": {

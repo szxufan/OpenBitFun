@@ -97,7 +97,7 @@ export function SessionTabHistoryMenu({ tab, anchorRef, open, onClose }: Session
     open={open}
     onClose={onClose}
     overlapAnchor
-    exitDurationMs={220}
+    exitDurationMs={140}
     parts={historyParts}
   /></HistorySurfaceContext.Provider>;
 }

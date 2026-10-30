@@ -192,6 +192,15 @@ Narrower local guides already exist for some subtrees:
 
 ## Verification
 
+For opt-in category/system-prompt previews and session-storage isolation:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib -- system_prompt_preview usage_context_preview
+```
+
+This fixture verifies default report privacy and resolved host storage with a
+simulated SSH workspace identity; it does not exercise live remote connections.
+
 For Agent name references, enabled-catalog admission, and prompt catalog names:
 
 ```bash
@@ -546,7 +555,7 @@ cargo test --locked -p openbitfun-core --no-default-features --features remote-c
 cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service::remote_connect::bot::weixin::tests
 ```
 
-Pages account publication and tool gates (including remote directory rejection):
+Pages account management and tool gates (including remote directory rejection):
 
 ```bash
 cargo test -p openbitfun-core --no-default-features --features remote-connect,tools-pages,git,ssh-remote --lib page_
@@ -555,6 +564,13 @@ cargo test -p openbitfun-core --no-default-features --features remote-connect,to
 `tools-pages` selects only the Pages tool group. Account host wiring additionally
 requires `remote-connect`; CLI and Desktop select both explicitly. Pages does
 not select MiniApp runtime or market dependencies.
+
+`PageManage` is the default Pages Agent tool. `PagePublish` and `PageDeploy`
+remain registered only for legacy explicit tool selections and existing calls;
+do not add them back to mode defaults. List/version reads have no mutation
+permission intent; writes retain fresh, account-scoped Ask-mode approval.
+The focused fixtures cover loopback Relay requests, old Relay payloads, account
+switches, and simulated remote workspace rejection, not live remote connections.
 
 Scheduled-job workspace identity and the temporary 1.0.0 target upgrade boundary:
 

@@ -3,22 +3,6 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 describe('navigation icon integration', () => {
-  it('uses the standard cable icon in the ecosystem menu entry', () => {
-    const source = readFileSync(
-      fileURLToPath(new URL('./components/PersistentFooterActions.tsx', import.meta.url)),
-      'utf8',
-    );
-    const entryStart = source.lastIndexOf('<MenuItem', source.indexOf('data-testid="ecosystem-compatibility-tab"'));
-    const entryEnd = source.indexOf('</MenuItem>', entryStart);
-    const entryMarkup = source.slice(entryStart, entryEnd);
-
-    expect(entryStart).toBeGreaterThanOrEqual(0);
-    expect(entryEnd).toBeGreaterThan(entryStart);
-    expect(entryMarkup).toContain('glyph={Cable}');
-    expect(entryMarkup).not.toContain('chevron-down');
-    expect(entryMarkup).toContain('size="sm"');
-  });
-
   it('uses each MiniApp icon and the standard Skill discovery icon in the overview', () => {
     const source = readFileSync(
       fileURLToPath(new URL('../../scenes/personal-overview/PersonalOverviewScene.tsx', import.meta.url)),
@@ -41,16 +25,10 @@ describe('navigation icon integration', () => {
 
   it('uses the reference clock icon for Task Board', () => {
     const source = readFileSync(
-      fileURLToPath(new URL('./MainNav.tsx', import.meta.url)),
+      fileURLToPath(new URL('../../navigation/sidebarContributions.ts', import.meta.url)),
       'utf8',
     );
-    const entryStart = source.indexOf('data-testid="nav-todos-btn"');
-    const entryEnd = source.indexOf('</NavigationPanelItem>', entryStart);
-    const entryMarkup = source.slice(entryStart, entryEnd);
-
-    expect(entryStart).toBeGreaterThanOrEqual(0);
-    expect(entryEnd).toBeGreaterThan(entryStart);
-    expect(entryMarkup).toContain('<Icon name="clock" size="sm" />');
+    expect(source).toContain("productPage('builtin.todos', 'common:nav.items.todos', 'clock'");
     expect(source).not.toContain('CalendarClock');
   });
 

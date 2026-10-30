@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { recordInteractionModality } from '@/shared/utils/motionPreference';
 import { registerSessionSceneNavigation, useSceneStore } from './sceneStore';
 import { getSessionSceneTabId } from '../components/SceneBar/types';
+import { useSettingsStore } from '../scenes/settings/settingsStore';
 const sessionTarget = { surfaceId: 'local', workspaceKey: 'project', sessionId: 'current' };
 const sessionTabId = getSessionSceneTabId(sessionTarget);
 import {
@@ -30,6 +31,13 @@ describe('sceneStore transition snapshots', () => {
     expect(state.activeTabId).toBeNull();
     expect(state.navHistory).toEqual([]);
     expect(state.navCursor).toBe(-1);
+  });
+
+  it('redirects legacy external-import scenes into the settings destination', () => {
+    useSceneStore.getState().openScene('ecosystem-compatibility');
+    expect(useSettingsStore.getState().activePageId).toBe('tools.external-import');
+    expect(useSceneStore.getState().activeTabId).toBe('settings');
+    expect(useSceneStore.getState().openTabs.map(tab => tab.id)).toEqual(['settings']);
   });
 
   it('keeps the five most recently opened sessions per workspace, moving repeats to the front', () => {
