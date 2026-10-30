@@ -200,7 +200,7 @@
     min-width: 0;
     overflow-wrap: anywhere;
     user-select: text;
-    font-family: monospace;
+    font-family: var(--openbitfun-type-code-sm-font-family);
   }
 
   &__backup-actions,

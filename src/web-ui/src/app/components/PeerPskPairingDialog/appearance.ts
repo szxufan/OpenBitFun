@@ -9,5 +9,6 @@ export const peerPskPairingDialogAppearanceDescriptor: AppearanceSurfaceDescript
     { id: 'completeCode' },
     { id: 'list' },
     { id: 'entry' },
+    { id: 'policy' },
   ],
 };

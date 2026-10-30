@@ -588,6 +588,16 @@ class RemoteConnectAPIService {
     return this.adapter.request<PeerPskStatusEntry[]>('peer_psk_list', {});
   }
 
+  async getPeerPskPolicy(): Promise<PeerPskPolicy> {
+    return this.adapter.request<PeerPskPolicy>('peer_psk_policy_get', {});
+  }
+
+  async setPeerPskPolicy(requirePairedController: boolean): Promise<PeerPskPolicy> {
+    return this.adapter.request<PeerPskPolicy>('peer_psk_policy_set', {
+      request: { requirePairedController },
+    });
+  }
+
   /** Manual config backup: relay support flag plus stored-backup metadata. */
   async accountConfigBackupStatus(): Promise<AccountConfigBackupStatus> {
     return this.adapter.request<AccountConfigBackupStatus>('account_config_backup_status', {});
@@ -695,6 +705,11 @@ export interface PeerGrantOfferResult {
   scope: string;
   inviteSecret: string;
   inviteExpiresAt: number;
+}
+
+/** This host's pairing-enforcement policy. */
+export interface PeerPskPolicy {
+  require_paired_controller: boolean;
 }
 
 /** One stored pairing entry, without the secret. */

@@ -1930,6 +1930,8 @@ pub async fn run() {
             api::remote_connect_api::peer_psk_complete,
             api::remote_connect_api::peer_psk_remove,
             api::remote_connect_api::peer_psk_list,
+            api::remote_connect_api::peer_psk_policy_get,
+            api::remote_connect_api::peer_psk_policy_set,
             api::remote_connect_api::peer_grant_offer,
             api::remote_connect_api::peer_grant_accept,
             api::remote_connect_api::peer_grant_list,

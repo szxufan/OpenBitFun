@@ -306,3 +306,72 @@
   [data-openbitfun-part='leading'] { display: none; }
 }
 .devices-page--empty .devices-page__header { width: min(100%, 520px); margin-inline: auto; }
+
+/* PSK device pairing panel. */
+.devices-page__psk-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 16px 24px;
+  padding: 16px;
+}
+
+.devices-page__psk-heading h3 {
+  margin: 0 0 4px;
+  font-size: var(--openbitfun-type-heading-section-font-size);
+}
+
+.devices-page__psk-hint {
+  margin: 0;
+  font-size: var(--openbitfun-type-meta-font-size);
+  line-height: var(--openbitfun-type-body-sm-line-height);
+  opacity: 0.75;
+}
+
+.devices-page__psk-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.devices-page__psk-offer,
+.devices-page__psk-complete,
+.devices-page__psk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.devices-page__psk-code {
+  width: 100%;
+  min-height: 72px;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid var(--openbitfun-color-border-subtle);
+  border-radius: 8px;
+  font-family: var(--openbitfun-type-code-md-font-family);
+  font-size: var(--openbitfun-type-code-md-font-size);
+  background: transparent;
+  color: inherit;
+}
+
+.devices-page__psk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.devices-page__psk-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.devices-page__psk-entry-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

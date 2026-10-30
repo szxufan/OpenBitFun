@@ -111,6 +111,12 @@ const PSK_KDF_SALT = 'OpenBitFun Relay v1.1.0 device key psk';
 /** Wire prefix of the optional envelope `key_id`; mirrors `PSK_KEY_ID_PREFIX`. */
 export const PSK_KEY_ID_PREFIX = 'psk_v1:';
 
+/** This device's X25519 public key, for pairing-code payloads. */
+export function publicKeyOf(privateKey: Uint8Array): Uint8Array {
+  if (privateKey.length !== 32) throw new Error('Invalid device key.');
+  return new Uint8Array(x25519.getPublicKey(privateKey));
+}
+
 /** Short stable identifier of a pairing secret; mirrors `device_crypto::psk_id`. */
 export function pskIdOf(psk: Uint8Array): Uint8Array {
   if (psk.length !== 32) throw new Error('Invalid pairing key.');

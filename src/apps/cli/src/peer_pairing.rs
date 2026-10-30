@@ -43,6 +43,13 @@ pub enum PeerPairingAction {
         #[arg(long)]
         peer: String,
     },
+    /// Show or change this host's pairing enforcement policy. Enforcement is
+    /// ON by default: only paired devices may control this machine.
+    Policy {
+        /// Set whether unpaired peer devices are refused control entirely.
+        #[arg(long)]
+        require_paired: Option<bool>,
+    },
     /// Manage cross-account device grants (shared hosts).
     Grants {
         #[command(subcommand)]
@@ -116,6 +123,7 @@ pub async fn run(action: PeerPairingAction) -> Result<()> {
         PeerPairingAction::Complete { code, grant } => complete(&code, grant.as_deref()).await,
         PeerPairingAction::List => list().await,
         PeerPairingAction::Remove { peer } => remove(&peer).await,
+        PeerPairingAction::Policy { require_paired } => policy(require_paired).await,
         PeerPairingAction::Grants { action } => run_grants(action).await,
     }
 }
@@ -385,6 +393,39 @@ async fn remove(peer_device_id: &str) -> Result<()> {
         println!("Removed pairing with {peer_device_id}; traffic uses the relay-directory key.");
     } else {
         println!("No pairing stored for {peer_device_id}.");
+    }
+    Ok(())
+}
+
+async fn policy(require_paired: Option<bool>) -> Result<()> {
+    match require_paired {
+        Some(value) => {
+            psk_store::store_policy(&psk_store::PairingPolicy {
+                require_paired_controller: value,
+            })
+            .context("store pairing policy")?;
+            println!(
+                "Pairing enforcement is now {}. Unpaired peer devices {} control this machine.",
+                if value { "ON" } else { "OFF" },
+                if value {
+                    "can no longer"
+                } else {
+                    "are again allowed to"
+                },
+            );
+        }
+        None => {
+            let current = psk_store::load_policy().context("read pairing policy")?;
+            println!(
+                "Pairing enforcement: {} (only paired devices may control this machine)",
+                if current.require_paired_controller {
+                    "ON"
+                } else {
+                    "OFF"
+                }
+            );
+            println!("Change it with `peer pair policy --require-paired <true|false>`.");
+        }
     }
     Ok(())
 }

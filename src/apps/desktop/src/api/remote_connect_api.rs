@@ -3093,6 +3093,54 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                         // taking the write lease. Captured account
                                         // ownership cannot cross into its replacement.
                                         let _routing_effect = routing_effect;
+                                        // Pairing enforcement: when this host
+                                        // requires PSK pairing, an unpaired
+                                        // controller gets nothing but the probe
+                                        // and the pairing handshake itself.
+                                        let Ok((_, gate_relay_url)) = route
+                                            .context(route.generation())
+                                            .await
+                                        else {
+                                            return;
+                                        };
+                                        let exempt = matches!(
+                                            &cmd,
+                                            openbitfun_core::service::remote_connect::remote_server::RemoteCommand::HostInvoke { command, .. }
+                                                if openbitfun_core::service::remote_connect::psk_store::PAIRING_EXEMPT_COMMANDS.contains(&command.as_str())
+                                        );
+                                        if !exempt {
+                                            let allowed = openbitfun_core::service::remote_connect::psk_store::controller_meets_pairing_policy(
+                                                &gate_relay_url,
+                                                &rpc_session.user_id,
+                                                &source_device_id,
+                                            )
+                                            .unwrap_or(false);
+                                            if !allowed {
+                                                let refused = serde_json::to_value(
+                                                    openbitfun_core::service::remote_connect::remote_server::RemoteResponse::HostInvokeResult {
+                                                        ok: false,
+                                                        value: None,
+                                                        error: Some(
+                                                            openbitfun_core::service::remote_connect::psk_store::PAIRING_REQUIRED_MESSAGE.to_string(),
+                                                        ),
+                                                    },
+                                                )
+                                                .map_err(anyhow::Error::from);
+                                                let _ = send_rpc_envelope(
+                                                    &rpc_owner,
+                                                    &rpc_session,
+                                                    &source_device_id,
+                                                    &correlation_id,
+                                                    rpc_key_id.as_deref(),
+                                                    refused.unwrap_or(serde_json::json!({
+                                                        "resp": "error",
+                                                        "message": "pairing required",
+                                                    })),
+                                                )
+                                                .await;
+                                                return;
+                                            }
+                                        }
                                         // Host streams are answered from this host's
                                         // memory for the requesting device; every
                                         // other command goes to the local dispatcher.
@@ -3759,6 +3807,34 @@ pub async fn peer_psk_list(
     let (session, relay_url) = read_account_context().await?;
     openbitfun_core::service::remote_connect::psk_store::list_entries(&relay_url, &session.user_id)
         .map_err(|e| format!("{e}"))
+}
+
+/// This host's pairing-enforcement policy: whether unpaired peer devices are
+/// refused control entirely.
+#[tauri::command]
+pub async fn peer_psk_policy_get(
+) -> Result<openbitfun_core::service::remote_connect::psk_store::PairingPolicy, String> {
+    openbitfun_core::service::remote_connect::psk_store::load_policy().map_err(|e| format!("{e}"))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeerPskPolicySetRequest {
+    pub require_paired_controller: bool,
+}
+
+/// Toggle the enforcement policy. Takes effect immediately: unpaired
+/// controllers are refused at the next command.
+#[tauri::command]
+pub async fn peer_psk_policy_set(
+    request: PeerPskPolicySetRequest,
+) -> Result<openbitfun_core::service::remote_connect::psk_store::PairingPolicy, String> {
+    let policy = openbitfun_core::service::remote_connect::psk_store::PairingPolicy {
+        require_paired_controller: request.require_paired_controller,
+    };
+    openbitfun_core::service::remote_connect::psk_store::store_policy(&policy)
+        .map_err(|e| format!("{e}"))?;
+    Ok(policy)
 }
 
 // ── Device grants (cross-account shared hosts) ───────────────────────────

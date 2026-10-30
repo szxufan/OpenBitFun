@@ -1046,7 +1046,9 @@
       "statusPaired": "已配對",
       "statusOffered": "等待對端",
       "remove": "移除",
-      "mismatchFailure": "裝置配對金鑰不相符，請在兩臺裝置上完成配對或移除配對。"
+      "mismatchFailure": "裝置配對金鑰不相符，請在兩臺裝置上完成配對或移除配對。",
+      "policyHeading": "要求配對才能控制本機",
+      "policyHint": "開啟後，對端裝置必須先完成 PSK 配對才能控制或讀取本機；未配對的控制器會被明確拒絕並提示先配對，配對握手本身保持可用。預設開啟。"
     },
     "peerAutoExitOffline": "遠端裝置「{{name}}」已離線 — 已中斷連線",
     "peerAutoExitRpc": "與遠端裝置「{{name}}」連線遺失 — 已中斷連線",

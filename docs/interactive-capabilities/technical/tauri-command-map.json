@@ -2,12 +2,12 @@
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
   "catalogDigest": "e648b2bd03a974cdc8ee6542703a831e1bcb3d7ac088035b47d7259cc50a374b",
-  "commandCount": 718,
+  "commandCount": 720,
   "coverage": {
-    "commandCount": 718,
+    "commandCount": 720,
     "documentedCommandCount": 643,
-    "implementationCommandCount": 75,
-    "implementationDigest": "76745a51fbac5a5d89a15491843801d89ec85eebc89e86f0759b54a24455e732"
+    "implementationCommandCount": 77,
+    "implementationDigest": "e04860a09a39739eda904349b9941a0de3e603523d5a9b1ac06594d10e9e0b39"
   },
   "commands": [
     {
@@ -7197,6 +7197,34 @@
       "rustPath": "api::remote_connect_api::peer_psk_offer_create",
       "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
       "signature": "fn peer_psk_offer_create( request: PeerPskOfferCreateRequest, ) -> Result<PeerPskOffer, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "peer_psk_policy_get",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::peer_psk_policy_get",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn peer_psk_policy_get( ) -> Result<openbitfun_core::service::remote_connect::psk_store::PairingPolicy, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "peer_psk_policy_set",
+      "moduleId": "remote_connect",
+      "capabilityId": "feature.remote-connect",
+      "capabilityIds": [
+        "feature.remote-connect"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::remote_connect_api::peer_psk_policy_set",
+      "sourceFile": "src/apps/desktop/src/api/remote_connect_api.rs",
+      "signature": "fn peer_psk_policy_set( request: PeerPskPolicySetRequest, ) -> Result<openbitfun_core::service::remote_connect::psk_store::PairingPolicy, String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {

@@ -302,11 +302,30 @@ mobile-web `E2EEncryption.deriveDeviceMessageKeyPsk` + `PeerPskStore` +
 `RelayHttpClient.completePskPairing`. The relay service is unchanged: it still
 forwards opaque ciphertext and never sees a PSK.
 
+### Enforcement policy
+
+Pairing alone is opt-in trust; hosts also enforce it. Each host stores a local
+policy (`psk_store::PairingPolicy`, `pairing_policy.json` beside the vault,
+deliberately outside the synced account config — enforcement is a property of
+the machine being protected) whose `require_paired_controller` defaults to
+**on**: a host only accepts product control from peers holding a confirmed
+pairing. While the policy is on, an unpaired controller gets exactly two
+commands — `peer_mode_ping` (capability probe) and `peer_psk_confirm` (the
+pairing handshake itself) — and every other command, `peer_control_attach`
+included, is refused with `PAIRING_REQUIRED_MESSAGE`, so it cannot read
+sessions, hydrate workspaces, or drive turns. Switch it in the desktop pairing
+dialog ("Require pairing to control this device") or with
+`openbitfun peer pair policy [--require-paired <true|false>]`. A pending offer
+does not satisfy the policy: an offer is this machine's intent, not a verified
+shared secret. Cross-account grant control is separately authorized and then
+subject to the same pairing policy.
+
 Residual risks, by design: the pairing code's confidentiality is the user's
 transfer channel; the relay can still deny service (drop or corrupt envelopes)
 — pairing converts silent interception into visible failure, not availability.
 Native mobile apps (Kotlin/HarmonyOS) have not ported the derivation and
-simply never pair; they keep the legacy path with every peer.
+simply never pair; under the default policy they are refused control of an
+enforcing host, and they keep the legacy path with every peer otherwise.
 
 ## Boundaries
 

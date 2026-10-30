@@ -1046,7 +1046,9 @@
       "statusPaired": "Paired",
       "statusOffered": "Waiting for peer",
       "remove": "Remove",
-      "mismatchFailure": "Device pairing keys do not match. Complete pairing on both devices or remove the pairing."
+      "mismatchFailure": "Device pairing keys do not match. Complete pairing on both devices or remove the pairing.",
+      "policyHeading": "Require pairing to control this device",
+      "policyHint": "When on, peer devices must complete PSK pairing before they can control or read this machine. Unpaired controllers are refused with a pairing prompt; the pairing handshake itself stays available. ON by default."
     },
     "peerAutoExitOffline": "Remote device \"{{name}}\" went offline — disconnected",
     "peerAutoExitRpc": "Lost connection to remote device \"{{name}}\" — disconnected",

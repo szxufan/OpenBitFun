@@ -321,6 +321,8 @@
       "peer_psk_complete",
       "peer_psk_list",
       "peer_psk_offer_create",
+      "peer_psk_policy_get",
+      "peer_psk_policy_set",
       "peer_psk_remove"
     ],
     "accountConfigBackup": [

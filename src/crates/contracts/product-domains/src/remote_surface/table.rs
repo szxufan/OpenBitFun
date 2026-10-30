@@ -566,6 +566,8 @@ pub(super) const OPERATIONS: &[OperationDefinition] = &[
     host_invoke_only("peer_psk_confirm",                            Agnostic,    HostControlPlane, HANDLED),
     op("peer_psk_list",                                              Agnostic,    ControllerLocal,  REFUSED),
     op("peer_psk_offer_create",                                      Agnostic,    ControllerLocal,  REFUSED),
+    op("peer_psk_policy_get",                                        Agnostic,    ControllerLocal,  REFUSED),
+    op("peer_psk_policy_set",                                        Agnostic,    ControllerLocal,  REFUSED),
     op("peer_psk_remove",                                            Agnostic,    ControllerLocal,  REFUSED),
     op("plan_external_hook_import_command",                          Unsupported, Proxied,          CLI_NOT_IMPLEMENTED),
     op("plan_external_mcp_import_command",                           Unsupported, Proxied,          CLI_NOT_IMPLEMENTED),

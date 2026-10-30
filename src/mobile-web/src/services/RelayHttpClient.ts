@@ -9,7 +9,7 @@ import {
   deriveDeviceMessageKey, deriveDeviceMessageKeyPsk, encrypt, decrypt, fromB64, PSK_KEY_ID_PREFIX,
 } from './E2EEncryption';
 import { PeerPskStore } from './PeerPskStore';
-import { parsePskPairingCode } from './PskPairing';
+import { parsePskPairingCode, encodePskPairingCode, generatePsk } from './PskPairing';
 import { normalizeRelayUrl } from './pairingLink';
 
 export interface AccountIdentity {
@@ -489,6 +489,33 @@ export class RelayHttpClient {
       }
       return { peerDeviceId: payload.offererDeviceId, pskId: entry.pskId, confirmed };
     });
+  }
+
+  /** Generate a pairing code this controller offers to a peer. The user
+   * transfers it out of band; the peer completes the pairing. */
+  async createPskOffer(): Promise<{ code: string; pskId: string; controllerDeviceId: string }> {
+    return this.withAccount(async (identity) => {
+      const { generatePsk } = await import('./PskPairing');
+      const { publicKeyOf } = await import('./E2EEncryption');
+      const psk = generatePsk();
+      const entry = await PeerPskStore.store(this.relayUrl, identity.deviceId, psk, 'offered');
+      const code = encodePskPairingCode({
+        psk,
+        offererDeviceId: identity.deviceId,
+        offererPublicKey: publicKeyOf(identity.masterKey),
+      });
+      return { code, pskId: entry.pskId, controllerDeviceId: identity.deviceId };
+    });
+  }
+
+  /** This controller's stored pairings for the current relay account. */
+  listPskPairings() {
+    return PeerPskStore.list(this.relayUrl);
+  }
+
+  /** Forget one pairing; traffic with that peer returns to the legacy key. */
+  async removePskPairing(peerDeviceId: string): Promise<void> {
+    await PeerPskStore.remove(this.relayUrl, peerDeviceId);
   }
 
   /** The key this controller seals with: PSK once pairing is `paired`,

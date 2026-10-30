@@ -73,6 +73,13 @@ function base32Decode(text: string): Uint8Array {
   return out;
 }
 
+/** A fresh random pairing secret (256-bit). */
+export function generatePsk(): Uint8Array {
+  const psk = new Uint8Array(32);
+  (globalThis.crypto || (globalThis as { msCrypto?: Crypto }).msCrypto!).getRandomValues(psk);
+  return psk;
+}
+
 export function encodePskPairingCode(payload: PskPairingPayload): string {
   const deviceId = fromHex(payload.offererDeviceId.trim());
   if (!deviceId || deviceId.length !== DEVICE_ID_BYTES) throw new Error('Invalid offerer device id.');

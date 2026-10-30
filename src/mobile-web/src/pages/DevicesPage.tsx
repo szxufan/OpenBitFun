@@ -1,6 +1,8 @@
 import { InvalidationSync } from '../../../shared/relay-transport/InvalidationSync';
 import type { RelayFailureAction } from '../../../shared/relay-transport/RelayFailure';
 import { DeviceSystemMark } from '../components/DeviceSystemMark';
+import { PskPairingPanel } from '../components/PskPairingPanel';
+import { PeerPskStore } from '../services/PeerPskStore';
 import { deviceFailurePresentation } from '../services/deviceFailureCopy';
 import {
   ChevronLeft as LucideChevronLeft,
@@ -109,6 +111,12 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
     console.warn('[DevicesPage] device request failed', value);
     return { message: t(key), action };
   }, [accountLanding, t]);
+
+  useEffect(() => {
+    // Pairings must be resident before any pairwise RPC picks its derivation;
+    // failures degrade to the legacy path with a warning.
+    void PeerPskStore.load(window).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -473,6 +481,7 @@ const DevicesPage: React.FC<Props> = ({ client, onBack, onDeviceSelected = onBac
       <div className="devices-page__body">
         {renderBody()}
       </div>
+      {identityReady && <PskPairingPanel client={client} />}
     </div>
   );
 };

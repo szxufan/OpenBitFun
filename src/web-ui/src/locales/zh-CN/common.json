@@ -1046,7 +1046,9 @@
       "statusPaired": "已配对",
       "statusOffered": "等待对端",
       "remove": "移除",
-      "mismatchFailure": "设备配对密钥不匹配，请在两台设备上完成配对或移除配对。"
+      "mismatchFailure": "设备配对密钥不匹配，请在两台设备上完成配对或移除配对。",
+      "policyHeading": "要求配对才能控制本机",
+      "policyHint": "开启后，对端设备必须先完成 PSK 配对才能控制或读取本机；未配对的控制器会被明确拒绝并提示先配对，配对握手本身保持可用。默认开启。"
     },
     "peerAutoExitOffline": "远程设备「{{name}}」已离线 — 已断开",
     "peerAutoExitRpc": "与远程设备「{{name}}」连接丢失 — 已断开",

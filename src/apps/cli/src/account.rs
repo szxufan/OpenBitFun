@@ -510,6 +510,33 @@ impl CliAccountRoutingHost {
                         .await;
                     return;
                 }
+                // Pairing enforcement: when this host requires PSK pairing, an
+                // unpaired controller gets only the capability probe and the
+                // pairing handshake itself; everything else is refused.
+                let pairing_exempt = matches!(
+                    &command,
+                    RemoteCommand::HostInvoke { command, .. }
+                        if openbitfun_core::service::remote_connect::psk_store::PAIRING_EXEMPT_COMMANDS
+                            .contains(&command.as_str())
+                );
+                if !pairing_exempt {
+                    let pairing_allowed =
+                        openbitfun_core::service::remote_connect::psk_store::controller_meets_pairing_policy(
+                            &relay_url,
+                            &session.user_id,
+                            &source_device_id,
+                        )
+                        .unwrap_or(false);
+                    if !pairing_allowed {
+                        let _ = relay_client
+                            .reject_device_request(
+                                &correlation_id,
+                                openbitfun_core::service::remote_connect::psk_store::PAIRING_REQUIRED_MESSAGE,
+                            )
+                            .await;
+                        return;
+                    }
+                }
                 let peer_key = match session
                     .peer_envelope_key(&relay_url, &source_device_id, key_id.as_deref())
                     .await

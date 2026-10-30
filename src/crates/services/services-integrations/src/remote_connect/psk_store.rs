@@ -495,6 +495,80 @@ pub fn list_entries(relay_url: &str, user_id: &str) -> Result<Vec<PeerPskListing
     })
 }
 
+// ── Pairing enforcement policy ──────────────────────────────────────────
+
+/// Refusal text when the enforcement policy blocks an unpaired controller.
+pub const PAIRING_REQUIRED_MESSAGE: &str = "This host requires PSK pairing before it can be controlled. Pair with this device first (device switcher > pair, or `openbitfun peer pair`).";
+
+/// Commands an unpaired controller may still send under enforcement: the
+/// capability probe and the pairing handshake itself. Everything else —
+/// attach, product HostInvoke, stream reads — is refused until paired.
+pub const PAIRING_EXEMPT_COMMANDS: &[&str] = &["peer_mode_ping", "peer_psk_confirm"];
+
+/// Local, host-side control policy. When enabled, the host refuses product
+/// control from peer devices that do not hold a confirmed pairing, so an
+/// unpaired (or directory-only-trusting) controller cannot drive or read this
+/// machine. Stored beside the vault; deliberately not part of the synced
+/// account config — enforcement is a property of the machine being protected.
+///
+/// Enforcement defaults to ON: a fresh or upgraded host only lets paired
+/// devices control it. The pairing handshake itself stays reachable, so a
+/// controller can always pair first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PairingPolicy {
+    #[serde(default = "default_require_paired_controller")]
+    pub require_paired_controller: bool,
+}
+
+fn default_require_paired_controller() -> bool {
+    true
+}
+
+impl Default for PairingPolicy {
+    fn default() -> Self {
+        Self {
+            require_paired_controller: true,
+        }
+    }
+}
+
+fn policy_path() -> Result<PathBuf> {
+    Ok(super::session_store::data_directory()?.join("pairing_policy.json"))
+}
+
+/// Read the local enforcement policy; defaults to permissive for machines
+/// that never wrote the file.
+pub fn load_policy() -> Result<PairingPolicy> {
+    let path = policy_path()?;
+    if !path.exists() {
+        return Ok(PairingPolicy::default());
+    }
+    let data = std::fs::read_to_string(&path).context("read pairing policy")?;
+    serde_json::from_str(&data).context("parse pairing policy")
+}
+
+/// Persist the local enforcement policy.
+pub fn store_policy(policy: &PairingPolicy) -> Result<()> {
+    let path = policy_path()?;
+    let body = serde_json::to_string_pretty(policy)?;
+    crate::remote_persistence::write_private_bytes(&path, body.as_bytes())
+}
+
+/// Whether `peer_device_id` may control this host: the policy is off, or the
+/// device holds a confirmed pairing. `PeerPskStatus::Offered` does not count —
+/// an offer is this machine's intent, not a verified shared secret.
+pub fn controller_meets_pairing_policy(
+    relay_url: &str,
+    user_id: &str,
+    peer_device_id: &str,
+) -> Result<bool> {
+    if !load_policy()?.require_paired_controller {
+        return Ok(true);
+    }
+    Ok(lookup_entry(relay_url, user_id, peer_device_id)?
+        .is_some_and(|entry| entry.status == PeerPskStatus::Paired))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -502,6 +576,46 @@ mod tests {
     /// `test_dir()` repoints a process-global session-store directory, so the
     /// two tests that exercise the on-disk vault must not interleave.
     static STORE_TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn enforcement_policy_persists_and_gates_controllers() {
+        let _guard = STORE_TEST_SERIAL.lock().unwrap();
+        test_dir();
+        // Enforcement defaults to ON: a host only lets paired devices control
+        // it, and an unreadable/legacy policy file resolves to the same.
+        assert_eq!(load_policy().unwrap().require_paired_controller, true);
+        assert!(!controller_meets_pairing_policy("r", "u", "peer-1").unwrap());
+        // The user can turn enforcement off for this machine.
+        store_policy(&PairingPolicy {
+            require_paired_controller: false,
+        })
+        .unwrap();
+        assert_eq!(load_policy().unwrap().require_paired_controller, false);
+        assert!(controller_meets_pairing_policy("r", "u", "any").unwrap());
+
+        store_policy(&PairingPolicy {
+            require_paired_controller: true,
+        })
+        .unwrap();
+        assert_eq!(load_policy().unwrap().require_paired_controller, true);
+        // Enforcement on: an unpaired controller is refused, an offered one
+        // still is (an offer is intent, not proof), only paired passes.
+        assert!(!controller_meets_pairing_policy("r", "u", "peer-1").unwrap());
+        store_entry(
+            "r",
+            "u",
+            "peer-1",
+            &[91u8; 32],
+            PeerPskStatus::Offered,
+            None,
+        )
+        .unwrap();
+        assert!(!controller_meets_pairing_policy("r", "u", "peer-1").unwrap());
+        store_entry("r", "u", "peer-2", &[92u8; 32], PeerPskStatus::Paired, None).unwrap();
+        assert!(controller_meets_pairing_policy("r", "u", "peer-2").unwrap());
+        // A different account scope does not inherit the pairing.
+        assert!(!controller_meets_pairing_policy("r", "other", "peer-2").unwrap());
+    }
 
     #[test]
     fn cross_account_keys_are_disjoint_and_legacy_keys_stay_stable() {

@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogHeading,
   DialogTitle,
+  Switch,
 } from '@openbitfun/ui';
 import { QRCodeSVG } from 'qrcode.react';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
@@ -51,6 +52,7 @@ export const PeerPskPairingDialog: React.FC<PeerPskPairingDialogProps> = ({
   const [completeResult, setCompleteResult] = useState<string | null>(null);
   const [completeError, setCompleteError] = useState<string | null>(null);
   const [entries, setEntries] = useState<PeerPskStatusEntry[]>([]);
+  const [requirePaired, setRequirePaired] = useState<boolean | null>(null);
 
   const refreshEntries = useCallback(() => {
     void remoteConnectAPI.listPeerPsks()
@@ -66,8 +68,24 @@ export const PeerPskPairingDialog: React.FC<PeerPskPairingDialogProps> = ({
     setCompleteResult(null);
     setCompleteError(null);
     refreshEntries();
+    void remoteConnectAPI.getPeerPskPolicy()
+      .then(policy => setRequirePaired(policy.require_paired_controller))
+      .catch(error => log.warn('Could not read pairing policy', error));
     return remoteConnectAPI.onPeerPskStatusChanged(() => refreshEntries());
   }, [open, refreshEntries]);
+
+  const toggleRequirePaired = useCallback(async (value: boolean) => {
+    setRequirePaired(value);
+    try {
+      const policy = await remoteConnectAPI.setPeerPskPolicy(value);
+      setRequirePaired(policy.require_paired_controller);
+    } catch (error) {
+      log.error('Could not set pairing policy', error);
+      void remoteConnectAPI.getPeerPskPolicy()
+        .then(policy => setRequirePaired(policy.require_paired_controller))
+        .catch(() => setRequirePaired(null));
+    }
+  }, []);
 
   useEffect(() => {
     if (!open || !offerTarget) return;
@@ -207,6 +225,24 @@ export const PeerPskPairingDialog: React.FC<PeerPskPairingDialogProps> = ({
           >
             {t('accountLogin.pskPairing.completeSubmit')}
           </Button>
+        </section>
+        <section
+          className="peer-psk-pairing-dialog__section"
+          data-testid="peer-psk-policy"
+          data-openbitfun-component="peer-psk-pairing-dialog"
+          data-openbitfun-part="policy"
+        >
+          <h4>{t('accountLogin.pskPairing.policyHeading')}</h4>
+          <p className="peer-psk-pairing-dialog__hint">
+            {t('accountLogin.pskPairing.policyHint')}
+          </p>
+          <Switch
+            checked={requirePaired === true}
+            disabled={requirePaired === null}
+            onCheckedChange={value => void toggleRequirePaired(value)}
+            data-testid="peer-psk-policy-toggle"
+            aria-label={t('accountLogin.pskPairing.policyHeading')}
+          />
         </section>
         <section
           className="peer-psk-pairing-dialog__section"
