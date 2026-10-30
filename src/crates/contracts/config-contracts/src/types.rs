@@ -645,7 +645,7 @@ pub struct AIExperienceConfig {
     #[serde(default = "default_quick_actions")]
     pub quick_actions: Vec<AiExperienceQuickAction>,
     /// Whether built-in commit workflows add OpenBitFun as a Git co-author.
-    #[serde(default = "default_true")]
+    /// Off by default; users opt in from the settings UI.
     pub enable_git_commit_coauthor: bool,
     /// Whether a completed interactive turn offers a one-sentence next-input suggestion.
     #[serde(default = "default_true")]
@@ -2203,7 +2203,7 @@ impl Default for AIExperienceConfig {
             enable_workspace_search: false,
             voice_input: VoiceInputConfig::default(),
             quick_actions: default_quick_actions(),
-            enable_git_commit_coauthor: true,
+            enable_git_commit_coauthor: false,
             enable_prompt_suggestion: true,
             enable_desktop_cards: true,
         }
@@ -2597,7 +2597,7 @@ mod tests {
     }
 
     #[test]
-    fn git_commit_coauthor_defaults_for_legacy_settings_and_preserves_opt_out() {
+    fn git_commit_coauthor_defaults_off_for_legacy_settings_and_preserves_opt_in() {
         let legacy = serde_json::json!({
             "enable_visual_mode": true,
             "quick_actions": [{
@@ -2605,7 +2605,7 @@ mod tests {
             }]
         });
         let settings: super::AIExperienceConfig = serde_json::from_value(legacy.clone()).unwrap();
-        assert!(settings.enable_git_commit_coauthor);
+        assert!(!settings.enable_git_commit_coauthor);
 
         let mut persisted = serde_json::to_value(settings).unwrap();
         assert!(
@@ -2613,11 +2613,11 @@ mod tests {
             "retired visual mode setting should not be serialized"
         );
         assert_eq!(persisted["quick_actions"], legacy["quick_actions"]);
-        persisted["enable_git_commit_coauthor"] = serde_json::json!(false);
-        let opted_out: super::AIExperienceConfig =
+        persisted["enable_git_commit_coauthor"] = serde_json::json!(true);
+        let opted_in: super::AIExperienceConfig =
             serde_json::from_value(persisted.clone()).unwrap();
-        assert!(!opted_out.enable_git_commit_coauthor);
-        assert_eq!(serde_json::to_value(opted_out).unwrap(), persisted);
+        assert!(opted_in.enable_git_commit_coauthor);
+        assert_eq!(serde_json::to_value(opted_in).unwrap(), persisted);
     }
 
     #[test]
