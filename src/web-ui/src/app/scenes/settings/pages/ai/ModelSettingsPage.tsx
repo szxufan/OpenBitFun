@@ -2435,14 +2435,6 @@ const ModelSettingsPage: React.FC = () => {
     });
   };
 
-  const handleTest = async (config: AIModelConfigType) => {
-    if (getEffectiveModelCapabilities(config).includes('image_generation')) {
-      await runImageModelTest(config);
-      return;
-    }
-    await runConfigConnectionTest(config);
-  };
-
   // Image models answer with one real generation through their provider
   // connection, mirroring the tool's runtime path; the chat probe cannot reach
   // the image endpoint. The backend bills the call, same as the old wizard test.
@@ -2475,6 +2467,14 @@ const ModelSettingsPage: React.FC = () => {
         setTestingConfigs(previous => ({ ...previous, [configId]: false }));
       }
     }
+  };
+
+  const handleTest = async (config: AIModelConfigType) => {
+    if (getEffectiveModelCapabilities(config).includes('image_generation')) {
+      await runImageModelTest(config);
+      return;
+    }
+    await runConfigConnectionTest(config);
   };
 
   const handleToggleEnabled = async (config: AIModelConfigType, enabled: boolean) => {

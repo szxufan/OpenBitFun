@@ -4,6 +4,7 @@ export const defaultModelConfigAppearanceDescriptor: AppearanceSurfaceDescriptor
   parts: [
     { id: 'root' }, { id: 'loading' }, { id: 'empty' },
     { id: 'primaryModel' }, { id: 'lightweightModel' }, { id: 'embeddingModel' },
+    { id: 'imageGenerationModel' },
   ],
   states: [
     { id: 'loading', selector: { kind: 'self', suffix: '[data-openbitfun-state~="loading"]' } },
