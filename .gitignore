@@ -130,6 +130,10 @@ src/apps/mobile/android/.kotlin/
 /resources/flashgrep/flashgrep-*
 /resources/flashgrep/*.download-*
 
+# Build-time staged Linux OCR bundle (traineddata + shared-library closure).
+# Copied from the build host's tesseract packages; never committed.
+/src/apps/desktop/resources/ocr/
+
 # Local generated workspace output.
 /output/
 

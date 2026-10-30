@@ -665,8 +665,110 @@ mod linux_backend {
     };
     use leptess::capi::TessPageIteratorLevel_RIL_WORD;
     use leptess::{leptonica, tesseract::TessApi};
+    use log::{info, warn};
     use openbitfun_core::agentic::tools::computer_use_host::ComputerScreenshot;
     use openbitfun_core::util::errors::{OpenBitFunError, OpenBitFunResult};
+    use std::path::PathBuf;
+
+    /// Languages OpenBitFun ships OCR data for, matching the product locales:
+    /// English, Simplified Chinese, Traditional Chinese.
+    const SUPPORTED_TESSDATA_LANGUAGES: [&str; 3] = ["eng", "chi_sim", "chi_tra"];
+
+    /// Candidate tessdata directories, highest priority first: files bundled as
+    /// Tauri resources (dev, deb, rpm and AppImage layouts), then
+    /// `TESSDATA_PREFIX`, then the system tesseract packages.
+    fn candidate_tessdata_dirs() -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                dirs.push(exe_dir.join("resources").join("ocr").join("tessdata"));
+                if let Some(parent) = exe_dir.parent() {
+                    dirs.push(
+                        parent
+                            .join("Resources")
+                            .join("resources")
+                            .join("ocr")
+                            .join("tessdata"),
+                    );
+                    if let Some(bin_name) = exe.file_name().and_then(|s| s.to_str()) {
+                        dirs.push(
+                            parent
+                                .join("lib")
+                                .join(bin_name)
+                                .join("resources")
+                                .join("ocr")
+                                .join("tessdata"),
+                        );
+                        dirs.push(
+                            parent
+                                .join("share")
+                                .join(bin_name)
+                                .join("resources")
+                                .join("ocr")
+                                .join("tessdata"),
+                        );
+                    }
+                }
+            }
+        }
+        // `cargo run` / `tauri dev` keeps resources beside the manifest.
+        dirs.push(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("resources")
+                .join("ocr")
+                .join("tessdata"),
+        );
+        if let Ok(prefix) = std::env::var("TESSDATA_PREFIX") {
+            let base = PathBuf::from(prefix);
+            dirs.push(base.join("tessdata"));
+            dirs.push(base);
+        }
+        dirs.push(PathBuf::from("/usr/share/tesseract-ocr/5/tessdata"));
+        dirs.push(PathBuf::from("/usr/share/tesseract-ocr/tessdata"));
+        dirs.push(PathBuf::from("/usr/share/tessdata"));
+        dirs
+    }
+
+    /// Choose the tessdata directory that carries the most supported languages
+    /// and return `(directory, "+"-joined language list)`. When no bundled or
+    /// discoverable traineddata is present, fall back to an English-only system
+    /// default so the caller still attempts initialization and reports a clear
+    /// error rather than silently doing nothing.
+    fn select_tessdata_and_languages() -> (Option<PathBuf>, String) {
+        let mut best: Option<(Vec<String>, PathBuf)> = None;
+        for dir in candidate_tessdata_dirs() {
+            let present: Vec<String> = SUPPORTED_TESSDATA_LANGUAGES
+                .iter()
+                .filter(|lang| dir.join(format!("{lang}.traineddata")).exists())
+                .map(|lang| (*lang).to_string())
+                .collect();
+            if present.is_empty() {
+                continue;
+            }
+            let take = match &best {
+                Some((prev, _)) => present.len() > prev.len(),
+                None => true,
+            };
+            if take {
+                best = Some((present, dir));
+            }
+        }
+        match best {
+            Some((langs, dir)) => {
+                if langs.len() < SUPPORTED_TESSDATA_LANGUAGES.len() {
+                    warn!(
+                        "Linux OCR: partial language packs present languages={:?}; degrading from the full supported set",
+                        langs
+                    );
+                }
+                (Some(dir), langs.join("+"))
+            }
+            None => {
+                warn!("Linux OCR: no bundled traineddata found; attempting system default tessdata with English only");
+                (None, "eng".to_string())
+            }
+        }
+    }
 
     pub(super) fn read_text(shot: &ComputerScreenshot) -> OpenBitFunResult<Vec<OcrTextMatch>> {
         recognize(shot, None)
@@ -691,30 +793,24 @@ mod linux_backend {
             ));
         }
 
-        // Initialize Tesseract API
-        // Try system default tessdata path first, then common locations
-        let mut api = match TessApi::new(None, "eng") {
-            Ok(api) => api,
-            Err(_) => {
-                let paths = [
-                    "/usr/share/tesseract-ocr/5/tessdata/",
-                    "/usr/share/tesseract-ocr/tessdata/",
-                    "/usr/share/tessdata/",
-                ];
-                let mut api = None;
-                for path in &paths {
-                    if std::path::Path::new(path).exists() {
-                        if let Ok(a) = TessApi::new(Some(path), "eng") {
-                            api = Some(a);
-                            break;
-                        }
-                    }
-                }
-                api.ok_or_else(|| OpenBitFunError::tool(
-                    "Linux OCR: Tesseract initialization failed. Please install tesseract-ocr and tesseract-ocr-eng packages, or ensure TESSDATA_PREFIX is set correctly.".to_string()
-                ))?
-            }
-        };
+        // Initialize Tesseract API. Prefer language-complete bundled tessdata,
+        // then TESSDATA_PREFIX, then system locations; load every supported
+        // language that has traineddata (eng/chi_sim/chi_tra) and degrade to the
+        // available subset instead of failing the whole turn.
+        let (tessdata_dir, languages) = select_tessdata_and_languages();
+        let mut api = match &tessdata_dir {
+            Some(dir) => TessApi::new(dir.to_str(), &languages),
+            None => TessApi::new(None, &languages),
+        }
+        .map_err(|error| {
+            OpenBitFunError::tool(format!(
+                "Linux OCR: Tesseract initialization failed for languages [{languages}]: {error}. Expected traineddata in a bundled resources/ocr/tessdata directory or TESSDATA_PREFIX (install tesseract-ocr-eng / tesseract-ocr-chi-sim / tesseract-ocr-chi-trad)."
+            ))
+        })?;
+        info!(
+            "Linux OCR initialized languages={languages} tessdata={:?}",
+            tessdata_dir
+        );
 
         let pix = leptonica::pix_read_mem(&shot.bytes).map_err(|e| {
             OpenBitFunError::tool(format!(

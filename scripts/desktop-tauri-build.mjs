@@ -14,6 +14,7 @@ import {
   writeFileSync,
 } from 'fs';
 import { ensureFlashgrepBinary } from './prepare-flashgrep-resource.mjs';
+import { prepareOcrBundle, OCR_TESSDATA_DIR, OCR_LIB_DIR } from './prepare-ocr-bundle.mjs';
 import { prepareMiniAppShell } from './prepare-miniapp-shell.mjs';
 import { extractProductConfigArg } from './product-customization/cli.mjs';
 import { productBuildEnvironment } from './product-customization/projections.mjs';
@@ -63,6 +64,7 @@ async function main() {
     desktopDir,
   );
   process.env.FLASHGREP_DAEMON_BIN = flashgrepBinary;
+  configureLinuxOcrBundle(forward, resolution);
   // Tauri CLI reads CI and rejects numeric "1" (common in CI providers).
   process.env.CI = 'true';
   if (process.platform === 'darwin' && requestsDmgBundle(forward)) {
@@ -362,6 +364,7 @@ export function prepareTauriConfig(
   // compiles the profile before Tauri copies resources.
   injectDshProfileResource(config);
   injectExternalFrontendResource(config);
+  injectLinuxOcrResources(config, desktopDir);
 
   const release = releaseChannel
     ?? resolveReleaseChannel(process.env.OPENBITFUN_RELEASE_CHANNEL);
@@ -439,6 +442,56 @@ function injectDshProfileResource(config) {
 function injectExternalFrontendResource(config) {
   const resources = { ...(config.bundle?.resources || {}) };
   resources[EXTERNAL_FRONTEND_RESOURCE_SOURCE] = EXTERNAL_FRONTEND_RESOURCE_TARGET;
+  config.bundle = {
+    ...(config.bundle || {}),
+    resources,
+  };
+}
+
+const OCR_TESSDATA_RESOURCE_TARGET = 'resources/ocr/tessdata';
+const OCR_LIB_RESOURCE_TARGET = 'resources/ocr/lib';
+
+// Linux OCR is delivered self-contained: the language traineddata and the
+// tesseract/leptonica shared-library closure are staged beside the app on the
+// build host and shipped as bundle resources. This runs only for Linux targets
+// and is a no-op elsewhere (macOS/Windows use the OS OCR backends).
+export function configureLinuxOcrBundle(
+  args,
+  resolution,
+  { env = process.env, platform = process.platform, prepare = prepareOcrBundle } = {},
+) {
+  const target = optionValue(args, '--target');
+  const isLinux = target ? target.includes('linux') : platform === 'linux';
+  if (!isLinux || args.includes('--no-bundle')) return null;
+  const manifest = prepare({ target });
+  if (!manifest || !manifest.staged) return manifest;
+
+  // The packaged binary installs to /usr/bin/<bin> and its resources to
+  // /usr/lib/<bin>/resources, so an $ORIGIN-relative RUNPATH points at the
+  // bundled libraries without depending on the target host's SONAME.
+  const binaryName = resolution?.assembly?.binaryName ?? 'openbitfun-desktop';
+  const rpath = `$ORIGIN/../lib/${binaryName}/resources/ocr/lib`;
+  const linkArg = `-C link-args=-Wl,--enable-new-dtags,-rpath,${rpath}`;
+  const existing = env.RUSTFLAGS ? `${env.RUSTFLAGS} ` : '';
+  if (!env.RUSTFLAGS?.includes(rpath)) {
+    env.RUSTFLAGS = `${existing}${linkArg}`.trim();
+  }
+  console.log(`[tauri-build] Linux OCR self-containment: RUNPATH=${rpath}`);
+  return manifest;
+}
+
+// Add the staged OCR resource directories, when present, so Tauri copies them
+// into every Linux bundle. Guarded on directory existence, which only happens
+// after a Linux staging pass, so macOS/Windows configs stay unchanged.
+function injectLinuxOcrResources(config, desktopDir) {
+  if (!existsSync(OCR_TESSDATA_DIR) && !existsSync(OCR_LIB_DIR)) return;
+  const resources = { ...(config.bundle?.resources || {}) };
+  if (existsSync(OCR_TESSDATA_DIR)) {
+    resources[toTauriPath(relative(desktopDir, OCR_TESSDATA_DIR))] = OCR_TESSDATA_RESOURCE_TARGET;
+  }
+  if (existsSync(OCR_LIB_DIR)) {
+    resources[toTauriPath(relative(desktopDir, OCR_LIB_DIR))] = OCR_LIB_RESOURCE_TARGET;
+  }
   config.bundle = {
     ...(config.bundle || {}),
     resources,

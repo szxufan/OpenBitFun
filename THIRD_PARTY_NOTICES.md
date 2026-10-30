@@ -48,6 +48,33 @@ the canonical copies of both files beside the bundled snapshot under
 The device list uses the Font Awesome Linux brand icon as the mark for a device
 that runs Linux, redrawn at row icon size by narrowing its view box.
 
+## Tesseract OCR and Leptonica
+
+- Project: Tesseract OCR
+- Source: https://github.com/tesseract-ocr/tesseract
+- License: Apache-2.0
+- Copyright: Copyright 2006-2011 Google; 2012- Amazon.com (contributions)
+
+- Project: Leptonica
+- Source: https://github.com/DanBloomberg/leptonica
+- License: BSD-2-Clause
+- Copyright: Copyright 2001-2020 Leptonica. All rights reserved.
+
+On Linux, OpenBitFun's Desktop uses Tesseract (via the `leptess` bindings) for
+screen OCR in Computer Use. To keep the app self-contained across distributions,
+the Linux `.deb`, `.rpm`, and AppImage packages bundle the `libtesseract` and
+`libleptonica` shared libraries and their transitive image-codec dependencies
+under the application's private resources directory, loaded through an
+`$ORIGIN`-relative RUNPATH.
+
+The packages also bundle the unmodified English (`eng.traineddata`), Simplified
+Chinese (`chi_sim.traineddata`), and Traditional Chinese (`chi_tra.traineddata`)
+recognition data from the Tesseract traineddata project
+(https://github.com/tesseract-ocr/tessdata), which is distributed under the
+Apache-2.0 license. These files are copied from the build host's tesseract
+language packages at build time. macOS and Windows use the operating system's
+built-in OCR (Vision and Windows.Media.Ocr) and ship none of these files.
+
 ## anydoc
 
 - Project: anydoc
