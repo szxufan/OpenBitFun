@@ -16,6 +16,26 @@
     "loadFailed": "加载消息发送偏好失败",
     "saveFailed": "保存消息发送偏好失败"
   },
+  "scheduleSend": {
+    "title": "定时发送快捷项",
+    "description": "输入框定时菜单中显示的快捷时间选项。消息将在所选时间投递到当前会话，应用重启后仍然有效。",
+    "add": "添加快捷项",
+    "type": "类型",
+    "typeRelative": "多少分钟后",
+    "typeDaily": "今天",
+    "typeTomorrow": "明天",
+    "minutes": "分钟",
+    "time": "时间",
+    "remove": "删除",
+    "reset": "恢复默认",
+    "empty": "没有快捷项，将使用内置默认。",
+    "loading": "正在加载定时发送快捷项…",
+    "loadFailed": "加载定时发送快捷项失败",
+    "saveFailed": "保存定时发送快捷项失败",
+    "invalidRow": "请先修正或删除无效的快捷项再保存。",
+    "saved": "定时发送快捷项已保存",
+    "save": "保存"
+  },
   "textSelection": {
     "title": "文本选择",
     "autoShowToolbar": "自动显示选中文字操作栏",

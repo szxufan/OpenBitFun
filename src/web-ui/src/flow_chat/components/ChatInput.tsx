@@ -11,7 +11,7 @@ import { withConversationExcerpts } from '../utils/composerPresentation';
 import React, { useRef, useCallback, useEffect, useReducer, useState, useMemo, useSyncExternalStore } from 'react';
 import path from 'path-browserify';
 import { useTranslation } from 'react-i18next';
-import { RotateCcw, Loader2, Play, Goal } from 'lucide-react';
+import { RotateCcw, Loader2, Play, Goal, Clock } from 'lucide-react';
 import { ContextDropZone, useContextStore, useContextStoreApi } from '../../shared/context-system';
 import { useConversationViewScope } from '../contexts/conversationViewScope';
 import { useActiveSessionState } from '@/flow_chat/hooks';
@@ -136,7 +136,7 @@ import {
 import { sessionOwningWorkspaceId } from '../utils/sessionOrdering';
 import { findWorkspaceForSession } from '../utils/workspaceScope';
 import { isLinuxDesktopRuntime, isTauriRuntime, isWindowsDesktopRuntime } from '@/infrastructure/runtime';
-import { subscribeOverlayInteraction, createOverlayPortal, OverflowText, Tooltip } from '@openbitfun/ui';
+import { subscribeOverlayInteraction, createOverlayPortal, OverflowText, Tooltip, useDismissibleLayer } from '@openbitfun/ui';
 import { useShortcut } from '@/infrastructure/hooks/useShortcut';
 import { confirmDanger, confirmWarning } from '@/infrastructure/confirm-dialog';
 import { PendingQueuePanel } from './PendingQueuePanel';
@@ -192,6 +192,9 @@ import {
 } from './HarnessProfileSelector';
 import { ChatInputApprovalBand } from './ChatInputApprovalBand';
 import { ChatInputBoostSubmenu } from './ChatInputBoostSubmenu';
+import ChatInputScheduleSendPopover from './ChatInputScheduleSendPopover';
+import ScheduledSendPendingStrip from './ScheduledSendPendingStrip';
+import { cronAPI } from '@/infrastructure/api';
 import { scrollSelectedSlashCommandIntoView } from './slashCommandSelectionVisibility';
 import { usePermissionRequests } from './modern/usePermissionRequests';
 import type { DispatchSelection, DispatchTarget } from '@/features/dispatch/types';
@@ -558,6 +561,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const agentBoostRef = useRef<HTMLDivElement>(null);
   const boostTriggerRef = useRef<HTMLSpanElement>(null);
   const boostMenuRef = useRef<HTMLDivElement>(null);
+  // Scheduled-send: a split chevron on the send button opens a one-item menu,
+  // which opens a time popover that creates a one-shot scheduled job.
+  const [scheduleSendMenuOpen, setScheduleSendMenuOpen] = useState(false);
+  const [scheduleSendPopoverOpen, setScheduleSendPopoverOpen] = useState(false);
+  const scheduleSendAnchorRef = useRef<HTMLDivElement>(null);
+  const scheduleSendMenuRef = useRef<HTMLDivElement>(null);
+  const scheduleSendMenuLayout = useAnchoredPopoverPosition({
+    open: scheduleSendMenuOpen,
+    anchorRef: scheduleSendAnchorRef,
+    popoverRef: scheduleSendMenuRef,
+    preferredPlacement: 'top',
+    alignment: 'end',
+    gap: 6,
+  });
+  const scheduleSendMenuBranches = useMemo(() => [scheduleSendAnchorRef], []);
+  useDismissibleLayer({
+    enabled: scheduleSendMenuOpen,
+    layerRef: scheduleSendMenuRef,
+    branchRefs: scheduleSendMenuBranches,
+    onDismiss: () => setScheduleSendMenuOpen(false),
+  });
   const slashCommandPickerRef = useRef<HTMLDivElement>(null);
   const isImeComposingRef = useRef(false);
   // Ref so the queuedInput sync effect can read the latest value without it being a dep
@@ -6208,6 +6232,42 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     },
   });
 
+  const canScheduleSend = Boolean(effectiveTargetSessionId)
+    && sessionOwningId
+    && !isAcpInputSession
+    && !isBtwSession
+    && !isSubagentInputTarget
+    && contexts.length === 0
+    && hasSendableInput
+    && targetCanSubmit
+    && !isModelSwitching
+    && !isModeChangePending
+    && !caps.transferInFlight;
+
+  const handleCreateScheduledSend = useCallback(async (at: Date) => {
+    const draftTrimmed = inputState.value.trim();
+    if (!draftTrimmed || !effectiveTargetSessionId || !sessionOwningId) return;
+    const message = expandComposerSpecialTokens(draftTrimmed);
+    if (!message.trim()) return;
+    const submissionScope = getActiveSurfaceScope();
+    setScheduleSendPopoverOpen(false);
+    try {
+      await cronAPI.createJob({
+        name: message.slice(0, 30),
+        schedule: { kind: 'at', at: at.toISOString() },
+        payload: { text: message },
+        target: { kind: 'session', sessionId: effectiveTargetSessionId, workspace: { workspaceId: sessionOwningId } },
+      });
+      if (!submissionScope.isCurrent()) return;
+      dispatchInput({ type: 'CLEAR_VALUE' });
+      sessionComposerStore.getState().setValue(effectiveTargetSessionId, '');
+      notificationService.success(t('input.scheduleSendScheduled'));
+    } catch (error) {
+      log.error('Failed to schedule message send', { error });
+      notificationService.error(t('input.scheduleSendFailed'));
+    }
+  }, [effectiveTargetSessionId, sessionOwningId, inputState.value, expandComposerSpecialTokens, dispatchInput, t]);
+
   const renderActionButton = () => {
     if (!derivedState) return <span className="openbitfun-chat-input__send-action" data-openbitfun-component="chat-input" data-openbitfun-part="sendButton" data-openbitfun-action="send" data-openbitfun-state="disabled"><ChatComposerActionButton
       aria-label={t('input.sendShortcut')}
@@ -6312,7 +6372,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       );
     }
     
-    return (
+    const sendButton = (
       <span className="openbitfun-chat-input__send-action" data-openbitfun-component="chat-input" data-openbitfun-part="sendButton" data-openbitfun-action="send" data-openbitfun-state={!hasSendableInput || isModelSwitching || isModeChangePending || caps.transferInFlight || !targetCanSubmit || !modelAvailability.canSend ? 'disabled' : undefined}>
         <Tooltip content={t('input.sendShortcut')}>
           <ChatComposerActionButton
@@ -6326,6 +6386,32 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           />
         </Tooltip>
       </span>
+    );
+
+    if (!canScheduleSend) return sendButton;
+
+    return (
+      <div
+        className="openbitfun-chat-input__send-with-schedule"
+        ref={scheduleSendAnchorRef}
+        data-openbitfun-component="chat-input"
+        data-openbitfun-part="sendWithSchedule"
+      >
+        {sendButton}
+        <Tooltip content={t('input.scheduleSend')}>
+          <button
+            type="button"
+            className="openbitfun-chat-input__schedule-chevron"
+            aria-label={t('input.scheduleSend')}
+            aria-haspopup="menu"
+            aria-expanded={scheduleSendMenuOpen}
+            data-testid="chat-input-schedule-chevron"
+            onClick={() => setScheduleSendMenuOpen(open => !open)}
+          >
+            <Icon name="chevron-down" size="sm" aria-hidden />
+          </button>
+        </Tooltip>
+      </div>
     );
   };
 
@@ -6492,6 +6578,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               onRespond={respondPermission}
               onRespondBatch={respondPermissionBatch}
             />
+          ) : null}
+          {effectiveTargetSessionId && !isAcpInputSession ? (
+            <ScheduledSendPendingStrip sessionId={effectiveTargetSessionId} />
           ) : null}
           <div ref={externalFileDropTargetRef} className="openbitfun-chat-input__box" data-openbitfun-component="chat-input" data-openbitfun-part="box">
             <ChatComposer
@@ -7120,6 +7209,50 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                       </>
                     </Menu>,
                     getAppearanceOverlayHost(),
+                  )}
+
+                  {scheduleSendMenuOpen && createOverlayPortal(
+                    <Menu
+                      ref={scheduleSendMenuRef}
+                      inlineSize="content"
+                      className="openbitfun-chat-input__mode-dropdown openbitfun-chat-input__schedule-menu"
+                      data-openbitfun-component="chat-input"
+                      data-openbitfun-part="scheduleSendMenu"
+                      data-openbitfun-state="open"
+                      data-openbitfun-placement={scheduleSendMenuLayout?.placement ?? 'top'}
+                      style={{
+                        top: `${scheduleSendMenuLayout?.top ?? 0}px`,
+                        left: `${scheduleSendMenuLayout?.left ?? 0}px`,
+                        visibility: scheduleSendMenuLayout ? 'visible' : 'hidden',
+                      }}
+                      autoFocusFirstItem
+                      aria-label={t('input.scheduleSend')}
+                    >
+                      <MenuItem
+                        data-openbitfun-component="chat-input"
+                        data-openbitfun-part="scheduleSendMenuItem"
+                        data-testid="chat-input-schedule-send-item"
+                        leading={<Icon glyph={Clock} size="sm" aria-hidden />}
+                        onClick={event => {
+                          event.stopPropagation();
+                          setScheduleSendMenuOpen(false);
+                          setScheduleSendPopoverOpen(true);
+                        }}
+                      >
+                        {t('input.scheduleSend')}
+                      </MenuItem>
+                    </Menu>,
+                    getAppearanceOverlayHost(),
+                  )}
+
+                  {scheduleSendPopoverOpen && (
+                    <ChatInputScheduleSendPopover
+                      anchorRef={scheduleSendAnchorRef}
+                      triggerRef={scheduleSendMenuRef}
+                      draftPreview={inputState.value.trim().slice(0, 80)}
+                      onConfirm={date => void handleCreateScheduledSend(date)}
+                      onClose={() => setScheduleSendPopoverOpen(false)}
+                    />
                   )}
                 </div>
                 {isMultiLine && executionLevelPolicy.userConfigurable ? (

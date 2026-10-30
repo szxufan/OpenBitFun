@@ -460,6 +460,33 @@ pub struct AppFlowChatConfig {
     /// How the shared composer submits follow-ups to a running native session.
     #[serde(skip_serializing_if = "ChatInputSendDuringTurn::is_immediate")]
     pub send_during_turn: ChatInputSendDuringTurn,
+    /// Quick scheduling presets shown in the composer schedule-send popover.
+    ///
+    /// The built-in default is omitted from persisted config so existing config
+    /// files remain unchanged until the user customizes the list.
+    #[serde(
+        default = "default_schedule_send_presets",
+        skip_serializing_if = "is_default_schedule_send_presets"
+    )]
+    pub schedule_send_presets: Vec<ScheduleSendPreset>,
+}
+
+/// A single quick scheduling shortcut for scheduled message sending.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind")]
+pub enum ScheduleSendPreset {
+    /// Send N minutes after the user confirms the schedule.
+    #[serde(rename = "relative")]
+    Relative {
+        #[serde(rename = "offsetMinutes")]
+        offset_minutes: u32,
+    },
+    /// Send today at the given `HH:mm`, rolling to tomorrow when already past.
+    #[serde(rename = "daily")]
+    Daily { time: String },
+    /// Send tomorrow at the given `HH:mm`.
+    #[serde(rename = "tomorrow")]
+    Tomorrow { time: String },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -496,6 +523,23 @@ fn default_auto_show_selection_toolbar() -> bool {
     true
 }
 
+fn default_schedule_send_presets() -> Vec<ScheduleSendPreset> {
+    vec![
+        ScheduleSendPreset::Relative { offset_minutes: 15 },
+        ScheduleSendPreset::Relative { offset_minutes: 60 },
+        ScheduleSendPreset::Daily {
+            time: "20:00".to_string(),
+        },
+        ScheduleSendPreset::Tomorrow {
+            time: "09:00".to_string(),
+        },
+    ]
+}
+
+fn is_default_schedule_send_presets(value: &Vec<ScheduleSendPreset>) -> bool {
+    *value == default_schedule_send_presets()
+}
+
 impl Default for AppFlowChatConfig {
     fn default() -> Self {
         Self {
@@ -505,6 +549,7 @@ impl Default for AppFlowChatConfig {
             show_permission_mode_control: default_show_permission_mode_control(),
             auto_show_selection_toolbar: default_auto_show_selection_toolbar(),
             send_during_turn: ChatInputSendDuringTurn::default(),
+            schedule_send_presets: default_schedule_send_presets(),
         }
     }
 }
@@ -3665,6 +3710,53 @@ mod tests {
             .unwrap();
             assert_eq!(config.send_during_turn, ChatInputSendDuringTurn::Immediate);
         }
+    }
+
+    #[test]
+    fn app_flow_chat_schedule_send_presets_default_and_round_trip() {
+        use super::{AppFlowChatConfig, ScheduleSendPreset};
+
+        // Missing key deserializes to the built-in default and is omitted on write.
+        let legacy = serde_json::json!({ "auto_show_selection_toolbar": false });
+        let config: AppFlowChatConfig = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(
+            config.schedule_send_presets,
+            AppFlowChatConfig::default().schedule_send_presets
+        );
+        assert_eq!(serde_json::to_value(config).unwrap(), legacy);
+
+        // A customized list round-trips with the documented camelCase field.
+        let customized = serde_json::json!({
+            "auto_show_selection_toolbar": true,
+            "schedule_send_presets": [
+                { "kind": "relative", "offsetMinutes": 30 },
+                { "kind": "daily", "time": "21:30" },
+                { "kind": "tomorrow", "time": "08:00" }
+            ]
+        });
+        let config: AppFlowChatConfig = serde_json::from_value(customized.clone()).unwrap();
+        assert_eq!(
+            config.schedule_send_presets,
+            vec![
+                ScheduleSendPreset::Relative { offset_minutes: 30 },
+                ScheduleSendPreset::Daily {
+                    time: "21:30".to_string()
+                },
+                ScheduleSendPreset::Tomorrow {
+                    time: "08:00".to_string()
+                },
+            ]
+        );
+        assert_eq!(serde_json::to_value(config).unwrap(), customized);
+
+        // An explicit empty list is a valid user choice and is persisted.
+        let empty = serde_json::json!({
+            "auto_show_selection_toolbar": true,
+            "schedule_send_presets": []
+        });
+        let config: AppFlowChatConfig = serde_json::from_value(empty.clone()).unwrap();
+        assert!(config.schedule_send_presets.is_empty());
+        assert_eq!(serde_json::to_value(config).unwrap(), empty);
     }
 
     #[test]

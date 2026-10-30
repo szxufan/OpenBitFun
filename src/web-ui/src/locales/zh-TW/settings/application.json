@@ -16,6 +16,26 @@
     "loadFailed": "載入訊息傳送偏好失敗",
     "saveFailed": "儲存訊息傳送偏好失敗"
   },
+  "scheduleSend": {
+    "title": "定時發送快捷項",
+    "description": "輸入框定時選單中顯示的快捷時間選項。訊息將在所選時間投遞到目前會話，應用程式重啟後仍然有效。",
+    "add": "新增快捷項",
+    "type": "類型",
+    "typeRelative": "多少分鐘後",
+    "typeDaily": "今天",
+    "typeTomorrow": "明天",
+    "minutes": "分鐘",
+    "time": "時間",
+    "remove": "刪除",
+    "reset": "恢復預設",
+    "empty": "沒有快捷項，將使用內建預設。",
+    "loading": "正在載入定時發送快捷項…",
+    "loadFailed": "載入定時發送快捷項失敗",
+    "saveFailed": "儲存定時發送快捷項失敗",
+    "invalidRow": "請先修正或刪除無效的快捷項再儲存。",
+    "saved": "定時發送快捷項已儲存",
+    "save": "儲存"
+  },
   "textSelection": {
     "title": "文字選取",
     "autoShowToolbar": "自動顯示選取文字操作列",

@@ -16,6 +16,26 @@
     "loadFailed": "Failed to load message sending preferences",
     "saveFailed": "Failed to save message sending preferences"
   },
+  "scheduleSend": {
+    "title": "Scheduled send shortcuts",
+    "description": "Quick time options shown in the composer schedule menu. The message is sent to the current session at the chosen time, even after the app restarts.",
+    "add": "Add shortcut",
+    "type": "Type",
+    "typeRelative": "In some minutes",
+    "typeDaily": "Today at",
+    "typeTomorrow": "Tomorrow at",
+    "minutes": "Minutes",
+    "time": "Time",
+    "remove": "Remove",
+    "reset": "Reset to defaults",
+    "empty": "No shortcuts. The built-in defaults are used.",
+    "loading": "Loading scheduled send shortcuts…",
+    "loadFailed": "Failed to load scheduled send shortcuts",
+    "saveFailed": "Failed to save scheduled send shortcuts",
+    "invalidRow": "Fix or remove the highlighted shortcuts before saving.",
+    "saved": "Scheduled send shortcuts saved",
+    "save": "Save"
+  },
   "textSelection": {
     "title": "Text selection",
     "autoShowToolbar": "Automatically show text selection actions",

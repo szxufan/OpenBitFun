@@ -127,7 +127,17 @@ export interface AppFlowChatConfig {
   last_mode_id?: string | null;
   show_permission_mode_control?: boolean;
   auto_show_selection_toolbar?: boolean;
+  schedule_send_presets?: ScheduleSendPreset[];
 }
+
+/**
+ * Quick scheduling shortcut shown in the composer schedule-send popover.
+ * Mirrors `ScheduleSendPreset` in the Rust config contract.
+ */
+export type ScheduleSendPreset =
+  | { kind: 'relative'; offsetMinutes: number }
+  | { kind: 'daily'; time: string }
+  | { kind: 'tomorrow'; time: string };
 
 export interface SidebarConfig {
   width: number;
@@ -803,6 +813,7 @@ export type ConfigPath =
   | 'ai.tool_presentation_mode'
   | 'app.flow_chat.auto_show_selection_toolbar'
   | 'app.flow_chat.send_during_turn'
+  | 'app.flow_chat.schedule_send_presets'
   | 'app.sidebar'
   | 'app.sidebar.width'
   | 'app.sidebar.collapsed'

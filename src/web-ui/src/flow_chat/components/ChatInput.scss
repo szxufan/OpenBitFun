@@ -1242,6 +1242,206 @@
     box-shadow: 0 0 0 1px var(--openbitfun-color-surface-panel);
     pointer-events: none;
   }
+
+  /* Split send control: the schedule chevron sits beside the send button. */
+  &__send-with-schedule {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 100%;
+    flex: 0 0 auto;
+  }
+
+  &__schedule-chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: var(--openbitfun-radius-pill);
+    background: transparent;
+    color: var(--openbitfun-color-content-muted);
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+
+    &:hover {
+      background: var(--openbitfun-color-action-quiet-hover);
+      color: var(--openbitfun-color-content-primary);
+    }
+
+    &:focus-visible {
+      outline: var(--openbitfun-border-width-default) solid var(--openbitfun-color-accent-default);
+      outline-offset: 1px;
+    }
+  }
+
+  &__schedule-menu {
+    min-width: 180px;
+  }
+
+  &__schedule-popover {
+    @include surfaces.floating;
+
+    position: fixed;
+    z-index: calc(var(--openbitfun-layer-dropdown) + 1);
+    width: min(280px, calc(100vw - 16px));
+    display: flex;
+    flex-direction: column;
+    gap: var(--openbitfun-space-2);
+    padding: var(--openbitfun-space-3);
+    color: var(--openbitfun-color-content-primary);
+    font-size: var(--openbitfun-type-flow-support-font-size);
+  }
+
+  &__schedule-preview {
+    padding-bottom: var(--openbitfun-space-2);
+    border-bottom: 1px solid var(--openbitfun-color-border-subtle);
+    color: var(--openbitfun-color-content-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__schedule-section-label {
+    font-size: var(--openbitfun-type-flow-micro-font-size);
+    font-weight: var(--openbitfun-type-label-sm-font-weight);
+    letter-spacing: var(--openbitfun-type-modifier-tracking-wider-letter-spacing);
+    text-transform: uppercase;
+    color: var(--openbitfun-color-content-muted);
+  }
+
+  &__schedule-empty {
+    color: var(--openbitfun-color-content-muted);
+    font-size: var(--openbitfun-type-flow-meta-font-size);
+  }
+
+  &__schedule-options {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  &__schedule-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--openbitfun-space-2);
+    width: 100%;
+    padding: var(--openbitfun-space-1) var(--openbitfun-space-2);
+    border: none;
+    border-radius: var(--openbitfun-radius-sm);
+    background: transparent;
+    color: var(--openbitfun-color-content-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--openbitfun-color-action-quiet-hover);
+    }
+
+    &--selected {
+      background: var(--openbitfun-color-action-neutral-surface-hover);
+    }
+  }
+
+  &__schedule-option-label {
+    min-width: 0;
+  }
+
+  &__schedule-option-time {
+    flex: 0 0 auto;
+    color: var(--openbitfun-color-content-muted);
+    font-size: var(--openbitfun-type-flow-meta-font-size);
+  }
+
+  &__schedule-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--openbitfun-space-2);
+    padding-top: var(--openbitfun-space-1);
+  }
+
+  &__schedule-hint {
+    margin-right: auto;
+    color: var(--openbitfun-color-status-danger-content);
+    font-size: var(--openbitfun-type-flow-meta-font-size);
+  }
+
+  /* Pending scheduled-send rows above the composer box. */
+  &__scheduled-strip {
+    display: flex;
+    align-items: center;
+    gap: var(--openbitfun-space-2);
+    min-width: 0;
+    padding: var(--openbitfun-space-1) var(--openbitfun-space-2);
+    margin-bottom: var(--openbitfun-space-1);
+    color: var(--openbitfun-color-content-secondary);
+    font-size: var(--openbitfun-type-flow-meta-font-size);
+  }
+
+  &__scheduled-strip-title {
+    flex: 0 0 auto;
+    font-weight: var(--openbitfun-type-label-sm-font-weight);
+    color: var(--openbitfun-color-content-muted);
+  }
+
+  &__scheduled-strip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--openbitfun-space-1);
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+    list-style: none;
+  }
+
+  &__scheduled-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--openbitfun-space-1);
+    max-width: 100%;
+    padding: 2px var(--openbitfun-space-2);
+    border: 1px solid var(--openbitfun-color-border-subtle);
+    border-radius: var(--openbitfun-radius-pill);
+    background: var(--openbitfun-color-surface-raised);
+    color: var(--openbitfun-color-content-secondary);
+  }
+
+  &__scheduled-time {
+    flex: 0 0 auto;
+    color: var(--openbitfun-color-content-secondary);
+  }
+
+  &__scheduled-text {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--openbitfun-color-content-secondary);
+  }
+
+  &__scheduled-cancel {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: var(--openbitfun-radius-pill);
+    background: transparent;
+    color: var(--openbitfun-color-content-muted);
+    cursor: pointer;
+
+    &:hover {
+      background: var(--openbitfun-color-action-quiet-hover);
+      color: var(--openbitfun-color-content-primary);
+    }
+  }
 }
 
 @keyframes openbitfun-chat-input-spin {

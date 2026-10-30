@@ -34,6 +34,7 @@ export type SettingsViewId =
 /** Anchors in a single settings page, not nested pages or tab panels. */
 export type SettingsSectionId =
   | 'message-sending'
+  | 'schedule-send'
   | 'text-selection'
   | 'pet'
   | 'desktop-cards'
