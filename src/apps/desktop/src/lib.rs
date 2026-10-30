@@ -1014,6 +1014,31 @@ pub async fn run() {
                 );
             }
 
+            // Point Linux Computer Use OCR at the bundled traineddata using
+            // Tauri's authoritative resource directory (verified layout:
+            // /usr/lib/<productName>/resources/ocr/tessdata). The screen OCR
+            // backend reads the registered dir first, then TESSDATA_PREFIX,
+            // then system paths, so a self-contained package and a system
+            // tesseract both work without guessing the product directory name.
+            #[cfg(target_os = "linux")]
+            {
+                for candidate in ["resources/ocr/tessdata", "ocr/tessdata"] {
+                    if let Ok(path) =
+                        app.path().resolve(candidate, tauri::path::BaseDirectory::Resource)
+                    {
+                        if path.exists() {
+                            if crate::computer_use::register_bundled_tessdata_dir(path.clone()) {
+                                log::info!(
+                                    "Registered bundled Linux OCR traineddata: path={}",
+                                    path.display()
+                                );
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+
             // Register bundled mobile-web resource path for remote connect.
             // tauri.conf.json maps "../../mobile-web/dist" -> "mobile-web/dist",
             // so the primary candidate is "mobile-web/dist". Additional fallbacks

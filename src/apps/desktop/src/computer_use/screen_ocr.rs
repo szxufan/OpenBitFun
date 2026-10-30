@@ -46,6 +46,24 @@ mod native_fixture_tests {
 
 pub(super) use openbitfun_core::agentic::tools::computer_use_host::OcrTextMatch;
 
+/// Bundled tessdata directory registered at startup from Tauri's authoritative
+/// resource dir. A static instead of mutating the process environment, which is
+/// a data race once the async runtime is already multi-threaded.
+#[cfg(target_os = "linux")]
+static REGISTERED_TESSDATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Register the bundled tessdata directory discovered at startup. Returns
+/// `false` when a directory was already registered (first registration wins).
+#[cfg(target_os = "linux")]
+pub(super) fn register_bundled_tessdata_dir(dir: PathBuf) -> bool {
+    REGISTERED_TESSDATA_DIR.set(dir).is_ok()
+}
+
+#[cfg(target_os = "linux")]
+fn registered_tessdata_dir() -> Option<&'static PathBuf> {
+    REGISTERED_TESSDATA_DIR.get()
+}
+
 /// Read the best recognized text for every visible region. No search query,
 /// candidate ranking, or debug pixel persistence is involved.
 pub(super) fn read_text(shot: &ComputerScreenshot) -> OpenBitFunResult<Vec<OcrTextMatch>> {
@@ -661,7 +679,8 @@ mod windows_backend {
 mod linux_backend {
     use super::{
         filter_and_rank, fuzzy_text_matches_query, image_box_to_global_match,
-        image_content_rect_or_full, normalize_for_match, tesseract_lines_from_tsv, OcrTextMatch,
+        image_content_rect_or_full, normalize_for_match, registered_tessdata_dir,
+        tesseract_lines_from_tsv, OcrTextMatch,
     };
     use leptess::capi::TessPageIteratorLevel_RIL_WORD;
     use leptess::{leptonica, tesseract::TessApi};
@@ -679,6 +698,11 @@ mod linux_backend {
     /// `TESSDATA_PREFIX`, then the system tesseract packages.
     fn candidate_tessdata_dirs() -> Vec<PathBuf> {
         let mut dirs = Vec::new();
+        // Highest priority: the directory the app registered from Tauri's
+        // authoritative resource_dir at startup (self-contained bundle).
+        if let Some(dir) = registered_tessdata_dir() {
+            dirs.push(dir.clone());
+        }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
                 dirs.push(exe_dir.join("resources").join("ocr").join("tessdata"));

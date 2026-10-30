@@ -21,9 +21,16 @@ export const OCR_LIB_DIR = join(OCR_RESOURCE_DIR, 'lib');
 export const SUPPORTED_OCR_LANGUAGES = ['eng', 'chi_sim', 'chi_tra'];
 
 // Shared libraries that must resolve from the running system, never from the
-// bundled directory: the C library/loader and thread/math primitives have
-// stable, backward-compatible ABIs on every Linux target and shadowing them
-// with a copied .so is the classic self-contained-package breakage.
+// bundled directory. Two groups are excluded:
+//   1. The C library/loader and thread/math primitives, whose ABIs are stable
+//      and backward compatible on every Linux target; shadowing them is the
+//      classic self-contained-package breakage.
+//   2. The large crypto / TLS / network / ICU stack that OpenBitFun already
+//      pulls in through libwebkit2gtk on any host that can run it. Tesseract
+//      links libcurl (and thus this stack) only as an optional dependency that
+//      screen OCR never exercises, so bundling duplicates would bloat the
+//      package by tens of MB and risk in-process symbol clashes with WebKit's
+//      own copies. They are guaranteed present wherever the app can launch.
 const LIB_CLOSURE_BLACKLIST = [
   'linux-vdso',
   'ld-linux',
@@ -37,6 +44,38 @@ const LIB_CLOSURE_BLACKLIST = [
   'libutil.so',
   'libgcc_s.so',
   'libstdc++.so',
+  // OpenSSL / TLS / PKCS stack (provided by WebKit's dependency tree).
+  'libssl',
+  'libcrypto',
+  'libgnutls',
+  'libhogweed',
+  'libnettle',
+  'libtasn1',
+  'libp11-kit',
+  'libgcrypt',
+  'libgpg-error',
+  // Kerberos / LDAP / SASL / curl network stack (optional tesseract link).
+  'libkrb5',
+  'libk5crypto',
+  'libkrb5support',
+  'libcom_err',
+  'libgssapi_krb5',
+  'libkadm5',
+  'libldap',
+  'liblber',
+  'libsasl2',
+  'libkeyutils',
+  'libcurl',
+  'libssh',
+  'librtmp',
+  'libnghttp2',
+  'libidn2',
+  'libunistring',
+  'libpsl',
+  'libffi',
+  // Unicode / XML data pulled transitively via the network stack, not OCR.
+  'libicu',
+  'libxml2',
 ];
 
 // System tessdata locations, most specific first.

@@ -45,6 +45,12 @@ pub(crate) mod share_grants;
 mod som_overlay;
 mod terminal_detect;
 mod ui_locate_common;
+
+/// Startup registration of the bundled Linux OCR tessdata directory, consumed
+/// by `lib.rs` (crate root) and read back by `screen_ocr`'s Linux backend.
+#[cfg(target_os = "linux")]
+pub(crate) use screen_ocr::register_bundled_tessdata_dir;
+
 #[cfg(target_os = "windows")]
 mod windows_ax_shortcuts;
 #[cfg(target_os = "windows")]

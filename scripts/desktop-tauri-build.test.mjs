@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import {
   configureDesktopWebFontProfile,
+  configureLinuxOcrBundle,
   configureWindowsSigning,
   prepareMacOSFlashgrepForSigning,
   prepareTauriConfig,
@@ -21,6 +22,41 @@ import {
 const FAILED_BUILD = { status: 1 };
 const DMG_ARGS = ['--target', 'x86_64-apple-darwin', '--bundles', 'app,dmg'];
 const ROOT = join(import.meta.dirname, '..');
+
+test('Linux OCR bundle stages resources and adds RUNPATH candidates only for linux bundles', () => {
+  // Non-linux target: no-op, RUSTFLAGS untouched.
+  const winEnv = { RUSTFLAGS: '-C opt-level=3' };
+  const winResult = configureLinuxOcrBundle(
+    ['--target', 'x86_64-pc-windows-msvc', '--bundles', 'deb'],
+    { assembly: { binaryName: 'openbitfun-desktop' } },
+    { env: winEnv, platform: 'win32', prepare: () => { throw new Error('must not prepare'); } },
+  );
+  assert.equal(winResult, null);
+  assert.equal(winEnv.RUSTFLAGS, '-C opt-level=3');
+
+  // Linux --no-bundle: skipped (dev/raw builds are not self-contained packages).
+  assert.equal(
+    configureLinuxOcrBundle(['--target', 'x86_64-unknown-linux-gnu', '--no-bundle'], null, {
+      env: {}, platform: 'linux', prepare: () => { throw new Error('must not prepare'); },
+    }),
+    null,
+  );
+
+  // Linux bundle: stages and appends new-dtags + $ORIGIN RUNPATH candidates.
+  const linuxEnv = { RUSTFLAGS: '' };
+  const manifest = configureLinuxOcrBundle(
+    ['--target', 'x86_64-unknown-linux-gnu', '--bundles', 'deb,rpm,appimage'],
+    { assembly: { binaryName: 'openbitfun-desktop' } },
+    { env: linuxEnv, platform: 'linux', prepare: () => ({ staged: true, traineddata: [], libraries: [] }) },
+  );
+  assert.equal(manifest.staged, true);
+  assert.match(linuxEnv.RUSTFLAGS, /-Wl,--enable-new-dtags/);
+  // Tauri installs resources under /usr/lib/<productName> (verified: OpenBitFun),
+  // so the productName candidate must be present alongside the binary-name one.
+  assert.match(linuxEnv.RUSTFLAGS, /-Wl,-rpath,\$ORIGIN\/\.\.\/lib\/OpenBitFun\/resources\/ocr\/lib/);
+  assert.match(linuxEnv.RUSTFLAGS, /-Wl,-rpath,\$ORIGIN\/\.\.\/lib\/openbitfun-desktop\/resources\/ocr\/lib/);
+  assert.match(linuxEnv.RUSTFLAGS, /-Wl,-rpath,\$ORIGIN\/\.\.\/share\/openbitfun-desktop\/resources\/ocr\/lib/);
+});
 
 test('modern icon tooling is required only for macOS bundles, including bundle-only builds', () => {
   assert.equal(requestsMacosBundle([], 'darwin'), true);

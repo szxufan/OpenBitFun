@@ -466,17 +466,35 @@ export function configureLinuxOcrBundle(
   const manifest = prepare({ target });
   if (!manifest || !manifest.staged) return manifest;
 
-  // The packaged binary installs to /usr/bin/<bin> and its resources to
-  // /usr/lib/<bin>/resources, so an $ORIGIN-relative RUNPATH points at the
-  // bundled libraries without depending on the target host's SONAME.
+  // The packaged binary installs to /usr/bin/<bin>. Tauri copies bundle
+  // resources to /usr/lib/<productName>/resources (verified against the shipped
+  // deb: /usr/lib/OpenBitFun/resources/...), NOT to the binary-name directory.
+  // Emit every plausible parent as an $ORIGIN-relative RUNPATH; the loader
+  // ignores non-existent entries, so the bundled tesseract/leptonica resolve on
+  // the first hit without depending on the target host's SONAME. Repeated
+  // `-C link-arg` keeps each linker arg free of spaces so it survives RUSTFLAGS
+  // splitting.
   const binaryName = resolution?.assembly?.binaryName ?? 'openbitfun-desktop';
-  const rpath = `$ORIGIN/../lib/${binaryName}/resources/ocr/lib`;
-  const linkArg = `-C link-args=-Wl,--enable-new-dtags,-rpath,${rpath}`;
-  const existing = env.RUSTFLAGS ? `${env.RUSTFLAGS} ` : '';
-  if (!env.RUSTFLAGS?.includes(rpath)) {
-    env.RUSTFLAGS = `${existing}${linkArg}`.trim();
+  const assembly = resolution?.assembly;
+  const productName =
+    resolution?.productNames?.[assembly?.fallbackLocale]
+    ?? resolution?.productNames?.[assembly?.defaultLocale]
+    ?? 'OpenBitFun';
+  const resourceDirs = [...new Set([productName, binaryName])];
+  const rpathCandidates = resourceDirs.flatMap((dir) => [
+    `$ORIGIN/../lib/${dir}/resources/ocr/lib`,
+    `$ORIGIN/../share/${dir}/resources/ocr/lib`,
+  ]);
+  const marker = '-Wl,-rpath,$ORIGIN/../lib/';
+  if (!env.RUSTFLAGS?.includes(marker)) {
+    const linkArgs = [
+      '-C link-arg=-Wl,--enable-new-dtags',
+      ...rpathCandidates.map((path) => `-C link-arg=-Wl,-rpath,${path}`),
+    ];
+    const existing = env.RUSTFLAGS ? `${env.RUSTFLAGS} ` : '';
+    env.RUSTFLAGS = `${existing}${linkArgs.join(' ')}`.trim();
   }
-  console.log(`[tauri-build] Linux OCR self-containment: RUNPATH=${rpath}`);
+  console.log(`[tauri-build] Linux OCR self-containment RUNPATH candidates: ${rpathCandidates.join(' | ')}`);
   return manifest;
 }
 
