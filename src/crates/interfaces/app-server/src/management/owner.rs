@@ -459,6 +459,7 @@ fn model_from_mutation(
         custom_request_body,
         custom_request_body_mode: current.custom_request_body_mode,
         auth: current.auth,
+        image_dialect: current.image_dialect,
         channel_routing: current.channel_routing,
     })
 }
@@ -1901,6 +1902,7 @@ mod tests {
                 "existing-header".to_string(),
             )])),
             custom_request_body: Some("existing-body".to_string()),
+            image_dialect: Some(openbitfun_core::service::config::ImageDialect::DashScopeNative),
             channel_routing: Some(
                 serde_json::from_value(serde_json::json!({
                     "version": 1, "fallback_model_ids": ["backup"], "manual_channel": "backup"
@@ -1918,6 +1920,10 @@ mod tests {
         assert_eq!(
             preserved.channel_routing, existing.channel_routing,
             "an older management payload must preserve the channel selection it cannot express"
+        );
+        assert_eq!(
+            preserved.image_dialect, existing.image_dialect,
+            "an older management payload must preserve the image protocol it cannot express"
         );
         assert_eq!(
             preserved.custom_request_body.as_deref(),
