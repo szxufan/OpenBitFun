@@ -564,6 +564,79 @@ mod tests {
         );
     }
 
+    /// End-to-end: a richer `/models` response served over real HTTP must keep
+    /// its advertised metadata through `AIClient::list_models`.
+    #[tokio::test]
+    async fn list_models_keeps_advertised_metadata_over_http() {
+        use crate::client::AIClient;
+        use openbitfun_core_types::AIConfig;
+        use std::io::{Read, Write};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0u8; 4096];
+            let _ = stream.read(&mut buffer);
+            let body = serde_json::json!({
+                "data": [
+                    {"id": "glm-5.3", "object": "model", "owned_by": "zhipu_4v",
+                     "supported_endpoint_types": ["openai"],
+                     "context_length": 1048576, "max_output_tokens": 131072,
+                     "support_image_input": true, "support_video_input": true,
+                     "reasoning_options": ["low", "high", "max"]}
+                ],
+                "object": "list",
+                "success": true
+            })
+            .to_string();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let client = AIClient::new(AIConfig {
+            name: "test".to_string(),
+            base_url: format!("http://{addr}/v1"),
+            request_url: format!("http://{addr}/v1/chat/completions"),
+            api_key: "test-key".to_string(),
+            model: "glm-5.3".to_string(),
+            format: "openai".to_string(),
+            context_window: 128000,
+            max_tokens: Some(8192),
+            max_images_per_request: None,
+            temperature: None,
+            top_p: None,
+            inline_think_in_text: false,
+            custom_headers: None,
+            custom_headers_mode: None,
+            skip_ssl_verify: true,
+            custom_request_body: None,
+            custom_request_body_mode: None,
+        });
+
+        let models = client.list_models().await.unwrap();
+        server.join().unwrap();
+        assert_eq!(models.len(), 1);
+        let model = &models[0];
+        assert_eq!(model.id, "glm-5.3");
+        assert_eq!(model.context_length, Some(1_048_576));
+        assert_eq!(model.max_output_tokens, Some(131_072));
+        assert_eq!(model.support_image_input, Some(true));
+        assert_eq!(model.support_video_input, Some(true));
+        assert_eq!(
+            model.reasoning_options,
+            Some(vec!["low".to_string(), "high".to_string(), "max".to_string()])
+        );
+        assert_eq!(
+            model.supported_endpoint_types,
+            Some(vec!["openai".to_string()])
+        );
+    }
+
     #[test]
     fn attach_tools_removes_tool_choice_without_tools() {
         let mut request_body = json!({

@@ -211,6 +211,8 @@
     "fetchFailedFallback": "Failed to fetch model list, fell back to common preset models",
     "fetchEmptyFallback": "Provider returned no models, fell back to common preset models",
     "refreshModels": "Refresh models",
+    "modelContextMeta": "Context {{context}}",
+    "modelReasoningMeta": "Reasoning {{levels}}",
     "subscriptionFetchFailed": "Could not load models for this subscription. Refresh to retry, or enter a model ID supported by your account.",
     "subscriptionFetchEmpty": "This account returned no models for the selected interface. Refresh to retry, or enter a supported model ID.",
     "fillApiKeyBeforeFetch": "Enter the API key before fetching models",

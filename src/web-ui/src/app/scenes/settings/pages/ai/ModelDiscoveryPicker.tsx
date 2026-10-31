@@ -21,6 +21,8 @@ export interface ModelDiscoveryOption {
   label: string;
   value: string;
   description?: string;
+  /** Advertised context/reasoning summary shown under the label. */
+  meta?: string;
   source?: string;
 }
 
@@ -145,12 +147,18 @@ export function ModelDiscoveryPicker({
                     data-model-id={modelName}
                     data-model-name={modelName}
                     data-model-source={option.source}
+                    data-model-meta={option.meta}
                     leadingIcon={<Icon name={isSelected ? 'check-line' : 'plus'} size="xs" tone={isSelected ? 'success' : undefined} />}
                     onClick={() => onValueChange(isSelected
                       ? value.filter(name => name.trim().toLowerCase() !== lookupKey)
                       : [...value, modelName])}
                   >
-                    {option.label}
+                    <span className="openbitfun-model-settings__model-option-content">
+                      <span>{option.label}</span>
+                      {option.meta && (
+                        <small className="openbitfun-model-settings__model-option-meta">{option.meta}</small>
+                      )}
+                    </span>
                   </Button>
                 );
               })}

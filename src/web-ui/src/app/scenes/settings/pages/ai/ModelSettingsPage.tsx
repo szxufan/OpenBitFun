@@ -498,7 +498,7 @@ function getPoolProviderKey(model: AIModelConfigType): string {
 
 const ModelSettingsPage: React.FC = () => {
   const accountSelectionId = React.useId();
-  const { t, i18n } = useI18n('settings/models');
+  const { t, i18n, formatNumber } = useI18n('settings/models');
   const { t: tDefault } = useI18n('settings/default-model');
   const { t: tComponents } = useI18n('components');
   const { t: tMedia } = useI18n('settings/media');
@@ -1185,11 +1185,24 @@ const ModelSettingsPage: React.FC = () => {
 
         if (existingDraft) {
           const configId = pinnedRowId ?? existingDraft.configId;
+          // Re-selecting an already-drafted model refreshes values the user has
+          // not touched with facts advertised by the /models endpoint, so a
+          // provider that starts advertising metadata heals earlier defaults.
+          const remoteModel = remoteModelOptions.find(
+            option => modelNameLookupKey(option.id) === lookupKey
+          );
+          const refresh = remoteModel && !existingDraft.contextWindowEdited
+            ? {
+              ...(remoteModel.context_length !== undefined ? { contextWindow: remoteModel.context_length } : {}),
+              ...(remoteModel.max_output_tokens !== undefined ? { maxTokens: remoteModel.max_output_tokens } : {}),
+            }
+            : {};
           return {
             ...existingDraft,
             modelName,
             configId,
             key: existingDraft.key,
+            ...refresh,
           };
         }
 
@@ -1472,6 +1485,16 @@ const ModelSettingsPage: React.FC = () => {
           ? 'providerSelection.subscriptionFetchEmpty'
           : 'providerSelection.fetchEmptyFallback'));
         return;
+      }
+      if (dedupedModels.every(model => (
+        model.context_length === undefined
+        && !model.reasoning_options?.length
+        && !model.supported_endpoint_types?.length
+      ))) {
+        log.warn('Fetched model list carries no context, reasoning, or endpoint metadata', {
+          baseUrl: discoveryConfig.base_url,
+          modelCount: dedupedModels.length,
+        });
       }
       succeeded = true;
     } catch (error) {
@@ -3054,11 +3077,29 @@ const ModelSettingsPage: React.FC = () => {
         description: model.display_name && model.display_name !== model.id ? model.id : undefined,
         source: model.source,
       }));
+    const formatModelMeta = (model: {
+      context_length?: number;
+      max_output_tokens?: number;
+      reasoning_options?: string[];
+    }): string | undefined => {
+      const parts: string[] = [];
+      if (typeof model.context_length === 'number' && model.context_length > 0) {
+        parts.push(t('providerSelection.modelContextMeta', {
+          context: formatNumber(model.context_length, { notation: 'compact' }),
+        }));
+      }
+      const levels = (model.reasoning_options ?? []).filter(Boolean);
+      if (levels.length > 0) {
+        parts.push(t('providerSelection.modelReasoningMeta', { levels: levels.join('/') }));
+      }
+      return parts.length > 0 ? parts.join(' · ') : undefined;
+    };
     const fetchedOrPresetModelOptions: ModelDiscoveryOption[] = remoteModelOptions.length > 0
       ? remoteModelOptions.map(model => ({
         label: model.display_name || model.id,
         value: model.id,
         description: model.display_name && model.display_name !== model.id ? model.id : undefined,
+        meta: formatModelMeta(model),
       }))
       : subscriptionProviderOf(editingConfig.auth)
         ? []
