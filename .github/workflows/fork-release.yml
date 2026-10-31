@@ -12,6 +12,18 @@
 #     mode, which upstream explicitly supports without signing secrets)
 #   - multi-arch relay Docker image pushed to GHCR
 #
+# Platform isolation: desktop-package already builds each platform as its own
+# matrix job. When one platform fails (flaky network, single-OS breakage),
+# this workflow automatically reruns ONLY the failed matrix jobs
+# (`gh run rerun --failed`) instead of rebuilding every platform, and the
+# publish job still creates the release with whichever platform bundles
+# succeeded. Missing platforms are listed in the release notes.
+#
+# Top-up path: dispatch this workflow manually with the same tag and the
+# `desktop_packages_run_id` of a later, partially successful Desktop Package
+# run to upload the missing platform bundles into the existing release
+# without rebuilding the relay image or re-running the Linux archives.
+#
 # The upstream workflows themselves are untouched; only this fork's
 # release-please no longer dispatches the signed publication path.
 
@@ -21,6 +33,20 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Existing v* tag to (re)publish"
+        required: true
+        type: string
+      desktop_packages_run_id:
+        description: "Optional: reuse bundles from a completed Desktop Package run ID instead of dispatching a new one"
+        required: false
+        type: string
+      skip_relay_image:
+        description: "Skip the relay Docker image build and the Linux archives (top-up: they are already published)"
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -28,8 +54,12 @@ permissions:
   packages: write
 
 concurrency:
-  group: fork-release-${{ github.ref_name }}
+  group: fork-release-${{ github.event_name == 'push' && github.ref_name || inputs.tag_name }}
   cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag_name }}
+  FORK_DESKTOP_PLATFORMS: 'windows-x64 macos-arm64 macos-x64 linux-x64'
 
 jobs:
   meta:
@@ -37,36 +67,47 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - name: Strip the tag prefix
         id: version
         shell: bash
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          [[ "${TAG}" == v* ]] || { echo "Tag must start with 'v': ${TAG}" >&2; exit 1; }
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
   relay-archives:
     name: Relay and CLI archives
     needs: [meta]
+    # Top-up runs reuse the archives and image already attached to the release.
+    if: ${{ github.event_name == 'push' || inputs.skip_relay_image != true }}
     uses: ./.github/workflows/linux-binaries.yml
     with:
-      checkout_ref: ${{ github.ref_name }}
+      checkout_ref: ${{ needs.meta.outputs.tag }}
       version: ${{ needs.meta.outputs.version }}
-      artifact_prefix: ${{ github.ref_name }}
+      artifact_prefix: ${{ needs.meta.outputs.tag }}
       upload_artifacts: true
       # Fork policy: no Linux arm64 demand, and an amd64-only relay image
       # skips the QEMU-emulated half of the docker build.
       linux_platforms: '[{"os":"ubuntu-22.04","name":"linux-x64","target":"x86_64-unknown-linux-gnu","docker_arch":"amd64"}]'
-      release_channel: ${{ contains(github.ref_name, '-') && 'beta' || 'stable' }}
+      release_channel: ${{ contains(needs.meta.outputs.tag, '-') && 'beta' || 'stable' }}
 
   desktop-packages:
     name: Desktop installers (artifact-only)
     runs-on: ubuntu-latest
     outputs:
       run_id: ${{ steps.locate.outputs.run_id }}
+      conclusion: ${{ steps.watch.outputs.conclusion }}
     steps:
       - name: Dispatch desktop-package in artifact-only mode
+        if: ${{ inputs.desktop_packages_run_id == '' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ needs.meta.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -83,15 +124,20 @@ jobs:
             -f "skip_linux_arm64=true" \
             -f "upload_to_release=false"
 
-      - name: Wait for the desktop-package run
+      - name: Locate the desktop-package run
         id: locate
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ needs.meta.outputs.tag }}
           DISPATCHED_AT: ${{ env.dispatched_at }}
+          REUSE_RUN_ID: ${{ inputs.desktop_packages_run_id }}
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -n "${REUSE_RUN_ID}" ]]; then
+            echo "run_id=${REUSE_RUN_ID}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           sleep 20
           for attempt in $(seq 1 60); do
             run_id="$(gh run list --repo "$GITHUB_REPOSITORY" \
@@ -100,8 +146,6 @@ jobs:
               --jq "[.[] | select(.createdAt >= env.DISPATCHED_AT)] | sort_by(.createdAt) | .[0].databaseId // empty")"
             if [[ -n "$run_id" ]]; then
               echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-              gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status \
-                --interval 30 >/dev/null
               exit 0
             fi
             sleep 15
@@ -109,25 +153,60 @@ jobs:
           echo "The dispatched desktop-package run never appeared." >&2
           exit 1
 
+      # Platform isolation: `gh run rerun --failed` rebuilds only the matrix
+      # jobs that failed, so a flaky macOS network error or a single-OS
+      # breakage never recompiles the other platforms.
+      - name: Watch the desktop-package run and retry failed platforms
+        id: watch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DESKTOP_RUN_ID: ${{ steps.locate.outputs.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          conclusion=""
+          for attempt in 1 2 3; do
+            if gh run watch "$DESKTOP_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --exit-status --interval 30 >/dev/null 2>&1; then
+              conclusion="success"
+              break
+            fi
+            conclusion="$(gh run view "$DESKTOP_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)"
+            echo "desktop-package attempt ${attempt} concluded: ${conclusion}"
+            if [[ "$attempt" -lt 3 && "$conclusion" == "failure" ]]; then
+              echo "Rerunning only the failed platform jobs..."
+              gh run rerun "$DESKTOP_RUN_ID" --repo "$GITHUB_REPOSITORY" --failed || true
+              sleep 30
+            else
+              break
+            fi
+          done
+          echo "conclusion=${conclusion}" >> "$GITHUB_OUTPUT"
+          # Never fail here: the publish job tolerates a subset of platforms
+          # and reports the missing ones in the release notes.
+          exit 0
+
   publish:
     name: Publish fork release
     needs: [meta, relay-archives, desktop-packages]
+    if: ${{ !cancelled() && needs.meta.result == 'success' && needs.desktop-packages.result == 'success' && (needs.relay-archives.result == 'success' || needs.relay-archives.result == 'skipped') }}
     runs-on: ubuntu-latest
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/openbitfun-relay-server
-      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_TAG: ${{ needs.meta.outputs.tag }}
       RELEASE_VERSION: ${{ needs.meta.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ needs.meta.outputs.tag }}
           # Full history so the release-notes script can diff the tag range.
           fetch-depth: 0
 
       - name: Download relay and CLI archives
+        if: ${{ needs.relay-archives.result == 'success' }}
         uses: actions/download-artifact@v7
         with:
-          pattern: openbitfun-linux-${{ github.ref_name }}-*
+          pattern: openbitfun-linux-${{ needs.meta.outputs.tag }}-*
           path: linux-release-assets
           merge-multiple: true
 
@@ -148,15 +227,32 @@ jobs:
             --pattern 'openbitfun-*-bundle' --dir desktop-assets
           find desktop-assets -type f | wc -l
 
+      - name: Report which platforms produced bundles
+        id: platforms
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=""
+          for platform in ${FORK_DESKTOP_PLATFORMS}; do
+            if [[ ! -d "desktop-assets/openbitfun-${RELEASE_TAG}-${platform}-bundle" ]]; then
+              missing="${missing} ${platform}"
+            fi
+          done
+          if [[ -z "$(find desktop-assets -type f -print -quit)" ]]; then
+            echo "No desktop installers were produced." >&2
+            exit 1
+          fi
+          echo "missing=${missing# }" >> "$GITHUB_OUTPUT"
+
       - name: Verify release inputs
         shell: bash
         run: |
           set -euo pipefail
-          test -f linux-release-assets/openbitfun-relay-server-x86_64-unknown-linux-gnu.tar.gz
-          for archive in linux-release-assets/openbitfun-relay-server-*.tar.gz; do
-            (cd linux-release-assets && sha256sum --check "$(basename "${archive}").sha256")
-          done
-          cp src/apps/relay-server/Dockerfile.release linux-release-assets/Dockerfile.release
+          if compgen -G "linux-release-assets/openbitfun-relay-server-*.tar.gz" > /dev/null; then
+            for archive in linux-release-assets/openbitfun-relay-server-*.tar.gz; do
+              (cd linux-release-assets && sha256sum --check "$(basename "${archive}").sha256")
+            done
+          fi
           shopt -s nullglob globstar
           installers=(
             desktop-assets/**/*.exe desktop-assets/**/*.dmg
@@ -168,9 +264,11 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
+        if: ${{ needs.relay-archives.result == 'success' }}
         uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR
+        if: ${{ needs.relay-archives.result == 'success' }}
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -178,6 +276,7 @@ jobs:
           password: ${{ github.token }}
 
       - name: Build and push relay image
+        if: ${{ needs.relay-archives.result == 'success' }}
         id: image
         uses: docker/build-push-action@v7
         with:
@@ -199,12 +298,14 @@ jobs:
             ${{ env.IMAGE }}:latest
 
       - name: Smoke-test published relay image
+        if: ${{ needs.relay-archives.result == 'success' }}
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
           SMOKE_ARCHES: amd64
         run: bash scripts/relay/smoke-image.sh "${IMAGE}@${IMAGE_DIGEST}"
 
       - name: Stage unsigned image descriptor
+        if: ${{ needs.relay-archives.result == 'success' }}
         shell: bash
         env:
           IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
@@ -248,6 +349,10 @@ jobs:
 
       - name: Build release notes
         shell: bash
+        env:
+          MISSING_PLATFORMS: ${{ steps.platforms.outputs.missing }}
+          DESKTOP_CONCLUSION: ${{ needs.desktop-packages.outputs.conclusion }}
+          DESKTOP_RUN_ID: ${{ needs.desktop-packages.outputs.run_id }}
         run: |
           set -euo pipefail
           # Same generator as desktop-package: hand-written note first, then a
@@ -262,18 +367,42 @@ jobs:
           Built without distribution signing certificates: Windows installers
           are unsigned, macOS bundles are unsigned and not notarized, and the
           updater feed is not published. Verify SHA256SUMS before installing.
-          The relay Docker image is at ${IMAGE}:${RELEASE_TAG}.
           EOF
+          if [[ "${needs.relay-archives.result}" == "success" ]]; then
+            echo "The relay Docker image is at ${IMAGE}:${RELEASE_TAG}." >> release-notes.md
+          fi
+          if [[ -n "${MISSING_PLATFORMS}" ]]; then
+            {
+              echo ""
+              echo "## Missing platforms"
+              echo ""
+              echo "Desktop Package run ${DESKTOP_RUN_ID} (${DESKTOP_CONCLUSION}) did not produce"
+              echo "bundles for:${MISSING_PLATFORMS}. This release was published with the"
+              echo "platforms that succeeded. Re-run only the failed platform jobs on that"
+              echo "run, then dispatch this workflow again with the same tag, that run ID,"
+              echo "and skip_relay_image=true to upload the missing installers."
+              echo ""
+              echo "Missing:${MISSING_PLATFORMS}"
+            } >> release-notes.md
+          fi
           cat release-notes.md
 
       - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
+          DESKTOP_RUN_ID: ${{ needs.desktop-packages.outputs.run_id }}
         shell: bash
         run: |
           set -euo pipefail
           prerelease=()
           [[ "${RELEASE_TAG}" == *-* ]] && prerelease+=(--prerelease)
+          # Idempotent publish: top-up runs upload into the existing release
+          # instead of failing on a duplicate.
+          if gh release view "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" --repo "$GITHUB_REPOSITORY" \
+              --clobber release-upload-assets/*
+            exit 0
+          fi
           gh release create "${RELEASE_TAG}" \
             "${prerelease[@]}" \
             --repo "$GITHUB_REPOSITORY" \
