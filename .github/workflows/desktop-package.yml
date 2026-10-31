@@ -349,7 +349,7 @@ jobs:
             tesseract-ocr \
             tesseract-ocr-eng \
             tesseract-ocr-chi-sim \
-            tesseract-ocr-chi-trad
+            tesseract-ocr-chi-tra
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
