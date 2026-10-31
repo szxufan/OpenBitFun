@@ -884,7 +884,7 @@ pub struct ConnectionTestResult {
     pub error_details: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RemoteModelInfo {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -892,6 +892,22 @@ pub struct RemoteModelInfo {
     /// Optional provider-owned route; older hosts may omit it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing: Option<RemoteModelRouting>,
+    /// Metadata advertised by richer `/models` endpoints; every field is
+    /// optional so plain OpenAI-shaped responses keep deserializing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_length: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u64>,
+    /// Reasoning effort levels the provider accepts, e.g. `["low", "high"]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_options: Option<Vec<String>>,
+    /// Endpoint wire types the model serves, e.g. `["openai", "image-generation"]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supported_endpoint_types: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub support_image_input: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub support_video_input: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

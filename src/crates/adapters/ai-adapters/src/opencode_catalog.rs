@@ -67,6 +67,7 @@ fn api_key_models_from_catalog(
                     base_url: route.base_url.to_string(),
                     request_url: route.request_url.to_string(),
                 }),
+                ..openbitfun_core_types::RemoteModelInfo::default()
             });
         }
     }

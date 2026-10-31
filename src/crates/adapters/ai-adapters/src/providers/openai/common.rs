@@ -22,6 +22,34 @@ struct OpenAIModelsResponse {
 #[derive(Debug, Deserialize)]
 struct OpenAIModelEntry {
     id: String,
+    #[serde(default)]
+    context_length: Option<u64>,
+    #[serde(default)]
+    max_output_tokens: Option<u64>,
+    #[serde(default)]
+    reasoning_options: Option<Vec<String>>,
+    #[serde(default)]
+    supported_endpoint_types: Option<Vec<String>>,
+    #[serde(default)]
+    support_image_input: Option<bool>,
+    #[serde(default)]
+    support_video_input: Option<bool>,
+}
+
+/// Providers occasionally publish empty or whitespace-only effort levels;
+/// keep only usable entries so downstream preset building sees clean values.
+fn normalize_reasoning_options(options: Option<Vec<String>>) -> Option<Vec<String>> {
+    let normalized: Vec<String> = options
+        .unwrap_or_default()
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
 }
 
 pub(crate) fn apply_headers(client: &AIClient, builder: RequestBuilder) -> RequestBuilder {
@@ -259,6 +287,12 @@ pub(crate) async fn list_models(client: &AIClient) -> Result<Vec<RemoteModelInfo
                 routing: None,
                 id: model.id,
                 display_name: None,
+                context_length: model.context_length,
+                max_output_tokens: model.max_output_tokens,
+                reasoning_options: normalize_reasoning_options(model.reasoning_options),
+                supported_endpoint_types: model.supported_endpoint_types,
+                support_image_input: model.support_image_input,
+                support_video_input: model.support_video_input,
             })
             .collect(),
     ))
@@ -306,6 +340,7 @@ fn codex_models_from_entries(mut entries: Vec<CodexBackendModelEntry>) -> Vec<Re
                 routing: None,
                 id: model.slug,
                 display_name: model.display_name,
+                ..RemoteModelInfo::default()
             })
             .collect(),
     )
@@ -444,6 +479,88 @@ mod tests {
         assert_eq!(
             models[0].display_name.as_deref(),
             Some("GPT-5.3 Codex Spark")
+        );
+    }
+
+    #[test]
+    fn models_response_parses_advertised_metadata_and_tolerates_plain_entries() {
+        let payload: super::OpenAIModelsResponse = serde_json::from_value(json!({
+            "data": [
+                {"id": "glm-5.3", "object": "model", "owned_by": "zhipu_4v",
+                 "supported_endpoint_types": ["openai"],
+                 "context_length": 1048576, "max_output_tokens": 131072,
+                 "support_image_input": true, "support_video_input": true,
+                 "reasoning_options": ["low", "high", "max"]},
+                {"id": "qwen3-reranker-8b", "object": "model",
+                 "supported_endpoint_types": ["jina-rerank"]},
+                {"id": "plain-model"}
+            ]
+        }))
+        .unwrap();
+        let models = super::dedupe_remote_models(
+            payload
+                .data
+                .into_iter()
+                .map(|model| super::RemoteModelInfo {
+                    routing: None,
+                    id: model.id,
+                    display_name: None,
+                    context_length: model.context_length,
+                    max_output_tokens: model.max_output_tokens,
+                    reasoning_options: super::normalize_reasoning_options(model.reasoning_options),
+                    supported_endpoint_types: model.supported_endpoint_types,
+                    support_image_input: model.support_image_input,
+                    support_video_input: model.support_video_input,
+                })
+                .collect(),
+        );
+        let enriched = &models[0];
+        assert_eq!(enriched.id, "glm-5.3");
+        assert_eq!(enriched.context_length, Some(1_048_576));
+        assert_eq!(enriched.max_output_tokens, Some(131_072));
+        assert_eq!(enriched.support_image_input, Some(true));
+        assert_eq!(enriched.support_video_input, Some(true));
+        assert_eq!(
+            enriched.reasoning_options,
+            Some(vec![
+                "low".to_string(),
+                "high".to_string(),
+                "max".to_string()
+            ])
+        );
+        assert_eq!(
+            enriched.supported_endpoint_types,
+            Some(vec!["openai".to_string()])
+        );
+        let reranker = &models[1];
+        assert!(reranker.context_length.is_none());
+        assert_eq!(
+            reranker.supported_endpoint_types,
+            Some(vec!["jina-rerank".to_string()])
+        );
+        let plain = &models[2];
+        assert!(plain.context_length.is_none());
+        assert!(plain.max_output_tokens.is_none());
+        assert!(plain.reasoning_options.is_none());
+        assert!(plain.supported_endpoint_types.is_none());
+        assert!(plain.support_image_input.is_none());
+        assert!(plain.support_video_input.is_none());
+    }
+
+    #[test]
+    fn normalize_reasoning_options_drops_empty_and_whitespace_entries() {
+        assert_eq!(super::normalize_reasoning_options(None), None);
+        assert_eq!(
+            super::normalize_reasoning_options(Some(vec!["  ".to_string(), "".to_string()])),
+            None
+        );
+        assert_eq!(
+            super::normalize_reasoning_options(Some(vec![
+                " low ".to_string(),
+                String::new(),
+                "high".to_string()
+            ])),
+            Some(vec!["low".to_string(), "high".to_string()])
         );
     }
 

@@ -67,6 +67,7 @@ pub(crate) async fn list_models(client: &AIClient) -> Result<Vec<RemoteModelInfo
                     routing: None,
                     id,
                     display_name: model.display_name,
+                    ..RemoteModelInfo::default()
                 }
             })
             .collect(),

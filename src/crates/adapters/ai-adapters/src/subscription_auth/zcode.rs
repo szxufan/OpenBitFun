@@ -661,6 +661,7 @@ fn parse_models(
             display_name: Some(id.clone()),
             id,
             routing: None,
+            ..crate::types::RemoteModelInfo::default()
         })
         .collect())
 }

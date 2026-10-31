@@ -904,6 +904,7 @@ async fn list_antigravity_models(
                     // never rename or hide newly published/account-specific IDs.
                     id,
                     display_name: model.display_name,
+                    ..RemoteModelInfo::default()
                 })
                 .collect(),
         );
@@ -1005,6 +1006,7 @@ pub(crate) async fn list_models(client: &AIClient) -> Result<Vec<RemoteModelInfo
                 routing: None,
                 id: model,
                 display_name: None,
+                ..RemoteModelInfo::default()
             });
         }
     }
@@ -1014,6 +1016,7 @@ pub(crate) async fn list_models(client: &AIClient) -> Result<Vec<RemoteModelInfo
             routing: None,
             id: (*id).to_string(),
             display_name: Some((*display_name).to_string()),
+            ..RemoteModelInfo::default()
         });
     }
 

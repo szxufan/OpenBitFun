@@ -1,6 +1,7 @@
 import { modelSelectionsConfigPath } from '@/infrastructure/config/services/modelSelections';
 import '@/app/scenes/settings/pages/ai/ModelSettingsPage.scss';
 import { ModelDiscoveryPicker, type ModelDiscoveryOption } from './ModelDiscoveryPicker';
+import { remoteModelCategory, remoteModelReasoning } from './remoteModelDraftFacts';
 import { ModelPoolsSection } from './ModelPoolsSection';
 import { ModelPoolCardActions } from './ModelPoolCardActions';
 import { ZcodeSubscriptionGroup } from './ZcodeSubscriptionGroup';
@@ -168,6 +169,12 @@ interface RemoteModelOption {
   id: string;
   display_name?: string;
   routing?: { format: string; base_url: string; request_url: string };
+  context_length?: number;
+  max_output_tokens?: number;
+  reasoning_options?: string[];
+  supported_endpoint_types?: string[];
+  support_image_input?: boolean;
+  support_video_input?: boolean;
 }
 
 interface SelectedModelDraft {
@@ -1195,11 +1202,20 @@ const ModelSettingsPage: React.FC = () => {
             .find(provider => provider.id === selectedProviderId)
             ?.models.find(model => model.id === modelName)
           : undefined;
+        // Prefer facts advertised by the provider's /models endpoint; the
+        // models.dev catalog only fills gaps for plain OpenAI-shaped lists.
+        const remoteModel = remoteModelOptions.find(
+          option => modelNameLookupKey(option.id) === lookupKey
+        );
         return createModelDraft(modelName, draftBaseConfig, {
           configId: pinnedRowId,
-          contextWindow: catalogModel?.limits?.context,
+          contextWindow: remoteModel?.context_length ?? catalogModel?.limits?.context,
+          maxTokens: remoteModel?.max_output_tokens,
           // New selections start as multimodal; existing model edits retain their category.
-          category: pinnedRowId ? (baseConfig?.category ?? 'general_chat') : 'multimodal',
+          category: pinnedRowId
+            ? (baseConfig?.category ?? 'general_chat')
+            : remoteModelCategory(remoteModel) ?? 'multimodal',
+          reasoning: remoteModelReasoning(remoteModel),
         });
       })
     );

@@ -536,6 +536,7 @@ fn parse_models(payload: &serde_json::Value) -> Result<Vec<crate::types::RemoteM
                         .filter(|name| !name.trim().is_empty())
                         .map(str::to_owned),
                     routing: None,
+                    ..crate::types::RemoteModelInfo::default()
                 })
             })
             .collect(),

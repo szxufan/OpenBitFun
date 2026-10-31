@@ -45,6 +45,13 @@ export interface RemoteModelInfo {
   id: string;
   display_name?: string;
   routing?: { format: string; base_url: string; request_url: string };
+  /** Metadata advertised by richer /models endpoints; all optional. */
+  context_length?: number;
+  max_output_tokens?: number;
+  reasoning_options?: string[];
+  supported_endpoint_types?: string[];
+  support_image_input?: boolean;
+  support_video_input?: boolean;
 }
 
 export interface AIModelCatalogEntry {
