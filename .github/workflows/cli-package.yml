@@ -106,6 +106,9 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
+      # .cargo/config.toml routes every cargo invocation through sccache.
+      - uses: ./.github/actions/setup-sccache
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:

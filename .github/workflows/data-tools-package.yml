@@ -39,6 +39,8 @@ jobs:
             bundles: --bundles appimage
     steps:
       - uses: actions/checkout@v5
+      # .cargo/config.toml routes every cargo invocation through sccache.
+      - uses: ./.github/actions/setup-sccache
       - uses: pnpm/action-setup@v5
       - uses: actions/setup-node@v5
         with:

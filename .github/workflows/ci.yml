@@ -136,6 +136,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # .cargo/config.toml routes every cargo invocation through sccache.
+      - uses: ./.github/actions/setup-sccache
+
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         shell: bash
@@ -219,6 +222,9 @@ jobs:
           - windows-latest
     steps:
       - uses: actions/checkout@v5
+
+      # .cargo/config.toml routes every cargo invocation through sccache.
+      - uses: ./.github/actions/setup-sccache
 
       - name: Setup Node.js
         uses: actions/setup-node@v5

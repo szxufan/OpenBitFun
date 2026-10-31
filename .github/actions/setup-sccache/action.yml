@@ -1,0 +1,16 @@
+name: Setup sccache
+description: >
+  Install sccache and enable the GitHub Actions cache backend. Required on
+  every job that invokes cargo: the repository .cargo/config.toml sets
+  rustc-wrapper = "sccache", so cargo fails without it on PATH.
+
+runs:
+  using: composite
+  steps:
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: sccache
+    - shell: bash
+      run: |
+        echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+        echo "ACTIONS_CACHE_SERVICE_V2=true" >> "$GITHUB_ENV"

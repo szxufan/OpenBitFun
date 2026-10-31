@@ -8,3 +8,15 @@ TS_RS_EXPORT_DIR = { value = "src/web-ui/src/generated/api", relative = true }
 # Map i64/u64 to `number` (not `bigint`) so generated types match the existing
 # frontend convention (timestamps are `number` ms throughout the web UI).
 TS_RS_LARGE_INT = "number"
+
+# Compile through sccache. It is required on PATH for every cargo invocation,
+# including CI runners (workflows install it via .github/actions/setup-sccache).
+# To opt out locally, build with RUSTC_WRAPPER= empty or remove [build].
+[build]
+rustc-wrapper = "sccache"
+
+# Link Windows MSVC desktop builds with rust-lld. The shipped linker is much
+# faster than link.exe for the large desktop binary in both debug and release
+# profiles. Other targets keep the platform default.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"

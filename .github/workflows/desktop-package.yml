@@ -255,6 +255,10 @@ jobs:
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
+      # .cargo/config.toml routes every cargo invocation through sccache.
+      - name: Setup sccache
+        uses: ./.github/actions/setup-sccache
+
       - name: Check Windows signing configuration
         if: runner.os == 'Windows'
         id: windows-signing
