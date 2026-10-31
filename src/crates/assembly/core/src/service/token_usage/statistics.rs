@@ -267,6 +267,7 @@ mod tests {
             custom_request_body: None,
             custom_request_body_mode: None,
             auth: crate::service::config::types::AuthConfig::ApiKey,
+            image_dialect: None,
             channel_routing: None,
         }
     }

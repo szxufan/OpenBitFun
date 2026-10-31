@@ -100,7 +100,7 @@ export function imageServiceFromSubscriptionModel(model: AIModelConfig): ImageSe
   if (!getEffectiveModelCapabilities(model).includes('image_generation') || !model.base_url?.trim()) {
     throw new Error('This configured model does not support subscription image generation');
   }
-  const dialect = imageDialectForConfiguredModel(model);
+  const dialect = model.image_dialect ?? imageDialectForConfiguredModel(model);
   return {
     id: `configured-image:${model.id}`, name: model.name || model.model_name,
     dialect, base_url: imageBaseFromModelBaseUrl(model.base_url ?? '', dialect), model_name: model.model_name,

@@ -1961,6 +1961,15 @@ pub struct AIModelConfig {
     #[serde(default)]
     pub auth: AuthConfig,
 
+    /// Wire protocol an image-generation model speaks. Absent keeps the
+    /// derivation from the provider's connection facts (DashScope hosts use the
+    /// native dialect, Codex logins use the subscription route, everything else
+    /// is OpenAI-images compatible). Image models still own no independent
+    /// address or key: endpoint and credential always come from this provider
+    /// record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_dialect: Option<ImageDialect>,
+
     /// Explicit fallback channels, each referring to an independently configured
     /// model endpoint and credential source. Absent keeps fixed-channel behavior.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2417,6 +2426,7 @@ impl Default for AIModelConfig {
             custom_request_body: None,
             custom_request_body_mode: None,
             auth: AuthConfig::ApiKey,
+            image_dialect: None,
             channel_routing: None,
         }
     }

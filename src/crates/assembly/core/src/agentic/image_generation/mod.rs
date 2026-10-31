@@ -243,9 +243,11 @@ fn image_dialect_for_model(model: &AIModelConfig) -> (ImageDialect, String, Opti
 /// Build a callable image service from a provider-attached model record.
 ///
 /// The model owns its provider connection; nothing here lets an image model
-/// carry a service address or key independent of that provider.
+/// carry a service address or key independent of that provider. An explicit
+/// `image_dialect` wins over the connection-fact derivation.
 pub fn image_service_from_model(model: &AIModelConfig) -> ImageServiceConfig {
-    let (dialect, base_url, request_url) = image_dialect_for_model(model);
+    let (derived, base_url, request_url) = image_dialect_for_model(model);
+    let dialect = model.image_dialect.unwrap_or(derived);
     ImageServiceConfig {
         id: model.id.clone(),
         name: if model.name.trim().is_empty() {
@@ -904,6 +906,20 @@ mod tests {
         assert!(error
             .to_string()
             .contains("not an enabled image generation model"));
+    }
+
+    #[test]
+    fn explicit_model_dialect_wins_over_the_host_derivation() {
+        let parsed = model(serde_json::json!({
+            "id": "picked", "name": "Picked", "provider": "openai",
+            "model_name": "wan2.5-t2i-preview", "base_url": "https://gw.example.com/v1",
+            "api_key": "sk", "category": "image_generation", "enabled": true,
+            "image_dialect": "dashscope_native"
+        }));
+        assert_eq!(
+            image_service_from_model(&parsed).dialect,
+            ImageDialect::DashScopeNative
+        );
     }
 
     #[test]

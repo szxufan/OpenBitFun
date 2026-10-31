@@ -417,6 +417,18 @@
     "contextWindowLongWarning": "上下文超过 400K，可能影响效果，建议约 300K",
     "maxTokens": "最大输出Tokens",
     "maxTokensHint": "限制单次响应的最大 Token 数，影响输出长度",
+    "imageDialect": "协议",
+    "imageDialectHint": "图像生成使用独立的接口与请求体，与对话协议不同; 地址和密钥跟随本供应商",
+    "imageDialectOption": {
+      "openai_images": "OpenAI Images（/images/generations）",
+      "dashscope_native": "通义千问原生（DashScope）",
+      "chatgpt_codex": "ChatGPT 订阅（Codex）"
+    },
+    "imageDialectDescription": {
+      "openai_images": "适用于 OpenAI 以及大多数 OpenAI 兼容中转服务，请求发往服务地址下的 /images/generations。",
+      "dashscope_native": "阿里云百炼 DashScope 的多模态生成接口，用于千问 / 万相图像模型；会自动从兼容模式地址换算到原生地址。",
+      "chatgpt_codex": "使用 ChatGPT Plus / Pro / Team 订阅出图，图像由对话模型调用内置工具生成，不消耗 API 密钥额度。"
+    },
     "description": "描述",
     "descriptionPlaceholder": "配置说明（可选）"
   },

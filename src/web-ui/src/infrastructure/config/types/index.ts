@@ -323,6 +323,12 @@ export interface AIModelConfig {
   inline_think_in_text?: boolean;
   /** Authentication source. Defaults to inline `api_key`. */
   auth?: AuthConfig;
+  /**
+   * Wire protocol an image-generation model speaks. Absent keeps the derivation
+   * from the provider's connection facts. The model still owns no independent
+   * address or key: those always come from its provider.
+   */
+  image_dialect?: ImageDialect;
   /** Ordered backup channels (other model configs). Absent keeps one channel. */
   channel_routing?: ModelChannelRouting;
 }

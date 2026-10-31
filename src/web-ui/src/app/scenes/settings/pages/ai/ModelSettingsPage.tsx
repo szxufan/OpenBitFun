@@ -40,6 +40,7 @@ import { ModelRouterSettings } from '@/infrastructure/config/components/ModelRou
 import { ImageGenerationModelCard } from '@/infrastructure/config/components/image-generation/ImageGenerationSection';
 import { useImageGenerationSettings } from '@/infrastructure/config/components/image-generation/useImageGenerationSettings';
 import { imageServiceFromSubscriptionModel, matchesImageModel } from '@/infrastructure/config/components/image-generation/imageModels';
+import { findImageDialectPreset } from '@/infrastructure/config/components/image-generation/imageDialects';
 import ModelTagsField from '@/infrastructure/config/components/ModelTagsField';
 import {
   configsNeedingAutoTest,
@@ -95,6 +96,7 @@ import {
 import type { DefaultModelsConfig, ModelCapability, ModelChannelRouting, SubscriptionProvider } from '@/infrastructure/config/types';
 import {
   AIModelConfig as AIModelConfigType,
+  ImageDialect,
   ModelCategory,
   ProxyConfig,
   ReasoningCatalogBinding,
@@ -174,6 +176,8 @@ interface SelectedModelDraft {
   modelName: string;
   manualRequestFormat?: string;
   category: ModelCategory;
+  /** Image wire protocol; only meaningful when the category is image generation. */
+  imageDialect?: ImageDialect;
   contextWindow: number;
   contextWindowEdited?: boolean;
   maxTokens?: number;
@@ -268,6 +272,7 @@ function createModelDraft(
     modelName: trimmedModelName,
     manualRequestFormat: overrides?.manualRequestFormat ?? baseConfig?.provider,
     category: overrides?.category ?? baseConfig?.category ?? 'general_chat',
+    imageDialect: overrides?.imageDialect ?? baseConfig?.image_dialect,
     contextWindow: overrides?.contextWindow ?? baseConfig?.context_window ?? 300000,
     maxTokens: overrides?.maxTokens ?? baseConfig?.max_tokens,
     reasoning,
@@ -406,6 +411,24 @@ function hasHttpUrlScheme(value: string): boolean {
   return /^https?:\/\//i.test(value.trim());
 }
 
+/** Re-root a chat endpoint onto the dialect's own API root. Mirrors the backend. */
+function imageBaseUrlForDialect(baseUrl: string, dialect: ImageDialect): string {
+  const root = baseUrl.trim().replace(/\/+$/, '');
+  if (dialect === 'dashscope_native') {
+    const native = root.split('/compatible-mode')[0];
+    if (native !== root) return `${native}/api/v1`;
+    return native.endsWith('/api/v1') ? native : `${native}/api/v1`;
+  }
+  if (dialect === 'chatgpt_codex') return root || 'https://chatgpt.com/backend-api/codex';
+  return root.endsWith('/v1') ? root : `${root}/v1`;
+}
+
+function formatImageTargetUrl(baseUrl: string, dialect: ImageDialect): string {
+  const root = imageBaseUrlForDialect(baseUrl, dialect);
+  const path = findImageDialectPreset(dialect).endpointPath;
+  return root.endsWith(path) ? root : `${root}${path}`;
+}
+
 function normalizeComparableString(value: string | undefined): string {
   return (value || '').trim();
 }
@@ -448,6 +471,8 @@ function modelDraftHasUnsavedChanges(
     normalizeComparableString(draft.modelName) !== normalizeComparableString(persisted.model_name) ||
     (isOpenCodeApiKeyConfig(persisted) && draft.manualRequestFormat !== persisted.provider) ||
     draft.category !== (persisted.category ?? 'general_chat') ||
+    (draft.category === 'image_generation'
+      && (draft.imageDialect ?? 'openai_images') !== (persisted.image_dialect ?? 'openai_images')) ||
     draft.contextWindow !== (persisted.context_window || 300000) ||
     draft.maxTokens !== persisted.max_tokens ||
     stableJson(normalizeChannelRouting(draft.channelRouting)) !== stableJson(normalizeChannelRouting(persisted.channel_routing)) ||
@@ -738,6 +763,12 @@ const ModelSettingsPage: React.FC = () => {
       { label: t('category.image_generation'), value: 'image_generation' },
       { label: t('category.speech_recognition'), value: 'speech_recognition' },
     ],
+    [t]
+  );
+
+  const imageDialectOptions = useMemo(
+    () => (['openai_images', 'dashscope_native', 'chatgpt_codex'] as const)
+      .map(value => ({ label: t(`form.imageDialectOption.${value}`), value })),
     [t]
   );
 
@@ -2113,6 +2144,40 @@ const ModelSettingsPage: React.FC = () => {
     }
   }, [connectionTestSupported, t]);
 
+  // Image models answer with one real generation through their provider
+  // connection, mirroring the tool's runtime path; the chat probe cannot reach
+  // the image endpoint. The backend bills the call, same as the old wizard test.
+  const runImageModelTest = async (config: AIModelConfigType) => {
+    const configId = config.id;
+    if (!configId || !connectionTestSupported) return;
+    const signature = stableJson(config);
+    const activeTest = activeConnectionTestsRef.current[configId];
+    if (activeTest?.signature === signature) return;
+    const token = Symbol(configId);
+    activeConnectionTestsRef.current[configId] = { token, signature };
+    setTestingConfigs(previous => ({ ...previous, [configId]: true }));
+    setTestResults(previous => ({ ...previous, [configId]: null }));
+    try {
+      const result = await mediaAPI.testImageGenerationService(imageServiceFromSubscriptionModel(config));
+      if (activeConnectionTestsRef.current[configId]?.token !== token) return;
+      const baseMessage = result.success
+        ? `${t('messages.testSuccess')}${result.elapsed_ms ? ` (${result.elapsed_ms}ms)` : ''}`
+        : `${t('messages.testFailed')}${result.message ? `\n${t('messages.errorDetails')}: ${result.message}` : ''}`;
+      setTestResults(previous => ({ ...previous, [configId]: { success: result.success, message: baseMessage } }));
+    } catch (error) {
+      if (activeConnectionTestsRef.current[configId]?.token !== token) return;
+      setTestResults(previous => ({
+        ...previous,
+        [configId]: { success: false, message: `${t('messages.testFailed')}\n${t('messages.errorDetails')}: ${error}` },
+      }));
+    } finally {
+      if (activeConnectionTestsRef.current[configId]?.token === token) {
+        delete activeConnectionTestsRef.current[configId];
+        setTestingConfigs(previous => ({ ...previous, [configId]: false }));
+      }
+    }
+  };
+
   const handleSave = async (): Promise<boolean> => {
     if (editorSavingRef.current) return false;
 
@@ -2220,6 +2285,8 @@ const ModelSettingsPage: React.FC = () => {
           || (isOpenCodeApiKeyConfig(routeConfig) ? draft.manualRequestFormat : undefined)
           || existingModel?.provider || providerConfig.provider || 'openai';
         const modelBaseUrl = apiKeyRoute?.base_url || baseUrl;
+        const category = resolveModelCategory(draft.modelName, draft.category, format);
+        const isImageModel = category === 'image_generation';
         return {
           id,
           name: providerName,
@@ -2233,20 +2300,12 @@ const ModelSettingsPage: React.FC = () => {
           model_name: draft.modelName,
           provider: format,
           enabled: providerConfig.enabled ?? true,
-          context_window: draft.contextWindow,
-          max_tokens: draft.maxTokens,
-          category: resolveModelCategory(
-            draft.modelName,
-            draft.category,
-            format
-          ),
-          capabilities: getCapabilitiesByCategory(
-            resolveModelCategory(
-              draft.modelName,
-              draft.category,
-              format
-            )
-          ),
+          // Chat-generation fields have no meaning for an image model; the
+          // host clears them anyway, so never write them in the first place.
+          context_window: isImageModel ? undefined : draft.contextWindow,
+          max_tokens: isImageModel ? undefined : draft.maxTokens,
+          category,
+          capabilities: getCapabilitiesByCategory(category),
           recommended_for: providerConfig.recommended_for || [],
           metadata: {
             ...(providerConfig.metadata || {}),
@@ -2255,6 +2314,10 @@ const ModelSettingsPage: React.FC = () => {
           reasoning: draft.reasoning,
           ...prepareModelEditorRequestSettingsForSave(draft.requestSettings),
           auth: providerConfig.auth || { type: 'api_key' },
+          // The protocol is the only image-specific choice; address and key stay
+          // inherited from this provider record.
+          ...(isImageModel ? { image_dialect: draft.imageDialect ?? existingModel?.image_dialect
+            ?? aiModels.find(model => model.id === id)?.image_dialect ?? 'openai_images' } : {}),
           channel_routing: normalizeChannelRouting(draft.channelRouting),
         };
       });
@@ -2311,7 +2374,13 @@ const ModelSettingsPage: React.FC = () => {
       if (connectionTestSupported) {
         void (async () => {
           for (const config of configsToAutoTest) {
-            await runConfigConnectionTest(config);
+            // An image model is verified by one real generation; the chat probe
+            // cannot reach its endpoint and would report a false failure.
+            if (getEffectiveModelCapabilities(config).includes('image_generation')) {
+              await runImageModelTest(config);
+            } else {
+              await runConfigConnectionTest(config);
+            }
           }
         })();
       } else if (configsToAutoTest.length > 0) {
@@ -2476,40 +2545,6 @@ const ModelSettingsPage: React.FC = () => {
       }
       return next;
     });
-  };
-
-  // Image models answer with one real generation through their provider
-  // connection, mirroring the tool's runtime path; the chat probe cannot reach
-  // the image endpoint. The backend bills the call, same as the old wizard test.
-  const runImageModelTest = async (config: AIModelConfigType) => {
-    const configId = config.id;
-    if (!configId || !connectionTestSupported) return;
-    const signature = stableJson(config);
-    const activeTest = activeConnectionTestsRef.current[configId];
-    if (activeTest?.signature === signature) return;
-    const token = Symbol(configId);
-    activeConnectionTestsRef.current[configId] = { token, signature };
-    setTestingConfigs(previous => ({ ...previous, [configId]: true }));
-    setTestResults(previous => ({ ...previous, [configId]: null }));
-    try {
-      const result = await mediaAPI.testImageGenerationService(imageServiceFromSubscriptionModel(config));
-      if (activeConnectionTestsRef.current[configId]?.token !== token) return;
-      const baseMessage = result.success
-        ? `${t('messages.testSuccess')}${result.elapsed_ms ? ` (${result.elapsed_ms}ms)` : ''}`
-        : `${t('messages.testFailed')}${result.message ? `\n${t('messages.errorDetails')}: ${result.message}` : ''}`;
-      setTestResults(previous => ({ ...previous, [configId]: { success: result.success, message: baseMessage } }));
-    } catch (error) {
-      if (activeConnectionTestsRef.current[configId]?.token !== token) return;
-      setTestResults(previous => ({
-        ...previous,
-        [configId]: { success: false, message: `${t('messages.testFailed')}\n${t('messages.errorDetails')}: ${error}` },
-      }));
-    } finally {
-      if (activeConnectionTestsRef.current[configId]?.token === token) {
-        delete activeConnectionTestsRef.current[configId];
-        setTestingConfigs(previous => ({ ...previous, [configId]: false }));
-      }
-    }
   };
 
   const handleTest = async (config: AIModelConfigType) => {
@@ -2804,12 +2839,11 @@ const ModelSettingsPage: React.FC = () => {
       model.id === poolDefaults.primary ? 0 : model.id === poolDefaults.fast ? 1 : 2
     );
     return aiModels.filter(model => {
-      const imageCapable = getEffectiveModelCapabilities(model).includes('image_generation');
-      // Image models leave the chat pool unless filtered for; dual-capability
-      // models stay wherever their text_chat capability points them.
-      if (imageCapable && !getEffectiveModelCapabilities(model).includes('text_chat') && poolCapability !== 'image_generation') return false;
-      if (poolCapability === 'image_generation' && !imageCapable) return false;
-      if (poolCapability && poolCapability !== 'image_generation' && !getEffectiveModelCapabilities(model).includes(poolCapability)) return false;
+      // Every configured model stays listed, whatever its category; the
+      // capability filter narrows the list instead of the default view hiding
+      // image models.
+      const capabilities = getEffectiveModelCapabilities(model);
+      if (poolCapability && !capabilities.includes(poolCapability)) return false;
       if (poolProvider && getPoolProviderKey(model) !== poolProvider) return false;
       const labels = poolRoles.filter(role => role.modelId && role.modelId === model.id).map(role => role.label);
       return !query || [model.model_name, getProviderDisplayName(model), ...labels, ...getModelTags(model)]
@@ -3107,6 +3141,11 @@ const ModelSettingsPage: React.FC = () => {
           savedModel,
         ) : undefined);
       const manualFormat = draft.manualRequestFormat || editingConfig.provider || 'openai';
+      // An image-generation model owns only its wire protocol. Request shape,
+      // reasoning, routing and chat-side limits do not apply to it, so the
+      // editor never shows them; address and key stay with the provider.
+      const isImageModel = draft.category === 'image_generation';
+      const imageDialect = draft.imageDialect ?? 'openai_images';
       const contextWarning = draft.contextWindowEdited && draft.contextWindow > LONG_CONTEXT_WARNING_THRESHOLD_TOKENS ? (
         <span role="status" id={`model-context-warning-${draft.key}`} className="openbitfun-model-settings__warning-inline openbitfun-model-settings__context-window-warning">
           <AlertTriangle size={14} />
@@ -3125,7 +3164,7 @@ const ModelSettingsPage: React.FC = () => {
 
       return (
         <>
-          {automaticOpenCodeRouting && renderModelField(
+          {automaticOpenCodeRouting && !isImageModel && renderModelField(
             t('form.provider'),
             modelRoute ? (
               <span>{requestFormatLabelMap[modelRoute.format] || modelRoute.format}</span>
@@ -3152,7 +3191,28 @@ const ModelSettingsPage: React.FC = () => {
               className="openbitfun-model-settings__selected-model-category-select"
             />,
           )}
-          {renderModelField(
+          {isImageModel && renderModelField(
+            t('form.imageDialect'),
+            <Select
+              aria-label={t('form.imageDialect')}
+              data-testid="settings-model-image-dialect"
+              value={imageDialect}
+              onValueChange={value => updateModelDraft(draft.key, { imageDialect: String(value) as ImageDialect })}
+              options={imageDialectOptions}
+              size="sm"
+            />,
+            {
+              hint: t('form.imageDialectHint'),
+              description: <span className="openbitfun-model-settings__pool-caption">{t(`form.imageDialectDescription.${imageDialect}`)}</span>,
+            },
+          )}
+          {isImageModel && renderModelField(
+            t('form.resolvedUrlLabel'),
+            <span className="openbitfun-model-settings__resolved-url-value">
+              {formatImageTargetUrl(editingConfig.base_url || '', imageDialect)}
+            </span>,
+          )}
+          {!isImageModel && renderModelField(
             t('form.contextWindow'),
             <NumberInput
               aria-label={t('form.contextWindow')}
@@ -3173,21 +3233,21 @@ const ModelSettingsPage: React.FC = () => {
               className: 'openbitfun-model-settings__context-window-row',
             },
           )}
-          {automaticOpenCodeRouting && (modelRoute || canEditManualRoute) && renderModelField(
+          {!isImageModel && automaticOpenCodeRouting && (modelRoute || canEditManualRoute) && renderModelField(
             t('form.resolvedUrlLabel'),
             <span className="openbitfun-model-settings__resolved-url-value">
               {modelRoute?.request_url || resolveRequestUrl(editingConfig.base_url || '', manualFormat, draft.modelName)}
             </span>,
           )}
-          <ModelTagsField
+          {!isImageModel && <ModelTagsField
             key={draft.key}
             layout="row"
             tags={draft.userTags ?? getModelUserTags(savedModel ?? {})}
             recommendedTags={savedModel?.recommended_for}
             disabled={isEditorSaving}
             onChange={userTags => updateModelDraft(draft.key, { userTags })}
-          />
-          <ConfigPageRow
+          />}
+          {!isImageModel && <ConfigPageRow
             label={t('reasoningPresets.configTitle')}
             description={formatReasoningSummary(draft, reasoningProjection)}
             align="center"
@@ -3200,8 +3260,8 @@ const ModelSettingsPage: React.FC = () => {
             >
               {t('actions.edit')}
             </Button>
-          </ConfigPageRow>
-          {canEditChannelRouting && renderChannelRoutingRows(draft, savedModelId)}
+          </ConfigPageRow>}
+          {!isImageModel && canEditChannelRouting && renderChannelRoutingRows(draft, savedModelId)}
         </>
       );
     };
@@ -3781,8 +3841,11 @@ const ModelSettingsPage: React.FC = () => {
       );
     };
 
-    const renderAdvancedSettings = () => (
-      !authIsSubscription && (
+    const renderAdvancedSettings = (draft?: SelectedModelDraft) => {
+      // Text-chunk parsing and the request image ceiling describe chat requests;
+      // an image model never sends one, so they are not offered at all.
+      const isImageModel = draft?.category === 'image_generation';
+      return !authIsSubscription && (
         <Disclosure
           data-testid="settings-model-advanced-toggle"
           summary={t('advancedSettings.title')}
@@ -3804,7 +3867,7 @@ const ModelSettingsPage: React.FC = () => {
         >
           {showAdvancedSettings && (
             <FieldGroup appearance="plain" dividers={false} fieldSurface="filled">
-              {(editingConfig.provider === 'openai' || editingConfig.provider === 'anthropic') && (
+              {!isImageModel && (editingConfig.provider === 'openai' || editingConfig.provider === 'anthropic') && (
                 <ConfigPageRow
                   label={t('advancedSettings.inlineThinkInText.label')}
                   description={t('advancedSettings.inlineThinkInText.hint')}
@@ -3817,7 +3880,7 @@ const ModelSettingsPage: React.FC = () => {
                   />
                 </ConfigPageRow>
               )}
-              <ConfigPageRow
+              {!isImageModel && <ConfigPageRow
                 label={t('advancedSettings.maxImagesPerRequest.label')}
                 description={t('advancedSettings.maxImagesPerRequest.hint')}
                 align="center"
@@ -3838,7 +3901,7 @@ const ModelSettingsPage: React.FC = () => {
                     }
                   }}
                 />
-              </ConfigPageRow>
+              </ConfigPageRow>}
               <ConfigPageRow
                 label={t('advancedSettings.skipSslVerify.label')}
                 description={requestSettings.skip_ssl_verify ? (
@@ -4008,8 +4071,8 @@ const ModelSettingsPage: React.FC = () => {
             </FieldGroup>
           )}
         </Disclosure>
-      )
-    );
+      );
+    };
 
     return (
       <>
@@ -4186,10 +4249,10 @@ const ModelSettingsPage: React.FC = () => {
             ) : (
               <>
                 {renderSingleModelEditor()}
-                {renderAdvancedSettings()}
+                {renderAdvancedSettings(singleModelEditorDraft ?? undefined)}
               </>
             )}
-            {isProviderScopedEditing && renderAdvancedSettings()}
+            {isProviderScopedEditing && renderAdvancedSettings(selectedModelDrafts[0])}
           </div>
 
         </div>
@@ -4656,7 +4719,11 @@ const ModelSettingsPage: React.FC = () => {
       const roles = poolRoles.filter(role => role.modelId && role.modelId === config.id);
       const roleLabels = new Set(roles.map(role => role.label));
       const tags = getModelTags(config).filter(tag => !roleLabels.has(tag));
-      const imageCapable = getEffectiveModelCapabilities(config).includes('image_generation');
+      // The default-slot pill already names the image role; only add the
+      // capability pill when no slot claims this model.
+      const imageCapable = getEffectiveModelCapabilities(config).includes('image_generation')
+        && !roles.some(role => role.modelId === config.id
+          && role.label === tDefault('optional.capabilities.image_generation.label'));
       return (
         <div key={config.id} className="openbitfun-model-settings__pool-item"
           data-openbitfun-component="model-settings" data-openbitfun-part="modelItem"

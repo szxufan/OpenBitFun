@@ -73,11 +73,13 @@ describe('ModelSettingsPage presentation', () => {
   });
 
   it('keeps the per-request image limit inside advanced settings', () => {
-    const advancedStart = source.indexOf('const renderAdvancedSettings = () =>');
+    const advancedStart = source.indexOf('const renderAdvancedSettings = (draft?: SelectedModelDraft) =>');
     const imageLimit = source.indexOf('data-testid="settings-model-image-limit"');
 
     expect(advancedStart).toBeGreaterThan(-1);
     expect(imageLimit).toBeGreaterThan(advancedStart);
+    // Image models never render it: the limit describes chat requests only.
+    expect(source).toContain('{!isImageModel && <ConfigPageRow');
   });
 
   it('keeps subscription actions right-aligned through the shared compact breakpoint', () => {

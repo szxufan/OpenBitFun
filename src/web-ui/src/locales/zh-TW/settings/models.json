@@ -417,6 +417,18 @@
     "contextWindowLongWarning": "上下文超過 400K，可能影響效果，建議約 300K",
     "maxTokens": "最大輸出Tokens",
     "maxTokensHint": "限制單次回應的最大 Token 數，影響輸出長度",
+    "imageDialect": "協定",
+    "imageDialectHint": "圖像生成使用獨立的介面與請求體，與對話協定不同；位址與金鑰跟隨本供應商",
+    "imageDialectOption": {
+      "openai_images": "OpenAI Images（/images/generations）",
+      "dashscope_native": "通義千問原生（DashScope）",
+      "chatgpt_codex": "ChatGPT 訂閱（Codex）"
+    },
+    "imageDialectDescription": {
+      "openai_images": "適用於 OpenAI 以及大多數 OpenAI 相容中轉服務，請求會發往服務位址下的 /images/generations。",
+      "dashscope_native": "阿里雲百煉 DashScope 的多模態生成介面，用於千問 / 萬相圖像模型；會自動從相容模式位址換算到原生位址。",
+      "chatgpt_codex": "使用 ChatGPT Plus / Pro / Team 訂閱出圖，圖像由對話模型呼叫內建工具生成，不消耗 API 金鑰額度。"
+    },
     "description": "描述",
     "descriptionPlaceholder": "設定說明（可選）"
   },

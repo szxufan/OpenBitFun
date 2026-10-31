@@ -417,6 +417,18 @@
     "contextWindowLongWarning": "Context above 400K may reduce quality. Around 300K is recommended.",
     "maxTokens": "Max Output Tokens",
     "maxTokensHint": "Limits tokens in a single response, affecting output length",
+    "imageDialect": "Protocol",
+    "imageDialectHint": "Image generation uses its own endpoint and request body, not the chat protocol. Address and key follow this provider",
+    "imageDialectOption": {
+      "openai_images": "OpenAI Images (/images/generations)",
+      "dashscope_native": "Qwen native (DashScope)",
+      "chatgpt_codex": "ChatGPT subscription (Codex)"
+    },
+    "imageDialectDescription": {
+      "openai_images": "For OpenAI and most OpenAI-compatible gateways; requests go to /images/generations under the service address.",
+      "dashscope_native": "Alibaba Cloud Bailian DashScope multimodal generation for Qwen / Wan image models; a compatible-mode address is converted to the native one automatically.",
+      "chatgpt_codex": "Generates images on a ChatGPT Plus / Pro / Team subscription through the chat model's built-in tool, without API key billing."
+    },
     "description": "Description",
     "descriptionPlaceholder": "Configuration description (optional)"
   },
