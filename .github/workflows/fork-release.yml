@@ -264,6 +264,13 @@ jobs:
             exit 1
           fi
 
+      # The linux artifact upload only carries archives and signatures; the
+      # relay image Dockerfile comes from the tagged checkout.
+      - name: Stage the relay image Dockerfile
+        if: ${{ needs.relay-archives.result == 'success' }}
+        shell: bash
+        run: cp src/apps/relay-server/Dockerfile.release linux-release-assets/Dockerfile.release
+
       - name: Set up Docker Buildx
         if: ${{ needs.relay-archives.result == 'success' }}
         uses: docker/setup-buildx-action@v4
