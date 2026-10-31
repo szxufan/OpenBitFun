@@ -628,6 +628,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # .cargo/config.toml routes every cargo invocation through sccache;
+      # capabilities:check and core-boundaries shell out to cargo.
+      - uses: ./.github/actions/setup-sccache
+
       - name: Validate interactive capability contract
         run: pnpm run capabilities:check && pnpm run capabilities:test && pnpm run website:test && pnpm run website:build
 
