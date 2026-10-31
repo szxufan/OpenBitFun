@@ -55,7 +55,7 @@ static REGISTERED_TESSDATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLo
 /// Register the bundled tessdata directory discovered at startup. Returns
 /// `false` when a directory was already registered (first registration wins).
 #[cfg(target_os = "linux")]
-pub(super) fn register_bundled_tessdata_dir(dir: PathBuf) -> bool {
+pub(crate) fn register_bundled_tessdata_dir(dir: PathBuf) -> bool {
     REGISTERED_TESSDATA_DIR.set(dir).is_ok()
 }
 
