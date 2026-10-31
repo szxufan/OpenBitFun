@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -143,6 +144,7 @@ pub struct WeixinProviderClient {
     http_client: reqwest::Client,
     typing_tickets: Arc<RwLock<HashMap<String, String>>>,
     session_pause_until_ms: Arc<RwLock<HashMap<String, i64>>>,
+    login_required: AtomicBool,
 }
 
 pub struct TypingHandle {
@@ -203,11 +205,18 @@ impl WeixinProviderClient {
             http_client: crate::reqwest_client(),
             typing_tickets: Arc::new(RwLock::new(HashMap::new())),
             session_pause_until_ms: Arc::new(RwLock::new(HashMap::new())),
+            login_required: AtomicBool::new(false),
         }
     }
 
     pub fn config(&self) -> &WeixinConfig {
         &self.config
+    }
+
+    /// A live polling task can be waiting for reauthentication. Retain this
+    /// fact until a successful authenticated poll, even after retry backoff ends.
+    pub fn requires_login(&self) -> bool {
+        self.login_required.load(Ordering::Acquire)
     }
 
     fn base_url(&self) -> String {
@@ -229,6 +238,7 @@ impl WeixinProviderClient {
     }
 
     async fn pause_session(&self) {
+        self.login_required.store(true, Ordering::Release);
         let until = now_ms() + (SESSION_PAUSE_SECS as i64) * 1000;
         self.session_pause_until_ms
             .write()
@@ -289,6 +299,11 @@ impl WeixinProviderClient {
             let ret = value["ret"].as_i64().unwrap_or(0);
             let errcode = value["errcode"].as_i64().unwrap_or(0);
             if ret != 0 || errcode != 0 {
+                if ret == WEIXIN_SESSION_EXPIRED_ERRCODE
+                    || errcode == WEIXIN_SESSION_EXPIRED_ERRCODE
+                {
+                    self.pause_session().await;
+                }
                 let errmsg = value["errmsg"]
                     .as_str()
                     .or_else(|| value["msg"].as_str())
@@ -339,6 +354,8 @@ impl WeixinProviderClient {
         let errcode = value["errcode"].as_i64().unwrap_or(0);
         if errcode == WEIXIN_SESSION_EXPIRED_ERRCODE || ret == WEIXIN_SESSION_EXPIRED_ERRCODE {
             self.pause_session().await;
+        } else if value["ret"].as_i64() == Some(0) && errcode == 0 {
+            self.login_required.store(false, Ordering::Release);
         }
         debug!(
             "weixin: getupdates ret={ret} errcode={errcode} messages={}",
@@ -1913,20 +1930,46 @@ mod tests {
     async fn stale_token_remains_an_error_while_requests_are_paused() {
         let (base, mut requests, task) = mock_ilink(vec![(0, r#"{"ret":-14}"#)]).await;
         let client = test_client(base);
+        assert!(!client.requires_login());
         let response = client
             .get_updates_once("cursor", Duration::from_secs(1))
             .await
             .unwrap();
         assert!(updates_failed(&response));
+        assert!(client.requires_login());
         let paused = client
             .get_updates_once("cursor", Duration::from_secs(1))
             .await
             .unwrap();
         assert!(updates_failed(&paused));
+        assert!(client.requires_login());
         assert!(paused.get("get_updates_buf").is_none());
         task.await.unwrap();
         assert!(requests.recv().await.is_some());
         assert!(requests.recv().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn notify_token_expiry_requires_login_until_a_successful_authenticated_poll() {
+        let (base, _requests, task) = mock_ilink(vec![
+            (0, r#"{"ret":0,"errcode":-14,"errmsg":"session timeout"}"#),
+            (0, r#"{"ret":0,"msgs":[]}"#),
+        ])
+        .await;
+        let client = test_client(base);
+        assert!(client.notify_start().await.is_err());
+        assert!(client.requires_login());
+        client.session_pause_until_ms.write().await.clear();
+        assert!(
+            client.requires_login(),
+            "Backoff expiry is not successful authentication"
+        );
+        client
+            .get_updates_once("cursor", Duration::from_secs(1))
+            .await
+            .unwrap();
+        assert!(!client.requires_login());
+        task.await.unwrap();
     }
 
     #[tokio::test]

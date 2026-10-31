@@ -13,6 +13,7 @@ import { MessageBodyMarkdown, MessageFileCards, MessageImageGallery, MessageMark
 import {
   AssistantMessageCopyAction,
   ChatMessageRetryAction,
+  ChatMessageTimestamp,
   ChatTypingDots,
   ChatUserMessageBubble
 } from './ChatMessageChrome';
@@ -156,6 +157,7 @@ export struct ChatMessageBubble {
             this.showRetryAction ? (this.item.detail || '') : ''
           )
         }
+        ChatMessageTimestamp({ timestamp: this.item.timestamp || '' })
         this.ActionRow()
       }
       .layoutWeight(1)

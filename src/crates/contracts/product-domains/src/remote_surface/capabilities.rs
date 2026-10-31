@@ -73,6 +73,8 @@ pub enum PeerHostCapability {
     ComputerUseSharingV1,
     /// `product_control_invoke` is implemented (shared config contract).
     ProductControlV1,
+    /// Remote Connect bot and Mobile Web management on the executing host.
+    RemoteConnectControlV1,
     /// ProductControl definitions that need a host-native provider run here.
     ProductControlNativeV1,
     /// ProductControl definitions that need a live presentation surface run here.
@@ -135,6 +137,7 @@ impl PeerHostCapability {
         Self::WslWorkspacesV1,
         Self::ComputerUseSharingV1,
         Self::ProductControlV1,
+        Self::RemoteConnectControlV1,
         Self::ProductControlNativeV1,
         Self::ProductControlPresentationV1,
         Self::CancelTool,
@@ -180,6 +183,7 @@ impl PeerHostCapability {
             Self::WslWorkspacesV1 => "wsl_workspaces_v1",
             Self::ComputerUseSharingV1 => "computer_use_sharing_v1",
             Self::ProductControlV1 => "product_control_v1",
+            Self::RemoteConnectControlV1 => "remote_connect_control_v1",
             Self::ProductControlNativeV1 => "product_control_native_v1",
             Self::ProductControlPresentationV1 => "product_control_presentation_v1",
             Self::CancelTool => "cancel_tool",
@@ -220,6 +224,7 @@ const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::TokenUsageStatistics,
     PeerHostCapability::ModelChannelRoutingV1,
     PeerHostCapability::ProductControlV1,
+    PeerHostCapability::RemoteConnectControlV1,
     PeerHostCapability::CancelTool,
     PeerHostCapability::ToolCatalog,
     PeerHostCapability::SessionTrajectoryV1,

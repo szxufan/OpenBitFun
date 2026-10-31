@@ -699,6 +699,10 @@ impl WeixinBot {
         self.api.notify_start().await
     }
 
+    pub fn requires_login(&self) -> bool {
+        self.api.requires_login()
+    }
+
     pub async fn notify_stop(&self) -> Result<()> {
         self.api.notify_stop().await
     }

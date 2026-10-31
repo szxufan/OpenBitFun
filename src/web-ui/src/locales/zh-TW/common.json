@@ -738,9 +738,9 @@
     "notifications": "通知",
     "settingsMenu": {
       "floatingWindow": "懸浮窗",
-      "feedback": "意見回饋",
-      "feedbackUnavailable": "回饋問卷尚未設定。",
-      "feedbackOpenFailed": "無法開啟回饋問卷。",
+      "feedback": "使用者回饋",
+      "feedbackUnavailable": "使用者回饋尚未設定。",
+      "feedbackOpenFailed": "無法開啟使用者回饋。",
       "openSettings": "開啟設定",
       "about": "關於"
     },

@@ -33,12 +33,12 @@ Docs, website, search, and agents see only features, settings, and documented su
 
 ## 控制边界 / Control boundary
 
-- 每个子能力都明确标记为直接控制、委托给专用智能体工具、需交互打开或不支持；“打开页面”不会再被统计成“智能体已控制”。当前覆盖：直接 **56**、委托 **72**、需交互 **208**、不支持 **0**。
+- 每个子能力都明确标记为直接控制、委托给专用智能体工具、需交互打开或不支持；“打开页面”不会再被统计成“智能体已控制”。当前覆盖：直接 **58**、委托 **72**、需交互 **206**、不支持 **0**。
 - 稳定行为声明为带 JSON 输入契约的 `operations` 或 `options`，并绑定原生产品控制 Provider；智能体不接触原始 Tauri Command。
 - `OpenBitFunControl list` 和 `search` 都返回带 `nextCursor` 的精简分页结果；目录可持续增长，不靠固定总量上限。完整目录和 336 项子能力都不会写入 system prompt。
 - 目录发现与契约读取不依赖 React 或可见窗口。普通配置型 option 统一由 Product Assembly 的共享 ConfigService 执行器读、写并回读，因此 Desktop、CLI 与 Headless 表面走同一份实现；只有宿主原生 operation/provider option 和界面导航按表面注册适配器，缺失时必须明确返回不可用，禁止静默回退本机。只读智能体只能发现和读取目录。
 
-- Every documented item is classified as direct control, delegated Agent control, interactive opening, or unsupported; opening a page is never counted as direct control. Current coverage is **56 direct**, **72 delegated**, **208 interactive**, and **0 unsupported**.
+- Every documented item is classified as direct control, delegated Agent control, interactive opening, or unsupported; opening a page is never counted as direct control. Current coverage is **58 direct**, **72 delegated**, **206 interactive**, and **0 unsupported**.
 - Stable behavior becomes a typed `operation` or `option` with a JSON input contract and a native product-control provider. Agents never receive raw Tauri commands.
 - `OpenBitFunControl list` and `search` return compact pages with a `nextCursor`; the catalog can grow without a fixed total-size ceiling. Neither the full catalog nor its 336 documented items enters the system prompt.
 - Discovery and contract lookup do not depend on React or a visible window. Ordinary config-backed options are read, written, and read back by one Product Assembly ConfigService executor shared by Desktop, CLI, and headless surfaces. Only host-native operations/provider options and presentation routes install surface adapters; missing adapters return explicit unavailability without local fallback. Read-only agents may only discover and inspect entries.

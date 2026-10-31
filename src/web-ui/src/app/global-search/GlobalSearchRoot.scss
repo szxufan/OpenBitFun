@@ -891,16 +891,77 @@ $chevron-box-slack: 5px;
 
 .global-search__diagnostics {
   min-width: 0;
-  flex: 1;
-  max-height: 200px;
-  overflow: auto;
-  summary { cursor: pointer; }
+  margin-right: auto;
+  color: var(--openbitfun-color-content-muted);
 }
-.global-search__diagnostic-target { margin-block: 8px; }
+
+.global-search__diagnostics-summary {
+  color: var(--openbitfun-color-content-muted);
+  font-size: var(--openbitfun-type-meta-font-size);
+  margin-left: -6px;
+
+  &[aria-expanded='true'] {
+    background: var(--openbitfun-color-action-quiet-hover);
+    color: var(--openbitfun-color-content-primary);
+  }
+}
+
+.global-search__diagnostics-icon {
+  flex: 0 0 auto;
+  color: var(--openbitfun-color-content-secondary);
+}
+
+.global-search__diagnostics-panel {
+  position: fixed;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: min(280px, calc(100vw - 16px));
+  max-width: min(480px, calc(100vw - 16px));
+  max-height: min(240px, calc(100vh - 16px));
+  overflow-y: auto;
+  padding: 10px 14px;
+  background: var(--openbitfun-color-surface-raised);
+  border: 1px solid var(--openbitfun-color-border-subtle);
+  border-radius: var(--openbitfun-radius-md);
+  box-shadow: var(--openbitfun-shadow-overlay);
+  color: var(--openbitfun-color-content-primary);
+  font-family: var(--openbitfun-type-body-sm-font-family);
+  font-size: var(--openbitfun-type-meta-font-size);
+}
+
+.global-search__diagnostic-target {
+  margin-block-end: 8px;
+  color: var(--openbitfun-color-content-muted);
+  font-size: var(--openbitfun-type-meta-font-size);
+}
+
 .global-search__diagnostic {
   padding-block: 8px;
   border-top: 1px solid var(--openbitfun-color-border-subtle);
   overflow-wrap: anywhere;
-  p { margin-block: 4px 8px; }
+
+  strong {
+    color: var(--openbitfun-color-content-primary);
+    font-weight: var(--openbitfun-type-label-selected-font-weight);
+  }
+
+  p {
+    margin-block: 4px 8px;
+    color: var(--openbitfun-color-content-secondary);
+    line-height: var(--openbitfun-type-body-sm-line-height);
+  }
 }
-.global-search__diagnostic-path { color: var(--openbitfun-color-content-muted); }
+
+.global-search__diagnostic-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.global-search__diagnostic-path {
+  color: var(--openbitfun-color-content-muted);
+  font-family: var(--openbitfun-type-code-sm-font-family);
+  font-size: var(--openbitfun-type-micro-font-size);
+  margin-block-start: 2px;
+}

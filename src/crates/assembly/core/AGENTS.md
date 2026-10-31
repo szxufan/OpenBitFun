@@ -406,6 +406,13 @@ cargo test --locked -p openbitfun-core --no-default-features --features remote-c
 cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service_agent_runtime::tests::remote_workspace_catalog_tracks_opened_rows_and_assistant_identity
 ```
 
+For explicit mobile file preview/download outside the selected workspace:
+`cargo test --locked -p openbitfun-core --no-default-features --features remote-connect,git --lib service_agent_runtime::tests::controller_file_reads_support_absolute_and_relative_paths_outside_workspace`.
+Provider isolation and automatic delivery confinement are covered by
+`cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::file_projection::tests`.
+These fixtures cover local IO and a simulated remote filesystem, not live SSH,
+relay, Peer Device, or Detached Dispatch connections.
+
 Focused workspace-IO and snapshot regression entry points (use the matching
 filter rather than a product-wide build):
 
@@ -625,3 +632,12 @@ For HTML preview workspace identity and shared resource-service wiring:
 ```bash
 cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service::filesystem::html_preview::tests
 ```
+
+For Remote Connect bot restore eligibility and listener shutdown/status:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib -- service::remote_connect::control:: listener_lifecycle_tests
+```
+
+The lifecycle fixtures cover account/config replacement, explicit disablement,
+and task release; real provider message delivery requires a signed-in host.

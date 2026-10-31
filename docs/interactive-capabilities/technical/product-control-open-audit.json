@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "59a3101e9d03908311b31cff3998b384a7d603fe825955fbfa5625dd10664d99",
-  "count": 208,
+  "catalogDigest": "1956c2a7409c9a06742efa85f5c6a2427c5c707ee83d7708b8ef5a8f0bf8f988",
+  "count": 206,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 5,
-    "unstructuredInteraction": 174,
+    "unstructuredInteraction": 172,
     "visualSelection": 25
   },
   "entries": [
@@ -1963,25 +1963,6 @@
     },
     {
       "capabilityId": "feature.remote-connect",
-      "itemId": "start-stop-status",
-      "titleZh": "启动、停止 Remote Connect 并查看实时连接状态和设备信息",
-      "titleEn": "Start or stop Remote Connect and inspect live status and device information",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“启动、停止 Remote Connect 并查看实时连接状态和设备信息”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Start or stop Remote Connect and inspect live status and device information” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "event",
-        "eventName": "openbitfun:open-remote-connect"
-      },
-      "evidence": [
-        "command:remote_connect_start",
-        "command:remote_connect_stop",
-        "command:remote_connect_status",
-        "command:remote_connect_get_device_info"
-      ]
-    },
-    {
-      "capabilityId": "feature.remote-connect",
       "itemId": "network",
       "titleZh": "查看局域网 IP、网络信息与可分享的连接配置",
       "titleEn": "Inspect LAN IP, network details, and shareable connection configuration",
@@ -1997,27 +1978,6 @@
         "command:remote_connect_get_lan_network_info",
         "command:remote_connect_get_form_state",
         "command:remote_connect_set_form_state"
-      ]
-    },
-    {
-      "capabilityId": "feature.remote-connect",
-      "itemId": "bots",
-      "titleZh": "配置飞书、Telegram、微信等 Bot 并单独停止 Bot",
-      "titleEn": "Configure Feishu, Telegram, WeChat, and other bots, and stop a bot independently",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“配置飞书、Telegram、微信等 Bot 并单独停止 Bot”由多个实时状态相关步骤组成，目前没有一个能确定完成整个流程的单一结构化 Command；智能体会打开精确入口，并把后续交互保留在用户可见界面。",
-      "reasonEn": "“Configure Feishu, Telegram, WeChat, and other bots, and stop a bot independently” spans multiple live-state-dependent steps and currently has no single structured Command that can deterministically complete the whole workflow; the Agent opens the exact entry and keeps the remaining interaction visible to the user.",
-      "presentationTarget": {
-        "kind": "event",
-        "eventName": "openbitfun:open-remote-connect"
-      },
-      "evidence": [
-        "command:remote_connect_configure_bot",
-        "command:remote_connect_stop_bot",
-        "command:remote_connect_weixin_qr_start",
-        "command:remote_connect_weixin_qr_poll",
-        "command:remote_connect_get_bot_verbose_mode",
-        "command:remote_connect_set_bot_verbose_mode"
       ]
     },
     {

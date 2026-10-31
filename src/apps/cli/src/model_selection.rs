@@ -114,6 +114,7 @@ pub(crate) fn model_from_mutation(
         custom_request_body_mode: current.custom_request_body_mode,
         auth: current.auth,
         channel_routing: current.channel_routing,
+        image_dialect: current.image_dialect,
     })
 }
 

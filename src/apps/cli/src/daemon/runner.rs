@@ -24,6 +24,9 @@ pub(crate) async fn run_daemon() -> Result<()> {
         ));
     }
 
+    let management = super::control::Server::reserve().await?;
+    let _management_owner = management.owner_lease();
+
     // The daemon is not bound to the caller's cwd; peer commands carry their
     // own workspace paths. Home is a stable root for the runtime context.
     let workspace_root = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
@@ -61,17 +64,47 @@ pub(crate) async fn run_daemon() -> Result<()> {
 
     let device =
         DeviceIdentity::from_current_machine().map_err(|e| anyhow!("detect device: {e}"))?;
+    let remote = crate::remote_control::activate_daemon(&runtime).await?;
     if !routing_started_by_login {
-        account.restore_device_routing(&device.device_name).await?;
+        // Failure is non-fatal: the reconnect task below retries via reconcile_relay.
+        if let Err(error) = account.restore_device_routing(&device.device_name).await {
+            tracing::warn!("Initial daemon Relay connection failed; will retry: {error}");
+        }
     }
+
+    // Continuous account settings sync (30s pull + debounced push) so this
+    // always-on host converges with cloud changes made on other devices and
+    // attached controllers see fresh config without reconnecting.
 
     pid::write_pid_file()?;
     tracing::info!("openbitfun daemon running (pid {})", std::process::id());
 
+    let mut management_task = tokio::spawn(management.run(remote.clone()));
+    let relay_owner = remote.clone();
+    let reconnect_task = tokio::spawn(async move {
+        let mut retry = tokio::time::interval(Duration::from_secs(5));
+        retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            retry.tick().await;
+            if let Err(error) = relay_owner.reconcile_relay().await {
+                tracing::warn!("Daemon Relay reconnect failed: {error}");
+            }
+        }
+    });
+    let mut exit_error = None;
     let mut expired_check = tokio::time::interval(Duration::from_secs(5));
     expired_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         tokio::select! {
+            result = &mut management_task => {
+                tracing::error!("Daemon management server stopped: {result:?}");
+                exit_error = Some(anyhow!("Daemon management server stopped unexpectedly"));
+                break;
+            }
+            _ = remote.wait_for_shutdown_request() => {
+                tracing::info!("Daemon management shutdown requested");
+                break;
+            }
             _ = shutdown_signal() => {
                 tracing::info!("Daemon shutdown signal received");
                 break;
@@ -112,11 +145,17 @@ pub(crate) async fn run_daemon() -> Result<()> {
         }
     }
 
+    reconnect_task.abort();
+    management_task.abort();
+    remote.shutdown().await;
     runtime.account_routing().stop_device_routing().await;
     pid::remove_pid_file();
     crate::shutdown_mcp_servers().await;
     tracing::info!("openbitfun daemon stopped");
-    Ok(())
+    match exit_error {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
 }
 
 #[cfg(unix)]

@@ -289,6 +289,15 @@ establish visual or remote transport behavior):
 pnpm --dir src/web-ui run test:run src/shared/ui/OverlayStack.test.tsx src/shared/ui/OverlayOwnership.contract.test.ts src/shared/ui/Dialog.test.tsx src/shared/ui/MenuPopover.test.tsx src/infrastructure/appearance/runtime/AppearanceOverlayHost.test.ts src/shared/notification-system/components/NotificationContainer.test.tsx src/shared/context-menu-system/components/ui/ContextMenu.test.tsx
 ```
 
+For global-search source diagnostics, retry, portal ownership and layered Escape dismissal:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/global-search src/shared/ui/OverlayStack.test.tsx src/shared/ui/Dialog.test.tsx
+```
+
+These DOM fixtures include simulated Peer surface switches and viewport geometry;
+they do not establish native rendering or live remote behavior.
+
 For the compact model picker, smart-mode items, session/default selection,
 and host capability negotiation:
 

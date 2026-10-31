@@ -281,6 +281,7 @@ mod tests {
             custom_request_body: None,
             custom_request_body_mode: None,
             auth: Default::default(),
+            image_dialect: None,
             channel_routing: None,
         }
     }

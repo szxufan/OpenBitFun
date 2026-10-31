@@ -50,7 +50,9 @@ slices that are outside pure product logic but still platform-neutral.
   session-selected `WorkspaceFileSystem`; `remote-connect` therefore selects
   `runtime-ports/workspace-ports` without enabling an SSH implementation. Core
   supplies the session root and provider. IM adapters consume authorized bytes
-  and must not re-resolve paths on the bot host.
+  and must not re-resolve paths on the bot host. Explicit controller file reads may use
+  provider scope outside the workspace; automatic output delivery and runtime
+  artifact URIs retain workspace/root confinement.
 - Remote workspace facts, session metadata, file projection DTOs, and
   workspace/projection host traits belong in `openbitfun-runtime-ports`.
 - Workspace-root source selection, persistence/workspace service reads,

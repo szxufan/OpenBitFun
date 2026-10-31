@@ -40,7 +40,7 @@ use openbitfun_runtime_ports::{
 #[cfg(feature = "remote-connect")]
 use openbitfun_services_integrations::remote_connect::{
     agent_input_attachment_from_remote_image_context, build_remote_chat_messages,
-    build_remote_model_catalog,
+    build_remote_model_catalog, file_projection::controller_file_read_scope,
     normalize_remote_model_selection as normalize_remote_model_selection_contract,
     normalize_remote_session_model_id, project_remote_chat_user,
     remote_dialog_submit_outcome_from_scheduler, remote_model_selection_needs_config, ChatMessage,
@@ -3343,7 +3343,7 @@ impl RemoteWorkspaceFileRuntimeHost for CoreRemoteWorkspaceFileRuntimeHost {
     ) -> Result<Option<openbitfun_runtime_ports::RemoteWorkspaceFileContent>, String> {
         CoreServiceAgentRuntime::remote_file_target(path, session_id)
             .await?
-            .read(max_bytes)
+            .read_with_scope(max_bytes, controller_file_read_scope(path)?)
             .await
             .map(Some)
     }
@@ -3366,7 +3366,7 @@ impl RemoteWorkspaceFileRuntimeHost for CoreRemoteWorkspaceFileRuntimeHost {
             remote_connection_id,
         )
         .await?
-        .read_chunk(offset, limit)
+        .read_chunk_with_scope(offset, limit, controller_file_read_scope(path)?)
         .await
         .map(Some)
     }
@@ -3387,7 +3387,7 @@ impl RemoteWorkspaceFileRuntimeHost for CoreRemoteWorkspaceFileRuntimeHost {
             remote_connection_id,
         )
         .await?
-        .info()
+        .info_with_scope(controller_file_read_scope(path)?)
         .await
         .map(Some)
     }
@@ -4079,6 +4079,43 @@ mod tests {
             remote_workspace_metadata(&WorkspaceKind::Remote, &metadata, "connectionId"),
             Some("saved-localhost-ssh".into())
         );
+    }
+
+    #[tokio::test]
+    async fn controller_file_reads_support_absolute_and_relative_paths_outside_workspace() {
+        use openbitfun_services_integrations::remote_connect::file_projection::controller_file_read_scope;
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = tmp.path().join("project");
+        std::fs::create_dir(&workspace).unwrap();
+        let file = tmp.path().join("qr.png");
+        std::fs::write(&file, b"png-data").unwrap();
+        for reference in [file.to_string_lossy().into_owned(), "../qr.png".to_string()] {
+            let target = CoreServiceAgentRuntime::file_target_for_binding(
+                &reference,
+                None,
+                WorkspaceBinding::new(None, workspace.clone()),
+            )
+            .await
+            .unwrap();
+            let scope = controller_file_read_scope(&reference).unwrap();
+            assert_eq!(target.info_with_scope(scope).await.unwrap().name, "qr.png");
+            assert_eq!(
+                target.read_with_scope(100, scope).await.unwrap().bytes,
+                b"png-data"
+            );
+            assert_eq!(
+                target
+                    .read_chunk_with_scope(4, 100, scope)
+                    .await
+                    .unwrap()
+                    .bytes,
+                b"data"
+            );
+            assert!(
+                target.read(100).await.is_err(),
+                "automatic delivery keeps its scope"
+            );
+        }
     }
 
     #[tokio::test]

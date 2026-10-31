@@ -68,6 +68,7 @@ export interface PeerHostCapabilities {
   readonly computerUseSharingV1?: boolean;
   /** Typed ProductControl HostInvoke, including shared config read-back. */
   readonly productControlV1?: boolean;
+  readonly remoteConnectControlV1?: boolean;
   /**
    * ProductControl definitions that need a host-native provider or a live
    * presentation surface. The controller does not pre-check these: the peer
@@ -213,6 +214,7 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   modelPoolSelectionV1: false,
   computerUseSharingV1: false,
   productControlV1: false,
+  remoteConnectControlV1: false,
   productControlNativeV1: false,
   productControlPresentationV1: false,
   // Unknown (not yet probed) — not the same as `false` (probed, unsupported).
@@ -476,6 +478,7 @@ export class PeerConnectionManager {
       supportsBtwModelPoolSelectionV1: entry.capabilities.btwModelPoolSelectionV1,
       supportsComputerUseSharingV1: entry.capabilities.computerUseSharingV1,
       supportsProductControlV1: entry.capabilities.productControlV1,
+      supportsRemoteConnectControlV1: entry.capabilities.remoteConnectControlV1,
     });
     entry.health = 'ready';
     this.scheduleKeepalive(entry);
@@ -574,6 +577,7 @@ export class PeerConnectionManager {
       modelPoolSelectionV1: caps?.model_pool_selection_v1 === true,
       computerUseSharingV1: caps?.computer_use_sharing_v1 === true,
       productControlV1: caps?.product_control_v1 === true,
+      remoteConnectControlV1: caps?.remote_connect_control_v1 === true,
       productControlNativeV1: caps?.product_control_native_v1 === true,
       productControlPresentationV1:
         caps?.product_control_presentation_v1 === true,
@@ -677,6 +681,7 @@ export class PeerConnectionManager {
         supportsBtwModelPoolSelectionV1: capabilities.btwModelPoolSelectionV1,
         supportsComputerUseSharingV1: capabilities.computerUseSharingV1,
         supportsProductControlV1: capabilities.productControlV1,
+        supportsRemoteConnectControlV1: capabilities.remoteConnectControlV1,
       });
       entry.consecutiveFailures = 0;
       const recovered = entry.health !== 'ready';

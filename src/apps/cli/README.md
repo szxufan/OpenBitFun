@@ -312,6 +312,42 @@ currently install an auto-start service; use `openbitfun daemon run` under a
 supervisor instead. Run `openbitfun daemon --help` for lifecycle commands and
 platform diagnostics.
 
+### Bots and Mobile Web from Claw
+
+In Claw chat, ask to start a WeChat, Telegram, or Feishu bot, inspect Remote
+Connect, stop a channel, or enable Mobile Web. Claw uses `OpenBitFunControl`
+(`feature.remote-connect`) on the executing host. Starting a channel launches
+the local CLI daemon when needed; closing the chat leaves listeners running.
+Use `daemon install` if they should also return after a machine reboot.
+
+For WeChat, the TUI displays a full black-on-white QR in the tool card, including
+when tool details are collapsed. Widen the terminal if the card asks for more
+columns; scroll to the latest QR if a login refreshes it. Scan the QR and let Claw finish login polling, then
+send the returned six-digit pairing code to the bot. QR login only obtains the
+credentials; the separate pairing step authorizes message routing. Telegram
+and Feishu accept a private JSON credential file on the executing host, for
+example `{"bot_type":"telegram","bot_token":"..."}` or
+`{"bot_type":"feishu","app_id":"...","app_secret":"..."}`. On Unix, give it
+owner-only permissions (`chmod 600`). Supply the file path to Claw, never the
+secret values in the conversation.
+
+The daemon restores paired, enabled channels after restart. Stopping a bot
+retains its credentials, selected workspace and session, and keeps it disabled
+until explicitly started. One process may listen to each bot channel in a
+product home; stop it in Desktop before starting it in the daemon, or vice
+versa. A listener reported as running may still be retrying its provider;
+check a real inbound message and reply to verify connectivity.
+
+Mobile Web uses the configured account Relay and returns a device URL. Sign in
+with the same OpenBitFun account on the phone. Stopping Mobile Web also stops
+Peer Device routing on this daemon until an explicit start or daemon restart;
+bot channels remain active. CLI does not host an embedded LAN Relay. All
+management targets the executing host, including Peer and detached jobs. Direct
+Peer RPC supports bot management; use a Claw conversation for Relay start/stop so
+the mutation does not hold the connection it replaces.
+remote workspace paths cannot be used as local credential-file paths. An older
+daemon must be upgraded and restarted before it supports these controls.
+
 ## Updates and troubleshooting
 
 ```bash

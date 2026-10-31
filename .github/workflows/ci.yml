@@ -174,6 +174,12 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo test --locked -p openbitfun-cli --test terminal_process_contracts -- --test-threads=1
 
+      # Windows file replacement and process ownership differ from POSIX. The
+      # terminal process target does not run these daemon and TUI unit tests.
+      - name: Run Windows CLI daemon and QR regressions
+        if: runner.os == 'Windows'
+        run: "cargo test --locked -p openbitfun-cli --bin openbitfun -- daemon:: ui::tool_cards::tests::"
+
       - name: Run SDK Host tests
         if: runner.os == 'Linux'
         run: cargo test --locked -p openbitfun-sdk-host -p openbitfun-sdk-host-app
@@ -715,12 +721,13 @@ jobs:
         timeout-minutes: 5
         run: pnpm --dir src/mobile-web run test:account-browser
 
-      - name: Test mobile web composer and rollback layouts
+      - name: Test mobile web conversation and input layouts
         if: needs.build-impact.outputs.frontend_required != 'false'
         timeout-minutes: 3
         run: |
           pnpm --dir src/mobile-web run test:prompt-suggestion-browser
           pnpm --dir src/mobile-web run test:rollback-browser
+          pnpm --dir src/mobile-web run test:chat-transcript-browser
 
       - name: Upload mobile input layout screenshots
         if: always() && needs.build-impact.outputs.frontend_required != 'false'

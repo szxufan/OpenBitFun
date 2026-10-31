@@ -739,8 +739,8 @@
     "settingsMenu": {
       "floatingWindow": "Floating Window",
       "feedback": "Feedback",
-      "feedbackUnavailable": "Feedback form is not configured.",
-      "feedbackOpenFailed": "Could not open the feedback form.",
+      "feedbackUnavailable": "User feedback is not configured.",
+      "feedbackOpenFailed": "Could not open user feedback.",
       "openSettings": "$t(shared:features.settings)",
       "about": "About OpenBitFun"
     },

@@ -146,7 +146,11 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(editorDraft().dirty).toBe(false);
     expect(container.querySelector('[data-openbitfun-view="selection"]')).not.toBeNull();
     expect(document.activeElement).toBe(container.querySelector('button[data-provider-id="custom"]'));
-    await act(async () => button('actions.cancel').click());
+    const backButton = container.querySelector<HTMLButtonElement>('[data-testid="settings-model-provider-back-btn"]')!;
+    expect(backButton.getAttribute('aria-label')).toBe(copy('actions.back'));
+    expect(backButton.closest('.openbitfun-config-page-header__extra')).not.toBeNull();
+    expect(button('actions.cancel')).toBeUndefined();
+    await act(async () => backButton.click());
     expect(container.querySelector('[data-openbitfun-view="settings"]')).not.toBeNull();
     expect(update).not.toHaveBeenCalled();
     expect(probe).not.toHaveBeenCalled();

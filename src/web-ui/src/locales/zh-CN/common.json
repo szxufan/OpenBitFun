@@ -738,9 +738,9 @@
     "notifications": "通知",
     "settingsMenu": {
       "floatingWindow": "悬浮窗",
-      "feedback": "意见反馈",
-      "feedbackUnavailable": "反馈问卷尚未配置。",
-      "feedbackOpenFailed": "无法打开反馈问卷。",
+      "feedback": "用户反馈",
+      "feedbackUnavailable": "用户反馈尚未配置。",
+      "feedbackOpenFailed": "无法打开用户反馈。",
       "openSettings": "$t(shared:features.settings)",
       "about": "关于"
     },
