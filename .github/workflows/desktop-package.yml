@@ -1025,9 +1025,16 @@ jobs:
           case "${status}" in
             200) ;;
             404)
+              # Prefer the maintained per-version note; the script falls back
+              # to a conventional-commit digest of the tag range when the
+              # note file is missing, so the release body is never the raw
+              # GitHub auto-generated PR list.
+              node scripts/release-notes/github-release-notes.mjs \
+                --version "${RELEASE_VERSION}" > release-notes.md
+              cat release-notes.md
               gh release create "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
                 --verify-tag --draft --title "OpenBitFun ${RELEASE_VERSION}" \
-                --generate-notes
+                --notes-file release-notes.md
               ;;
             *)
               echo "Could not inspect release (GitHub API returned ${status})." >&2

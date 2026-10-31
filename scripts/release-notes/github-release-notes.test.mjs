@@ -84,7 +84,7 @@ test('renderGeneratedNotes groups conventional commits and hides the rest', () =
     '### Documentation',
   ]);
   assert.match(notes, /\* \*\*remote-connect:\*\* 新增带外 PSK 配对/);
-  assert.match(notes, /\* preserve conversations \(\[f000001\]/);
+  assert.match(notes, /\* preserve conversations \(\[f000000\]/);
   assert.ok(!notes.includes('ci:'), 'ci commits stay hidden');
   assert.ok(!notes.includes('chore'), 'chore commits stay hidden');
   assert.ok(!notes.includes('freeform commit'), 'unparsable subjects stay hidden');
@@ -130,7 +130,7 @@ test('run prefers the hand-written note file for the version', async () => {
   }
 });
 
-test('run generates grouped notes from a real git tag range', async () => {
+test('run generates grouped notes from a real git tag range', () => {
   const repo = mkdtempSync(path.join(tmpdir(), 'openbitfun-notes-git-'));
   const git = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
   try {
@@ -139,18 +139,25 @@ test('run generates grouped notes from a real git tag range', async () => {
     git('config', 'user.name', 'test');
     git('commit', '-q', '--allow-empty', '-m', 'feat(core): seeded feature');
     git('tag', 'v1.0.7');
+    git('commit', '-q', '--allow-empty', '-m', 'feat(core): ranged feature');
     git('commit', '-q', '--allow-empty', '-m', 'fix(core): seeded fix');
     git('tag', 'v1.0.8');
-    const notes = await run([
-      '--version',
-      '1.0.8',
-      '--notes-dir',
-      path.join(repo, 'missing-notes'),
-      '--repo',
-      'owner/name',
-    ]);
+    const notes = execFileSync(
+      process.execPath,
+      [
+        scriptPath,
+        '--version',
+        '1.0.8',
+        '--notes-dir',
+        path.join(repo, 'missing-notes'),
+        '--repo',
+        'owner/name',
+      ],
+      { encoding: 'utf8', cwd: repo },
+    );
     assert.match(notes, /### Features/);
-    assert.match(notes, /\* \*\*core:\*\* seeded feature/);
+    assert.match(notes, /\* \*\*core:\*\* ranged feature/);
+    assert.ok(!notes.includes('seeded feature'), 'commits at or below the previous tag stay out');
     assert.match(notes, /### Bug Fixes/);
     assert.match(notes, /compare\/v1\.0\.7\.\.\.v1\.0\.8/);
   } finally {
@@ -158,12 +165,16 @@ test('run generates grouped notes from a real git tag range', async () => {
   }
 });
 
-test('run falls back when neither note file nor tags exist', async () => {
+test('run falls back when neither note file nor tags exist', () => {
   const empty = mkdtempSync(path.join(tmpdir(), 'openbitfun-notes-empty-'));
   const git = (...args) => execFileSync('git', args, { cwd: empty, encoding: 'utf8' });
   try {
     git('init', '-q');
-    const notes = await run(['--version', '1.0.9', '--notes-dir', path.join(empty, 'none')]);
+    const notes = execFileSync(
+      process.execPath,
+      [scriptPath, '--version', '1.0.9', '--notes-dir', path.join(empty, 'none')],
+      { encoding: 'utf8', cwd: empty },
+    );
     assert.match(notes, /## OpenBitFun 1\.0\.9/);
     assert.match(notes, /commit history/);
   } finally {

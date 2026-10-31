@@ -2094,6 +2094,11 @@ test('release publication omits target overrides and uploads before publishing',
   for (const status of ['200', '404', '403']) {
     const cwd = path.join(root, status);
     mkdirSync(cwd);
+    mkdirSync(path.join(cwd, 'scripts/release-notes'), { recursive: true });
+    copyFileSync(
+      path.join(repoRoot, 'scripts/release-notes/github-release-notes.mjs'),
+      path.join(cwd, 'scripts/release-notes/github-release-notes.mjs'),
+    );
     mkdirSync(path.join(cwd, 'release-upload-assets'));
     writeFileSync(path.join(cwd, 'release-upload-assets/latest-v1.json'), '{}');
     const result = spawnSync('bash', ['-c', `

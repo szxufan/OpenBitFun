@@ -146,7 +146,10 @@ jobs:
               jq -e '.assets | all(.name != "latest-v1.json")' release-state.json
               ;;
             404)
-              cp "scripts/release-notes/$RELEASE_VERSION.md" release-notes.md
+              # Maintained note first; the script falls back to a
+              # conventional-commit digest when the note file is missing.
+              node scripts/release-notes/github-release-notes.mjs \
+                --version "$RELEASE_VERSION" > release-notes.md
               cat >> release-notes.md <<'EOF'
 
           Windows x64 和 Linux x64 / ARM64 安装包已发布。macOS 安装包稍后补充。

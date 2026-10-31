@@ -121,6 +121,8 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ github.ref_name }}
+          # Full history so the release-notes script can diff the tag range.
+          fetch-depth: 0
 
       - name: Download relay and CLI archives
         uses: actions/download-artifact@v7
@@ -244,6 +246,26 @@ jobs:
           done
           (cd release-upload-assets && sha256sum ./* > "SHA256SUMS")
 
+      - name: Build release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Same generator as desktop-package: hand-written note first, then a
+          # conventional-commit digest of the tag range.
+          node scripts/release-notes/github-release-notes.mjs \
+            --version "${RELEASE_VERSION#v}" \
+            --repo "$GITHUB_REPOSITORY" > release-notes.md
+          cat >> release-notes.md <<EOF
+
+          ## Fork build notice
+
+          Built without distribution signing certificates: Windows installers
+          are unsigned, macOS bundles are unsigned and not notarized, and the
+          updater feed is not published. Verify SHA256SUMS before installing.
+          The relay Docker image is at ${IMAGE}:${RELEASE_TAG}.
+          EOF
+          cat release-notes.md
+
       - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -257,10 +279,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "OpenBitFun ${RELEASE_VERSION#v} (fork, unsigned)" \
-            --notes "Automated fork release from ${RELEASE_TAG}.
-
-          Built without distribution signing certificates: Windows installers
-          are unsigned, macOS bundles are unsigned and not notarized, and the
-          updater feed is not published. Verify SHA256SUMS before installing.
-          The relay Docker image is at ${IMAGE}:${RELEASE_TAG}." \
+            --notes-file release-notes.md \
             release-upload-assets/*
