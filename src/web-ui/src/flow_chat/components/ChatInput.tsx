@@ -196,7 +196,7 @@ import { ChatInputApprovalBand } from './ChatInputApprovalBand';
 import { ChatInputBoostSubmenu } from './ChatInputBoostSubmenu';
 import ChatInputScheduleSendPopover from './ChatInputScheduleSendPopover';
 import ScheduledSendPendingStrip from './ScheduledSendPendingStrip';
-import { cronAPI } from '@/infrastructure/api';
+import { cronAPI } from '@/infrastructure/api/service-api/CronAPI';
 import { scrollSelectedSlashCommandIntoView } from './slashCommandSelectionVisibility';
 import { usePermissionRequests } from './modern/usePermissionRequests';
 import type { DispatchSelection, DispatchTarget } from '@/features/dispatch/types';

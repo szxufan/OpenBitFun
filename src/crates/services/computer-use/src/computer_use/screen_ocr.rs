@@ -852,7 +852,7 @@ mod linux_backend {
         let recognition = super::super::linux_native::recognize(
             &shot.bytes,
             query.is_some(),
-            tessdata_dir.as_deref(),
+            tessdata_dir.as_deref().and_then(std::path::Path::to_str),
             &languages,
         )
         .map_err(|error| {
