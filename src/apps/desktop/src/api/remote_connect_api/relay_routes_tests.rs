@@ -158,6 +158,15 @@ async fn dual_relay_rpc_persistence_and_teardown_are_independent() {
         return;
     }
     let _test_guard = sync_state_tests::ACCOUNT_CONTEXT_TEST_LOCK.lock().await;
+    // This fixture drives RPC and persistence across two relay routes with
+    // unpaired controller clients, so the machine-wide PSK pairing gate (on by
+    // default) must be relaxed here; pairing itself has dedicated coverage.
+    openbitfun_core::service::remote_connect::psk_store::store_policy(
+        &openbitfun_core::service::remote_connect::psk_store::PairingPolicy {
+            require_paired_controller: false,
+        },
+    )
+    .expect("write permissive pairing policy for the dual-relay fixture");
     let official = FixtureHost::new("/v/1.0.2").await;
     let lan = FixtureHost::new("").await;
     let id = current_device_identity().unwrap().device_id;
