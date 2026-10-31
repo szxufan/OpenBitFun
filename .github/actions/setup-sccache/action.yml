@@ -3,14 +3,14 @@ description: >
   Install sccache and enable the GitHub Actions cache backend. Required on
   every job that invokes cargo: the repository .cargo/config.toml sets
   rustc-wrapper = "sccache", so cargo fails without it on PATH.
+  mozilla-actions/sccache-action forwards the cache-service URL and runtime
+  token into the step environment, which raw run steps cannot see on their
+  own (sccache otherwise fails with "cache url for ghac not found").
 
 runs:
   using: composite
   steps:
-    - uses: taiki-e/install-action@v2
-      with:
-        tool: sccache
+    - uses: mozilla-actions/sccache-action@v0.0.9
     - shell: bash
       run: |
         echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
-        echo "ACTIONS_CACHE_SERVICE_V2=true" >> "$GITHUB_ENV"

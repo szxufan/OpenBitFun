@@ -99,6 +99,7 @@ jobs:
   desktop-packages:
     name: Desktop installers (artifact-only)
     runs-on: ubuntu-latest
+    needs: [meta]
     outputs:
       run_id: ${{ steps.locate.outputs.run_id }}
       conclusion: ${{ steps.watch.outputs.conclusion }}
