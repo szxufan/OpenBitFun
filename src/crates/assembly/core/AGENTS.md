@@ -612,7 +612,7 @@ cargo test -p openbitfun-core --no-default-features --features agent-runtime,git
 ```
 
 These mock-host tests do not validate native capture, background input or remote
-GUI behavior; native fixtures remain owned by the Desktop Computer Use guide.
+GUI behavior; native fixtures remain owned by the shared Computer Use service guide.
 
 For plain-prompt goal activation and remote goal storage routing:
 
@@ -632,6 +632,17 @@ For HTML preview workspace identity and shared resource-service wiring:
 ```bash
 cargo test --locked -p openbitfun-core --no-default-features --features remote-connect --lib service::filesystem::html_preview::tests
 ```
+
+For host-owned workspace icon persistence, legacy metadata round trips, worktree inheritance,
+concurrent-controller revisions and failed-write preservation:
+
+```bash
+cargo test -p openbitfun-core --no-default-features --features workspace-icons --lib service::workspace::service::icons
+```
+
+These are local fixtures, including an offline SSH workspace record; they do not establish
+live SSH, Relay or Detached Dispatch behavior. `workspace-icons` selects only workspace
+catalog and image service owners; headless task execution need not select it.
 
 For Remote Connect bot restore eligibility and listener shutdown/status:
 

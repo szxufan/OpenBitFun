@@ -98,6 +98,7 @@ export interface PeerHostCapabilities {
   readonly reviewPlatformV1?: boolean | null;
   /** Scoped MCP choices must be explicitly advertised by the host. */
   readonly chatMcpCatalogV1?: boolean;
+  readonly workspaceIconV1?: boolean;
   readonly workspaceIdReferencesV1?: boolean;
   /**
    * Host implements `submit_user_answers` for Runtime-owned
@@ -223,6 +224,7 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   toolCatalog: null,
   reviewPlatformV1: null,
   chatMcpCatalogV1: false,
+  workspaceIconV1: false,
   workspaceIdReferencesV1: false,
   userQuestionResponse: null,
   // PSK pairing postdates the capability protocol; an unprobed or older host
@@ -585,6 +587,7 @@ export class PeerConnectionManager {
       toolCatalog,
       reviewPlatformV1: caps?.review_platform_v1 === undefined ? null : caps.review_platform_v1 === true,
       chatMcpCatalogV1: caps?.chat_mcp_catalog_v1 === true,
+      workspaceIconV1: caps?.workspace_icon_v1 === true,
       workspaceIdReferencesV1: caps?.workspace_id_references_v1 === true,
       userQuestionResponse,
       userQuestionInteraction: caps?.user_question_interaction_v1 === true,
@@ -841,6 +844,7 @@ function capabilitiesEqual(
     a.toolCatalog === b.toolCatalog &&
     a.reviewPlatformV1 === b.reviewPlatformV1 &&
     a.chatMcpCatalogV1 === b.chatMcpCatalogV1 &&
+    a.workspaceIconV1 === b.workspaceIconV1 &&
     a.workspaceIdReferencesV1 === b.workspaceIdReferencesV1 &&
     a.userQuestionResponse === b.userQuestionResponse &&
     a.userQuestionInteraction === b.userQuestionInteraction &&

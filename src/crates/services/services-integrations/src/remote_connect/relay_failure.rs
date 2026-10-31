@@ -244,7 +244,9 @@ mod tests {
     #[test]
     fn the_configured_endpoint_of_another_official_release_counts_as_retired() {
         assert_eq!(classify_relay_endpoint(DEFAULT_RELAY_URL), None);
-        let older = DEFAULT_RELAY_URL.replace("/v/1.0.2", "/v/1.0.1");
+        // The fork's relay lives at the origin root; a leftover versioned
+        // pointer on the same host belongs to another official release.
+        let older = format!("{DEFAULT_RELAY_URL}/v/1.0.1");
         assert_eq!(
             classify_relay_endpoint(&older),
             Some(RelayFailureKind::RelayVersionRetired)

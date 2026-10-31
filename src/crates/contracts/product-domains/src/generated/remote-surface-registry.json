@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:42af587bcf72e6d6",
+  "digest": "fnv1a64:31ef4c94324bda09",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -42,6 +42,7 @@
       "tool_catalog",
       "review_platform_v1",
       "chat_mcp_catalog_v1",
+      "workspace_icon_v1",
       "workspace_id_references_v1",
       "workspace_html_preview_v1",
       "whole_session_copy_v1",
@@ -85,6 +86,7 @@
       "tool_catalog",
       "review_platform_v1",
       "chat_mcp_catalog_v1",
+      "workspace_icon_v1",
       "workspace_id_references_v1",
       "workspace_html_preview_v1",
       "whole_session_copy_v1",
@@ -112,6 +114,7 @@
       "tool_catalog",
       "session_trajectory_v1",
       "chat_mcp_catalog_v1",
+      "workspace_icon_v1",
       "workspace_id_references_v1",
       "workspace_html_preview_v1",
       "user_question_response",
@@ -3878,6 +3881,18 @@
     },
     {
       "id": "get_web_search_credential_status",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "handled"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "get_workspace_icon",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
       "peer": {
@@ -8217,6 +8232,18 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "set_workspace_icon",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "handled"
       },
       "observeAllowed": false
     },

@@ -655,6 +655,7 @@ pub fn command_allowed(scope: GrantScope, command: &super::RemoteCommand) -> boo
         ReadStream { .. }
         | UnsubscribeStream { .. }
         | GetWorkspaceInfo
+        | GetWorkspaceIcon { .. }
         | ListRecentWorkspaces
         | ListAssistants
         | ListSessions { .. }
@@ -671,6 +672,7 @@ pub fn command_allowed(scope: GrantScope, command: &super::RemoteCommand) -> boo
         ProvisionPeerDevice { .. } | GetSessionKey { .. } | DeviceEvent { .. } => false,
         DialogQueue { .. }
         | SetWorkspace { .. }
+        | SetWorkspaceIcon { .. }
         | SetAssistant { .. }
         | CreateSession { .. }
         | SetSessionModel { .. }
@@ -689,6 +691,7 @@ pub fn command_allowed(scope: GrantScope, command: &super::RemoteCommand) -> boo
         | AnswerQuestion { .. }
         | SendSessionToDevice { .. }
         | ExecuteOnDevice { .. }
+        | StoreSessionAttachment { .. }
         | CreateWorkspace { .. } => scope == GrantScope::Drive,
     }
 }

@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "1956c2a7409c9a06742efa85f5c6a2427c5c707ee83d7708b8ef5a8f0bf8f988",
-  "commandCount": 721,
+  "catalogDigest": "78d8ccfc6b6fd2886d9807ccfc647a88e512428a1ffdc9f89fc4aa0d04db2207",
+  "commandCount": 723,
   "coverage": {
-    "commandCount": 721,
-    "documentedCommandCount": 644,
+    "commandCount": 723,
+    "documentedCommandCount": 646,
     "implementationCommandCount": 77,
     "implementationDigest": "e04860a09a39739eda904349b9941a0de3e603523d5a9b1ac06594d10e9e0b39"
   },
@@ -195,11 +195,13 @@
     {
       "id": "account_list_devices",
       "moduleId": "remote_connect",
-      "capabilityId": "feature.remote-connect",
+      "capabilityId": null,
       "capabilityIds": [
+        "feature.detached-dispatch",
         "feature.remote-connect"
       ],
       "documentedItemIds": [
+        "feature.detached-dispatch:targets",
         "feature.remote-connect:devices"
       ],
       "visibility": "documented",
@@ -2318,7 +2320,7 @@
         "feature.detached-dispatch"
       ],
       "documentedItemIds": [
-        "feature.detached-dispatch:permission-continuation"
+        "feature.detached-dispatch:cancel"
       ],
       "visibility": "documented",
       "rustPath": "api::dispatch_api::dispatch_cancel",
@@ -4477,6 +4479,22 @@
       "rustPath": "get_web_search_credential_status",
       "sourceFile": "src/apps/desktop/src/api/config_api.rs",
       "signature": "fn get_web_search_credential_status( _state: State<'_, AppState>, request: GetWebSearchCredentialStatusRequest, ) -> Result<openbitfun_core::service::web_search::WebSearchCredentialStatus, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
+      "id": "get_workspace_icon",
+      "moduleId": "commands",
+      "capabilityId": "feature.projects",
+      "capabilityIds": [
+        "feature.projects"
+      ],
+      "documentedItemIds": [
+        "feature.projects:workspace-icon"
+      ],
+      "visibility": "documented",
+      "rustPath": "get_workspace_icon",
+      "sourceFile": "src/apps/desktop/src/api/commands.rs",
+      "signature": "fn get_workspace_icon( state: State<'_, AppState>, request: openbitfun_core::service::workspace::WorkspaceIconRequest, ) -> Result<openbitfun_core::service::workspace::WorkspaceIconSnapshot, String>",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
@@ -9740,6 +9758,22 @@
       "sourceFile": "src/apps/desktop/src/api/system_api.rs",
       "signature": "fn set_tray_unread_count( app: tauri::AppHandle, request: SetTrayUnreadCountRequest, ) -> Result<(), String>",
       "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "set_workspace_icon",
+      "moduleId": "commands",
+      "capabilityId": "feature.projects",
+      "capabilityIds": [
+        "feature.projects"
+      ],
+      "documentedItemIds": [
+        "feature.projects:workspace-icon"
+      ],
+      "visibility": "documented",
+      "rustPath": "set_workspace_icon",
+      "sourceFile": "src/apps/desktop/src/api/commands.rs",
+      "signature": "fn set_workspace_icon( state: State<'_, AppState>, request: openbitfun_core::service::workspace::SetWorkspaceIconRequest, ) -> Result<openbitfun_core::service::workspace::WorkspaceIconSnapshot, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "show_agent_companion_desktop_pet",

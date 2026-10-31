@@ -230,3 +230,21 @@ three serial-baseline / prefetched-cold / revalidated-warm samples. The baseline
 retains the previous serial chunk algorithm with the same filesystem provider;
 browser rendering and public-network variability are outside this measurement.
 Do not turn timing ratios into CI assertions.
+
+For workspace icon RemoteCommand reads, capability negotiation and explicit
+mobile/IM editing rejection:
+
+```bash
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::tests::workspace_icon_
+```
+
+For WeChat inbound CDN files, attachment storage, and provider-neutral bot contracts:
+
+```bash
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib remote_connect::bot::
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-connect --lib session_attachment_contract_tests
+```
+
+The attachment fixtures exercise real local file IO and a simulated POSIX remote
+filesystem, including offline rejection. They do not establish live WeChat, SSH,
+Peer Device, or Detached Dispatch coverage.

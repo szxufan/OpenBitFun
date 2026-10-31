@@ -3328,6 +3328,22 @@ impl RemoteDialogRuntimeHost for CoreRemoteDialogRuntimeHost<'_> {
 #[cfg(feature = "remote-connect")]
 #[async_trait::async_trait]
 impl RemoteWorkspaceFileRuntimeHost for CoreRemoteWorkspaceFileRuntimeHost {
+    async fn store_session_attachment(
+        &self,
+        session_id: &str,
+        attachment: openbitfun_runtime_ports::RemoteSessionAttachment,
+    ) -> Result<openbitfun_runtime_ports::RemoteStoredAttachment, String> {
+        let target = CoreServiceAgentRuntime::remote_file_target(".", Some(session_id)).await?;
+        let session_id = session_id.to_owned();
+        // Once admitted, storage finishes on the execution host even if its
+        // controller disconnects. A retry with the same attachment id is safe.
+        tokio::spawn(async move {
+            openbitfun_services_integrations::remote_connect::bot::inbound_files::store_session_attachment(
+                &target, &session_id, attachment,
+            ).await.map_err(|error| error.to_string())
+        }).await.map_err(|error| error.to_string())?
+    }
+
     async fn resolve_remote_file_workspace_root(
         &self,
         session_id: Option<&str>,
@@ -3396,6 +3412,25 @@ impl RemoteWorkspaceFileRuntimeHost for CoreRemoteWorkspaceFileRuntimeHost {
 #[cfg(feature = "remote-connect")]
 #[async_trait::async_trait]
 impl RemoteWorkspaceRuntimeHost for CoreRemoteWorkspaceRuntimeHost {
+    fn supports_workspace_icons(&self) -> bool {
+        cfg!(feature = "workspace-icons")
+    }
+    async fn workspace_icon(
+        &self,
+        workspace_id: &str,
+    ) -> Result<openbitfun_core_types::workspace_icon::WorkspaceIconSnapshot, String> {
+        #[cfg(feature = "workspace-icons")]
+        {
+            let service = crate::service::workspace::get_global_workspace_service()
+                .ok_or("Workspace service unavailable")?;
+            service.get_workspace_icon(workspace_id).await
+        }
+        #[cfg(not(feature = "workspace-icons"))]
+        {
+            let _ = workspace_id;
+            Err("This host does not support workspace icons".into())
+        }
+    }
     async fn current_workspace(&self) -> Option<RemoteWorkspaceFacts> {
         current_remote_workspace_facts().await
     }
@@ -3520,6 +3555,9 @@ impl RemoteWorkspaceRuntimeHost for CoreRemoteWorkspaceRuntimeHost {
 #[cfg(feature = "remote-connect")]
 #[async_trait::async_trait]
 impl RemoteInitialSyncRuntimeHost for CoreRemoteWorkspaceRuntimeHost {
+    fn supports_workspace_icons(&self) -> bool {
+        cfg!(feature = "workspace-icons")
+    }
     async fn current_workspace(&self) -> Option<RemoteWorkspaceFacts> {
         current_remote_workspace_facts().await
     }
@@ -4131,6 +4169,15 @@ mod tests {
         assert!(
             matches!(result, Err(error) if error.contains("output session workspace is unavailable"))
         );
+        let attachment = openbitfun_runtime_ports::RemoteSessionAttachment {
+            attachment_id: uuid::Uuid::new_v4().to_string(),
+            name: "fixture.pem".into(),
+            content_base64: "Zml4dHVyZQ==".into(),
+        };
+        let stored = CoreRemoteWorkspaceFileRuntimeHost
+            .store_session_attachment(missing, attachment)
+            .await;
+        assert!(matches!(stored, Err(error) if error.contains("no current-workspace fallback")));
     }
 
     #[tokio::test]

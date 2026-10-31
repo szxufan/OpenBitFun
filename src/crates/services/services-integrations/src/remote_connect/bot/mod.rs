@@ -5,6 +5,7 @@
 
 mod command;
 pub mod feishu;
+pub mod inbound_files;
 mod locale;
 mod menu;
 mod ownership;
