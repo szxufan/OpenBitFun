@@ -361,6 +361,7 @@ jobs:
           MISSING_PLATFORMS: ${{ steps.platforms.outputs.missing }}
           DESKTOP_CONCLUSION: ${{ needs.desktop-packages.outputs.conclusion }}
           DESKTOP_RUN_ID: ${{ needs.desktop-packages.outputs.run_id }}
+          RELAY_IMAGE_PUBLISHED: ${{ needs.relay-archives.result == 'success' }}
         run: |
           set -euo pipefail
           # Same generator as desktop-package: hand-written note first, then a
@@ -376,7 +377,7 @@ jobs:
           are unsigned, macOS bundles are unsigned and not notarized, and the
           updater feed is not published. Verify SHA256SUMS before installing.
           EOF
-          if [[ "${needs.relay-archives.result}" == "success" ]]; then
+          if [[ "${RELAY_IMAGE_PUBLISHED}" == "true" ]]; then
             echo "The relay Docker image is at ${IMAGE}:${RELEASE_TAG}." >> release-notes.md
           fi
           if [[ -n "${MISSING_PLATFORMS}" ]]; then
