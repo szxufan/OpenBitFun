@@ -2253,7 +2253,7 @@ impl Default for AIExperienceConfig {
         Self {
             enable_session_title_generation: true,
             enable_welcome_panel_ai_analysis: false,
-            enable_agent_companion: true,
+            enable_agent_companion: false,
             agent_companion_pet: default_agent_companion_pet(),
             enable_workspace_search: false,
             voice_input: VoiceInputConfig::default(),
