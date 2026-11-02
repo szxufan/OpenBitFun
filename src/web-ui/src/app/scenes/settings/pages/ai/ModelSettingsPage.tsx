@@ -2,7 +2,7 @@ import { modelSelectionsConfigPath } from '@/infrastructure/config/services/mode
 import '@/app/scenes/settings/pages/ai/ModelSettingsPage.scss';
 import { ModelDiscoveryPicker, type ModelDiscoveryOption } from './ModelDiscoveryPicker';
 import { remoteModelCategory, remoteModelReasoning } from './remoteModelDraftFacts';
-import { resolveAIModels, splitFlattenedModel, type AIProviderConfigType } from '@/infrastructure/config/services/modelConfigs';
+import { resolveAIModels, splitFlattenedModel, formatContextLength, type AIProviderConfigType } from '@/infrastructure/config/services/modelConfigs';
 import { ModelPoolsSection } from './ModelPoolsSection';
 import { ModelPoolCardActions } from './ModelPoolCardActions';
 import { ZcodeSubscriptionGroup } from './ZcodeSubscriptionGroup';
@@ -455,7 +455,7 @@ function getPoolProviderKey(model: AIModelConfigType): string {
 
 const ModelSettingsPage: React.FC = () => {
   const accountSelectionId = React.useId();
-  const { t, i18n, formatNumber } = useI18n('settings/models');
+  const { t, i18n } = useI18n('settings/models');
   const { t: tDefault } = useI18n('settings/default-model');
   const { t: tComponents } = useI18n('components');
   const { t: tMedia } = useI18n('settings/media');
@@ -3171,7 +3171,7 @@ const ModelSettingsPage: React.FC = () => {
       const parts: string[] = [];
       if (typeof model.context_length === 'number' && model.context_length > 0) {
         parts.push(t('providerSelection.modelContextMeta', {
-          context: formatNumber(model.context_length, { notation: 'compact' }),
+          context: formatContextLength(model.context_length),
         }));
       }
       const levels = (model.reasoning_options ?? []).filter(Boolean);
@@ -4889,7 +4889,7 @@ const ModelSettingsPage: React.FC = () => {
       // Card facts: context window and multimodal support come straight from
       // the model record (quick add fills both from the /models endpoint).
       const contextLabel = config.context_window
-        ? i18nService.formatNumber(config.context_window, { notation: 'compact' })
+        ? formatContextLength(config.context_window)
         : null;
       const multimodal = getEffectiveModelCapabilities(config).includes('image_understanding');
       const cardFacts = [

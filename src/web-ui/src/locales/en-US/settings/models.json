@@ -809,7 +809,7 @@
     "moreActions": "More actions for {{model}}",
     "details": "Details",
     "enableModel": "Enable {{model}}",
-    "contextWindowLabel": "Context {context}",
+    "contextWindowLabel": "Context {{context}}",
     "multimodalLabel": "Multimodal",
     "editConnection": "Edit the {{provider}} connection",
     "providerFilter": "Filter providers",

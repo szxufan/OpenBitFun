@@ -1,12 +1,12 @@
 import type { ComboboxOption } from '@openbitfun/ui';
-import { getProviderDisplayName } from '../services/modelConfigs';
+import { formatContextLength, getProviderDisplayName } from '../services/modelConfigs';
 import type { AIModelConfig } from '../types';
 export type ModelSelectOption = ComboboxOption;
 
 export function useModelSelectPresentation() {
   const formatContextWindow = (contextWindow?: number) => {
     if (!contextWindow) return null;
-    return `${Math.round(contextWindow / 1000)}k`;
+    return formatContextLength(contextWindow);
   };
 
   const buildModelOption = (model: AIModelConfig): ModelSelectOption => {

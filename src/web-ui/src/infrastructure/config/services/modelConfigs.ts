@@ -22,6 +22,23 @@ type ProviderConfigLike = {
 export const PROVIDER_INSTANCE_METADATA_KEY = 'provider_instance_id';
 
 /**
+ * Format a token budget the way model specs are written: 1048576 → "1M",
+ * 131072 → "128K", 200000 → "200K". Prefer 1024-based units when they land
+ * on a round number, fall back to 1000-based, then the raw count.
+ */
+export function formatContextLength(tokens: number): string {
+  if (!Number.isFinite(tokens) || tokens <= 0) return '';
+  const nearInt = (value: number) => Math.abs(value - Math.round(value)) <= 0.05;
+  const million = tokens / (1024 * 1024);
+  if (million >= 0.5 && nearInt(million)) return `${Math.round(million)}M`;
+  const thousand = tokens / 1024;
+  if (thousand >= 1 && nearInt(thousand)) return `${Math.round(thousand)}K`;
+  const decimal = tokens / 1000;
+  if (decimal >= 1 && nearInt(decimal)) return `${Math.round(decimal)}K`;
+  return String(tokens);
+}
+
+/**
  * Join slim model entries with their provider records into the flattened
  * runtime view. Entries whose provider id has no matching provider are
  * dropped — a dangling reference is a storage inconsistency, not a model.

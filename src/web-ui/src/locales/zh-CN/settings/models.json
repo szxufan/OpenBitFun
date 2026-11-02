@@ -809,7 +809,7 @@
     "moreActions": "{{model}} 的更多操作",
     "details": "详情",
     "enableModel": "启用 {{model}}",
-    "contextWindowLabel": "上下文 {context}",
+    "contextWindowLabel": "上下文 {{context}}",
     "multimodalLabel": "多模态",
     "editConnection": "编辑 {{provider}} 的连接",
     "providerFilter": "筛选供应商",
