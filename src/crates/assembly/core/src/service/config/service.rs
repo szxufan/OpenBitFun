@@ -286,42 +286,7 @@ impl ConfigService {
                 path
             };
             let before = manager.get::<serde_json::Value>(comparison_path).ok();
-            if path == "ai.models" {
-                // Legacy writers (external agents, sync payloads) submit
-                // flattened model records. Normalize them into slim entries
-                // plus provider records in one transaction.
-                let mut providers: Vec<openbitfun_config_contracts::AIProviderConfig> = manager
-                    .get::<Vec<openbitfun_config_contracts::AIProviderConfig>>("ai.providers")
-                    .unwrap_or_default();
-                let mut entries = Vec::new();
-                if let Some(records) = value.as_array() {
-                    for record in records {
-                        if record
-                            .get("provider_id")
-                            .and_then(serde_json::Value::as_str)
-                            .is_some_and(|id| !id.trim().is_empty())
-                        {
-                            entries.push(record.clone());
-                            continue;
-                        }
-                        match serde_json::from_value::<AIModelConfig>(record.clone()) {
-                            Ok(model) => {
-                                entries.push(serde_json::to_value(
-                                    openbitfun_config_contracts::split_flattened_model(
-                                        &model,
-                                        &mut providers,
-                                    ),
-                                )?);
-                            }
-                            Err(_) => entries.push(record.clone()),
-                        }
-                    }
-                }
-                manager.set("ai.providers", providers).await?;
-                manager.set(path, serde_json::Value::Array(entries)).await?;
-            } else {
-                manager.set(path, value).await?;
-            }
+            manager.set(path, value).await?;
             if before == manager.get::<serde_json::Value>(comparison_path).ok() {
                 return Ok(false);
             }

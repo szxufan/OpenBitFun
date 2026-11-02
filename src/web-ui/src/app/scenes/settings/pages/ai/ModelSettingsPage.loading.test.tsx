@@ -813,26 +813,13 @@ describe('ModelSettingsPage loading and provider actions', () => {
       element => element.textContent === copy(inModelEditor ? 'subscriptionAuth.pool.addAccount' : 'subscriptionAuth.login') && !element.disabled,
     )).toBe(true);
     if (inModelEditor) {
+      // Zero-model providers are valid entities now, so saving without a
+      // selection persists the provider instead of raising a validation alert.
       await act(async () => dialogButton('actions.done').click());
       await act(async () => dialogButton('actions.save').click());
-      const missingModels = i18nService.getI18nInstance().t('messages.missingFields', {
-        ns: 'settings/models', fields: copy('form.modelName'),
-      });
       expect(warning).not.toHaveBeenCalled();
-      expect(dialog().querySelector('[role="alert"]')?.textContent).toContain(missingModels);
-      expect(update).not.toHaveBeenCalled();
-      vi.spyOn(aiApi, 'listModelsByConfig').mockResolvedValue([{ id: 'fixture-hermes-model' }]);
-      vi.spyOn(aiApi, 'testAIConfigConnection').mockImplementation(() => new Promise(() => {}));
-      update.mockImplementation(async <T,>(_path: string, transform: (current: T) => T) => transform([model] as T));
-      await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="settings-model-select"]')!.click());
-      await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="settings-model-option"]')!.click());
-      await act(async () => dialogButton('actions.done').click());
-      expect(document.querySelector('.openbitfun-model-settings__editor-dialog [role="alert"]')).toBeNull();
-      await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="settings-model-save-btn"]')!.click());
-      expect(update).toHaveBeenCalledOnce();
-      const saved = update.mock.calls[0][1]([model]) as AIModelConfig[];
-      expect(saved.at(-1)?.auth).toEqual({ type: 'subscription', provider: 'hermes' });
-      expect(saved.at(-1)?.model_name).toBe('fixture-hermes-model');
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(update.mock.calls[0][0]).toBe('ai.providers');
     } else {
       expect(getSettingsDraftSnapshot().resources.every(resource => !resource.dirty && !resource.saving)).toBe(true);
       const leave = vi.fn();

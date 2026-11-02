@@ -749,6 +749,75 @@ impl ConfigManager {
                 "Legacy Agent model defaults are read-only; use ai.agent_model_selections",
             ));
         }
+        // Every ai.models write funnels through here (direct settings, the CAS
+        // mutation command, agent tools). Flattened legacy records are split
+        // into slim entries plus provider records before validation, so the
+        // two tables are always consistent inside one candidate commit.
+        if path == "ai.models" {
+            if let Some(value) = json_value.as_array() {
+                let mut providers = self.config.ai.providers.clone();
+                let mut entries = Vec::with_capacity(value.len());
+                for record in value {
+                    if record
+                        .get("provider_id")
+                        .and_then(serde_json::Value::as_str)
+                        .is_some_and(|id| !id.trim().is_empty())
+                    {
+                        entries.push(record.clone());
+                        continue;
+                    }
+                    match serde_json::from_value::<openbitfun_config_contracts::AIModelConfig>(
+                        record.clone(),
+                    ) {
+                        Ok(model) => {
+                            entries.push(
+                                serde_json::to_value(
+                                    openbitfun_config_contracts::split_flattened_model(
+                                        &model,
+                                        &mut providers,
+                                    ),
+                                )
+                                .map_err(|e| {
+                                    OpenBitFunError::config(format!(
+                                        "Failed to normalize model configuration: {e}"
+                                    ))
+                                })?,
+                            );
+                        }
+                        // Unparseable records keep flowing so validation owns
+                        // the user-facing error.
+                        Err(_) => entries.push(record.clone()),
+                    }
+                }
+                let mut config = self.config.clone();
+                config.ai.providers = providers;
+                config.ai.models = serde_json::from_value(serde_json::Value::Array(entries))
+                    .map_err(|e| {
+                        OpenBitFunError::config(format!(
+                            "Failed to normalize model configuration: {e}"
+                        ))
+                    })?;
+                normalize_typed_config(&mut config);
+                reconcile_model_references(&mut config);
+                let validation_result = self.providers.validate_config(&config).await?;
+                if !validation_result.valid {
+                    return Err(invalid_config_error(
+                        "Invalid configuration update",
+                        &validation_result,
+                    ));
+                }
+                return self
+                    .commit_candidate(
+                        ConfigCandidate {
+                            config,
+                            guard_sources: self.account_guard_sources.clone(),
+                            diagnostics: vec![],
+                        },
+                        Some(path),
+                    )
+                    .await;
+            }
+        }
         if self.get::<serde_json::Value>(path).ok().as_ref() == Some(&json_value) {
             return Ok(());
         }

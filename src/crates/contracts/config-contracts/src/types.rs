@@ -2246,11 +2246,15 @@ pub fn split_flattened_model(
         .and_then(|metadata| metadata.get(PROVIDER_INSTANCE_METADATA_KEY))
         .and_then(serde_json::Value::as_str)
         .map(str::to_string);
+    // Identity-triple reuse additionally requires an identical auth source:
+    // two models that share an endpoint but authenticate differently own
+    // distinct providers, and last-write-wins must not merge their bindings.
     let existing_position = providers.iter().position(|provider| {
         instance_id.as_ref().is_some_and(|id| &provider.id == id)
             || (provider.name == model.name
                 && provider.provider == model.provider
-                && provider.base_url == model.base_url)
+                && provider.base_url == model.base_url
+                && provider.auth == model.auth)
     });
     let provider_id = match existing_position {
         Some(position) => {

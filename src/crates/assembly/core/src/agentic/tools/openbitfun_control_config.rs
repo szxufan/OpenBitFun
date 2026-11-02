@@ -914,6 +914,64 @@ mod tests {
         ));
     }
 
+    // The settings editor commits flattened model records through the CAS
+    // mutation command. The host must split them into provider records plus
+    // slim entries inside the same candidate, or validation rejects the write
+    // and every save fails.
+    #[tokio::test]
+    async fn flattened_model_snapshot_write_normalizes_into_providers_and_entries() {
+        use crate::service::config::types::AIModelConfig;
+        let (service, _dir) = test_service("flattened-model-cas").await;
+        let model = AIModelConfig {
+            id: "glm-5.3".into(),
+            name: "LJP".into(),
+            provider: "openai".into(),
+            model_name: "glm-5.3".into(),
+            base_url: "https://ljp.example.test/v1".into(),
+            api_key: "fixture-key".into(),
+            enabled: true,
+            category: crate::service::config::types::ModelCategory::GeneralChat,
+            capabilities: vec![crate::service::config::types::ModelCapability::TextChat],
+            context_window: Some(1_048_576),
+            metadata: Some(serde_json::json!({"provider_instance_id": "provider_ljp"})),
+            ..Default::default()
+        };
+        // The editor's snapshot comparison reads the raw host shape first.
+        // A first write seeds it; the CAS write replaces it with an edited
+        // flattened record while pinning the previous host shape.
+        service
+            .set_config("ai.models", vec![model.clone()])
+            .await
+            .unwrap();
+        let snapshot: Value = service.get_config(Some("ai.models")).await.unwrap();
+        let mut replacement = serde_json::to_value(vec![&model]).unwrap();
+        replacement[0]["context_window"] = serde_json::json!(2_000_000);
+
+        apply_legacy_config_mutation_with_model_snapshot(
+            &service,
+            "ai.models",
+            replacement,
+            Some(snapshot),
+        )
+        .await
+        .unwrap();
+
+        let providers: Value = service.get_config(Some("ai.providers")).await.unwrap();
+        assert_eq!(providers.as_array().unwrap().len(), 1);
+        assert_eq!(providers[0]["id"], "provider_ljp");
+        assert_eq!(providers[0]["base_url"], "https://ljp.example.test/v1");
+        assert_eq!(providers[0]["api_key"], "fixture-key");
+        let entries: Value = service.get_config(Some("ai.models")).await.unwrap();
+        assert_eq!(entries[0]["provider_id"], "provider_ljp");
+        assert_eq!(entries[0]["context_window"], 2_000_000);
+
+        // The resolved runtime view joins both tables.
+        let resolved = service.get_ai_models().await.unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].base_url, "https://ljp.example.test/v1");
+        assert_eq!(resolved[0].context_window, Some(2_000_000));
+    }
+
     #[tokio::test]
     async fn every_catalog_config_option_is_readable_from_default_config() {
         let (service, _dir) = test_service("product-control-default-readback").await;

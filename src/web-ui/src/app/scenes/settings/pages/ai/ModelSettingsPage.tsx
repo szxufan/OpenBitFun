@@ -590,15 +590,13 @@ const ModelSettingsPage: React.FC = () => {
   const [selectedModelDrafts, setSelectedModelDrafts] = useState<SelectedModelDraft[]>([]);
   const [showModelValidation, setShowModelValidation] = useState(false);
   useEffect(() => { setShowModelValidation(false); }, [editingTargetKey, isEditing]);
-  const editingExistingProvider = !!editingTargetKey?.startsWith('provider:');
   const missingModelFields = {
     name: !editingConfig?.name?.trim(),
     baseUrl: !editingConfig?.base_url?.trim(),
     apiKey: !subscriptionProviderOf(editingConfig?.auth) && !openCodeApiKey(editingConfig || {}),
-    // Editing an existing provider may save it with zero models (the provider
-    // record survives); new provider creation still requires one model.
-    model: selectedModelDrafts.some(draft => !draft.modelName.trim())
-      || (!editingExistingProvider && selectedModelDrafts.length === 0),
+    // Providers are first-class entities: saving one with zero models is
+    // valid, so an empty selection is no longer a validation error.
+    model: selectedModelDrafts.some(draft => !draft.modelName.trim()),
   };
   const missingModelFieldLabels = [
     missingModelFields.name && t('form.configName'),
@@ -2022,8 +2020,10 @@ const ModelSettingsPage: React.FC = () => {
   };
 
   /** Opens the editor for a provider that currently has zero models. */
+  /** Opens the editor for a provider entity that currently has zero models. */
   const handleEditEmptyProvider = (group: ProviderGroup) => {
     const targetKey = `provider:${group.key}`;
+    const entity = aiProviders.find(provider => provider.id === group.key);
     requestEditorOpen(targetKey, () => {
       editingModelsSnapshotRef.current = structuredClone(aiModelEntries);
       setShowProviderManager(false);
@@ -2034,16 +2034,26 @@ const ModelSettingsPage: React.FC = () => {
       setEditingProviderModelIds(new Set());
       setEditingTargetKey(targetKey);
       setCreationMode(null);
+      // Carry the saved connection facts so quick add and the connection
+      // fields work without re-entering the key or address.
       setEditingConfig({
         id: undefined,
-        name: group.providerName,
-        provider: 'openai',
+        name: entity?.name || group.providerName,
+        provider: entity?.provider || 'openai',
         model_name: '',
-        base_url: '',
-        enabled: true,
+        base_url: entity?.base_url || '',
+        request_url: entity?.request_url,
+        api_key: entity?.api_key || '',
+        enabled: entity?.enabled ?? true,
+        auth: entity?.auth ?? { type: 'api_key' },
+        custom_headers: entity?.custom_headers,
+        custom_headers_mode: entity?.custom_headers_mode,
+        skip_ssl_verify: entity?.skip_ssl_verify,
+        custom_request_body: entity?.custom_request_body,
+        custom_request_body_mode: entity?.custom_request_body_mode,
         category: 'general_chat',
         capabilities: ['text_chat'],
-        metadata: group.models.length > 0 ? undefined : { [PROVIDER_INSTANCE_METADATA_KEY]: group.key },
+        metadata: { [PROVIDER_INSTANCE_METADATA_KEY]: group.key },
       });
     });
   };
@@ -2366,7 +2376,7 @@ const ModelSettingsPage: React.FC = () => {
         };
       });
       let previousModelsBeforeSave: AIModelConfigType[] = [];
-      if (draftsToSave.length === 0 && editingExistingProvider) {
+      if (draftsToSave.length === 0) {
         // Zero-model provider: the provider record itself is the saved entity.
         const nextProvider: AIProviderConfigType = {
           id: providerInstanceId,

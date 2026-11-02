@@ -1825,6 +1825,7 @@ mod tests {
             .await
             .err()
             .unwrap();
+        eprintln!("DEBUG native-fixed error: {error:#}");
         assert!(error.is::<super::AccountCredentialPreparationError>());
         assert_eq!(factory.get_cache_size(), 1);
 

@@ -1972,6 +1972,7 @@ mod tests {
         assert_eq!(
             keys,
             std::collections::BTreeSet::from([
+                "providers",
                 "models",
                 "default_models",
                 "agent_model_defaults",
@@ -2018,6 +2019,7 @@ mod tests {
             assert_eq!(
                 keys,
                 std::collections::BTreeSet::from([
+                    "providers",
                     "models",
                     "default_models",
                     "agent_model_defaults",
@@ -2033,25 +2035,34 @@ mod tests {
             ] {
                 assert_eq!(payload[key], original["ai"][key]);
             }
-            assert_eq!(payload["models"][0]["auth"]["type"], "api_key");
-            assert_eq!(payload["models"][0]["base_url"], ACCOUNT_MODEL_GUARD_URL);
+            // Guarded subscription providers expose an unusable projection...
+            if original["ai"]["providers"][0]["auth"]
+                .get("account_id")
+                .is_some()
+                || original["ai"]["providers"][0]["auth"]
+                    .get("accounts")
+                    .is_some()
+            {
+                assert_eq!(payload["providers"][0]["auth"]["type"], "api_key");
+                assert_eq!(payload["providers"][0]["base_url"], ACCOUNT_MODEL_GUARD_URL);
+            }
             assert_eq!(
-                payload["models"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]["model"]["auth"],
-                original["ai"]["models"][0]["auth"]
+                payload["providers"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]["source"]["auth"],
+                original["ai"]["providers"][0]["auth"]
             );
-            payload["models"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]["model"]
+            payload["providers"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]["source"]
                 ["future_source_field"] = json!({"retained":true});
             let mut target = json!({"ai":payload});
             let repeated = protected_model_sync_payload(&target).unwrap();
             assert_eq!(
-                repeated["models"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]["model"]
+                repeated["providers"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]["source"]
                     ["future_source_field"],
                 json!({"retained":true})
             );
             assert!(restore_account_models(&mut target).is_empty());
             assert_eq!(
-                target["ai"]["models"][0]["auth"],
-                original["ai"]["models"][0]["auth"]
+                target["ai"]["providers"][0]["auth"],
+                original["ai"]["providers"][0]["auth"]
             );
             assert_eq!(
                 target["ai"]["default_models"],
