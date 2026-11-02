@@ -173,12 +173,7 @@ fn contains_normalized(value: &str, normalized_query: &str) -> bool {
 }
 
 fn provider_instance_id(config: &AIModelConfig) -> Option<&str> {
-    config
-        .metadata
-        .as_ref()?
-        .get(PROVIDER_INSTANCE_METADATA_KEY)?
-        .as_str()
-        .and_then(non_empty)
+    Some(config.provider_id.as_str()).filter(|id| non_empty(id).is_some())
 }
 
 /// Canonical request path for a provider's API format.
@@ -242,6 +237,7 @@ mod tests {
     ) -> AIModelConfig {
         AIModelConfig {
             id: id.to_string(),
+            provider_id: provider_instance_id.unwrap_or_default().to_string(),
             name: name.to_string(),
             provider: provider.to_string(),
             model_name: model_name.to_string(),
@@ -257,8 +253,7 @@ mod tests {
             category: crate::service::config::types::ModelCategory::GeneralChat,
             capabilities: Vec::new(),
             recommended_for: Vec::new(),
-            metadata: provider_instance_id
-                .map(|id| serde_json::json!({ PROVIDER_INSTANCE_METADATA_KEY: id })),
+            metadata: None,
             reasoning: None,
             inline_think_in_text: true,
             custom_headers: None,

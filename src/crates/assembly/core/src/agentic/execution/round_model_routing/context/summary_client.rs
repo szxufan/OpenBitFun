@@ -34,8 +34,8 @@ pub(super) async fn configured_client(
         None => configured_summary_model(&config)?,
     };
     let model = config
-        .models
-        .iter()
+        .resolved_models()
+        .into_iter()
         .find(|model| model.id == model_id)
         .ok_or_else(|| {
             OpenBitFunError::Configuration(
@@ -43,7 +43,7 @@ pub(super) async fn configured_client(
             )
         })?;
     let catalog = load_models_dev_reasoning_catalog_without_refresh().await;
-    let projection = project_model_reasoning_catalog(model, catalog.catalog.as_deref());
+    let projection = project_model_reasoning_catalog(&model, catalog.catalog.as_deref());
     let shared = get_global_ai_client_factory()
         .await?
         .get_client_resolved(&model_id)

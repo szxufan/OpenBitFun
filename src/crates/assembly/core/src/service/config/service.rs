@@ -219,17 +219,31 @@ impl ConfigService {
     pub async fn get_effective_ai_config(&self) -> OpenBitFunResult<AIConfig> {
         let mut ai: AIConfig = self.get_config(Some("ai")).await?;
         for runtime_model in self.runtime_ai_models.read().await.values() {
-            if let Some(model) = ai
+            let entry = openbitfun_config_contracts::split_flattened_model(
+                runtime_model,
+                &mut ai.providers,
+            );
+            match ai
                 .models
                 .iter_mut()
                 .find(|model| model.id == runtime_model.id)
             {
-                *model = runtime_model.clone();
-            } else {
-                ai.models.push(runtime_model.clone());
+                Some(model) => *model = entry,
+                None => ai.models.push(entry),
             }
         }
         Ok(ai)
+    }
+
+    /// Effective models with provider facts resolved, including in-memory
+    /// runtime overrides. Consumers that need connection-ready models must use
+    /// this instead of reading `ai.models` directly.
+    pub async fn get_effective_resolved_models(&self) -> OpenBitFunResult<Vec<AIModelConfig>> {
+        let ai = self.get_effective_ai_config().await?;
+        Ok(openbitfun_config_contracts::load_resolved_models(
+            &ai.providers,
+            &ai.models,
+        ))
     }
 
     pub async fn remove_runtime_ai_model(&self, model_id: &str) {
@@ -272,7 +286,42 @@ impl ConfigService {
                 path
             };
             let before = manager.get::<serde_json::Value>(comparison_path).ok();
-            manager.set(path, value).await?;
+            if path == "ai.models" {
+                // Legacy writers (external agents, sync payloads) submit
+                // flattened model records. Normalize them into slim entries
+                // plus provider records in one transaction.
+                let mut providers: Vec<openbitfun_config_contracts::AIProviderConfig> = manager
+                    .get::<Vec<openbitfun_config_contracts::AIProviderConfig>>("ai.providers")
+                    .unwrap_or_default();
+                let mut entries = Vec::new();
+                if let Some(records) = value.as_array() {
+                    for record in records {
+                        if record
+                            .get("provider_id")
+                            .and_then(serde_json::Value::as_str)
+                            .is_some_and(|id| !id.trim().is_empty())
+                        {
+                            entries.push(record.clone());
+                            continue;
+                        }
+                        match serde_json::from_value::<AIModelConfig>(record.clone()) {
+                            Ok(model) => {
+                                entries.push(serde_json::to_value(
+                                    openbitfun_config_contracts::split_flattened_model(
+                                        &model,
+                                        &mut providers,
+                                    ),
+                                )?);
+                            }
+                            Err(_) => entries.push(record.clone()),
+                        }
+                    }
+                }
+                manager.set("ai.providers", providers).await?;
+                manager.set(path, serde_json::Value::Array(entries)).await?;
+            } else {
+                manager.set(path, value).await?;
+            }
             if before == manager.get::<serde_json::Value>(comparison_path).ok() {
                 return Ok(false);
             }
@@ -625,19 +674,44 @@ impl ConfigService {
         manager.register_provider(provider);
     }
 
-    /// Returns all AI model configurations.
+    /// Returns all AI model configurations, resolved against `ai.providers`.
     pub async fn get_ai_models(&self) -> OpenBitFunResult<Vec<AIModelConfig>> {
         let config: GlobalConfig = self.get_config(None).await?;
-        Ok(config.ai.models)
+        Ok(openbitfun_config_contracts::load_resolved_models(
+            &config.ai.providers,
+            &config.ai.models,
+        ))
+    }
+
+    /// Writes a resolved model projection: the provider facts are upserted
+    /// into `ai.providers` (reusing the provider instance id from the model
+    /// metadata or an existing identity match) and the model-level fields are
+    /// stored as a slim `ai.models` entry.
+    pub async fn upsert_resolved_ai_model(&self, model: AIModelConfig) -> OpenBitFunResult<()> {
+        if model.id.trim().is_empty() {
+            return Err(OpenBitFunError::validation(
+                "Runtime model id is required".to_string(),
+            ));
+        }
+        self.update_config("ai", |ai: &mut AIConfig| {
+            let entry =
+                openbitfun_config_contracts::split_flattened_model(&model, &mut ai.providers);
+            match ai
+                .models
+                .iter_mut()
+                .find(|existing| existing.id == model.id)
+            {
+                Some(existing) => *existing = entry,
+                None => ai.models.push(entry),
+            }
+            Ok(())
+        })
+        .await
     }
 
     /// Adds an AI model configuration.
     pub async fn add_ai_model(&self, model: AIModelConfig) -> OpenBitFunResult<()> {
-        self.update_config("ai.models", |models: &mut Vec<AIModelConfig>| {
-            models.push(model);
-            Ok(())
-        })
-        .await
+        self.upsert_resolved_ai_model(model).await
     }
 
     /// Updates an AI model configuration.
@@ -646,32 +720,38 @@ impl ConfigService {
         model_id: &str,
         model: AIModelConfig,
     ) -> OpenBitFunResult<()> {
-        self.update_config("ai.models", |models: &mut Vec<AIModelConfig>| {
-            let existing = models
-                .iter_mut()
-                .find(|m| m.id == model_id)
-                .ok_or_else(|| {
-                    OpenBitFunError::config(format!("AI model '{}' not found", model_id))
-                })?;
-            *existing = model;
-            Ok(())
-        })
-        .await
+        self.update_config(
+            "ai.models",
+            |models: &mut Vec<openbitfun_config_contracts::AIModelEntry>| {
+                if !models.iter().any(|m| m.id == model_id) {
+                    return Err(OpenBitFunError::config(format!(
+                        "AI model '{}' not found",
+                        model_id
+                    )));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        self.upsert_resolved_ai_model(model).await
     }
 
     /// Deletes an AI model configuration.
     pub async fn delete_ai_model(&self, model_id: &str) -> OpenBitFunResult<()> {
-        self.update_config("ai.models", |models: &mut Vec<AIModelConfig>| {
-            let original_len = models.len();
-            models.retain(|m| m.id != model_id);
-            if models.len() == original_len {
-                return Err(OpenBitFunError::config(format!(
-                    "AI model '{}' not found",
-                    model_id
-                )));
-            }
-            Ok(())
-        })
+        self.update_config(
+            "ai.models",
+            |models: &mut Vec<openbitfun_config_contracts::AIModelEntry>| {
+                let original_len = models.len();
+                models.retain(|m| m.id != model_id);
+                if models.len() == original_len {
+                    return Err(OpenBitFunError::config(format!(
+                        "AI model '{}' not found",
+                        model_id
+                    )));
+                }
+                Ok(())
+            },
+        )
         .await
     }
 
@@ -759,9 +839,11 @@ impl ConfigService {
             auth: AuthConfig::ApiKey,
             ..AIModelConfig::default()
         };
+        let entry =
+            openbitfun_config_contracts::split_flattened_model(&model, &mut config.ai.providers);
         match existing_index {
-            Some(index) => config.ai.models[index] = model,
-            None => config.ai.models.push(model),
+            Some(index) => config.ai.models[index] = entry,
+            None => config.ai.models.push(entry),
         }
         config.ai.default_models.speech_recognition = Some(model_id.clone());
         config.app.ai_experience.voice_input.provider = "cloud".to_string();
@@ -899,7 +981,11 @@ mod tests {
     use crate::infrastructure::PathManager;
     use std::sync::Arc;
 
-    fn model(id: &str, enabled: bool, category: ModelCategory) -> AIModelConfig {
+    fn model(
+        id: &str,
+        enabled: bool,
+        category: ModelCategory,
+    ) -> openbitfun_config_contracts::AIModelEntry {
         let capabilities = if matches!(category, ModelCategory::Multimodal) {
             vec![
                 ModelCapability::TextChat,
@@ -909,17 +995,37 @@ mod tests {
             vec![ModelCapability::TextChat]
         };
 
-        AIModelConfig {
+        openbitfun_config_contracts::AIModelEntry {
             id: id.to_string(),
-            name: format!("Provider {id}"),
-            provider: "openai".to_string(),
+            provider_id: "prov".to_string(),
             model_name: id.to_string(),
-            base_url: "https://example.com/v1".to_string(),
             enabled,
             category,
             capabilities,
             ..Default::default()
         }
+    }
+
+    fn resolved(config: &GlobalConfig) -> Vec<AIModelConfig> {
+        openbitfun_config_contracts::load_resolved_models(&config.ai.providers, &config.ai.models)
+    }
+
+    async fn seed_test_provider(service: &ConfigService) {
+        service
+            .set_config(
+                "ai.providers",
+                vec![openbitfun_config_contracts::AIProviderConfig {
+                    id: "prov".to_string(),
+                    name: "Provider prov".to_string(),
+                    provider: "openai".to_string(),
+                    base_url: "https://example.com/v1".to_string(),
+                    api_key: "prov-key".to_string(),
+                    enabled: true,
+                    ..Default::default()
+                }],
+            )
+            .await
+            .expect("seed provider");
     }
 
     fn runtime_model(id: &str, key: &str) -> AIModelConfig {
@@ -949,6 +1055,7 @@ mod tests {
         })
         .await
         .expect("config service");
+        seed_test_provider(&service).await;
 
         (service, dir)
     }
@@ -1304,10 +1411,14 @@ mod tests {
     async fn concurrent_model_additions_keep_both_credentials_after_restart() {
         let name = "concurrent-model-additions";
         let (service, dir) = test_service(name).await;
+        let mut first_model = runtime_model("first", "first-fixture-key");
+        first_model.name = "First provider".to_string();
+        let mut second_model = runtime_model("second", "second-fixture-key");
+        second_model.name = "Second provider".to_string();
         let (first, second) = race_config_operations(
             &service,
-            service.add_ai_model(runtime_model("first", "first-fixture-key")),
-            service.add_ai_model(runtime_model("second", "second-fixture-key")),
+            service.add_ai_model(first_model),
+            service.add_ai_model(second_model),
         )
         .await;
         first.unwrap();
@@ -1398,7 +1509,7 @@ mod tests {
                 saved.app.voice_call.api_key,
                 realtime_voice_fixture().api_key
             );
-            assert_eq!(saved.ai.models[0].api_key, "fixture-model-key");
+            assert_eq!(resolved(&saved)[0].api_key, "fixture-model-key");
             assert_eq!(saved.editor.font_size, 18);
         }
     }
@@ -1426,7 +1537,7 @@ mod tests {
         for backup in backups {
             let saved: GlobalConfig =
                 serde_json::from_slice(&tokio::fs::read(backup).await.unwrap()).unwrap();
-            assert_eq!(saved.ai.models[0].api_key, "fixture-model-key");
+            assert_eq!(resolved(&saved)[0].api_key, "fixture-model-key");
         }
     }
 
@@ -1542,9 +1653,30 @@ mod tests {
             ("terminal.terminal_panel_position", json!("bottom")),
             ("workspace.exclude_patterns", json!(["**/fixture-cache/**"])),
             (
+                "ai.providers",
+                serde_json::to_value(vec![openbitfun_config_contracts::AIProviderConfig {
+                    id: "fixture-provider".to_string(),
+                    name: "SDK fixture".to_string(),
+                    provider: "openai".to_string(),
+                    base_url: "http://127.0.0.1:43123/v1".to_string(),
+                    api_key: "fixture-model-key".to_string(),
+                    enabled: true,
+                    ..Default::default()
+                }])
+                .unwrap(),
+            ),
+            (
                 "ai.models",
-                serde_json::to_value(vec![runtime_model("fixture-model", "fixture-model-key")])
-                    .unwrap(),
+                serde_json::to_value(vec![openbitfun_config_contracts::AIModelEntry {
+                    id: "fixture-model".to_string(),
+                    provider_id: "fixture-provider".to_string(),
+                    model_name: "fixture-model".to_string(),
+                    enabled: true,
+                    category: ModelCategory::GeneralChat,
+                    capabilities: vec![ModelCapability::TextChat],
+                    ..Default::default()
+                }])
+                .unwrap(),
             ),
             ("ai.default_models.primary", json!("fixture-model")),
             (
@@ -1667,13 +1799,16 @@ mod tests {
         // Model-list writes reconcile in the same manager transaction. Race a
         // subsequent explicit reconciliation with an unrelated credential save
         // to prove even a no-op full snapshot cannot lose that save.
+        let mut handoff_providers = Vec::new();
+        let handoff_entry = openbitfun_config_contracts::split_flattened_model(
+            &runtime_model("configured-model", "fixture-model-key"),
+            &mut handoff_providers,
+        );
         manager
-            .set(
-                "ai.models",
-                vec![runtime_model("configured-model", "fixture-model-key")],
-            )
+            .set("ai.providers", handoff_providers)
             .await
             .unwrap();
+        manager.set("ai.models", vec![handoff_entry]).await.unwrap();
 
         let mut reconcile = std::pin::pin!(service.reconcile_models("realtime-voice-test"));
         let mut save = std::pin::pin!(service.set_config("app.voice_call", &voice));
@@ -1709,7 +1844,11 @@ mod tests {
             .unwrap();
 
         let mut incoming = GlobalConfig::default();
-        incoming.ai.models = vec![runtime_model("cloud-model", "fixture-cloud-model-key")];
+        let cloud_entry = openbitfun_config_contracts::split_flattened_model(
+            &runtime_model("cloud-model", "fixture-cloud-model-key"),
+            &mut incoming.ai.providers,
+        );
+        incoming.ai.models = vec![cloud_entry];
         let imported = service
             .import_config(current_export(incoming))
             .await
@@ -1725,7 +1864,7 @@ mod tests {
         assert!(config.app.voice_call.api_key.is_empty());
         assert_eq!(config.ai.models.len(), 1);
         assert_eq!(config.ai.models[0].id, "cloud-model");
-        assert_eq!(config.ai.models[0].api_key, "fixture-cloud-model-key");
+        assert_eq!(resolved(&config)[0].api_key, "fixture-cloud-model-key");
     }
 
     #[tokio::test]
@@ -1798,7 +1937,7 @@ mod tests {
         drop(service);
         let restarted = restart_test_service(&dir, name).await;
         let config: GlobalConfig = restarted.get_config(None).await.unwrap();
-        assert_eq!(config.ai.models[0].api_key, "fixture-model-key");
+        assert_eq!(resolved(&config)[0].api_key, "fixture-model-key");
         assert_eq!(
             serde_json::to_value(config.app.voice_call).unwrap(),
             serde_json::to_value(voice).unwrap()
@@ -1879,7 +2018,7 @@ mod tests {
         assert_eq!(config.app.voice_call.api_key, voice.api_key);
         assert_eq!(config.ai.models.len(), 1);
         assert_eq!(config.ai.models[0].id, "keep");
-        assert_eq!(config.ai.models[0].api_key, "fixture-updated-model-key");
+        assert_eq!(resolved(&config)[0].api_key, "fixture-updated-model-key");
     }
 
     #[tokio::test]
@@ -1962,8 +2101,7 @@ mod tests {
             .models
             .iter()
             .any(|model| model.id == "sdk:openai:fixture"));
-        let persisted_models: Vec<AIModelConfig> =
-            service.get_config(Some("ai.models")).await.unwrap();
+        let persisted_models = service.get_ai_models().await.unwrap();
         assert!(!persisted_models
             .iter()
             .any(|model| model.id == "sdk:openai:fixture"));
@@ -1983,7 +2121,10 @@ mod tests {
             .await
             .unwrap();
         service
-            .add_ai_model(model("persisted", true, ModelCategory::GeneralChat))
+            .set_config(
+                "ai.models",
+                vec![model("persisted", true, ModelCategory::GeneralChat)],
+            )
             .await
             .unwrap();
         let app_file = service
@@ -2024,18 +2165,16 @@ mod tests {
             .await
             .unwrap();
 
-        let effective = service.get_effective_ai_config().await.unwrap();
+        let effective = service.get_effective_resolved_models().await.unwrap();
         let matches = effective
-            .models
-            .iter()
+            .into_iter()
             .filter(|model| model.id == "sdk:openai:duplicate")
             .collect::<Vec<_>>();
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].api_key, "runtime-secret");
 
-        let persisted: AIConfig = service.get_config(Some("ai")).await.unwrap();
+        let persisted = service.get_ai_models().await.unwrap();
         let persisted = persisted
-            .models
             .iter()
             .find(|model| model.id == "sdk:openai:duplicate")
             .unwrap();
@@ -2166,8 +2305,26 @@ mod tests {
         let mut config = GlobalConfig::default();
         config
             .ai
+            .providers
+            .push(openbitfun_config_contracts::AIProviderConfig {
+                id: "prov".to_string(),
+                name: "Provider prov".to_string(),
+                provider: "openai".to_string(),
+                base_url: "https://example.test/v1".to_string(),
+                api_key: "key".to_string(),
+                enabled: true,
+                ..Default::default()
+            });
+        config
+            .ai
             .models
-            .push(model("configured-model", true, ModelCategory::GeneralChat));
+            .push(openbitfun_config_contracts::AIModelEntry {
+                id: "configured-model".to_string(),
+                provider_id: "prov".to_string(),
+                model_name: "configured-model".to_string(),
+                enabled: true,
+                ..Default::default()
+            });
         let mut config_value = serde_json::to_value(config).expect("serialize config");
         config_value["app"]["telemetry"] = serde_json::json!({
             "version": 2,
@@ -2209,20 +2366,32 @@ mod tests {
             .await
             .expect("user directories");
         let mut config = GlobalConfig::default();
-        config.ai.models.push(AIModelConfig {
-            id: "speech".to_string(),
-            name: "Qwen ASR".to_string(),
-            provider: "openai".to_string(),
-            model_name: "qwen-asr".to_string(),
-            base_url: "https://example.com/v1".to_string(),
-            api_key: "secret".to_string(),
-            enabled: true,
-            category: ModelCategory::SpeechRecognition,
-            capabilities: vec![ModelCapability::SpeechRecognition],
-            context_window: Some(0),
-            max_tokens: Some(0),
-            ..Default::default()
-        });
+        config
+            .ai
+            .providers
+            .push(openbitfun_config_contracts::AIProviderConfig {
+                id: "asr-provider".to_string(),
+                name: "Qwen ASR".to_string(),
+                provider: "openai".to_string(),
+                base_url: "https://example.com/v1".to_string(),
+                api_key: "secret".to_string(),
+                enabled: true,
+                ..Default::default()
+            });
+        config
+            .ai
+            .models
+            .push(openbitfun_config_contracts::AIModelEntry {
+                id: "speech".to_string(),
+                provider_id: "asr-provider".to_string(),
+                model_name: "qwen-asr".to_string(),
+                enabled: true,
+                category: ModelCategory::SpeechRecognition,
+                capabilities: vec![ModelCapability::SpeechRecognition],
+                context_window: Some(0),
+                max_tokens: Some(0),
+                ..Default::default()
+            });
         config.ai.default_models.speech_recognition = Some("speech".to_string());
         config.ai.migrate_model_selections().unwrap();
         let original = serde_json::to_string_pretty(&config).expect("serialize config");
@@ -2439,7 +2608,7 @@ mod tests {
             .await
             .expect("valid models should save");
 
-        let invalid_models = vec![AIModelConfig {
+        let invalid_models = vec![openbitfun_config_contracts::AIModelEntry {
             reasoning: Some(openbitfun_core_types::ReasoningConfig {
                 presets: vec![openbitfun_core_types::ReasoningPreset {
                     id: "bad-budget".to_string(),
@@ -2461,8 +2630,8 @@ mod tests {
             .to_string()
             .contains("budget_tokens value must be greater than 0"));
 
-        let persisted_models: Vec<AIModelConfig> = service
-            .get_config(Some("ai.models"))
+        let persisted_models = service
+            .get_ai_models()
             .await
             .expect("models should remain readable");
         assert_eq!(persisted_models.len(), 1);
@@ -2473,28 +2642,43 @@ mod tests {
     async fn import_config_rejects_duplicate_reasoning_presets() {
         let (service, _dir) = test_service("invalid-reasoning-import").await;
         let mut config = GlobalConfig::default();
-        config.ai.models.push(AIModelConfig {
-            reasoning: Some(openbitfun_core_types::ReasoningConfig {
-                presets: vec![
-                    openbitfun_core_types::ReasoningPreset {
-                        id: "same".to_string(),
-                        actions: vec![openbitfun_core_types::ReasoningPresetAction::Toggle {
-                            enabled: true,
-                        }],
-                        ..Default::default()
-                    },
-                    openbitfun_core_types::ReasoningPreset {
-                        id: "same".to_string(),
-                        actions: vec![openbitfun_core_types::ReasoningPresetAction::Toggle {
-                            enabled: false,
-                        }],
-                        ..Default::default()
-                    },
-                ],
+        config
+            .ai
+            .providers
+            .push(openbitfun_config_contracts::AIProviderConfig {
+                id: "prov".to_string(),
+                name: "Provider prov".to_string(),
+                provider: "openai".to_string(),
+                base_url: "https://example.com/v1".to_string(),
+                api_key: "key".to_string(),
+                enabled: true,
                 ..Default::default()
-            }),
-            ..model("duplicate-model", true, ModelCategory::GeneralChat)
-        });
+            });
+        config
+            .ai
+            .models
+            .push(openbitfun_config_contracts::AIModelEntry {
+                reasoning: Some(openbitfun_core_types::ReasoningConfig {
+                    presets: vec![
+                        openbitfun_core_types::ReasoningPreset {
+                            id: "same".to_string(),
+                            actions: vec![openbitfun_core_types::ReasoningPresetAction::Toggle {
+                                enabled: true,
+                            }],
+                            ..Default::default()
+                        },
+                        openbitfun_core_types::ReasoningPreset {
+                            id: "same".to_string(),
+                            actions: vec![openbitfun_core_types::ReasoningPresetAction::Toggle {
+                                enabled: false,
+                            }],
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                }),
+                ..model("duplicate-model", true, ModelCategory::GeneralChat)
+            });
 
         let result = service
             .import_config(current_export(config))
@@ -2726,13 +2910,18 @@ mod tests {
         )
         .unwrap();
         raw_config["version"] = serde_json::json!(env!("CARGO_PKG_VERSION"));
-        raw_config["ai"]["models"] = serde_json::json!([{
-            "id": "invalid-model",
-            "name": "Invalid model",
+        raw_config["ai"]["providers"] = serde_json::json!([{
+            "id": "prov",
+            "name": "Provider prov",
             "provider": "responses",
-            "model_name": "gpt-5.4",
             "base_url": "https://api.openai.com/v1/responses",
             "api_key": "key",
+            "enabled": true
+        }]);
+        raw_config["ai"]["models"] = serde_json::json!([{
+            "id": "invalid-model",
+            "provider_id": "prov",
+            "model_name": "gpt-5.4",
             "enabled": true,
             "reasoning": {
                 "catalog": { "source": "disabled" },

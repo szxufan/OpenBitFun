@@ -6,7 +6,7 @@ use agent_client_protocol::schema::{
 use agent_client_protocol::{Error, Result};
 use openbitfun_agent_runtime::sdk::AgentSessionModelUpdateRequest;
 use openbitfun_core::agentic::agents::get_agent_registry;
-use openbitfun_core::service::config::types::AIConfig;
+use openbitfun_core::service::config::types::{AIConfig, AIModelEntry, AIProviderConfig};
 use openbitfun_core::service::config::{GlobalConfig, GlobalConfigManager};
 
 use super::OpenBitFunAcpRuntime;
@@ -193,7 +193,7 @@ fn available_model_infos(ai_config: &AIConfig) -> Vec<ModelInfo> {
     models.push(ModelInfo::new(FAST_MODEL_ID, "Fast").description("Use the configured fast model"));
     models.extend(
         ai_config
-            .models
+            .resolved_models()
             .iter()
             .filter(|model| model.enabled)
             .map(|model| ModelInfo::new(model.id.clone(), model_display_name(model))),
@@ -213,7 +213,7 @@ fn available_model_select_options(ai_config: &AIConfig) -> Vec<SessionConfigSele
     );
     options.extend(
         ai_config
-            .models
+            .resolved_models()
             .iter()
             .filter(|model| model.enabled)
             .map(|model| {
@@ -246,7 +246,7 @@ async fn load_ai_config() -> Result<AIConfig> {
 #[cfg(test)]
 mod tests {
     use super::{current_model_id, normalize_session_model_id, PRIMARY_MODEL_ID};
-    use openbitfun_core::service::config::types::{AIConfig, AIModelConfig};
+    use openbitfun_core::service::config::types::{AIConfig, AIModelEntry, AIProviderConfig};
 
     #[test]
     fn acp_session_model_mutation_uses_the_runtime_sdk() {
@@ -274,8 +274,13 @@ mod tests {
     #[test]
     fn current_model_falls_back_to_primary_for_disabled_model() {
         let mut ai_config = AIConfig::default();
-        ai_config.models.push(AIModelConfig {
+        ai_config.providers.push(AIProviderConfig {
+            id: "prov".to_string(),
+            ..Default::default()
+        });
+        ai_config.models.push(AIModelEntry {
             id: "model-a".to_string(),
+            provider_id: "prov".to_string(),
             enabled: false,
             ..Default::default()
         });
@@ -289,8 +294,13 @@ mod tests {
     #[test]
     fn current_model_accepts_enabled_canonical_model_id() {
         let mut ai_config = AIConfig::default();
-        ai_config.models.push(AIModelConfig {
+        ai_config.providers.push(AIProviderConfig {
+            id: "prov".to_string(),
+            ..Default::default()
+        });
+        ai_config.models.push(AIModelEntry {
             id: "model-a".to_string(),
+            provider_id: "prov".to_string(),
             enabled: true,
             ..Default::default()
         });

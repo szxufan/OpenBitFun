@@ -1641,7 +1641,7 @@ pub async fn miniapp_ai_list_models(
     let models = available_models_for_permissions(
         global_config
             .ai
-            .models
+            .resolved_models()
             .iter()
             .map(|model| MiniAppAiModelDescriptor {
                 id: model.id.clone(),

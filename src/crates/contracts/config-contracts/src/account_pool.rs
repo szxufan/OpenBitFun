@@ -1,5 +1,5 @@
 //! Pure account-pool validation and monotonic policy revisions.
-use crate::{AIModelConfig, AuthConfig};
+use crate::{AIProviderConfig, AuthConfig};
 use std::collections::HashSet;
 
 pub fn validate_account_pool(auth: &AuthConfig) -> Result<(), String> {
@@ -21,47 +21,50 @@ pub fn validate_account_pool(auth: &AuthConfig) -> Result<(), String> {
 /// rebase them onto the current generation without reusing an old policy epoch.
 /// Unchanged historical records are preserved, including unsupported shapes.
 pub fn reconcile_account_pool_revisions(
-    previous: &[AIModelConfig],
-    next: &mut [AIModelConfig],
+    previous: &[AIProviderConfig],
+    next: &mut [AIProviderConfig],
     reject_stale: bool,
 ) -> Result<(), String> {
-    for model in next {
-        let mut matches = previous.iter().filter(|old| old.id == model.id);
+    for provider in next {
+        let mut matches = previous.iter().filter(|old| old.id == provider.id);
         let old = matches.next();
-        if !matches!(model.auth, AuthConfig::SubscriptionPool { .. }) {
+        if !matches!(provider.auth, AuthConfig::SubscriptionPool { .. }) {
             continue;
         }
         if matches.next().is_some() {
-            return Err(format!("Ambiguous account pool model ID: {}", model.id));
+            return Err(format!(
+                "Ambiguous account pool provider ID: {}",
+                provider.id
+            ));
         }
-        if old.is_some_and(|old| old.auth == model.auth) {
+        if old.is_some_and(|old| old.auth == provider.auth) {
             continue;
         }
-        validate_account_pool(&model.auth)?;
+        validate_account_pool(&provider.auth)?;
         if let (
-            Some(AIModelConfig {
+            Some(AIProviderConfig {
                 auth:
                     AuthConfig::SubscriptionPool {
-                        provider: old_provider,
+                        provider: old_pool_provider,
                         accounts: old_accounts,
                         revision: old_revision,
                     },
                 ..
             }),
             AuthConfig::SubscriptionPool {
-                provider,
+                provider: pool_provider,
                 accounts,
                 revision,
             },
-        ) = (old, &mut model.auth)
+        ) = (old, &mut provider.auth)
         {
             if reject_stale && *revision < *old_revision {
                 return Err(format!(
                     "SUBSCRIPTION_ACCOUNT_POOL_CONFLICT: Subscription account pool changed while it was being edited: {}",
-                    model.id
+                    provider.id
                 ));
             }
-            if provider != old_provider || accounts != old_accounts {
+            if pool_provider != old_pool_provider || accounts != old_accounts {
                 let minimum = old_revision.checked_add(1).ok_or_else(|| "Subscription account pool revision overflow; existing configuration was preserved".to_string())?;
                 *revision = (*revision).max(minimum);
             } else {
@@ -76,8 +79,8 @@ pub fn reconcile_account_pool_revisions(
 mod tests {
     use super::*;
     use crate::SubscriptionProvider;
-    fn model(accounts: &[&str], revision: u64) -> AIModelConfig {
-        AIModelConfig {
+    fn model(accounts: &[&str], revision: u64) -> AIProviderConfig {
+        AIProviderConfig {
             id: "one".into(),
             auth: AuthConfig::SubscriptionPool {
                 provider: SubscriptionProvider::Codex,

@@ -388,15 +388,19 @@ impl ConfigManager {
         }
         if let Some(model) = handoff.model {
             let model = model_from_installer_handoff(model);
+            let entry = openbitfun_config_contracts::split_flattened_model(
+                &model,
+                &mut config.ai.providers,
+            );
             if let Some(existing) = config
                 .ai
                 .models
                 .iter_mut()
                 .find(|existing| existing.id == INSTALLER_MODEL_ID)
             {
-                *existing = model;
+                *existing = entry;
             } else {
-                config.ai.models.push(model);
+                config.ai.models.push(entry);
             }
             config.ai.default_models.primary = Some(INSTALLER_MODEL_ID.to_string());
             config.ai.default_models.fast = Some(INSTALLER_MODEL_ID.to_string());
@@ -882,13 +886,15 @@ impl ConfigManager {
         mut candidate: ConfigCandidate,
         path: Option<&str>,
     ) -> OpenBitFunResult<()> {
-        openbitfun_config_contracts::channel_routing::validate_channel_routes(
+        let resolved_models = openbitfun_config_contracts::load_resolved_models(
+            &candidate.config.ai.providers,
             &candidate.config.ai.models,
-        )
-        .map_err(OpenBitFunError::config)?;
+        );
+        openbitfun_config_contracts::channel_routing::validate_channel_routes(&resolved_models)
+            .map_err(OpenBitFunError::config)?;
         openbitfun_config_contracts::account_pool::reconcile_account_pool_revisions(
-            &self.config.ai.models,
-            &mut candidate.config.ai.models,
+            &self.config.ai.providers,
+            &mut candidate.config.ai.providers,
             path.is_some(),
         )
         .map_err(OpenBitFunError::config)?;
@@ -1358,7 +1364,7 @@ mod tests {
     #[tokio::test]
     async fn account_pool_edits_advance_on_disk_and_reject_stale_writes() {
         use openbitfun_config_contracts::{
-            AIModelConfig, AuthConfig, ModelCapability, SubscriptionProvider,
+            AIModelEntry, AIProviderConfig, AuthConfig, ModelCapability, SubscriptionProvider,
         };
         let temp = tempfile::tempdir().unwrap();
         let paths = Arc::new(PathManager::with_user_root_for_tests(
@@ -1367,14 +1373,12 @@ mod tests {
         let mut manager = ConfigManager::new(manager_settings(paths.clone()))
             .await
             .unwrap();
-        let pool = AIModelConfig {
-            id: "pool-model".into(),
+        let pool = AIProviderConfig {
+            id: "pool-provider".into(),
             name: "Codex pool".into(),
             provider: "responses".into(),
-            model_name: "fixture-model".into(),
             base_url: "https://chatgpt.com/backend-api/codex".into(),
             enabled: true,
-            capabilities: vec![ModelCapability::TextChat],
             auth: AuthConfig::SubscriptionPool {
                 provider: SubscriptionProvider::Codex,
                 accounts: vec!["codex".into(), "backup".into()],
@@ -1382,28 +1386,40 @@ mod tests {
             },
             ..Default::default()
         };
-        manager.set("ai.models", vec![pool.clone()]).await.unwrap();
+        let pool_entry = AIModelEntry {
+            id: "pool-model".into(),
+            provider_id: "pool-provider".into(),
+            model_name: "fixture-model".into(),
+            enabled: true,
+            capabilities: vec![ModelCapability::TextChat],
+            ..Default::default()
+        };
+        manager
+            .set("ai.providers", vec![pool.clone()])
+            .await
+            .unwrap();
+        manager.set("ai.models", vec![pool_entry]).await.unwrap();
         let original_export = manager.export_config().unwrap();
         let mut edited = pool.clone();
         if let AuthConfig::SubscriptionPool { accounts, .. } = &mut edited.auth {
             accounts.reverse();
         }
         manager
-            .set("ai.models", vec![edited.clone()])
+            .set("ai.providers", vec![edited.clone()])
             .await
             .unwrap();
         assert!(matches!(
-            manager.get_config().ai.models[0].auth,
+            manager.get_config().ai.providers[0].auth,
             AuthConfig::SubscriptionPool { revision: 1, .. }
         ));
         let mut restored = ConfigManager::new(manager_settings(paths)).await.unwrap();
         assert!(matches!(
-            restored.get_config().ai.models[0].auth,
+            restored.get_config().ai.providers[0].auth,
             AuthConfig::SubscriptionPool { revision: 1, .. }
         ));
         let before = tokio::fs::read(&restored.config_file).await.unwrap();
         assert!(restored
-            .set("ai.models", vec![pool])
+            .set("ai.providers", vec![pool])
             .await
             .unwrap_err()
             .to_string()
@@ -1418,21 +1434,21 @@ mod tests {
         if let AuthConfig::SubscriptionPool { accounts, .. } = &mut edited.auth {
             accounts.push("third".into());
         }
-        restored.set("ai.models", vec![edited]).await.unwrap();
+        restored.set("ai.providers", vec![edited]).await.unwrap();
         assert!(matches!(
-            restored.get_config().ai.models[0].auth,
+            restored.get_config().ai.providers[0].auth,
             AuthConfig::SubscriptionPool { revision: 2, .. }
         ));
         restored.import_config(original_export).await.unwrap();
         assert!(
-            matches!(&restored.get_config().ai.models[0].auth, AuthConfig::SubscriptionPool { accounts, revision: 3, .. } if accounts == &vec!["codex".to_string(), "backup".to_string()])
+            matches!(&restored.get_config().ai.providers[0].auth, AuthConfig::SubscriptionPool { accounts, revision: 3, .. } if accounts == &vec!["codex".to_string(), "backup".to_string()])
         );
         let backup = restored.create_backup().await.unwrap();
         let serialized: serde_json::Value =
             serde_json::from_slice(&tokio::fs::read(backup).await.unwrap()).unwrap();
         assert_eq!(
-            serialized["ai"]["models"][0]["metadata"]["openbitfun_subscription_account_binding"]
-                ["model"]["auth"]["revision"],
+            serialized["ai"]["providers"][0]["metadata"]["openbitfun_subscription_account_binding"]
+                ["source"]["auth"]["revision"],
             3
         );
     }
@@ -1443,7 +1459,7 @@ mod tests {
             ACCOUNT_MODEL_GUARD_KEY, ACCOUNT_MODEL_GUARD_URL,
         };
         use openbitfun_config_contracts::{
-            AIModelConfig, AuthConfig, ModelCapability, SubscriptionProvider,
+            AIModelEntry, AIProviderConfig, AuthConfig, ModelCapability, SubscriptionProvider,
         };
         let temp = tempfile::tempdir().unwrap();
         let path_manager = Arc::new(PathManager::with_user_root_for_tests(
@@ -1452,47 +1468,51 @@ mod tests {
         let mut manager = ConfigManager::new(manager_settings(path_manager.clone()))
             .await
             .unwrap();
-        let named = AIModelConfig {
-            id: "protected-model".into(),
+        let named_provider = AIProviderConfig {
+            id: "seat-two".into(),
             name: "Protected model".into(),
             provider: "responses".into(),
-            model_name: "fixture-model".into(),
             base_url: "https://chatgpt.com/backend-api/codex".into(),
             enabled: true,
-            capabilities: vec![ModelCapability::TextChat],
             auth: AuthConfig::Subscription {
                 provider: SubscriptionProvider::Codex,
                 plan: None,
                 account_id: Some("codex-account-58134808-15a6-45db-ae33-2ad7d85cc570".into()),
             },
-            ..AIModelConfig::default()
+            ..AIProviderConfig::default()
+        };
+        let named = AIModelEntry {
+            id: "protected-model".into(),
+            provider_id: "seat-two".into(),
+            model_name: "fixture-model".into(),
+            enabled: true,
+            capabilities: vec![ModelCapability::TextChat],
+            ..AIModelEntry::default()
         };
         let mut config = manager.config.clone();
+        config.ai.providers = vec![named_provider.clone()];
         config.ai.models = vec![named.clone()];
         config.ai.default_models.primary = Some(named.id.clone());
-        manager
-            .commit_config(config, Some("ai.models"))
-            .await
-            .unwrap();
+        manager.commit_config(config, None).await.unwrap();
         let file = path_manager.app_config_file();
         let persisted: serde_json::Value =
             serde_json::from_slice(&tokio::fs::read(&file).await.unwrap()).unwrap();
         assert_eq!(
-            persisted["ai"]["models"][0]["base_url"],
+            persisted["ai"]["providers"][0]["base_url"],
             ACCOUNT_MODEL_GUARD_URL
         );
         let legacy: GlobalConfig = serde_json::from_value(persisted).unwrap();
-        assert!(matches!(legacy.ai.models[0].auth, AuthConfig::ApiKey));
+        assert!(matches!(legacy.ai.providers[0].auth, AuthConfig::ApiKey));
         assert!(legacy.ai.models[0].enabled);
         // The legacy struct's opaque metadata preserves the nested source, even
         // while an unrelated settings write reserializes the entire document.
         let mut legacy_value = serde_json::to_value(legacy).unwrap();
         legacy_value["app"]["auto_update"] = serde_json::json!(false);
-        let guard = &mut legacy_value["ai"]["models"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY];
+        let guard = &mut legacy_value["ai"]["providers"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY];
         guard["future_envelope_field"] = serde_json::json!({"keep":true});
-        guard["model"]["future_model_option"] = serde_json::json!({"keep":42});
-        guard["model"]["auth"]["plan"] = serde_json::Value::Null;
-        guard["model"]["auth"]["future_auth_hint"] = serde_json::json!("keep");
+        guard["source"]["future_provider_option"] = serde_json::json!({"keep":42});
+        guard["source"]["auth"]["plan"] = serde_json::Value::Null;
+        guard["source"]["auth"]["future_auth_hint"] = serde_json::json!("keep");
         tokio::fs::write(&file, serde_json::to_vec(&legacy_value).unwrap())
             .await
             .unwrap();
@@ -1505,6 +1525,10 @@ mod tests {
             serde_json::to_value(&named).unwrap()
         );
         assert_eq!(
+            serde_json::to_value(&loaded.config.ai.providers[0]).unwrap(),
+            serde_json::to_value(&named_provider).unwrap()
+        );
+        assert_eq!(
             loaded.config.ai.default_models.primary.as_deref(),
             Some(named.id.as_str())
         );
@@ -1512,49 +1536,50 @@ mod tests {
         assert_eq!(tokio::fs::read(&file).await.unwrap(), before_read);
         loaded.set("app.auto_update", true).await.unwrap();
         let exported = loaded.export_config().unwrap();
-        let guard = &exported["ai"]["models"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY];
+        let guard = &exported["ai"]["providers"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY];
         assert_eq!(
             guard["future_envelope_field"],
             serde_json::json!({"keep":true})
         );
         assert_eq!(
-            guard["model"]["future_model_option"],
+            guard["source"]["future_provider_option"],
             serde_json::json!({"keep":42})
         );
-        assert_eq!(guard["model"]["auth"]["future_auth_hint"], "keep");
+        assert_eq!(guard["source"]["auth"]["future_auth_hint"], "keep");
         loaded
-            .set("ai.models", exported["ai"]["models"].clone())
+            .set("ai.providers", exported["ai"]["providers"].clone())
             .await
             .unwrap();
-        assert_eq!(loaded.config.ai.models[0].auth, named.auth);
+        assert_eq!(loaded.config.ai.providers[0].auth, named_provider.auth);
         loaded.import_config(exported).await.unwrap();
-        assert_eq!(loaded.config.ai.models[0].auth, named.auth);
+        assert_eq!(loaded.config.ai.providers[0].auth, named_provider.auth);
         let backup = loaded.create_backup().await.unwrap();
         let backed_up: serde_json::Value =
             serde_json::from_slice(&tokio::fs::read(backup).await.unwrap()).unwrap();
         assert_eq!(
-            backed_up["ai"]["models"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]
+            backed_up["ai"]["providers"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]
                 ["future_envelope_field"],
             serde_json::json!({"keep":true})
         );
         // A failed candidate must not leak either its account selection or its
         // opaque source fields into a later, otherwise unrelated save.
-        let mut rejected = loaded.export_config().unwrap()["ai"]["models"].clone();
+        let mut rejected = loaded.export_config().unwrap()["ai"]["providers"].clone();
         let source = &mut rejected[0]["metadata"][ACCOUNT_MODEL_GUARD_KEY];
-        source["model"]["auth"]["account_id"] =
+        source["source"]["auth"]["account_id"] =
             serde_json::json!("codex-account-28134808-15a6-45db-ae33-2ad7d85cc570");
         source["future_envelope_field"] = serde_json::json!({"keep":false});
         let blocked_path = temp.path().join("blocked-config");
         tokio::fs::create_dir(&blocked_path).await.unwrap();
         loaded.config_file = blocked_path;
-        assert!(loaded.set("ai.models", rejected).await.is_err());
+        assert!(loaded.set("ai.providers", rejected).await.is_err());
         loaded.config_file = file.clone();
-        assert_eq!(loaded.config.ai.models[0].auth, named.auth);
+        assert_eq!(loaded.config.ai.providers[0].auth, named_provider.auth);
         loaded.set("editor.font_size", 18).await.unwrap();
         let saved: serde_json::Value =
             serde_json::from_slice(&tokio::fs::read(file).await.unwrap()).unwrap();
         assert_eq!(
-            saved["ai"]["models"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]["future_envelope_field"],
+            saved["ai"]["providers"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]
+                ["future_envelope_field"],
             serde_json::json!({"keep":true})
         );
     }
@@ -1572,13 +1597,24 @@ mod tests {
         config.ai.agent_model_defaults.subagents.default_selection =
             super::super::types::SubagentModelSelection::fixed("missing-model");
         config.app.logging.level = "invalid".into();
-        config.ai.models.push(super::super::types::AIModelConfig {
+        config
+            .ai
+            .providers
+            .push(super::super::types::AIProviderConfig {
+                id: "broken-provider".into(),
+                name: "Broken".into(),
+                provider: "openai".into(),
+                base_url: "https://broken.example.test/v1".into(),
+                api_key: "retained-secret".into(),
+                enabled: true,
+                ..Default::default()
+            });
+        config.ai.models.push(super::super::types::AIModelEntry {
             id: "broken".into(),
-            name: "Broken".into(),
-            provider: "openai".into(),
+            provider_id: "broken-provider".into(),
+            model_name: "broken".into(),
             enabled: true,
             context_window: Some(1),
-            api_key: "retained-secret".into(),
             ..Default::default()
         });
         let original = serde_json::to_vec(&config).unwrap();
@@ -1589,7 +1625,7 @@ mod tests {
             .await
             .unwrap();
         assert!(!manager.config.ai.models[0].enabled);
-        assert_eq!(manager.config.ai.models[0].api_key, "retained-secret");
+        assert_eq!(manager.config.ai.providers[0].api_key, "retained-secret");
         assert!(
             manager
                 .providers

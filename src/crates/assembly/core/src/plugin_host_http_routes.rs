@@ -338,17 +338,16 @@ async fn load_models() -> Result<
         .get_config(None)
         .await
         .map_err(|error| Failure::backend(error.to_string()))?;
-    let primary = config.ai.default_models.primary;
+    let primary = config.ai.default_models.primary.clone();
+    let resolved = config.ai.resolved_models();
     let mut defaults = HashMap::new();
-    for model in config.ai.models.iter().filter(|model| model.enabled) {
+    for model in resolved.iter().filter(|model| model.enabled) {
         defaults
             .entry(model.provider.clone())
             .or_insert_with(|| model.id.clone());
     }
     if let Some(primary) = primary {
-        if let Some(model) = config
-            .ai
-            .models
+        if let Some(model) = resolved
             .iter()
             .find(|model| model.enabled && model.id == primary)
         {
@@ -359,7 +358,7 @@ async fn load_models() -> Result<
         .await
         .map_err(Failure::backend)?
         .provider_catalog;
-    Ok((config.ai.models, defaults, catalog))
+    Ok((resolved, defaults, catalog))
 }
 
 async fn config_providers() -> RouteResult {

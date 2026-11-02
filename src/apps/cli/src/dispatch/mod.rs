@@ -741,7 +741,12 @@ async fn inspect_model_readiness() -> Result<ModelReadiness> {
     let mut available_models = Vec::new();
     let mut unavailable = Vec::new();
     let mut seen = std::collections::HashSet::new();
-    for model in config.ai.models.iter().filter(|model| model.enabled) {
+    for model in config
+        .ai
+        .resolved_models()
+        .iter()
+        .filter(|model| model.enabled)
+    {
         if model.id.trim().is_empty() || !seen.insert(model.id.clone()) {
             unavailable.push("an enabled model has an empty or duplicate id".to_string());
             continue;

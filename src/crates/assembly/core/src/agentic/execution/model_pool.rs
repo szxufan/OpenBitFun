@@ -168,13 +168,13 @@ impl ModelPoolRuntime {
             return None;
         }
         let model = config
-            .models
-            .iter()
+            .resolved_models()
+            .into_iter()
             .find(|model| model.id == candidate.model_id)?;
         // Use the same conversion as AIClientFactory, including default context
         // size and validation/fallback of the configured output limit. No auth or
         // network access is needed to resolve these limits.
-        let resolved = crate::util::types::AIConfig::try_from(model.clone()).ok()?;
+        let resolved = crate::util::types::AIConfig::try_from(model).ok()?;
         let budget = CompressionTriggerBudget::for_model(
             resolved.context_window as usize,
             resolved.max_tokens,
@@ -219,10 +219,11 @@ impl ModelPoolRuntime {
         image_requirement: ImageInputRequirement,
     ) -> Vec<Candidate> {
         use crate::service::config::types::ModelCapability;
+        let resolved = config.resolved_models();
         member_ids
             .iter()
             .map(|id| {
-                let model = config.models.iter().find(|model| &model.id == id);
+                let model = resolved.iter().find(|model| &model.id == id);
                 Candidate {
                     model_id: id.clone(),
                     fingerprint: model
@@ -231,7 +232,7 @@ impl ModelPoolRuntime {
                     eligible: model.is_some_and(|model| {
                         model.enabled
                             && model.supports_text_generation()
-                            && config.models.iter().filter(|entry| &entry.id == id).count() == 1
+                            && resolved.iter().filter(|entry| &entry.id == id).count() == 1
                             && (!require_tools
                                 || model.capabilities.is_empty()
                                 || model
@@ -648,6 +649,19 @@ mod tests {
     use crate::agentic::core::{Message, MessageContent, ToolCall};
     use crate::service::config::types::{AIModelConfig, ModelCapability};
 
+    #[allow(dead_code)]
+    fn test_ai_config(models: Vec<AIModelConfig>) -> crate::service::config::types::AIConfig {
+        let mut providers = Vec::new();
+        let entries = models
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+        crate::service::config::types::AIConfig {
+            providers,
+            models: entries,
+            ..Default::default()
+        }
+    }
     fn budget_model(id: &str, context: Option<u32>, output: Option<u32>) -> AIModelConfig {
         AIModelConfig {
             id: id.into(),
@@ -672,10 +686,7 @@ mod tests {
         native
             .capabilities
             .push(ModelCapability::ImageUnderstanding);
-        let config = AIConfig {
-            models: vec![text, native],
-            ..Default::default()
-        };
+        let config = test_ai_config(vec![text, native]);
         let pool = crate::service::config::model_pool_store::ModelPoolDefinition {
             id: "pool-images".into(),
             name: "Images".into(),
@@ -874,13 +885,10 @@ mod tests {
 
     #[test]
     fn model_pool_context_budget_uses_independent_minima_and_preserves_member_limits() {
-        let config = AIConfig {
-            models: vec![
-                budget_model("small", Some(128_000), Some(8_000)),
-                budget_model("large", Some(160_000), Some(64_000)),
-            ],
-            ..Default::default()
-        };
+        let config = test_ai_config(vec![
+            budget_model("small", Some(128_000), Some(8_000)),
+            budget_model("large", Some(160_000), Some(64_000)),
+        ]);
         let ids = vec!["small".into(), "large".into()];
         let common = ModelPoolRuntime::configured_context_budget(&config, &ids).unwrap();
         assert_eq!(
@@ -916,19 +924,23 @@ mod tests {
 
     #[test]
     fn model_pool_context_budget_resolves_defaults_and_ignores_unroutable_records() {
-        let mut config = AIConfig {
-            models: vec![
-                budget_model("default", None, Some(u32::MAX)),
-                budget_model("disabled", Some(32_000), None),
-                budget_model("invalid", Some(1), None),
-                budget_model("duplicate", Some(32_000), None),
-                budget_model("duplicate", Some(32_000), None),
-            ],
-            ..Default::default()
-        };
+        let mut config = test_ai_config(vec![
+            budget_model("default", None, Some(u32::MAX)),
+            budget_model("disabled", Some(32_000), None),
+            budget_model("invalid", Some(1), None),
+            budget_model("duplicate", Some(32_000), None),
+            budget_model("duplicate", Some(32_000), None),
+        ]);
         config.models[1].enabled = false;
         let ids = ["default", "disabled", "invalid", "duplicate", "missing"].map(String::from);
-        let resolved = crate::util::types::AIConfig::try_from(config.models[0].clone()).unwrap();
+        let resolved = crate::util::types::AIConfig::try_from(
+            config
+                .resolved_models()
+                .into_iter()
+                .find(|m| m.id == "default")
+                .unwrap(),
+        )
+        .unwrap();
         let common = ModelPoolRuntime::configured_context_budget(&config, &ids).unwrap();
         assert_eq!(common.context_window, resolved.context_window);
         assert_eq!(

@@ -61,7 +61,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     activateSurface('local');
     configManager.clearCache();
     reads = new Map([
-      'ai.models', 'ai.default_models', 'ai.proxy',
+      'ai.providers', 'ai.models', 'ai.default_models', 'ai.proxy',
       'ai.stream_idle_timeout_secs', 'ai.stream_ttft_timeout_secs',
       'media',
     ].map(path => [path, deferred()]));
@@ -105,7 +105,8 @@ describe('ModelSettingsPage loading and provider actions', () => {
   const openNewProvider = async (provider = 'custom') => {
     await act(async () => root.render(<ModelSettingsPage />));
     await act(async () => {
-      reads.get('ai.models')!.resolve([]);
+      reads.get('ai.providers')!.resolve([]);
+      reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([]);
       reads.get('ai.default_models')!.resolve({});
     });
     await act(async () => button('actions.addModel').click());
@@ -223,7 +224,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
         base_url: 'https://api.openai.com/v1/responses' };
       await act(async () => root.render(<ModelSettingsPage />));
       await act(async () => {
-        reads.get('ai.models')!.resolve([saved]);
+        reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([saved]);
         reads.get('ai.default_models')!.resolve({});
       });
       await act(async () => container.querySelector<HTMLButtonElement>('.openbitfun-model-settings__source-pill')!.click());
@@ -265,7 +266,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
   it('returns an existing provider editor to the model overview', async () => {
     await act(async () => root.render(<ModelSettingsPage />));
     await act(async () => {
-      reads.get('ai.models')!.resolve([model]);
+      reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([model]);
       reads.get('ai.default_models')!.resolve({});
     });
     await act(async () => container.querySelector<HTMLButtonElement>('.openbitfun-model-settings__source-pill')!.click());
@@ -280,7 +281,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     const update = vi.spyOn(configManager, 'updateConfig');
     await act(async () => root.render(<ModelSettingsPage />));
     await act(async () => {
-      reads.get('ai.models')!.resolve([model]);
+      reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([model]);
       reads.get('ai.default_models')!.resolve({});
     });
     await act(async () => container.querySelector<HTMLButtonElement>(target === 'provider'
@@ -426,7 +427,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
       ? { type, provider: 'codex' }
       : { type, provider: 'codex', accounts: ['codex'], revision: 0 } };
     const values: Record<string, unknown> = {
-      'ai.models': [configured], 'ai.default_models': { primary: model.id },
+      'ai.providers': [], 'ai.models': [configured], 'ai.providers': [], 'ai.default_models': { primary: model.id },
       'ai.proxy': { enabled: false, url: '', username: '', password: '' },
       'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
     };
@@ -513,7 +514,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
   it('renders a warm model pool immediately without starting a read that could overwrite edits', () => {
     const values: Record<string, unknown> = {
       media: { image_services: [] },
-      'ai.models': [model], 'ai.default_models': { primary: model.id },
+      'ai.providers': [], 'ai.models': [model], 'ai.providers': [], 'ai.default_models': { primary: model.id },
       'ai.proxy': { enabled: false, url: '', username: '', password: '' },
       'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
     };
@@ -534,7 +535,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     };
     const models = [configured];
     const values: Record<string, unknown> = {
-      'ai.models': models, 'ai.default_models': { primary: configured.id },
+      'ai.providers': [], 'ai.models': models, 'ai.providers': [], 'ai.default_models': { primary: configured.id },
       'ai.proxy': { enabled: false, url: '', username: '', password: '' },
       'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
     };
@@ -584,7 +585,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     const models = [primary, backup, second];
     const baseline = structuredClone(models);
     const values: Record<string, unknown> = {
-      'ai.models': models, 'ai.default_models': { primary: primary.id },
+      'ai.providers': [], 'ai.models': models, 'ai.providers': [], 'ai.default_models': { primary: primary.id },
       'ai.proxy': { enabled: false, url: '', username: '', password: '' },
       'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
     };
@@ -766,7 +767,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     const update = vi.spyOn(configManager, 'updateConfig');
     const warning = vi.spyOn(notificationService, 'warning');
     const values: Record<string, unknown> = {
-      'ai.models': [model], 'ai.default_models': { primary: model.id },
+      'ai.providers': [], 'ai.models': [model], 'ai.providers': [], 'ai.default_models': { primary: model.id },
       'ai.proxy': { enabled: false, url: '', username: '', password: '' },
       'ai.stream_idle_timeout_secs': 120, 'ai.stream_ttft_timeout_secs': 60,
     };
@@ -861,7 +862,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(button('acquisition.addSubscription').disabled).toBe(false);
 
     await act(async () => {
-      reads.get('ai.models')!.resolve([model]);
+      reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([model]);
       reads.get('ai.default_models')!.resolve({ primary: model.id });
     });
 
@@ -889,7 +890,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     const otherModel: AIModelConfig = { ...model, id: 'unassigned-model', model_name: 'unassigned-model' };
     await act(async () => root.render(<ModelSettingsPage />));
     await act(async () => {
-      reads.get('ai.models')!.resolve([model, otherModel]);
+      reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([model, otherModel]);
       reads.get('ai.default_models')!.resolve({ economy: model.id });
     });
     const pool = container.querySelector<HTMLElement>('[data-testid="settings-model-pool"]')!;
@@ -917,7 +918,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     };
     await act(async () => root.render(<ModelSettingsPage />));
     await act(async () => {
-      reads.get('ai.models')!.resolve([taggedModel]);
+      reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([taggedModel]);
       reads.get('ai.default_models')!.resolve({ primary: model.id, fast: model.id, economy: model.id,
         image_understanding: model.id, speech_recognition: model.id });
     });
@@ -940,7 +941,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
       mode: 'smart', defaultMode: 'smart', ready: true, issue: null, connected: true, summaryEnabled: true });
     const update = vi.spyOn(configManager, 'updateConfig');
     await act(async () => root.render(<ModelSettingsPage />));
-    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+    await act(async () => { reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
     const entry = container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')!;
     expect(entry.disabled).toBe(true);
     expect(entry.textContent).toBe(copy('selectionModes.unavailable'));
@@ -962,7 +963,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
       ready: false, issue: null, connected: null, summaryEnabled: false, estimatedTokenBudgetSupported: true });
     const updateSession = vi.spyOn(agentAPI, 'updateSessionModel');
     await act(async () => root.render(<ModelSettingsPage />));
-    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+    await act(async () => { reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
     expect(container.querySelector('.openbitfun-model-settings__mode-row [data-openbitfun-component="status-pill"]')).toBeNull();
     await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')!.click());
     const dialog = document.querySelector<HTMLElement>('.model-router-settings')!.closest('[role="dialog"]')!;
@@ -982,7 +983,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     vi.spyOn(configManager, 'getConfigs').mockReturnValue(pending.promise as ReturnType<typeof configManager.getConfigs>);
     const updateConfig = vi.spyOn(configManager, 'updateConfig');
     await act(async () => root.render(<ModelSettingsPage />));
-    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+    await act(async () => { reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
     await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="settings-smart-mode-configure"]')!.click());
     expect(document.querySelector('.model-router-settings')).not.toBeNull();
     await act(async () => activateSurface('peer-smart-settings'));
@@ -1016,7 +1017,10 @@ describe('ModelSettingsPage loading and provider actions', () => {
 
     reads.set('ai.models', deferred());
     await act(async () => button('messages.retry').click());
-    await act(async () => reads.get('ai.models')!.resolve([model]));
+    await act(async () => {
+      reads.get('ai.providers')!.resolve([]);
+      reads.get('ai.models')!.resolve([model]);
+    });
     expect(container.textContent).not.toContain(copy('messages.loadFailedLocked'));
     expect(container.querySelector('[data-testid="settings-model-pool"]')?.textContent).toContain(model.model_name);
     expect(button('actions.addModel').disabled).toBe(false);
@@ -1045,7 +1049,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
       reads.set('ai.agent_model_selections', deferred());
       await act(async () => root.render(<ModelSettingsPage />));
       await act(async () => {
-        reads.get('ai.models')!.resolve(savedModels);
+        reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve(savedModels);
         reads.get('ai.default_models')!.resolve({ primary: model.id });
         reads.get('ai.task_models')!.resolve({});
         reads.get('ai.agent_model_selections')!.resolve({});
@@ -1098,7 +1102,9 @@ describe('ModelSettingsPage loading and provider actions', () => {
       await act(async () => deleteButton.click());
       const confirm = document.querySelector<HTMLButtonElement>('[role="alertdialog"] button[data-openbitfun-tone="danger"]')!;
       await act(async () => confirm.click());
-      expect(updateConfig).toHaveBeenCalledTimes(1);
+      // Provider deletion removes the provider record plus its model entries.
+      expect(updateConfig).toHaveBeenCalledTimes(2);
+      expect(updateConfig).toHaveBeenCalledWith('ai.providers', expect.any(Function));
       expect(updateConfig).toHaveBeenCalledWith('ai.models', expect.any(Function));
       expect(savedModels).toEqual([otherModel]);
       expect(container.querySelectorAll('.openbitfun-model-settings__source-pill')).toHaveLength(1);

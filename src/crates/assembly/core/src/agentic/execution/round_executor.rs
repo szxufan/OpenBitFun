@@ -3128,12 +3128,28 @@ pub(super) mod tests {
                 fallback_model_ids: vec!["backup-channel".into()],
                 manual_channel: manual.then(|| "backup-channel".into()),
             });
-            config.set_config("ai.models", vec![a, b]).await.unwrap();
+            let mut handoff_providers = Vec::new();
+            let handoff_entries = vec![&a, &b]
+                .into_iter()
+                .map(|model| {
+                    openbitfun_config_contracts::split_flattened_model(
+                        model,
+                        &mut handoff_providers,
+                    )
+                })
+                .collect::<Vec<_>>();
+            config
+                .set_config("ai.providers", handoff_providers)
+                .await
+                .unwrap();
+            config
+                .set_config("ai.models", handoff_entries)
+                .await
+                .unwrap();
             let a = config
-                .get_effective_ai_config()
+                .get_effective_resolved_models()
                 .await
                 .unwrap()
-                .models
                 .into_iter()
                 .find(|model| model.id == "primary-channel")
                 .unwrap();
@@ -3392,22 +3408,21 @@ pub(super) mod tests {
                 api_key: format!("synthetic-{id}"),
                 ..Default::default()
             };
-            config
-                .set_config(
-                    "ai.models",
-                    vec![
-                        subscription,
-                        key_model("key-one", &first_key),
-                        key_model("key-two", &second_key),
-                    ],
-                )
-                .await
-                .unwrap();
+            let mut providers = Vec::new();
+            let entries = vec![
+                subscription,
+                key_model("key-one", &first_key),
+                key_model("key-two", &second_key),
+            ]
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+            config.set_config("ai.providers", providers).await.unwrap();
+            config.set_config("ai.models", entries).await.unwrap();
             let subscription = config
-                .get_effective_ai_config()
+                .get_effective_resolved_models()
                 .await
                 .unwrap()
-                .models
                 .into_iter()
                 .find(|model| model.id == "subscription-channel")
                 .unwrap();
@@ -4247,11 +4262,12 @@ pub(super) mod tests {
                 .install_runtime_ai_model(model.clone())
                 .await
                 .unwrap();
+            let fixture_fingerprint = model_runtime_binding_fingerprint(&model);
             let factory = Arc::new(AIClientFactory::new_for_test(config));
             let (client, route) = factory
                 .prepare_native_model_client(
                     &model.id,
-                    &model_runtime_binding_fingerprint(&model),
+                    &fixture_fingerprint,
                     None,
                     Some("auth-lineage"),
                     None,
@@ -4661,32 +4677,30 @@ pub(super) mod tests {
             .unwrap(),
         );
         if phase == "seed" {
-            config
-                .set_config(
-                    "ai.models",
-                    vec![AIModelConfig {
-                        id: "restart-model".into(),
-                        name: "Restart mock".into(),
-                        model_name: "restart-wire-model".into(),
-                        provider: "responses".into(),
-                        enabled: true,
-                        base_url: "https://saved-route.invalid".into(),
-                        auth: AuthConfig::SubscriptionPool {
-                            provider: SubscriptionProvider::Codex,
-                            accounts: vec!["codex".into(), backup_id.into()],
-                            revision: 3,
-                        },
-                        ..Default::default()
-                    }],
-                )
-                .await
-                .unwrap();
+            let model = AIModelConfig {
+                id: "restart-model".into(),
+                name: "Restart mock".into(),
+                model_name: "restart-wire-model".into(),
+                provider: "responses".into(),
+                enabled: true,
+                base_url: "https://saved-route.invalid".into(),
+                auth: AuthConfig::SubscriptionPool {
+                    provider: SubscriptionProvider::Codex,
+                    accounts: vec!["codex".into(), backup_id.into()],
+                    revision: 3,
+                },
+                ..Default::default()
+            };
+            let mut providers = Vec::new();
+            let entry = openbitfun_config_contracts::split_flattened_model(&model, &mut providers);
+            config.set_config("ai.providers", providers).await.unwrap();
+            config.set_config("ai.models", vec![entry]).await.unwrap();
             config
                 .set_config("ai.default_models.primary", "restart-model")
                 .await
                 .unwrap();
         }
-        let models: Vec<AIModelConfig> = config.get_config(Some("ai.models")).await.unwrap();
+        let models: Vec<AIModelConfig> = config.get_ai_models().await.unwrap();
         let model = models
             .iter()
             .find(|model| model.id == "restart-model")
@@ -4712,7 +4726,7 @@ pub(super) mod tests {
             .await
             .unwrap();
         assert_eq!(global.user_data_dir().await, config.user_data_dir().await);
-        let global_models: Vec<AIModelConfig> = global.get_config(Some("ai.models")).await.unwrap();
+        let global_models = global.get_ai_models().await.unwrap();
         assert_eq!(
             model_runtime_binding_fingerprint(
                 global_models
@@ -5469,14 +5483,14 @@ pub(super) mod tests {
             },
             ..Default::default()
         };
-        config
-            .set_config("ai.models", vec![model.clone()])
-            .await
-            .unwrap();
-        let saved: Vec<AIModelConfig> = config.get_config(Some("ai.models")).await.unwrap();
-        let model = saved
+        let mut providers = Vec::new();
+        let entry = openbitfun_config_contracts::split_flattened_model(&model, &mut providers);
+        config.set_config("ai.providers", providers).await.unwrap();
+        config.set_config("ai.models", vec![entry]).await.unwrap();
+        let model = config.get_ai_models().await.unwrap();
+        let model = model
             .into_iter()
-            .find(|saved| saved.id == model.id)
+            .find(|saved| saved.id == "acceptance-model")
             .unwrap();
         let fingerprint = model_runtime_binding_fingerprint(&model);
         let sse = |events: Vec<serde_json::Value>| {
@@ -5692,8 +5706,7 @@ pub(super) mod tests {
         let restored_messages: Vec<crate::agentic::core::Message> =
             serde_json::from_slice(&std::fs::read(&history_path).unwrap()).unwrap();
         let reloaded = Arc::new(ConfigService::with_settings(settings).await.unwrap());
-        let restored_models: Vec<AIModelConfig> =
-            reloaded.get_config(Some("ai.models")).await.unwrap();
+        let restored_models: Vec<AIModelConfig> = reloaded.get_ai_models().await.unwrap();
         let restored_model = restored_models
             .iter()
             .find(|restored| restored.id == model.id)

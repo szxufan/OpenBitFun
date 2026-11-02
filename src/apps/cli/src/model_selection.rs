@@ -87,6 +87,7 @@ pub(crate) fn model_from_mutation(
         string_update(mutation.custom_request_body, current.custom_request_body);
     Ok(openbitfun_core::service::config::AIModelConfig {
         id: mutation.id,
+        provider_id: current.provider_id,
         name: mutation.name,
         provider: mutation.provider,
         model_name: mutation.model_name,

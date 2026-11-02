@@ -286,9 +286,10 @@ fn resolve_from_ai_models(
     ai: &ServiceAIConfig,
     requested: Option<&str>,
 ) -> Option<Result<ImageServiceConfig, OpenBitFunError>> {
+    let resolved_models = ai.resolved_models();
     let matched = match requested.map(str::trim).filter(|id| !id.is_empty()) {
         Some(id) => {
-            let Some(model) = ai.models.iter().find(|model| model.id == id) else {
+            let Some(model) = resolved_models.iter().find(|model| model.id == id) else {
                 return None;
             };
             if !model_supports_image_generation(model) {
@@ -306,7 +307,7 @@ fn resolve_from_ai_models(
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
             {
-                let Some(model) = ai.models.iter().find(|model| model.id == id) else {
+                let Some(model) = resolved_models.iter().find(|model| model.id == id) else {
                     return None;
                 };
                 if !model_supports_image_generation(model) {
@@ -316,8 +317,7 @@ fn resolve_from_ai_models(
                 }
                 model
             } else {
-                let candidates: Vec<&AIModelConfig> = ai
-                    .models
+                let candidates: Vec<&AIModelConfig> = resolved_models
                     .iter()
                     .filter(|model| model_supports_image_generation(model))
                     .collect();
@@ -383,7 +383,7 @@ pub async fn has_enabled_image_service() -> bool {
         .get_config::<ServiceAIConfig>(Some("ai"))
         .await
         .map(|ai| {
-            ai.models
+            ai.resolved_models()
                 .iter()
                 .any(|model| model_supports_image_generation(model))
         })
@@ -769,8 +769,14 @@ mod tests {
     }
 
     fn ai(models: Vec<AIModelConfig>, default_image: Option<&str>) -> ServiceAIConfig {
+        let mut providers = Vec::new();
+        let entries = models
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
         ServiceAIConfig {
-            models,
+            providers,
+            models: entries,
             default_models: serde_json::from_value(serde_json::json!({
                 "image_generation": default_image
             }))

@@ -1437,15 +1437,15 @@ impl ExecutionEngine {
                 ))
             })?;
         let model = ai_config
-            .models
-            .iter()
+            .resolved_models()
+            .into_iter()
             .find(|model| model.enabled && model.id == canonical_model_id)
             .ok_or_else(|| {
                 OpenBitFunError::Validation(format!(
                     "Frozen dialog turn model contract is unavailable: {expected_model_id}"
                 ))
             })?;
-        let actual_fingerprint = model_runtime_binding_fingerprint(model);
+        let actual_fingerprint = model_runtime_binding_fingerprint(&model);
         if actual_fingerprint != expected_fingerprint.as_str() {
             return Err(OpenBitFunError::Validation(format!(
                 "Frozen dialog turn model contract changed before execution: model_id={expected_model_id}"
@@ -1480,7 +1480,11 @@ impl ExecutionEngine {
             } else {
                 Self::resolve_configured_model_id(&ai_config, model_id)
             };
-            let model_cfg = ai_config.models.iter().find(|m| m.id == resolved_id);
+            let model_cfg = ai_config
+                .resolved_models()
+                .iter()
+                .find(|m| m.id == resolved_id)
+                .cloned();
 
             let supports = model_cfg.is_some_and(|m| {
                 m.capabilities
@@ -2031,8 +2035,8 @@ impl ExecutionEngine {
                     )
                 })?;
             let mut matches = ai_config
-                .models
-                .iter()
+                .resolved_models()
+                .into_iter()
                 .filter(|model| model.enabled && model.id == model_id);
             let model = matches.next().ok_or_else(|| {
                 OpenBitFunError::AIClient(format!(
@@ -2041,7 +2045,7 @@ impl ExecutionEngine {
                 ))
             })?;
             if matches.next().is_some()
-                || model_runtime_binding_fingerprint(model) != expected_fingerprint
+                || model_runtime_binding_fingerprint(&model) != expected_fingerprint
             {
                 return Err(OpenBitFunError::AIClient(format!(
                     "Approved model binding changed before execution: {}",
@@ -2084,8 +2088,8 @@ impl ExecutionEngine {
             frozen_model_id,
         )?;
         let model = ai_config
-            .models
-            .iter()
+            .resolved_models()
+            .into_iter()
             .find(|model| model.enabled && model.id == model_id)
             .ok_or_else(|| {
                 if frozen_model_id.is_some() {
@@ -2098,7 +2102,7 @@ impl ExecutionEngine {
                     ))
                 }
             })?;
-        let model_binding_fingerprint = model_runtime_binding_fingerprint(model);
+        let model_binding_fingerprint = model_runtime_binding_fingerprint(&model);
         if frozen_model_binding_fingerprint
             .is_some_and(|expected| expected != model_binding_fingerprint)
         {
@@ -3847,13 +3851,13 @@ impl ExecutionEngine {
                     .get_effective_ai_config()
                     .await?;
                 let model = config
-                    .models
-                    .iter()
+                    .resolved_models()
+                    .into_iter()
                     .find(|model| model.enabled && model.id == id)
                     .ok_or_else(|| {
                         OpenBitFunError::Configuration("Economy model is unavailable".into())
                     })?;
-                let fingerprint = model_runtime_binding_fingerprint(model);
+                let fingerprint = model_runtime_binding_fingerprint(&model);
                 let (prepared, channels) = ai_client_factory
                     .prepare_native_routed_model_client(
                         id,
@@ -7723,12 +7727,26 @@ mod tests {
         assert!(!cacheable);
     }
 
-    #[test]
-    fn resolve_configured_fast_model_falls_back_to_primary_when_fast_is_stale() {
-        let mut ai_config = AIConfig {
-            models: vec![build_model("model-primary", "Primary", "claude-sonnet-4.5")],
+    #[allow(dead_code)]
+    fn test_ai_config(models: Vec<AIModelConfig>) -> crate::service::config::types::AIConfig {
+        let mut providers = Vec::new();
+        let entries = models
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+        crate::service::config::types::AIConfig {
+            providers,
+            models: entries,
             ..Default::default()
-        };
+        }
+    }
+
+    fn resolve_configured_fast_model_falls_back_to_primary_when_fast_is_stale() {
+        let mut ai_config = test_ai_config(vec![build_model(
+            "model-primary",
+            "Primary",
+            "claude-sonnet-4.5",
+        )]);
         ai_config.default_models.primary = Some("model-primary".to_string());
         ai_config.default_models.fast = Some("deleted-fast-model".to_string());
 
@@ -7740,13 +7758,10 @@ mod tests {
 
     #[test]
     fn frozen_turn_model_wins_when_the_primary_default_changes() {
-        let mut ai_config = AIConfig {
-            models: vec![
-                build_model("model-original", "Original", "claude-sonnet-4.5"),
-                build_model("model-new-default", "New default", "gpt-5.4"),
-            ],
-            ..Default::default()
-        };
+        let mut ai_config = test_ai_config(vec![
+            build_model("model-original", "Original", "claude-sonnet-4.5"),
+            build_model("model-new-default", "New default", "gpt-5.4"),
+        ]);
         ai_config.default_models.primary = Some("model-new-default".to_string());
 
         assert_eq!(
@@ -7775,10 +7790,7 @@ mod tests {
     fn frozen_turn_model_must_still_be_available_for_recovery() {
         let mut model = build_model("model-original", "Original", "claude-sonnet-4.5");
         model.enabled = false;
-        let ai_config = AIConfig {
-            models: vec![model],
-            ..Default::default()
-        };
+        let ai_config = test_ai_config(vec![model]);
 
         let error = ExecutionEngine::resolve_model_id_for_turn_selection(
             &ai_config,

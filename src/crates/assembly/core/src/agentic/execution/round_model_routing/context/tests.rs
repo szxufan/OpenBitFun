@@ -1006,20 +1006,27 @@ fn render_is_bounded_by_router_tokens_not_an_unrelated_character_cap() {
 
 #[test]
 fn router_summary_never_uses_the_general_fast_to_primary_fallback() {
-    use crate::service::config::types::AIModelConfig;
+    use crate::service::config::types::{AIConfig, AIModelConfig};
+    let flattened = vec![
+        AIModelConfig {
+            id: "main-id".into(),
+            enabled: true,
+            ..Default::default()
+        },
+        AIModelConfig {
+            id: "fast-id".into(),
+            enabled: true,
+            ..Default::default()
+        },
+    ];
+    let mut providers = Vec::new();
+    let entries = flattened
+        .iter()
+        .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+        .collect::<Vec<_>>();
     let mut config = AIConfig {
-        models: vec![
-            AIModelConfig {
-                id: "main-id".into(),
-                enabled: true,
-                ..Default::default()
-            },
-            AIModelConfig {
-                id: "fast-id".into(),
-                enabled: true,
-                ..Default::default()
-            },
-        ],
+        providers,
+        models: entries,
         ..Default::default()
     };
     config.default_models.primary = Some("main-id".into());

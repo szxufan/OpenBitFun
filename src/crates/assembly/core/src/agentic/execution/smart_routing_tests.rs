@@ -307,19 +307,19 @@ async fn smart_slot_channel_switch_uses_its_own_route_and_preserves_durable_hist
         }),
         ..Default::default()
     };
-    service
-        .set_config(
-            "ai.models",
-            vec![
-                model("primary", Some("primary-backup")),
-                model("primary-backup", None),
-                model("economy", Some("economy-backup")),
-                model("economy-backup", None),
-            ],
-        )
-        .await
-        .unwrap();
-    let models = service.get_effective_ai_config().await.unwrap().models;
+    let mut providers = Vec::new();
+    let entries = [
+        model("primary", Some("primary-backup")),
+        model("primary-backup", None),
+        model("economy", Some("economy-backup")),
+        model("economy-backup", None),
+    ]
+    .iter()
+    .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+    .collect::<Vec<_>>();
+    service.set_config("ai.providers", providers).await.unwrap();
+    service.set_config("ai.models", entries).await.unwrap();
+    let models = service.get_effective_resolved_models().await.unwrap();
     let factory = Arc::new(AIClientFactory::new_for_test(service));
     let prepare = |id: &'static str| {
         let model = models.iter().find(|model| model.id == id).unwrap();

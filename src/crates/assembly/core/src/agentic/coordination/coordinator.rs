@@ -354,15 +354,15 @@ fn resolve_approved_immutable_model_binding(
         }
     };
     let model = ai_config
-        .models
-        .iter()
+        .resolved_models()
+        .into_iter()
         .find(|model| model.enabled && model.id == model_id)
         .ok_or_else(|| {
             OpenBitFunError::Validation(format!(
                 "Approved subagent model configuration is unknown or disabled: {model_id}"
             ))
         })?;
-    let fingerprint = model_runtime_binding_fingerprint(model);
+    let fingerprint = model_runtime_binding_fingerprint(&model);
     if expected_fingerprint.is_some_and(|expected| expected != fingerprint) {
         return Err(OpenBitFunError::Validation(
             "Approved subagent model configuration changed; review the external agent again"
@@ -6375,19 +6375,18 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         pool_id: Option<&str>,
         image_count: usize,
     ) -> OpenBitFunResult<()> {
+        let resolved_models = ai_config.resolved_models();
         let roots: Vec<_> = if let Some(pool_id) = pool_id {
             let pool = ai_config
                 .model_pools
                 .get(pool_id)
                 .map_err(OpenBitFunError::validation)?;
-            ai_config
-                .models
+            resolved_models
                 .iter()
                 .filter(|model| pool.member_model_ids.contains(&model.id))
                 .collect()
         } else {
-            ai_config
-                .models
+            resolved_models
                 .iter()
                 .filter(|model| Some(model.id.as_str()) == resolved_model_id)
                 .collect()
@@ -6400,7 +6399,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             .filter(|model| model.enabled && model.supports_text_generation())
         {
             let route = root.channel_routing.as_ref();
-            for candidate in ai_config.models.iter().filter(|candidate| {
+            for candidate in resolved_models.iter().filter(|candidate| {
                 candidate.enabled
                     && candidate.supports_text_generation()
                     && candidate.supports_image_understanding()
@@ -16457,6 +16456,27 @@ fn merge_prepended_messages_for_turn(
 
 #[cfg(test)]
 pub(crate) mod tests {
+    #[allow(dead_code)]
+    fn test_ai_config(models: Vec<AIModelConfig>) -> AIConfig {
+        let mut providers = Vec::new();
+        let entries = models
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+        AIConfig {
+            providers,
+            models: entries,
+            ..Default::default()
+        }
+    }
+
+    #[allow(dead_code)]
+    fn push_test_model(config: &mut AIConfig, model: AIModelConfig) {
+        let entry =
+            openbitfun_config_contracts::split_flattened_model(&model, &mut config.providers);
+        config.models.push(entry);
+    }
+
     use super::{
         append_skill_agent_listing_diff_reminders, apply_primary_agent_model_default,
         btw_session_memory_mode, build_subagent_session_relationship,
@@ -16559,20 +16579,17 @@ pub(crate) mod tests {
     fn input_image_count_admission_uses_the_resolved_native_model_limit() {
         use crate::service::config::types::{AIConfig, AIModelConfig, ModelCapability};
 
-        let mut config = AIConfig {
-            models: vec![AIModelConfig {
-                id: "limited-vision".into(),
-                name: "Limited vision".into(),
-                enabled: true,
-                capabilities: vec![
-                    ModelCapability::TextChat,
-                    ModelCapability::ImageUnderstanding,
-                ],
-                max_images_per_request: Some(3),
-                ..Default::default()
-            }],
+        let mut config = test_ai_config(vec![AIModelConfig {
+            id: "limited-vision".into(),
+            name: "Limited vision".into(),
+            enabled: true,
+            capabilities: vec![
+                ModelCapability::TextChat,
+                ModelCapability::ImageUnderstanding,
+            ],
+            max_images_per_request: Some(3),
             ..Default::default()
-        };
+        }]);
         ConversationCoordinator::validate_input_image_count(
             &config,
             Some("limited-vision"),
@@ -16635,14 +16652,11 @@ pub(crate) mod tests {
             fallback_model_ids: vec!["backup-vision".into(), "legacy-vision".into()],
             ..Default::default()
         });
-        let mut config = AIConfig {
-            models: vec![
-                primary,
-                image_admission_model("backup-vision", Some(3)),
-                image_admission_model("legacy-vision", None),
-            ],
-            ..Default::default()
-        };
+        let mut config = test_ai_config(vec![
+            primary,
+            image_admission_model("backup-vision", Some(3)),
+            image_admission_model("legacy-vision", None),
+        ]);
         let error = ConversationCoordinator::validate_input_image_count(
             &config,
             Some("primary-vision"),
@@ -16698,18 +16712,15 @@ pub(crate) mod tests {
         });
         let mut text_only = image_admission_model("text-only", Some(1));
         text_only.capabilities = vec![ModelCapability::TextChat];
-        let mut config = AIConfig {
-            models: vec![
-                image_admission_model("large-vision", Some(5)),
-                image_admission_model("small-vision", Some(3)),
-                image_admission_model("legacy-vision", None),
-                disabled,
-                text_only,
-                image_admission_model("unrelated-vision", Some(1)),
-                image_admission_model("member-backup", Some(2)),
-            ],
-            ..Default::default()
-        };
+        let mut config = test_ai_config(vec![
+            image_admission_model("large-vision", Some(5)),
+            image_admission_model("small-vision", Some(3)),
+            image_admission_model("legacy-vision", None),
+            disabled,
+            text_only,
+            image_admission_model("unrelated-vision", Some(1)),
+            image_admission_model("member-backup", Some(2)),
+        ]);
         config.model_pools.pools.push(serde_json::json!({
             "id": "vision-pool", "name": "Vision pool", "strategy": "balanced",
             "member_model_ids": ["large-vision", "small-vision", "legacy-vision", "disabled", "text-only"]
@@ -17629,17 +17640,14 @@ pub(crate) mod tests {
         let workspace = tempfile::tempdir().expect("child workspace");
         crate::service::workspace::legacy_compat::register_local_fixture_blocking(workspace.path());
         let workspace_path = workspace.path().to_string_lossy().into_owned();
-        let ai_config = AIConfig {
-            models: vec![AIModelConfig {
-                id: "child-model".to_string(),
-                name: "Child model".to_string(),
-                provider: "openai".to_string(),
-                model_name: "test-model".to_string(),
-                enabled: true,
-                ..AIModelConfig::default()
-            }],
-            ..AIConfig::default()
-        };
+        let ai_config = test_ai_config(vec![AIModelConfig {
+            id: "child-model".to_string(),
+            name: "Child model".to_string(),
+            provider: "openai".to_string(),
+            model_name: "test-model".to_string(),
+            enabled: true,
+            ..AIModelConfig::default()
+        }]);
         for agent_type in ["GeneralPurpose", "Explore"] {
             for policy in [
                 SessionContinuationPolicy::Reusable,
@@ -19970,17 +19978,14 @@ pub(crate) mod tests {
             )
             .await
             .expect("DeepReview session should be created");
-        let ai_config = AIConfig {
-            models: vec![AIModelConfig {
-                id: "review-model".to_string(),
-                name: "Review model".to_string(),
-                provider: "openai".to_string(),
-                model_name: "test-model".to_string(),
-                enabled: true,
-                ..AIModelConfig::default()
-            }],
-            ..AIConfig::default()
-        };
+        let ai_config = test_ai_config(vec![AIModelConfig {
+            id: "review-model".to_string(),
+            name: "Review model".to_string(),
+            provider: "openai".to_string(),
+            model_name: "test-model".to_string(),
+            enabled: true,
+            ..AIModelConfig::default()
+        }]);
         let fix_turn_id = "review-fix-turn";
         TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(
@@ -23266,10 +23271,7 @@ pub(crate) mod tests {
             enabled: true,
             ..AIModelConfig::default()
         };
-        let mut config = AIConfig {
-            models: vec![model.clone()],
-            ..AIConfig::default()
-        };
+        let mut config = test_ai_config(vec![model.clone()]);
         config.default_models.primary = Some(model.id.clone());
 
         let resolved = super::resolve_approved_immutable_model_binding(
@@ -23305,10 +23307,7 @@ pub(crate) mod tests {
             model_id: model.id.clone(),
             configuration_fingerprint: fingerprint.clone(),
         };
-        let mut config = AIConfig {
-            models: vec![model.clone()],
-            ..AIConfig::default()
-        };
+        let mut config = test_ai_config(vec![model.clone()]);
 
         assert_eq!(
             super::resolve_approved_immutable_model_binding(&binding, None, &config).unwrap(),
@@ -23316,7 +23315,8 @@ pub(crate) mod tests {
         );
 
         model.base_url = "https://changed.example/v1".to_string();
-        config.models[0] = model;
+        config.models[0] =
+            openbitfun_config_contracts::split_flattened_model(&model, &mut config.providers);
         assert!(super::resolve_approved_immutable_model_binding(&binding, None, &config).is_err());
     }
 
@@ -23663,14 +23663,20 @@ pub(crate) mod tests {
         // Typed target replacement validates the selected configured model.
         // Supply the same host-owned configuration a real runtime has loaded.
         let mut config = AIConfig::default();
-        config.models = ["main-model", "worker-model", "parent-model"]
-            .into_iter()
+        let flattened = ["main-model", "worker-model", "parent-model"]
+            .iter()
             .map(|id| AIModelConfig {
-                id: id.into(),
+                id: (*id).into(),
                 enabled: true,
                 ..Default::default()
             })
+            .collect::<Vec<_>>();
+        let mut providers = Vec::new();
+        config.models = flattened
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
             .collect();
+        config.providers = providers;
         config.default_models.primary = Some("main-model".into());
         config.default_models.fast = Some("worker-model".into());
         TEST_MODEL_RESOLUTION_AI_CONFIG

@@ -1,4 +1,6 @@
 import { ModelConfig, ProviderTemplate, ApiFormat } from '../../../shared/types';
+import type { AIModelConfig, AIModelEntry, AIProviderConfig } from '../types';
+export type AIProviderConfigType = AIProviderConfig;
 import { configManager } from './ConfigManager';
 import { getCapabilitiesByCategory, resolveModelCategory } from './modelCategory';
 import { i18nService } from '@/infrastructure/i18n';
@@ -18,6 +20,141 @@ type ProviderConfigLike = {
 };
 
 export const PROVIDER_INSTANCE_METADATA_KEY = 'provider_instance_id';
+
+/**
+ * Join slim model entries with their provider records into the flattened
+ * runtime view. Entries whose provider id has no matching provider are
+ * dropped — a dangling reference is a storage inconsistency, not a model.
+ */
+export function resolveAIModels(
+  providers: readonly AIProviderConfig[],
+  entries: readonly AIModelEntry[],
+): AIModelConfig[] {
+  const byId = new Map(providers.map(provider => [provider.id, provider]));
+  const resolved: AIModelConfig[] = [];
+  for (const entry of entries) {
+    // Dangling entries that still carry flattened provider fields (imports,
+    // fixtures, payloads written before normalization) render from their own
+    // fields instead of disappearing.
+    let provider = byId.get(entry.provider_id);
+    if (!provider) {
+      if (!entry.model_name && !entry.category) continue;
+      provider = {
+        id: entry.provider_id,
+        name: '',
+        provider: 'openai',
+        base_url: '',
+        api_key: '',
+        enabled: true,
+      };
+    }
+    resolved.push({
+      id: entry.id,
+      provider_id: provider.id,
+      name: provider.name,
+      provider: provider.provider,
+      api_key: provider.api_key,
+      base_url: provider.base_url,
+      request_url: entry.request_url ?? provider.request_url,
+      model_name: entry.model_name,
+      context_window: entry.context_window,
+      max_tokens: entry.max_tokens,
+      max_images_per_request: entry.max_images_per_request,
+      temperature: entry.temperature,
+      top_p: entry.top_p,
+      enabled: entry.enabled && provider.enabled,
+      custom_headers: provider.custom_headers,
+      custom_headers_mode: provider.custom_headers_mode,
+      skip_ssl_verify: provider.skip_ssl_verify,
+      custom_request_body: provider.custom_request_body,
+      custom_request_body_mode: provider.custom_request_body_mode,
+      auth: provider.auth,
+      category: entry.category,
+      capabilities: entry.capabilities,
+      recommended_for: entry.recommended_for,
+      metadata: entry.metadata,
+      reasoning: entry.reasoning,
+      inline_think_in_text: entry.inline_think_in_text,
+      image_dialect: entry.image_dialect,
+      channel_routing: entry.channel_routing,
+    });
+  }
+  return resolved;
+}
+
+/**
+ * Split a flattened model into a slim entry plus its provider record,
+ * reusing an existing provider with the same instance id (from the model
+ * metadata) or identity triple. Returns the entry and the provider id.
+ */
+export function splitFlattenedModel(
+  model: AIModelConfig,
+  providers: AIProviderConfig[],
+): AIModelEntry {
+  const instanceId =
+    typeof model.metadata?.[PROVIDER_INSTANCE_METADATA_KEY] === 'string'
+      ? (model.metadata[PROVIDER_INSTANCE_METADATA_KEY] as string).trim()
+      : undefined;
+  const existingIndex = providers.findIndex(
+    provider =>
+      (instanceId !== undefined && provider.id === instanceId) ||
+      (provider.name === model.name &&
+        provider.provider === model.provider &&
+        provider.base_url === model.base_url),
+  );
+  let providerId: string;
+  if (existingIndex >= 0) {
+    const provider = providers[existingIndex];
+    provider.name = model.name;
+    provider.provider = model.provider;
+    provider.base_url = model.base_url;
+    provider.api_key = model.api_key ?? '';
+    provider.auth = model.auth;
+    provider.custom_headers = model.custom_headers;
+    provider.custom_headers_mode = model.custom_headers_mode;
+    provider.skip_ssl_verify = model.skip_ssl_verify ?? false;
+    provider.custom_request_body = model.custom_request_body;
+    provider.custom_request_body_mode = model.custom_request_body_mode;
+    providerId = provider.id;
+  } else {
+    providerId = instanceId ?? `provider_${providers.length + 1}_${Date.now().toString(36)}`;
+    providers.push({
+      id: providerId,
+      name: model.name || model.model_name,
+      provider: model.provider || 'openai',
+      base_url: model.base_url,
+      api_key: model.api_key ?? '',
+      enabled: true,
+      auth: model.auth,
+      custom_headers: model.custom_headers,
+      custom_headers_mode: model.custom_headers_mode,
+      skip_ssl_verify: model.skip_ssl_verify ?? false,
+      custom_request_body: model.custom_request_body,
+      custom_request_body_mode: model.custom_request_body_mode,
+      metadata: model.metadata,
+    });
+  }
+  return {
+    id: model.id ?? '',
+    provider_id: providerId,
+    model_name: model.model_name,
+    context_window: model.context_window,
+    max_tokens: model.max_tokens,
+    max_images_per_request: model.max_images_per_request,
+    temperature: model.temperature,
+    top_p: model.top_p,
+    enabled: model.enabled,
+    category: model.category,
+    capabilities: model.capabilities,
+    recommended_for: model.recommended_for,
+    metadata: model.metadata,
+    reasoning: model.reasoning,
+    inline_think_in_text: model.inline_think_in_text ?? true,
+    image_dialect: model.image_dialect,
+    channel_routing: model.channel_routing,
+    request_url: model.request_url,
+  };
+}
 
 /**
  * The provider instance a model config belongs to: one configured endpoint plus

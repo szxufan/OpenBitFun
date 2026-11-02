@@ -22,6 +22,7 @@ use crate::service::config::global::GlobalConfigManager;
 use crate::service::config::types::{model_runtime_binding_fingerprint, AIConfig, AIModelConfig};
 use crate::util::OpenBitFunError;
 use openbitfun_ai_adapters::models_dev::ModelsDevCatalog;
+use openbitfun_config_contracts::{AIModelEntry, AIProviderConfig};
 use openbitfun_external_sources::ExternalSubagentCoordinatorSnapshot;
 use openbitfun_product_domains::external_sources::EcosystemId;
 use openbitfun_product_domains::external_sources::{ExternalSourceScope, ProviderId, SourceKey};
@@ -474,9 +475,9 @@ fn resolve_exact_external_model(
         return None;
     }
 
+    let resolved_models = ai_config.resolved_models();
     if provider_hint.is_none() {
-        let mut id_matches = ai_config
-            .models
+        let mut id_matches = resolved_models
             .iter()
             .filter(|model| model.enabled && model.id == model_name);
         if let Some(model) = id_matches.next() {
@@ -487,8 +488,7 @@ fn resolve_exact_external_model(
         }
     }
 
-    let mut matches = ai_config
-        .models
+    let mut matches = resolved_models
         .iter()
         .filter(|model| model.enabled)
         .filter(|model| {
@@ -548,7 +548,7 @@ fn resolve_model_binding_target(
         }
     };
     ai_config
-        .models
+        .resolved_models()
         .iter()
         .find(|model| model.enabled && model.id == runtime_id)
         .map(resolved_model_fact)
@@ -568,7 +568,7 @@ fn external_model_binding_options(
                 target,
                 effective_model_label: model.display_label,
                 configured_reasoning_effort: ai_config
-                    .models
+                    .resolved_models()
                     .iter()
                     .find(|candidate| candidate.enabled && candidate.id == model.runtime_id)
                     .and_then(|model| configured_reasoning_effort(model, models_dev)),
@@ -576,7 +576,7 @@ fn external_model_binding_options(
         }
     }
     let mut configured = ai_config
-        .models
+        .resolved_models()
         .iter()
         .filter(|model| model.enabled)
         .map(|model| ExternalSubagentModelBindingOption {
@@ -1601,16 +1601,27 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
+    fn test_ai_config(models: Vec<AIModelConfig>) -> AIConfig {
+        let mut providers = Vec::new();
+        let entries = models
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+        AIConfig {
+            providers,
+            models: entries,
+            ..Default::default()
+        }
+    }
+
     fn facts() -> ProductFacts {
-        let mut ai_config = AIConfig {
-            models: vec![active_model(
-                "model_fast",
-                "Fast provider",
-                "fake",
-                "fast-model",
-            )],
-            ..AIConfig::default()
-        };
+        let mut ai_config = test_ai_config(vec![active_model(
+            "model_fast",
+            "Fast provider",
+            "fake",
+            "fast-model",
+        )]);
         ai_config.default_models.fast = Some("model_fast".to_string());
         ai_config.set_model_selections(Default::default()).unwrap();
         ProductFacts {
@@ -1646,15 +1657,12 @@ mod tests {
 
     #[test]
     fn exact_external_model_maps_provider_and_model_to_internal_config_without_exposing_id() {
-        let config = AIConfig {
-            models: vec![active_model(
-                "model_internal_1",
-                "OpenRouter",
-                "openai",
-                "anthropic/claude-sonnet-4",
-            )],
-            ..AIConfig::default()
-        };
+        let config = test_ai_config(vec![active_model(
+            "model_internal_1",
+            "OpenRouter",
+            "openai",
+            "anthropic/claude-sonnet-4",
+        )]);
 
         let resolved =
             resolve_exact_external_model(Some("openrouter"), "anthropic/claude-sonnet-4", &config)
@@ -1670,13 +1678,10 @@ mod tests {
 
     #[test]
     fn exact_external_model_fails_closed_when_provider_model_identity_is_ambiguous() {
-        let config = AIConfig {
-            models: vec![
-                active_model("model_a", "Anthropic", "anthropic", "claude-sonnet-4"),
-                active_model("model_b", "Anthropic", "anthropic", "claude-sonnet-4"),
-            ],
-            ..AIConfig::default()
-        };
+        let config = test_ai_config(vec![
+            active_model("model_a", "Anthropic", "anthropic", "claude-sonnet-4"),
+            active_model("model_b", "Anthropic", "anthropic", "claude-sonnet-4"),
+        ]);
 
         assert!(resolve_exact_external_model(None, "anthropic/claude-sonnet-4", &config).is_none());
         let options = external_model_binding_options(&config, None)
@@ -1697,13 +1702,10 @@ mod tests {
 
     #[test]
     fn exact_external_model_prefers_a_unique_config_id_before_provider_model_matching() {
-        let config = AIConfig {
-            models: vec![
-                active_model("review-model", "OpenAI", "openai", "gpt-5"),
-                active_model("other", "Review Model", "review-model", "review-model"),
-            ],
-            ..AIConfig::default()
-        };
+        let config = test_ai_config(vec![
+            active_model("review-model", "OpenAI", "openai", "gpt-5"),
+            active_model("other", "Review Model", "review-model", "review-model"),
+        ]);
 
         let resolved = resolve_exact_external_model(None, "review-model", &config)
             .expect("a unique config id has priority");
@@ -2603,12 +2605,20 @@ mod tests {
 
         let mut updated_facts = facts();
         let updated_config = updated_facts.ai_config.as_mut().unwrap();
-        updated_config.models = vec![active_model(
-            "model_new",
-            "New provider",
-            "fake",
-            "new-model",
-        )];
+        updated_config.providers.push(AIProviderConfig {
+            id: "model_new-provider".into(),
+            name: "New provider".into(),
+            provider: "fake".into(),
+            base_url: "https://new.example.test/v1".into(),
+            ..Default::default()
+        });
+        updated_config.models = vec![AIModelEntry {
+            id: "model_new".into(),
+            provider_id: "model_new-provider".into(),
+            model_name: "new-model".into(),
+            enabled: true,
+            ..Default::default()
+        }];
         updated_config.default_models.fast = Some("model_new".to_string());
         let updated = reconcile_with_facts(
             Some("workspace-1"),
@@ -2665,9 +2675,15 @@ mod tests {
 
         let mut updated_facts = facts();
         let updated_config = updated_facts.ai_config.as_mut().unwrap();
-        updated_config.models[0].provider = "other-provider".to_string();
         updated_config.models[0].model_name = "replacement-model".to_string();
-        updated_config.models[0].base_url = "https://models.example/v2".to_string();
+        let owner_provider_id = updated_config.models[0].provider_id.clone();
+        let owner_provider = updated_config
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == owner_provider_id)
+            .unwrap();
+        owner_provider.provider = "other-provider".to_string();
+        owner_provider.base_url = "https://models.example/v2".to_string();
         let updated = reconcile_with_facts(
             Some("workspace-1"),
             Some(Path::new("C:/repo")),

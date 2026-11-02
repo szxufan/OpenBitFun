@@ -143,19 +143,10 @@
     min-width: 0;
   }
 
-  // Both states share one layout: keep the identity anchored and the source's
-  // available width stable. Interaction only reveals the trailing controls.
-  // Opacity keeps hidden controls focusable for keyboard access.
+  // Card controls stay visible: hover-only discovery hid the primary model
+  // actions (test/edit/more) and read as broken on touch devices.
   &__pool-card-controls {
     flex: 0 0 auto;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard);
-  }
-
-  &__pool-card:hover &__pool-card-controls,
-  &__pool-card:focus-within &__pool-card-controls,
-  &__pool-card-controls[data-menu-open='true'] {
     opacity: 1;
     pointer-events: auto;
   }
@@ -435,17 +426,6 @@
         opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
         visibility 0s linear var(--openbitfun-motion-duration-fast);
     }
-
-    .openbitfun-collection-item:hover,
-    .openbitfun-collection-item:focus-within {
-      .openbitfun-model-settings__model-actions,
-      .openbitfun-collection-item__details-toggle {
-        opacity: 1;
-        visibility: visible;
-        pointer-events: auto;
-        transition-delay: 0s;
-      }
-    }
   }
 
   &__provider-group-actions {
@@ -461,12 +441,6 @@
     order: 1;
     align-items: center;
     gap: var(--openbitfun-space-2);
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transition:
-      opacity var(--openbitfun-motion-duration-fast) var(--openbitfun-motion-easing-standard),
-      visibility 0s linear var(--openbitfun-motion-duration-fast);
   }
 
   &__model-enable {
@@ -2743,29 +2717,8 @@
     transform: none;
   }
 
-  .openbitfun-model-settings__model-actions,
-  .openbitfun-model-settings__pool-card-controls,
   .openbitfun-model-settings__provider-group-list .openbitfun-collection-item__details-toggle {
     transition: none;
-  }
-}
-
-@media (hover: none), (pointer: coarse) {
-  .openbitfun-model-settings__pool-card-controls {
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
-@media (hover: none) {
-  .openbitfun-model-settings__provider-group-list {
-    .openbitfun-model-settings__model-actions,
-    .openbitfun-collection-item__details-toggle {
-      opacity: 1;
-      visibility: visible;
-      pointer-events: auto;
-      transition: none;
-    }
   }
 }
 

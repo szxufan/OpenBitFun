@@ -213,12 +213,11 @@ async fn configured_model_in_service(
     } else {
         let mut matching = global_config
             .ai
-            .models
-            .iter()
+            .resolved_models()
+            .into_iter()
             .filter(|model| model.id == normalized_model_id);
         let model = matching
             .next()
-            .cloned()
             .ok_or_else(|| anyhow!("Model configuration not found: {normalized_model_id}"))?;
         if matching.next().is_some() {
             return Err(anyhow!(
@@ -260,10 +259,9 @@ pub async fn apply_model_default_reasoning(
 
 impl AIClientFactory {
     pub(crate) async fn validate_channel_snapshot(&self, members: &[AIModelConfig]) -> Result<()> {
-        let effective = self.config_service.get_effective_ai_config().await?;
+        let effective = self.config_service.get_effective_resolved_models().await?;
         for model in members {
             let current = effective
-                .models
                 .iter()
                 .filter(|current| current.id == model.id)
                 .collect::<Vec<_>>();
@@ -305,15 +303,13 @@ impl AIClientFactory {
                 .await?;
             return Ok((prepared, None));
         }
-        let effective = self.config_service.get_effective_ai_config().await?;
-        let members = openbitfun_config_contracts::channel_routing::channel_members(
-            &model,
-            &effective.models,
-        )
-        .map_err(anyhow::Error::msg)?
-        .into_iter()
-        .cloned()
-        .collect();
+        let effective = self.config_service.get_effective_resolved_models().await?;
+        let members =
+            openbitfun_config_contracts::channel_routing::channel_members(&model, &effective)
+                .map_err(anyhow::Error::msg)?
+                .into_iter()
+                .cloned()
+                .collect();
         let source = Arc::new(super::channel_client_source::ChannelClientSource::new(
             self.clone(),
             members,
@@ -499,9 +495,8 @@ impl AIClientFactory {
         else {
             return Ok(client);
         };
-        let ai_config = self.config_service.get_effective_ai_config().await?;
+        let ai_config = self.config_service.get_effective_resolved_models().await?;
         let model = ai_config
-            .models
             .iter()
             .find(|model| model.id == model_id)
             .ok_or_else(|| anyhow!("Model configuration not found: {}", model_id))?;
@@ -625,12 +620,17 @@ impl AIClientFactory {
     ) -> Result<Option<Arc<dyn super::account_client_source::AccountClientSource>>> {
         use super::account_client_source::FactoryAccountClientSource;
         use openbitfun_agent_runtime::account_routing::AccountPolicy;
-        let config = self.config_service.get_effective_ai_config().await?;
-        let mut models = config.models.iter().filter(|model| model.id == model_id);
+        let config = self.config_service.get_effective_resolved_models().await?;
+        let mut models = config.iter().filter(|model| model.id == model_id);
         let model = models
             .next()
             .ok_or_else(|| anyhow!("Model configuration not found: {model_id}"))?;
-        if models.next().is_some() || model_runtime_binding_fingerprint(model) != fingerprint {
+        if models.next().is_some() {
+            return Err(anyhow!(
+                "Model binding changed before account routing was prepared"
+            ));
+        }
+        if model_runtime_binding_fingerprint(model) != fingerprint {
             return Err(anyhow!(
                 "Model binding changed before account routing was prepared"
             ));
@@ -1912,6 +1912,12 @@ mod tests {
         );
     }
 
+    fn install_model(config: &mut GlobalConfig, model: AIModelConfig) {
+        let entry =
+            openbitfun_config_contracts::split_flattened_model(&model, &mut config.ai.providers);
+        config.ai.models.push(entry);
+    }
+
     fn build_model(id: &str, name: &str, model_name: &str) -> AIModelConfig {
         AIModelConfig {
             id: id.to_string(),
@@ -2143,33 +2149,58 @@ mod tests {
             .await
             .unwrap(),
         );
-        let mut protected = build_model("guarded", "Guarded", "fixture-model");
-        protected.auth = AuthConfig::Subscription {
-            provider: crate::service::config::types::SubscriptionProvider::Codex,
-            plan: None,
-            account_id: Some("codex-account-58134808-15a6-45db-ae33-2ad7d85cc570".into()),
+        let guarded_provider = openbitfun_config_contracts::AIProviderConfig {
+            id: "guarded-provider".into(),
+            name: "Guarded".into(),
+            provider: "openai".into(),
+            base_url: "https://chatgpt.com/backend-api/codex".into(),
+            enabled: true,
+            auth: AuthConfig::Subscription {
+                provider: crate::service::config::types::SubscriptionProvider::Codex,
+                plan: None,
+                account_id: Some("codex-account-58134808-15a6-45db-ae33-2ad7d85cc570".into()),
+            },
+            ..Default::default()
         };
-        let mut value = serde_json::json!({"ai":{"models":[protected]}});
+        let guarded_entry = openbitfun_config_contracts::AIModelEntry {
+            id: "guarded".into(),
+            provider_id: "guarded-provider".into(),
+            model_name: "fixture-model".into(),
+            enabled: true,
+            ..Default::default()
+        };
+        let mut value = serde_json::json!({"ai":{
+            "providers":[guarded_provider],
+            "models":[guarded_entry],
+        }});
         protect_account_models(&mut value);
-        value["ai"]["models"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]["version"] =
+        value["ai"]["providers"][0]["metadata"][ACCOUNT_MODEL_GUARD_KEY]["version"] =
             serde_json::json!(99);
-        let protected: AIModelConfig =
+        let guarded_provider: openbitfun_config_contracts::AIProviderConfig =
+            serde_json::from_value(value["ai"]["providers"][0].clone()).unwrap();
+        let guarded_entry: openbitfun_config_contracts::AIModelEntry =
             serde_json::from_value(value["ai"]["models"][0].clone()).unwrap();
         config
-            .set_config(
-                "ai.models",
-                vec![
-                    protected,
-                    build_model("legacy-other", "Other", "fixture-model"),
-                ],
-            )
+            .set_config("ai.providers", vec![guarded_provider])
+            .await
+            .unwrap();
+        config
+            .set_config("ai.models", vec![guarded_entry])
             .await
             .unwrap();
         config
             .set_config("ai.default_models.primary", "guarded")
             .await
             .unwrap();
-        let error = AIClientFactory::new(config)
+        let raw_providers: Vec<openbitfun_config_contracts::AIProviderConfig> =
+            config.get_config(Some("ai.providers")).await.unwrap();
+        for provider in &raw_providers {
+            eprintln!(
+                "DEBUG provider {} name={:?} base={:?} key={:?} auth={:?}",
+                provider.id, provider.name, provider.base_url, provider.api_key, provider.auth
+            );
+        }
+        let error = AIClientFactory::new(config.clone())
             .get_client_resolved("primary")
             .await
             .unwrap_err();
@@ -2919,11 +2950,10 @@ mod tests {
     #[test]
     fn resolve_model_reference_requires_a_config_id() {
         let mut config = GlobalConfig::default();
-        config.ai.models = vec![build_model(
-            "model-123",
-            "Primary Chat",
-            "claude-sonnet-4.5",
-        )];
+        install_model(
+            &mut config,
+            build_model("model-123", "Primary Chat", "claude-sonnet-4.5"),
+        );
 
         assert_eq!(
             config.ai.resolve_model_reference("model-123"),
@@ -2932,21 +2962,23 @@ mod tests {
         assert_eq!(config.ai.resolve_model_reference("Primary Chat"), None);
         assert_eq!(config.ai.resolve_model_reference("claude-sonnet-4.5"), None);
 
-        config.ai.models.push(build_model(
-            "model-123",
-            "Duplicate Config",
-            "claude-sonnet-4.5-duplicate",
-        ));
+        install_model(
+            &mut config,
+            build_model(
+                "model-123",
+                "Duplicate Config",
+                "claude-sonnet-4.5-duplicate",
+            ),
+        );
         assert_eq!(config.ai.resolve_model_reference("model-123"), None);
     }
 
     #[test]
     fn concrete_reserved_model_ids_remain_exact_config_references() {
         let mut config = GlobalConfig::default();
-        config.ai.models = ["inherit", "primary", "fast", "default"]
-            .into_iter()
-            .map(|id| build_model(id, id, &format!("runtime-{id}")))
-            .collect();
+        for id in ["inherit", "primary", "fast", "default"] {
+            install_model(&mut config, build_model(id, id, &format!("runtime-{id}")));
+        }
 
         for id in ["inherit", "primary", "fast", "default"] {
             assert_eq!(
@@ -2987,11 +3019,10 @@ mod tests {
     #[test]
     fn resolve_fast_selection_falls_back_to_primary_when_fast_missing() {
         let mut config = GlobalConfig::default();
-        config.ai.models = vec![build_model(
-            "model-primary",
-            "Primary Chat",
-            "claude-sonnet-4.5",
-        )];
+        install_model(
+            &mut config,
+            build_model("model-primary", "Primary Chat", "claude-sonnet-4.5"),
+        );
         config.ai.default_models.primary = Some("model-primary".to_string());
 
         assert_eq!(
@@ -3008,11 +3039,10 @@ mod tests {
     #[test]
     fn resolve_fast_selection_falls_back_to_primary_when_fast_is_stale() {
         let mut config = GlobalConfig::default();
-        config.ai.models = vec![build_model(
-            "model-primary",
-            "Primary Chat",
-            "claude-sonnet-4.5",
-        )];
+        install_model(
+            &mut config,
+            build_model("model-primary", "Primary Chat", "claude-sonnet-4.5"),
+        );
         config.ai.default_models.primary = Some("model-primary".to_string());
         config.ai.default_models.fast = Some("deleted-fast-model".to_string());
 

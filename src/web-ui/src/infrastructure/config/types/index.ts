@@ -290,8 +290,59 @@ export const CATEGORY_ICONS: Record<ModelCategory, string> = {
 export type CustomHeadersMode = 'replace' | 'merge';
 export type CustomRequestBodyMode = 'merge' | 'trim';
 
+/**
+ * First-class provider entity persisted under `ai.providers`. Connection facts
+ * (endpoint, credential, protocol, auth source, transport overrides) are owned
+ * here exactly once; models reference it through `provider_id`. A provider may
+ * exist with zero models.
+ */
+export interface AIProviderConfig {
+  id: string;
+  name: string;
+  provider: string;
+  base_url: string;
+  request_url?: string;
+  api_key?: string;
+  enabled: boolean;
+  auth?: AuthConfig;
+  custom_headers?: Record<string, string>;
+  custom_headers_mode?: CustomHeadersMode;
+  skip_ssl_verify?: boolean;
+  custom_request_body?: string;
+  custom_request_body_mode?: CustomRequestBodyMode;
+  metadata?: Record<string, any>;
+}
+
+/** Slim model entry persisted under `ai.models`; references `provider_id`. */
+export interface AIModelEntry {
+  id: string;
+  provider_id: string;
+  model_name: string;
+  context_window?: number;
+  max_tokens?: number;
+  max_images_per_request?: number;
+  temperature?: number;
+  top_p?: number;
+  enabled: boolean;
+  category: ModelCategory;
+  capabilities: ModelCapability[];
+  recommended_for?: string[];
+  metadata?: Record<string, any>;
+  reasoning?: ReasoningConfig;
+  inline_think_in_text?: boolean;
+  image_dialect?: ImageDialect;
+  channel_routing?: ModelChannelRouting;
+  request_url?: string;
+}
+
+/**
+ * Resolved runtime projection of a model entry joined with its provider.
+ * Persisted `ai.models` entries are slim; runtime consumers read this shape.
+ */
 export interface AIModelConfig {
   id?: string;
+  /** `AIProviderConfig::id` of the owning provider (resolved projection). */
+  provider_id?: string;
   name: string;
   provider: string;
   api_key?: string;

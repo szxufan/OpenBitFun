@@ -119,8 +119,8 @@ fn ai_validation_error_location(message: &str) -> (String, String) {
 }
 
 fn ai_validation_warning_location(config: &GlobalConfig, message: &str) -> String {
-    let Some(model_name) = message
-        .strip_prefix("Model '")
+    let Some(provider_name) = message
+        .strip_prefix("Provider '")
         .and_then(|value| value.split_once("' has empty API key"))
         .map(|(name, _)| name)
     else {
@@ -128,10 +128,10 @@ fn ai_validation_warning_location(config: &GlobalConfig, message: &str) -> Strin
     };
     config
         .ai
-        .models
+        .providers
         .iter()
-        .position(|model| model.name == model_name)
-        .map(|index| format!("ai.models[{index}].api_key"))
+        .position(|provider| provider.name == provider_name)
+        .map(|index| format!("ai.providers[{index}].api_key"))
         .unwrap_or_else(|| "ai".to_string())
 }
 
@@ -165,30 +165,69 @@ impl ConfigProvider for AIConfigProvider {
                 }
             }
 
+            for (index, provider) in ai_config.providers.iter().enumerate() {
+                openbitfun_config_contracts::normalization::validate_provider_config(
+                    provider, index,
+                )
+                .map_err(OpenBitFunError::validation)?;
+                if provider.enabled
+                    && provider.api_key.trim().is_empty()
+                    && provider.auth == openbitfun_config_contracts::AuthConfig::ApiKey
+                {
+                    warnings.push(format!("Provider '{}' has empty API key", provider.name));
+                }
+            }
+
+            let provider_by_id = |provider_id: &str| {
+                ai_config
+                    .providers
+                    .iter()
+                    .find(|provider| provider.id == provider_id)
+            };
+            let resolved_models = openbitfun_config_contracts::load_resolved_models(
+                &ai_config.providers,
+                &ai_config.models,
+            );
             for (index, model) in ai_config.models.iter().enumerate() {
-                openbitfun_config_contracts::normalization::validate_model_config(model, index)
+                openbitfun_config_contracts::normalization::validate_model_entry(model, index)
                     .map_err(OpenBitFunError::validation)?;
                 if !model.enabled {
                     continue;
                 }
-                if model.api_key.trim().is_empty() {
-                    warnings.push(format!("Model '{}' has empty API key", model.name));
+                if let Some(resolved) = resolved_models
+                    .iter()
+                    .find(|resolved| resolved.id == model.id)
+                {
+                    openbitfun_config_contracts::normalization::validate_resolved_model_config(
+                        resolved, index,
+                    )
+                    .map_err(OpenBitFunError::validation)?;
                 }
                 if model.supports_text_generation() {
                     if let Some(temperature) = model.temperature {
                         if !temperature.is_nan() && !(0.0..=2.0).contains(&temperature) {
                             warnings.push(format!(
                                 "Model '{}' temperature should be between 0 and 2",
-                                model.name
+                                model.model_name
                             ));
                         }
                     }
+                }
+                let provider_enabled =
+                    provider_by_id(&model.provider_id).is_some_and(|provider| provider.enabled);
+                if !provider_enabled {
+                    warnings.push(format!(
+                        "Model '{}' references disabled provider '{}'",
+                        model.model_name, model.provider_id
+                    ));
                 }
             }
 
             let enabled_model_with_capability = |model_id: &str, capability: ModelCapability| {
                 ai_config.models.iter().any(|model| {
                     model.enabled
+                        && provider_by_id(&model.provider_id)
+                            .is_some_and(|provider| provider.enabled)
                         && model.id == model_id
                         && model.supports_capability(capability.clone())
                 })
@@ -851,21 +890,44 @@ impl Default for ConfigProviderRegistry {
 mod tests {
     use super::*;
 
-    fn model_with_reasoning(reasoning: ReasoningConfig) -> AIModelConfig {
-        AIModelConfig {
+    fn provider(id: &str) -> openbitfun_config_contracts::AIProviderConfig {
+        openbitfun_config_contracts::AIProviderConfig {
+            id: id.to_string(),
+            name: format!("Provider {id}"),
+            provider: "openai".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            api_key: "test-key".to_string(),
+            enabled: true,
+            ..Default::default()
+        }
+    }
+
+    fn entry(id: &str) -> openbitfun_config_contracts::AIModelEntry {
+        openbitfun_config_contracts::AIModelEntry {
+            id: id.to_string(),
+            provider_id: "prov".to_string(),
+            model_name: id.to_string(),
+            enabled: true,
+            ..Default::default()
+        }
+    }
+
+    fn model_with_reasoning(
+        reasoning: ReasoningConfig,
+    ) -> openbitfun_config_contracts::AIModelEntry {
+        openbitfun_config_contracts::AIModelEntry {
             id: "reasoning-model".to_string(),
-            name: "Reasoning model".to_string(),
-            provider: "responses".to_string(),
+            provider_id: "prov".to_string(),
             model_name: "gpt-5.4".to_string(),
-            base_url: "https://api.openai.com/v1/responses".to_string(),
             enabled: true,
             reasoning: Some(reasoning),
-            ..AIModelConfig::default()
+            ..Default::default()
         }
     }
 
     async fn validate_reasoning(reasoning: ReasoningConfig) -> OpenBitFunResult<Vec<String>> {
         let mut config = AIConfig::default();
+        config.providers.push(provider("prov"));
         config.models.push(model_with_reasoning(reasoning));
         AIConfigProvider
             .validate_config(&serde_json::to_value(config)?)
@@ -875,13 +937,17 @@ mod tests {
     #[tokio::test]
     async fn rejects_a_model_context_window_smaller_than_32k() {
         let mut config = AIConfig::default();
-        config.models.push(AIModelConfig {
-            name: "Test model".to_string(),
-            provider: "openai".to_string(),
-            context_window: Some(MIN_MODEL_CONTEXT_WINDOW_TOKENS - 1),
-            enabled: true,
-            ..AIModelConfig::default()
-        });
+        config.providers.push(provider("prov"));
+        config
+            .models
+            .push(openbitfun_config_contracts::AIModelEntry {
+                id: "test-model".to_string(),
+                provider_id: "prov".to_string(),
+                model_name: "Test model".to_string(),
+                context_window: Some(MIN_MODEL_CONTEXT_WINDOW_TOKENS - 1),
+                enabled: true,
+                ..Default::default()
+            });
         let value = serde_json::to_value(config).expect("AI config should serialize");
 
         let error = AIConfigProvider
@@ -897,16 +963,17 @@ mod tests {
     #[tokio::test]
     async fn rejects_generation_fields_on_pure_speech_models() {
         let mut config = AIConfig::default();
-        config.models.push(AIModelConfig {
-            name: "Qwen ASR".to_string(),
-            provider: "openai".to_string(),
-            enabled: true,
-            category: ModelCategory::SpeechRecognition,
-            capabilities: vec![ModelCapability::SpeechRecognition],
-            context_window: Some(0),
-            max_tokens: Some(0),
-            ..AIModelConfig::default()
-        });
+        config.providers.push(provider("prov"));
+        config
+            .models
+            .push(openbitfun_config_contracts::AIModelEntry {
+                model_name: "Qwen ASR".to_string(),
+                category: ModelCategory::SpeechRecognition,
+                capabilities: vec![ModelCapability::SpeechRecognition],
+                context_window: Some(0),
+                max_tokens: Some(0),
+                ..entry("asr")
+            });
 
         let error = AIConfigProvider
             .validate_config(&serde_json::to_value(config).unwrap())
@@ -918,17 +985,17 @@ mod tests {
     #[tokio::test]
     async fn mixed_text_and_speech_models_still_require_a_valid_context_window() {
         let mut config = AIConfig::default();
-        config.models.push(AIModelConfig {
-            name: "Mixed model".to_string(),
-            provider: "openai".to_string(),
-            enabled: true,
-            capabilities: vec![
-                ModelCapability::TextChat,
-                ModelCapability::SpeechRecognition,
-            ],
-            context_window: Some(0),
-            ..AIModelConfig::default()
-        });
+        config.providers.push(provider("prov"));
+        config
+            .models
+            .push(openbitfun_config_contracts::AIModelEntry {
+                capabilities: vec![
+                    ModelCapability::TextChat,
+                    ModelCapability::SpeechRecognition,
+                ],
+                context_window: Some(0),
+                ..entry("mixed")
+            });
 
         let error = AIConfigProvider
             .validate_config(&serde_json::to_value(config).unwrap())
@@ -942,14 +1009,13 @@ mod tests {
     #[tokio::test]
     async fn registry_reports_precise_model_validation_paths_and_codes() {
         let mut config = AIConfig::default();
-        config.models.push(AIModelConfig {
-            id: "broken".to_string(),
-            name: "Broken model".to_string(),
-            provider: "openai".to_string(),
-            enabled: true,
-            context_window: Some(0),
-            ..AIModelConfig::default()
-        });
+        config.providers.push(provider("prov"));
+        config
+            .models
+            .push(openbitfun_config_contracts::AIModelEntry {
+                context_window: Some(0),
+                ..entry("broken")
+            });
 
         let result = ConfigProviderRegistry::new()
             .validate_config(&GlobalConfig {
@@ -967,14 +1033,14 @@ mod tests {
     #[tokio::test]
     async fn registry_reports_image_budget_validation_path() {
         let mut config = GlobalConfig::default();
-        config.ai.models.push(AIModelConfig {
-            id: "limited".into(),
-            name: "Limited vision".into(),
-            provider: "openai".into(),
-            enabled: true,
-            max_images_per_request: Some(0),
-            ..AIModelConfig::default()
-        });
+        config.ai.providers.push(provider("prov"));
+        config
+            .ai
+            .models
+            .push(openbitfun_config_contracts::AIModelEntry {
+                max_images_per_request: Some(0),
+                ..entry("limited")
+            });
         let result = ConfigProviderRegistry::new()
             .validate_config(&config)
             .await
@@ -986,15 +1052,14 @@ mod tests {
     #[tokio::test]
     async fn rejects_default_and_agent_references_to_incapable_models() {
         let mut config = AIConfig::default();
-        config.models.push(AIModelConfig {
-            id: "speech".to_string(),
-            name: "Speech".to_string(),
-            provider: "openai".to_string(),
-            enabled: true,
-            category: ModelCategory::SpeechRecognition,
-            capabilities: vec![ModelCapability::SpeechRecognition],
-            ..AIModelConfig::default()
-        });
+        config.providers.push(provider("prov"));
+        config
+            .models
+            .push(openbitfun_config_contracts::AIModelEntry {
+                category: ModelCategory::SpeechRecognition,
+                capabilities: vec![ModelCapability::SpeechRecognition],
+                ..entry("speech")
+            });
         config.default_models.primary = Some("speech".to_string());
 
         let error = AIConfigProvider

@@ -104,14 +104,14 @@ fn build_list_models_result(config: &AIConfig, query: Option<&str>) -> (Value, S
     let selected_model_id = resolved_default_selector(query)
         .and_then(|selector| config.resolve_model_selection(selector));
     let mut matches = config
-        .models
-        .iter()
+        .resolved_models()
+        .into_iter()
         .enumerate()
         .filter(|(_, model)| model.enabled)
         .filter_map(|(index, model)| {
             let score = match selected_model_id.as_deref() {
                 Some(model_id) => (model.id == model_id).then_some(0),
-                None => model_match_score(model, &terms),
+                None => model_match_score(&model, &terms),
             }?;
             Some((score, index, model))
         })
@@ -315,7 +315,8 @@ mod tests {
 
     fn configured_models() -> AIConfig {
         let mut config = AIConfig::default();
-        config.models = vec![
+        let mut providers = Vec::new();
+        let models = [
             model("main-gpt", "openai", "gpt-5-mini", "OpenAI", true),
             model(
                 "claude-fast",
@@ -325,7 +326,10 @@ mod tests {
                 true,
             ),
             model("disabled-gpt", "openai", "gpt-5", "OpenAI", false),
-        ];
+        ]
+        .map(|model| openbitfun_config_contracts::split_flattened_model(&model, &mut providers));
+        config.providers = providers;
+        config.models = models.to_vec();
         config.default_models.primary = Some("main-gpt".to_string());
         config.default_models.fast = Some("claude-fast".to_string());
         config

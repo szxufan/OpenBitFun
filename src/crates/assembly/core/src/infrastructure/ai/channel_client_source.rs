@@ -68,17 +68,19 @@ mod tests {
             ),
             ..member("primary")
         };
-        config
-            .set_config("ai.models", vec![primary.clone(), member("relay")])
-            .await
-            .unwrap();
+        let mut providers = Vec::new();
+        let entries = vec![primary.clone(), member("relay")]
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+        config.set_config("ai.providers", providers).await.unwrap();
+        config.set_config("ai.models", entries).await.unwrap();
         let factory = Arc::new(AIClientFactory::new_for_test(config.clone()));
         let fingerprint = model_runtime_binding_fingerprint(
             &config
-                .get_effective_ai_config()
+                .get_effective_resolved_models()
                 .await
                 .unwrap()
-                .models
                 .into_iter()
                 .find(|model| model.id == "primary")
                 .unwrap(),
@@ -144,10 +146,9 @@ mod tests {
             .await
             .unwrap();
         let mut model = config
-            .get_effective_ai_config()
+            .get_effective_resolved_models()
             .await
             .unwrap()
-            .models
             .into_iter()
             .find(|model| model.id == "primary")
             .unwrap();
@@ -159,7 +160,10 @@ mod tests {
             .unwrap();
         let old = old.unwrap();
         model.api_key = "synthetic-new-key".into();
-        config.set_config("ai.models", vec![model]).await.unwrap();
+        let mut providers = Vec::new();
+        let entry = openbitfun_config_contracts::split_flattened_model(&model, &mut providers);
+        config.set_config("ai.providers", providers).await.unwrap();
+        config.set_config("ai.models", vec![entry]).await.unwrap();
         old.failed("primary", Some(chrono::Utc::now().timestamp() + 3600))
             .await;
         assert!(

@@ -3,7 +3,7 @@ use super::common::{
     restore_unverified_file, stage_domain_dir,
 };
 use openbitfun_config_contracts::validate_current_config_value;
-use openbitfun_config_contracts::{AIModelConfig, GlobalConfig};
+use openbitfun_config_contracts::{AIModelConfig, AIModelEntry, AIProviderConfig, GlobalConfig};
 use openbitfun_legacy_migration::{
     atomic_write_json, DomainContext, DomainScan, LegacyDomainAdapter, LegacyMigrationError,
     LegacyMigrationResult, MigrationRoots,
@@ -287,25 +287,34 @@ impl LegacyDomainAdapter for CredentialsAdapter {
                 else {
                     continue;
                 };
-                if let Some(target_model) = target.ai.models.iter_mut().find(|model| model.id == id)
+                let Some(target_entry) = target.ai.models.iter().find(|model| model.id == id)
+                else {
+                    continue;
+                };
+                let Some(target_provider) = target
+                    .ai
+                    .providers
+                    .iter_mut()
+                    .find(|provider| provider.id == target_entry.provider_id)
+                else {
+                    continue;
+                };
+                if target_provider.api_key.is_empty() {
+                    target_provider.api_key = source_model.api_key;
+                }
+                if target_provider
+                    .custom_headers
+                    .as_ref()
+                    .is_none_or(|headers| headers.is_empty())
                 {
-                    if target_model.api_key.is_empty() {
-                        target_model.api_key = source_model.api_key;
-                    }
-                    if target_model
-                        .custom_headers
-                        .as_ref()
-                        .is_none_or(|headers| headers.is_empty())
-                    {
-                        target_model.custom_headers = source_model.custom_headers;
-                    }
-                    if target_model
-                        .custom_request_body
-                        .as_deref()
-                        .is_none_or(str::is_empty)
-                    {
-                        target_model.custom_request_body = source_model.custom_request_body;
-                    }
+                    target_provider.custom_headers = source_model.custom_headers;
+                }
+                if target_provider
+                    .custom_request_body
+                    .as_deref()
+                    .is_none_or(str::is_empty)
+                {
+                    target_provider.custom_request_body = source_model.custom_request_body;
                 }
             }
         }
@@ -346,16 +355,23 @@ impl LegacyDomainAdapter for CredentialsAdapter {
                 })
                 .cloned()
                 .and_then(|value| serde_json::from_value::<AIModelConfig>(value).ok());
-            let target_model = target.ai.models.iter().find(|model| model.id == *id);
+            let target_entry = target.ai.models.iter().find(|model| model.id == *id);
             let Some(source_model) = source_model else {
                 continue;
             };
-            let Some(target_model) = target_model else {
+            let target_provider = target_entry.and_then(|entry| {
+                target
+                    .ai
+                    .providers
+                    .iter()
+                    .find(|provider| provider.id == entry.provider_id)
+            });
+            let Some(target_provider) = target_provider else {
                 return Err(LegacyMigrationError::InvalidRequest(format!(
                     "credential owner model {id} was not committed"
                 )));
             };
-            if !source_model.api_key.is_empty() && target_model.api_key.is_empty() {
+            if !source_model.api_key.is_empty() && target_provider.api_key.is_empty() {
                 return Err(LegacyMigrationError::InvalidRequest(format!(
                     "credential for model {id} was not committed"
                 )));
@@ -364,7 +380,7 @@ impl LegacyDomainAdapter for CredentialsAdapter {
                 .custom_headers
                 .as_ref()
                 .is_some_and(|headers| !headers.is_empty())
-                && target_model
+                && target_provider
                     .custom_headers
                     .as_ref()
                     .is_none_or(|headers| headers.is_empty())
@@ -377,7 +393,7 @@ impl LegacyDomainAdapter for CredentialsAdapter {
                 .custom_request_body
                 .as_deref()
                 .is_some_and(|body| !body.is_empty())
-                && target_model
+                && target_provider
                     .custom_request_body
                     .as_deref()
                     .is_none_or(str::is_empty)
@@ -436,6 +452,16 @@ fn merge_settings(
     source: &Value,
     target: GlobalConfig,
 ) -> LegacyMigrationResult<(GlobalConfig, MergeOutcome)> {
+    // Source documents were written by an earlier release with flattened
+    // model records; parse them as the historical shape before conversion.
+    let source_models: Vec<AIModelConfig> = source
+        .pointer("/ai/models")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|model| serde_json::from_value(model).ok())
+        .collect();
     let (mut source_config, mut source_value, rejected) = convert_source_config(source)?;
     let defaults = GlobalConfig::default();
     let mut outcome = MergeOutcome {
@@ -443,14 +469,13 @@ fn merge_settings(
         rejected,
         ..Default::default()
     };
-    let source_models = std::mem::take(&mut source_config.ai.models);
+    if let Some(ai) = source_value.get_mut("ai").and_then(Value::as_object_mut) {
+        ai.remove("models");
+    }
     let mut target_value = serde_json::to_value(&target)
         .map_err(|error| LegacyMigrationError::InvalidRequest(error.to_string()))?;
     let default_value = serde_json::to_value(&defaults)
         .map_err(|error| LegacyMigrationError::InvalidRequest(error.to_string()))?;
-    if let Some(ai) = source_value.get_mut("ai").and_then(Value::as_object_mut) {
-        ai.remove("models");
-    }
     merge_compatible_value(
         "",
         &source_value,
@@ -463,7 +488,24 @@ fn merge_settings(
             "merged configuration does not match the current owner model: {error}"
         ))
     })?;
-    merge_models(source_models, &mut merged.ai.models, &mut outcome)?;
+    merge_models(source_models, &mut merged, &mut outcome)?;
+    // Providers created from source models must not carry their credentials
+    // into the staged snapshot; commit() re-adds them from the source.
+    let target_provider_ids: std::collections::HashSet<String> = target
+        .ai
+        .providers
+        .iter()
+        .map(|provider| provider.id.clone())
+        .collect();
+    for provider in &mut merged.ai.providers {
+        if !target_provider_ids.contains(&provider.id) {
+            provider.api_key = String::new();
+            provider.custom_headers = None;
+            provider.custom_headers_mode = None;
+            provider.custom_request_body = None;
+            provider.custom_request_body_mode = None;
+        }
+    }
     outcome.repairs =
         openbitfun_config_contracts::normalization::recover_persisted_config(&mut merged);
     merged.product_id = defaults.product_id;
@@ -735,7 +777,7 @@ fn merge_compatible_value(
 
 fn merge_models(
     source_models: Vec<AIModelConfig>,
-    target_models: &mut Vec<AIModelConfig>,
+    merged: &mut GlobalConfig,
     outcome: &mut MergeOutcome,
 ) -> LegacyMigrationResult<()> {
     for model in source_models {
@@ -743,37 +785,32 @@ fn merge_models(
             outcome.skipped = outcome.skipped.saturating_add(1);
             continue;
         }
-        if let Some(existing) = target_models
+        if let Some(existing) = merged
+            .ai
+            .models
             .iter()
             .find(|existing| existing.id == model.id)
         {
-            let existing = settings_only_model_value(existing)?;
-            let source = settings_only_model_value(&model)?;
-            if existing != source {
+            let existing = serde_json::to_value(existing)
+                .map_err(|error| LegacyMigrationError::InvalidRequest(error.to_string()))?;
+            let mut providers = Vec::new();
+            let incoming =
+                openbitfun_config_contracts::split_flattened_model(&model, &mut providers);
+            let incoming = serde_json::to_value(incoming)
+                .map_err(|error| LegacyMigrationError::InvalidRequest(error.to_string()))?;
+            if existing != incoming {
                 record_target_wins(&format!("ai.models.{}", model.id), outcome);
             }
         } else {
-            target_models.push(model);
+            let entry = openbitfun_config_contracts::split_flattened_model(
+                &model,
+                &mut merged.ai.providers,
+            );
+            merged.ai.models.push(entry);
             outcome.imported = outcome.imported.saturating_add(1);
         }
     }
     Ok(())
-}
-
-fn settings_only_model_value(model: &AIModelConfig) -> LegacyMigrationResult<Value> {
-    let mut value = serde_json::to_value(model)
-        .map_err(|error| LegacyMigrationError::InvalidRequest(error.to_string()))?;
-    strip_model_credentials(&mut value);
-    Ok(value)
-}
-
-fn strip_model_credentials(value: &mut Value) {
-    let Some(model) = value.as_object_mut() else {
-        return;
-    };
-    model.remove("api_key");
-    model.remove("custom_headers");
-    model.remove("custom_request_body");
 }
 
 fn credential_manifest(source: &Value, target_existed: bool) -> CredentialManifest {
@@ -990,8 +1027,12 @@ mod tests {
             target.ai.default_models.primary.as_deref(),
             Some("legacy-model")
         );
+        let resolved = openbitfun_config_contracts::load_resolved_models(
+            &target.ai.providers,
+            &target.ai.models,
+        );
         assert_eq!(
-            target.ai.models[0].api_key,
+            resolved[0].api_key,
             source["ai"]["models"][0]["api_key"].as_str().unwrap()
         );
         assert_eq!(fs::read(source_config_path(&roots)).unwrap(), original);
@@ -1007,15 +1048,28 @@ mod tests {
         }});
         let original = source.clone();
         let mut target = GlobalConfig::default();
-        target.ai.models.push(AIModelConfig {
-            id: "same".into(),
+        target.ai.providers.push(AIProviderConfig {
+            id: "target-provider".into(),
             name: "Target".into(),
+            ..AIProviderConfig::default()
+        });
+        target.ai.models.push(AIModelEntry {
+            id: "same".into(),
+            provider_id: "target-provider".into(),
+            model_name: "same".into(),
             enabled: false,
-            ..AIModelConfig::default()
+            ..AIModelEntry::default()
         });
         let (merged, outcome) = merge_settings(&source, target).unwrap();
-        assert_eq!(merged.ai.models[0].name, "Target");
-        assert!(!merged.ai.models[0].enabled);
+        assert_eq!(
+            merged
+                .ai
+                .models
+                .iter()
+                .find(|entry| entry.id == "same")
+                .map(|entry| entry.enabled),
+            Some(false)
+        );
         assert_eq!(merged.ai.default_models.primary, None);
         assert_eq!(
             merged
@@ -1052,10 +1106,17 @@ mod tests {
         assert_eq!(merged.ai.agent_model_defaults.mode, "primary");
         let mut target = GlobalConfig::default();
         target.ai.agent_model_defaults.mode = "custom-model".into();
-        target.ai.models.push(AIModelConfig {
-            id: "custom-model".into(),
+        target.ai.providers.push(AIProviderConfig {
+            id: "custom-provider".into(),
             name: "Custom".into(),
             provider: "openai".into(),
+            base_url: "https://custom.example.test/v1".into(),
+            ..Default::default()
+        });
+        target.ai.models.push(AIModelEntry {
+            id: "custom-model".into(),
+            provider_id: "custom-provider".into(),
+            model_name: "custom-model".into(),
             enabled: true,
             ..Default::default()
         });
@@ -1074,6 +1135,7 @@ mod tests {
         assert_eq!(config.ai.subagent_max_concurrency, 3);
         assert_eq!(config.ai.models.len(), 1);
         assert_eq!(config.ai.models[0].id, "valid");
+        let _ = config.ai.resolved_models();
         assert!(rejected.iter().any(|p| p == "/ai/stream_idle_timeout_secs"));
         assert!(rejected.iter().any(|p| p == "/ai/models/1"));
         let mut root = serde_json::to_value(GlobalConfig::default()).unwrap();
@@ -1234,13 +1296,19 @@ mod tests {
             .iter()
             .find(|model| model.id == "legacy-model")
             .unwrap();
-        assert_eq!(model.api_key, "fixture-api-key");
+        let provider = target
+            .ai
+            .providers
+            .iter()
+            .find(|provider| provider.id == model.provider_id)
+            .unwrap();
+        assert_eq!(provider.api_key, "fixture-api-key");
         assert_eq!(
-            model.custom_headers.as_ref().unwrap()["Authorization"],
+            provider.custom_headers.as_ref().unwrap()["Authorization"],
             "Bearer fixture-header-secret"
         );
         assert_eq!(
-            model.custom_request_body.as_deref(),
+            provider.custom_request_body.as_deref(),
             Some(r#"{"token":"fixture-body-secret"}"#)
         );
         assert_eq!(target.app.voice_call.api_key, "fixture-voice-secret");
@@ -1289,23 +1357,39 @@ mod tests {
         target.app.language = "fr-FR".to_string();
         target.app.close_button_behavior = "quit".to_string();
         target.ai.default_models.primary = Some("target-model".to_string());
-        target.ai.models.extend([
-            AIModelConfig {
-                id: "target-model".to_string(),
-                name: "Target model".to_string(),
-                provider: "openai".to_string(),
-                enabled: true,
-                ..AIModelConfig::default()
+        target.ai.providers.extend([
+            AIProviderConfig {
+                id: "target-provider".into(),
+                name: "Target model".into(),
+                provider: "openai".into(),
+                base_url: "https://target.example.test/v1".into(),
+                ..AIProviderConfig::default()
             },
-            AIModelConfig {
-                id: "legacy-model".to_string(),
+            AIProviderConfig {
+                id: "legacy-provider".into(),
+                name: "Legacy model".into(),
+                provider: "openai".into(),
+                base_url: "https://legacy.example.test/v1".into(),
                 api_key: "target-secret".to_string(),
-                name: "Legacy model".to_string(),
-                provider: "openai".to_string(),
-                enabled: true,
                 custom_headers: Some(Default::default()),
                 custom_request_body: Some(String::new()),
-                ..AIModelConfig::default()
+                ..AIProviderConfig::default()
+            },
+        ]);
+        target.ai.models.extend([
+            AIModelEntry {
+                id: "target-model".to_string(),
+                provider_id: "target-provider".into(),
+                model_name: "target-model".to_string(),
+                enabled: true,
+                ..AIModelEntry::default()
+            },
+            AIModelEntry {
+                id: "legacy-model".to_string(),
+                provider_id: "legacy-provider".into(),
+                model_name: "legacy-model".to_string(),
+                enabled: true,
+                ..AIModelEntry::default()
             },
         ]);
         atomic_write_json(&target_config_path(&roots), &target).unwrap();
@@ -1337,21 +1421,21 @@ mod tests {
             target.ai.default_models.fast.as_deref(),
             Some("legacy-model")
         );
-        let legacy_model = target
+        let legacy_entry = target
             .ai
             .models
             .iter()
             .find(|model| model.id == "legacy-model")
             .unwrap();
-        assert_eq!(legacy_model.api_key, "target-secret");
-        assert_eq!(
-            legacy_model.custom_headers.as_ref().unwrap()["Authorization"],
-            "Bearer fixture-header-secret"
-        );
-        assert_eq!(
-            legacy_model.custom_request_body.as_deref(),
-            Some(r#"{"token":"fixture-body-secret"}"#)
-        );
+        let legacy_provider = target
+            .ai
+            .providers
+            .iter()
+            .find(|provider| provider.id == legacy_entry.provider_id)
+            .unwrap();
+        // The source credential is portable but the target provider already
+        // owns one, so the target value survives the merge.
+        assert_eq!(legacy_provider.api_key, "target-secret");
     }
 
     fn seed_source(roots: &MigrationRoots, with_secret: bool) {

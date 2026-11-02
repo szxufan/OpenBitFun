@@ -2274,7 +2274,7 @@ impl CoreServiceAgentRuntime {
         let provider_catalog = remote_provider_catalog(&models_dev, include_host_catalogs);
 
         let models: Vec<RemoteModelFacts> = ai_config
-            .models
+            .resolved_models()
             .into_iter()
             .map(|model| {
                 let reasoning =
@@ -2388,12 +2388,12 @@ impl CoreServiceAgentRuntime {
                 )
             })?;
             let model = ai_config
-                .models
-                .iter()
+                .resolved_models()
+                .into_iter()
                 .find(|model| model.enabled && model.id == concrete_model_id)
                 .ok_or_else(|| format!("Model is unavailable: {concrete_model_id}"))?;
             let models_dev = load_models_dev_reasoning_catalog().await;
-            let reasoning = project_model_reasoning_catalog(model, models_dev.catalog.as_deref());
+            let reasoning = project_model_reasoning_catalog(&model, models_dev.catalog.as_deref());
             if resolve_reasoning_preset(&reasoning, preset_id).is_none() {
                 return Err(format!(
                     "Reasoning preset '{preset_id}' is not available for model '{concrete_model_id}'"

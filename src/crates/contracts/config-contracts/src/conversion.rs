@@ -257,6 +257,7 @@ mod tests {
     fn base_model_config() -> AIModelConfig {
         AIModelConfig {
             id: "model_1".to_string(),
+            provider_id: "provider_1".to_string(),
             name: "Provider".to_string(),
             provider: "openai".to_string(),
             model_name: "test-model".to_string(),
@@ -331,18 +332,34 @@ mod tests {
     fn image_budget_rejects_zero_without_discarding_model_configuration() {
         let mut model = base_model_config();
         model.max_images_per_request = Some(0);
-        assert!(crate::normalization::validate_model_config(&model, 0)
-            .unwrap_err()
-            .contains("max_images_per_request"));
+        assert!(
+            crate::normalization::validate_resolved_model_config(&model, 0)
+                .unwrap_err()
+                .contains("max_images_per_request")
+        );
         assert!(AIConfig::try_from(model.clone())
             .unwrap_err()
             .contains("max_images_per_request"));
         let mut config = crate::GlobalConfig::default();
-        config.ai.models.push(model.clone());
+        config.ai.providers.push(crate::AIProviderConfig {
+            id: "provider_1".into(),
+            name: "Provider".into(),
+            provider: "openai".into(),
+            base_url: model.base_url.clone(),
+            api_key: model.api_key.clone(),
+            ..Default::default()
+        });
+        config.ai.models.push(crate::AIModelEntry {
+            id: model.id.clone(),
+            provider_id: "provider_1".into(),
+            model_name: model.model_name.clone(),
+            max_images_per_request: model.max_images_per_request,
+            enabled: true,
+            ..Default::default()
+        });
         crate::normalization::recover_persisted_config(&mut config);
         assert_eq!(config.ai.models.len(), 1);
         assert!(!config.ai.models[0].enabled);
-        assert_eq!(config.ai.models[0].api_key, model.api_key);
         assert_eq!(config.ai.models[0].max_images_per_request, Some(0));
     }
 
@@ -356,9 +373,11 @@ mod tests {
                 "legacy override: {key}"
             );
             model.max_images_per_request = Some(3);
-            assert!(crate::normalization::validate_model_config(&model, 0)
-                .unwrap_err()
-                .contains("custom_request_body"));
+            assert!(
+                crate::normalization::validate_resolved_model_config(&model, 0)
+                    .unwrap_err()
+                    .contains("custom_request_body")
+            );
             assert!(AIConfig::try_from(model)
                 .unwrap_err()
                 .contains("custom_request_body"));
@@ -366,7 +385,7 @@ mod tests {
         let mut model = base_model_config();
         model.max_images_per_request = Some(3);
         model.custom_request_body = Some(r#"{"temperature":0.2}"#.into());
-        assert!(crate::normalization::validate_model_config(&model, 0).is_ok());
+        assert!(crate::normalization::validate_resolved_model_config(&model, 0).is_ok());
         assert_eq!(
             AIConfig::try_from(model)
                 .unwrap()

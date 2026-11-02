@@ -1291,8 +1291,12 @@ impl Default for ModelRoutingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AIConfig {
-    /// All configured models.
-    pub models: Vec<AIModelConfig>,
+    /// All configured models (slim entries referencing `providers`).
+    pub models: Vec<AIModelEntry>,
+
+    /// All configured providers (first-class entities). A provider may exist
+    /// with zero models.
+    pub providers: Vec<AIProviderConfig>,
 
     /// Tool presentation used by sessions created after this setting changes.
     /// Existing sessions retain their persisted presentation mode.
@@ -1892,6 +1896,11 @@ pub fn is_valid_configured_max_output_tokens(context_window: u32, max_tokens: u3
 #[serde(default)]
 pub struct AIModelConfig {
     pub id: String,
+    /// `AIProviderConfig::id` of the provider this projection was resolved
+    /// from. Only meaningful on a resolved projection; always empty on a
+    /// hand-built projection.
+    #[serde(default)]
+    pub provider_id: String,
     pub name: String,
     pub provider: String,
     pub model_name: String,
@@ -1988,6 +1997,12 @@ pub fn model_runtime_binding_fingerprint(model: &AIModelConfig) -> String {
     let mut value = serde_json::to_value(model).unwrap_or(serde_json::Value::Null);
     if let serde_json::Value::Object(fields) = &mut value {
         fields.remove("api_key");
+        // A pure storage reference: runtime behavior comes from the provider
+        // facts it resolves to, which are part of the projection directly.
+        fields.remove("provider_id");
+        // Display labels do not affect runtime behavior; resolution may
+        // derive them from the provider without changing the binding.
+        fields.remove("name");
     }
 
     fn canonicalize(value: serde_json::Value) -> serde_json::Value {
@@ -2013,6 +2028,344 @@ pub fn model_runtime_binding_fingerprint(model: &AIModelConfig) -> String {
     let mut hasher = Sha256::new();
     hasher.update(canonical);
     hex::encode(hasher.finalize())
+}
+
+/// A first-class provider entity persisted under `ai.providers`.
+///
+/// Connection facts (endpoint, credential, protocol, auth source, transport
+/// overrides) are owned here exactly once and referenced by every
+/// [`AIModelEntry`] through `provider_id`. A provider may exist with zero
+/// models — deleting all models must never delete the provider.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AIProviderConfig {
+    /// Stable provider instance id; `AIModelEntry::provider_id` references it.
+    pub id: String,
+    pub name: String,
+    /// Wire protocol format (openai, responses, anthropic, gemini, ...).
+    pub provider: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub enabled: bool,
+    /// Authentication source for models of this provider. Defaults to the
+    /// inline `api_key`; subscription credentials resolve at request time.
+    #[serde(default)]
+    pub auth: AuthConfig,
+    #[serde(default)]
+    pub custom_headers: Option<std::collections::HashMap<String, String>>,
+    #[serde(default)]
+    pub custom_headers_mode: Option<String>,
+    #[serde(default)]
+    pub skip_ssl_verify: bool,
+    #[serde(default)]
+    pub custom_request_body: Option<String>,
+    #[serde(default)]
+    pub custom_request_body_mode: Option<String>,
+    /// Provider-level metadata (catalog template id, etc.). Model-level facts
+    /// never live here.
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+impl Default for AIProviderConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            provider: String::new(),
+            base_url: String::new(),
+            api_key: String::new(),
+            enabled: true,
+            auth: AuthConfig::ApiKey,
+            custom_headers: None,
+            custom_headers_mode: None,
+            skip_ssl_verify: false,
+            custom_request_body: None,
+            custom_request_body_mode: None,
+            metadata: None,
+        }
+    }
+}
+
+/// A model entry persisted under `ai.models`, referencing its provider.
+///
+/// Purely model-level facts (limits, category, reasoning, routing); every
+/// connection fact comes from the referenced [`AIProviderConfig`] at resolve
+/// time and must not be duplicated here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AIModelEntry {
+    pub id: String,
+    /// `AIProviderConfig::id` of the owning provider.
+    pub provider_id: String,
+    pub model_name: String,
+    pub context_window: Option<u32>,
+    pub max_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_images_per_request: Option<usize>,
+    pub temperature: Option<f64>,
+    pub top_p: Option<f64>,
+    pub enabled: bool,
+    pub category: ModelCategory,
+    pub capabilities: Vec<ModelCapability>,
+    #[serde(default)]
+    pub recommended_for: Vec<String>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ReasoningConfig>,
+    #[serde(default = "default_true")]
+    pub inline_think_in_text: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_dialect: Option<ImageDialect>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub channel_routing: Option<crate::channel_routing::ModelChannelRouting>,
+    /// Precomputed request URL (base_url + format + model). Recomputed by the
+    /// frontend on save; resolution falls back to the provider base URL.
+    #[serde(default)]
+    pub request_url: Option<String>,
+}
+
+impl Default for AIModelEntry {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            provider_id: String::new(),
+            model_name: String::new(),
+            context_window: None,
+            max_tokens: None,
+            max_images_per_request: None,
+            temperature: None,
+            top_p: None,
+            enabled: false,
+            category: ModelCategory::GeneralChat,
+            capabilities: vec![],
+            recommended_for: vec![],
+            metadata: None,
+            reasoning: None,
+            inline_think_in_text: true,
+            image_dialect: None,
+            channel_routing: None,
+            request_url: None,
+        }
+    }
+}
+
+/// Resolve one model entry against its provider into the runtime projection.
+///
+/// The projection keeps the historical flattened shape so runtime consumers
+/// work with model-plus-connection facts, while persistence stays normalized:
+/// provider fields are never duplicated per model.
+pub fn resolve_ai_model(provider: &AIProviderConfig, model: &AIModelEntry) -> AIModelConfig {
+    AIModelConfig {
+        id: model.id.clone(),
+        provider_id: provider.id.clone(),
+        name: provider.name.clone(),
+        provider: provider.provider.clone(),
+        model_name: model.model_name.clone(),
+        base_url: provider.base_url.clone(),
+        request_url: model
+            .request_url
+            .clone()
+            .or_else(|| provider.request_url_fallback()),
+        api_key: provider.api_key.clone(),
+        context_window: model.context_window,
+        max_tokens: model.max_tokens,
+        max_images_per_request: model.max_images_per_request,
+        temperature: model.temperature,
+        top_p: model.top_p,
+        enabled: model.enabled && provider.enabled,
+        category: model.category.clone(),
+        capabilities: model.capabilities.clone(),
+        recommended_for: model.recommended_for.clone(),
+        metadata: model.metadata.clone(),
+        reasoning: model.reasoning.clone(),
+        inline_think_in_text: model.inline_think_in_text,
+        custom_headers: provider.custom_headers.clone(),
+        custom_headers_mode: provider.custom_headers_mode.clone(),
+        skip_ssl_verify: provider.skip_ssl_verify,
+        custom_request_body: provider.custom_request_body.clone(),
+        custom_request_body_mode: provider.custom_request_body_mode.clone(),
+        auth: provider.auth.clone(),
+        image_dialect: model.image_dialect,
+        channel_routing: model.channel_routing.clone(),
+    }
+}
+
+/// Resolve every model entry against the provider table. Entries whose
+/// provider id has no matching provider are dropped — a dangling reference is
+/// a storage inconsistency, not a runtime model.
+pub fn load_resolved_models(
+    providers: &[AIProviderConfig],
+    entries: &[AIModelEntry],
+) -> Vec<AIModelConfig> {
+    entries
+        .iter()
+        .filter_map(|model| {
+            providers
+                .iter()
+                .find(|provider| provider.id == model.provider_id)
+                .map(|provider| resolve_ai_model(provider, model))
+        })
+        .collect()
+}
+
+impl AIProviderConfig {
+    /// Providers own the base URL; the per-model request URL is derived from
+    /// it (plus format and model) by the client conversion layer, so a slim
+    /// entry without a stored request URL resolves to `None` here.
+    fn request_url_fallback(&self) -> Option<String> {
+        None
+    }
+}
+
+impl AIConfig {
+    /// Models resolved against this section's provider table. Runtime
+    /// consumers that need connection-ready models must use this instead of
+    /// the raw slim entries.
+    pub fn resolved_models(&self) -> Vec<AIModelConfig> {
+        load_resolved_models(&self.providers, &self.models)
+    }
+}
+
+/// Metadata key carrying the provider instance id on legacy flattened model
+/// records. The settings writer keeps it synchronized with the provider id.
+pub const PROVIDER_INSTANCE_METADATA_KEY: &str = "provider_instance_id";
+
+/// Split a flattened model projection into a slim entry plus the provider
+/// record it requires, reusing an existing provider with the same instance id
+/// (from the model metadata) or the same identity triple (name, format,
+/// base_url). `next_provider_id` supplies fresh ids for new providers.
+pub fn split_flattened_model(
+    model: &AIModelConfig,
+    providers: &mut Vec<AIProviderConfig>,
+) -> AIModelEntry {
+    let instance_id = model
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.get(PROVIDER_INSTANCE_METADATA_KEY))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let existing_position = providers.iter().position(|provider| {
+        instance_id.as_ref().is_some_and(|id| &provider.id == id)
+            || (provider.name == model.name
+                && provider.provider == model.provider
+                && provider.base_url == model.base_url)
+    });
+    let provider_id = match existing_position {
+        Some(position) => {
+            let provider = &mut providers[position];
+            provider.name = model.name.clone();
+            provider.provider = model.provider.clone();
+            provider.base_url = model.base_url.clone();
+            provider.api_key = model.api_key.clone();
+            provider.auth = model.auth.clone();
+            provider.custom_headers = model.custom_headers.clone();
+            provider.custom_headers_mode = model.custom_headers_mode.clone();
+            provider.skip_ssl_verify = model.skip_ssl_verify;
+            provider.custom_request_body = model.custom_request_body.clone();
+            provider.custom_request_body_mode = model.custom_request_body_mode.clone();
+            provider.id.clone()
+        }
+        None => {
+            let id = instance_id.unwrap_or_else(|| format!("provider_{}", providers.len() + 1));
+            let display_name = if model.name.trim().is_empty() {
+                if model.model_name.trim().is_empty() {
+                    id.clone()
+                } else {
+                    model.model_name.clone()
+                }
+            } else {
+                model.name.clone()
+            };
+            providers.push(AIProviderConfig {
+                id: id.clone(),
+                name: display_name,
+                // Legacy agent-written records may omit the protocol; the
+                // OpenAI-compatible default keeps them usable.
+                provider: if model.provider.trim().is_empty() {
+                    "openai".to_string()
+                } else {
+                    model.provider.clone()
+                },
+                base_url: model.base_url.clone(),
+                api_key: model.api_key.clone(),
+                enabled: true,
+                auth: model.auth.clone(),
+                custom_headers: model.custom_headers.clone(),
+                custom_headers_mode: model.custom_headers_mode.clone(),
+                skip_ssl_verify: model.skip_ssl_verify,
+                custom_request_body: model.custom_request_body.clone(),
+                custom_request_body_mode: model.custom_request_body_mode.clone(),
+                metadata: model.metadata.clone(),
+            });
+            id
+        }
+    };
+    AIModelEntry {
+        id: model.id.clone(),
+        provider_id,
+        model_name: model.model_name.clone(),
+        context_window: model.context_window,
+        max_tokens: model.max_tokens,
+        max_images_per_request: model.max_images_per_request,
+        temperature: model.temperature,
+        top_p: model.top_p,
+        enabled: model.enabled,
+        category: model.category.clone(),
+        capabilities: model.capabilities.clone(),
+        recommended_for: model.recommended_for.clone(),
+        metadata: model.metadata.clone(),
+        reasoning: model.reasoning.clone(),
+        inline_think_in_text: model.inline_think_in_text,
+        image_dialect: model.image_dialect,
+        channel_routing: model.channel_routing.clone(),
+        request_url: model.request_url.clone(),
+    }
+}
+
+impl AIModelEntry {
+    pub fn supports_capability(&self, capability: ModelCapability) -> bool {
+        model_supports_capability(&self.category, &self.capabilities, capability)
+    }
+
+    pub fn supports_text_generation(&self) -> bool {
+        self.supports_capability(ModelCapability::TextChat)
+    }
+
+    pub fn supports_image_understanding(&self) -> bool {
+        self.supports_capability(ModelCapability::ImageUnderstanding)
+    }
+
+    /// Canonicalizes fields that only have meaning for text-generation
+    /// requests. Returns the names of fields that were cleared.
+    pub fn normalize_inapplicable_generation_fields(&mut self) -> Vec<&'static str> {
+        if self.supports_text_generation() {
+            return Vec::new();
+        }
+
+        let mut cleared = Vec::new();
+        if self.context_window.take().is_some() {
+            cleared.push("context_window");
+        }
+        if self.max_tokens.take().is_some() {
+            cleared.push("max_tokens");
+        }
+        if self.temperature.take().is_some() {
+            cleared.push("temperature");
+        }
+        if self.top_p.take().is_some() {
+            cleared.push("top_p");
+        }
+        cleared
+    }
+
+    /// Auto-completes missing capability information without rewriting explicit configuration.
+    pub fn ensure_category_and_capabilities(&mut self) {
+        if self.capabilities.is_empty() {
+            self.capabilities = default_capabilities_for_category(&self.category);
+        }
+    }
 }
 
 /// Subscription provider whose in-app OAuth tokens authenticate a model.
@@ -2343,6 +2696,7 @@ impl Default for AIConfig {
         Self {
             model_pools: crate::model_pool::ModelPoolDocument::default(),
             models: vec![],
+            providers: vec![],
             tool_presentation_mode: ToolPresentationMode::default(),
             task_models: TaskModelsConfig::default(),
             default_models: DefaultModelsConfig::default(),
@@ -2403,6 +2757,7 @@ impl Default for AIModelConfig {
     fn default() -> Self {
         Self {
             id: String::new(),
+            provider_id: String::new(),
             name: String::new(),
             provider: String::new(),
             model_name: String::new(),
@@ -2474,14 +2829,44 @@ impl Default for MinimapConfig {
     }
 }
 
+/// Default capability set for a model category, shared by the persisted
+/// `AIModelEntry` and the resolved `AIModelConfig` projection.
+pub fn default_capabilities_for_category(category: &ModelCategory) -> Vec<ModelCapability> {
+    match category {
+        ModelCategory::GeneralChat => vec![ModelCapability::TextChat],
+        ModelCategory::Multimodal => {
+            vec![
+                ModelCapability::TextChat,
+                ModelCapability::ImageUnderstanding,
+            ]
+        }
+        ModelCategory::ImageGeneration => vec![ModelCapability::ImageGeneration],
+        ModelCategory::Embedding => vec![ModelCapability::Embedding],
+        ModelCategory::SearchEnhanced => {
+            vec![ModelCapability::TextChat, ModelCapability::Search]
+        }
+        ModelCategory::CodeSpecialized => {
+            vec![ModelCapability::TextChat, ModelCapability::CodeSpecialized]
+        }
+        ModelCategory::SpeechRecognition => vec![ModelCapability::SpeechRecognition],
+    }
+}
+
+fn model_supports_capability(
+    category: &ModelCategory,
+    capabilities: &[ModelCapability],
+    capability: ModelCapability,
+) -> bool {
+    if capabilities.is_empty() {
+        default_capabilities_for_category(category).contains(&capability)
+    } else {
+        capabilities.contains(&capability)
+    }
+}
+
 impl AIModelConfig {
     pub fn supports_capability(&self, capability: ModelCapability) -> bool {
-        if self.capabilities.is_empty() {
-            self.default_capabilities_for_category()
-                .contains(&capability)
-        } else {
-            self.capabilities.contains(&capability)
-        }
+        model_supports_capability(&self.category, &self.capabilities, capability)
     }
 
     pub fn supports_text_generation(&self) -> bool {
@@ -2516,24 +2901,7 @@ impl AIModelConfig {
     }
 
     fn default_capabilities_for_category(&self) -> Vec<ModelCapability> {
-        match self.category {
-            ModelCategory::GeneralChat => vec![ModelCapability::TextChat],
-            ModelCategory::Multimodal => {
-                vec![
-                    ModelCapability::TextChat,
-                    ModelCapability::ImageUnderstanding,
-                ]
-            }
-            ModelCategory::ImageGeneration => vec![ModelCapability::ImageGeneration],
-            ModelCategory::Embedding => vec![ModelCapability::Embedding],
-            ModelCategory::SearchEnhanced => {
-                vec![ModelCapability::TextChat, ModelCapability::Search]
-            }
-            ModelCategory::CodeSpecialized => {
-                vec![ModelCapability::TextChat, ModelCapability::CodeSpecialized]
-            }
-            ModelCategory::SpeechRecognition => vec![ModelCapability::SpeechRecognition],
-        }
+        default_capabilities_for_category(&self.category)
     }
 
     /// Auto-completes missing capability information without rewriting explicit configuration.

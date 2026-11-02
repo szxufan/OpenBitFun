@@ -459,18 +459,15 @@ async fn host_queue_request_survives_disconnected_caller() {
 async fn host_queue_host_outcomes_start_followups_without_any_client() {
     let (scheduler, sessions, _root, epoch) = fixture().await;
     let id = "host-queue-session";
-    let ai_config = AIConfig {
-        models: vec![AIModelConfig {
-            id: "queue-test-model".into(),
-            name: "Queue test".into(),
-            provider: "openai".into(),
-            model_name: "test-model".into(),
-            base_url: "http://127.0.0.1:1".into(),
-            enabled: true,
-            ..Default::default()
-        }],
+    let ai_config = test_ai_config(vec![AIModelConfig {
+        id: "queue-test-model".into(),
+        name: "Queue test".into(),
+        provider: "openai".into(),
+        model_name: "test-model".into(),
+        base_url: "http://127.0.0.1:1".into(),
+        enabled: true,
         ..Default::default()
-    };
+    }]);
     TEST_MODEL_RESOLUTION_AI_CONFIG
         .scope(
             ai_config.clone(),
@@ -496,18 +493,15 @@ async fn host_queue_host_outcomes_start_followups_without_any_client() {
     let handler = tokio::spawn(async move {
         TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(
-                AIConfig {
-                    models: vec![AIModelConfig {
-                        id: "queue-test-model".into(),
-                        name: "Queue test".into(),
-                        provider: "openai".into(),
-                        model_name: "test-model".into(),
-                        base_url: "http://127.0.0.1:1".into(),
-                        enabled: true,
-                        ..Default::default()
-                    }],
+                test_ai_config(vec![AIModelConfig {
+                    id: "queue-test-model".into(),
+                    name: "Queue test".into(),
+                    provider: "openai".into(),
+                    model_name: "test-model".into(),
+                    base_url: "http://127.0.0.1:1".into(),
+                    enabled: true,
                     ..Default::default()
-                },
+                }]),
                 owner.run_outcome_handler(rx),
             )
             .await;
@@ -813,18 +807,15 @@ fn host_queue_new_prompt_after_stop_supersedes_interruption() {
                         );
                         assert_eq!(sessions.get_turn_count(id), 1);
 
-                        let ai_config = AIConfig {
-                            models: vec![AIModelConfig {
-                                id: "queue-stop-test-model".into(),
-                                name: "Queue stop test".into(),
-                                provider: "openai".into(),
-                                model_name: "test-model".into(),
-                                base_url: "http://127.0.0.1:1".into(),
-                                enabled: true,
-                                ..Default::default()
-                            }],
+                        let ai_config = test_ai_config(vec![AIModelConfig {
+                            id: "queue-stop-test-model".into(),
+                            name: "Queue stop test".into(),
+                            provider: "openai".into(),
+                            model_name: "test-model".into(),
+                            base_url: "http://127.0.0.1:1".into(),
+                            enabled: true,
                             ..Default::default()
-                        };
+                        }]);
                         TEST_MODEL_RESOLUTION_AI_CONFIG
                             .scope(
                                 ai_config.clone(),
@@ -906,18 +897,15 @@ fn run_host_queue_lifecycle_test<F: std::future::Future<Output = ()>>(
 }
 
 fn host_queue_lifecycle_model() -> AIConfig {
-    AIConfig {
-        models: vec![AIModelConfig {
-            id: "queue-lifecycle-model".into(),
-            name: "Queue lifecycle".into(),
-            provider: "openai".into(),
-            model_name: "test-model".into(),
-            base_url: "http://127.0.0.1:1".into(),
-            enabled: true,
-            ..Default::default()
-        }],
+    test_ai_config(vec![AIModelConfig {
+        id: "queue-lifecycle-model".into(),
+        name: "Queue lifecycle".into(),
+        provider: "openai".into(),
+        model_name: "test-model".into(),
+        base_url: "http://127.0.0.1:1".into(),
+        enabled: true,
         ..Default::default()
-    }
+    }])
 }
 
 async fn stopped_host_queue_fixture(

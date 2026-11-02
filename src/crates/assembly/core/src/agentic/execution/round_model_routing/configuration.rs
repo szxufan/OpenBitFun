@@ -109,8 +109,8 @@ fn product_service_config(config: &AIConfig) -> OpenBitFunResult<HttpRoundModelR
         .as_deref()
         .and_then(|id| {
             config
-                .models
-                .iter()
+                .resolved_models()
+                .into_iter()
                 .find(|model| model.id == id && model.enabled)
         })
         .ok_or_else(|| {
@@ -470,19 +470,48 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
+    fn test_ai_config(models: Vec<AIModelConfig>) -> AIConfig {
+        let mut providers = Vec::new();
+        let entries = models
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+        AIConfig {
+            providers,
+            models: entries,
+            ..Default::default()
+        }
+    }
+
+    #[allow(dead_code)]
+    fn push_test_model(config: &mut AIConfig, model: AIModelConfig) {
+        let entry =
+            openbitfun_config_contracts::split_flattened_model(&model, &mut config.providers);
+        config.models.push(entry);
+    }
     fn connection_fixture(endpoint: &str) -> AIConfig {
         let mut config = AIConfig::default();
-        for id in ["primary-fixture", "economy-fixture", "router-service"] {
-            config.models.push(AIModelConfig {
-                id: id.into(),
-                enabled: true,
+        let flattened = ["primary-fixture", "economy-fixture", "router-service"]
+            .iter()
+            .map(|id| AIModelConfig {
+                id: (*id).into(),
+                name: (*id).into(),
                 provider: "openai".into(),
                 base_url: endpoint.into(),
                 model_name: "router-fixture".into(),
                 api_key: "fixture-token".into(),
+                enabled: true,
                 ..Default::default()
-            });
-        }
+            })
+            .collect::<Vec<_>>();
+        let mut providers = Vec::new();
+        let entries = flattened
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+        config.providers = providers;
+        config.models = entries;
         config.default_models.primary = Some("primary-fixture".into());
         config.default_models.economy = Some("economy-fixture".into());
         config.model_routing.router_model_id = Some("router-service".into());
@@ -497,7 +526,7 @@ mod tests {
         for provider in ["anthropic", "response", "responses", "gemini", ""] {
             let mut config = connection_fixture(&endpoint);
             config.model_routing.timeout_ms = 50;
-            config.models[2].provider = provider.into();
+            config.providers[2].provider = provider.into();
             config.models[2].request_url = Some(format!("{endpoint}/v1/messages"));
             config.default_models.economy = None;
             let status = status_for_config(&config, Some("smart"), true, true).await;
@@ -670,13 +699,13 @@ mod tests {
         config.default_models.economy = None;
         assert!(product_config(&config).is_err());
         assert!(service_config(&config).is_ok());
-        config.models[2].custom_request_body = Some("{}".into());
+        config.providers[2].custom_request_body = Some("{}".into());
         assert!(service_config(&config)
             .unwrap_err()
             .to_string()
             .contains("request body"));
-        config.models[2].custom_request_body = None;
-        config.models[2].auth = serde_json::from_value(json!({
+        config.providers[2].custom_request_body = None;
+        config.providers[2].auth = serde_json::from_value(json!({
             "type": "subscription", "provider": "codex"
         }))
         .unwrap();
@@ -715,15 +744,18 @@ mod tests {
     #[test]
     fn product_router_uses_host_model_credentials_and_validates_auxiliary_configuration() {
         let mut config = AIConfig::default();
-        config.models.push(AIModelConfig {
-            id: "router-service".into(),
-            enabled: true,
-            provider: " OpenAI ".into(),
-            base_url: "https://router.example.invalid/v1/".into(),
-            model_name: "router-fixture".into(),
-            api_key: "fixture-token".into(),
-            ..Default::default()
-        });
+        push_test_model(
+            &mut config,
+            AIModelConfig {
+                id: "router-service".into(),
+                enabled: true,
+                provider: " OpenAI ".into(),
+                base_url: "https://router.example.invalid/v1/".into(),
+                model_name: "router-fixture".into(),
+                api_key: "fixture-token".into(),
+                ..Default::default()
+            },
+        );
         config.model_routing.router_model_id = Some("router-service".into());
         config.model_routing.tokenizer_path = "/execution-host/tokenizer.json".into();
         config.model_routing.summary_enabled = false;
@@ -731,11 +763,14 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("economy model"));
-        config.models.push(AIModelConfig {
-            id: "economy-fixture".into(),
-            enabled: true,
-            ..Default::default()
-        });
+        push_test_model(
+            &mut config,
+            AIModelConfig {
+                id: "economy-fixture".into(),
+                enabled: true,
+                ..Default::default()
+            },
+        );
         config.default_models.economy = Some("economy-fixture".into());
         let router = product_config(&config).unwrap();
         assert_eq!(
@@ -756,9 +791,9 @@ mod tests {
         // Reading an old opt-out never resets its persisted record or task defaults.
         assert!(!config.model_routing.summary_enabled);
         assert!(config.default_models.fast.is_none());
-        config.models[0].custom_request_body = Some("{}".into());
+        config.providers[0].custom_request_body = Some("{}".into());
         assert!(product_config(&config).is_err());
-        config.models[0].custom_request_body = None;
+        config.providers[0].custom_request_body = None;
         config.model_routing.simple_threshold = f64::NAN;
         assert!(product_config(&config).is_err());
     }
@@ -769,20 +804,26 @@ mod tests {
         let missing_path = directory.path().join("legacy-tokenizer.json");
         let missing_path = missing_path.to_str().unwrap();
         let mut config = AIConfig::default();
-        config.models.push(AIModelConfig {
-            id: "router-service".into(),
-            enabled: true,
-            provider: "openai".into(),
-            base_url: "https://router.example.invalid/v1".into(),
-            model_name: "router-fixture".into(),
-            ..Default::default()
-        });
+        push_test_model(
+            &mut config,
+            AIModelConfig {
+                id: "router-service".into(),
+                enabled: true,
+                provider: "openai".into(),
+                base_url: "https://router.example.invalid/v1".into(),
+                model_name: "router-fixture".into(),
+                ..Default::default()
+            },
+        );
         config.model_routing.router_model_id = Some("router-service".into());
-        config.models.push(AIModelConfig {
-            id: "economy-fixture".into(),
-            enabled: true,
-            ..Default::default()
-        });
+        push_test_model(
+            &mut config,
+            AIModelConfig {
+                id: "economy-fixture".into(),
+                enabled: true,
+                ..Default::default()
+            },
+        );
         config.default_models.economy = Some("economy-fixture".into());
         for (window, expected_window, expected_input) in [
             (None, 65_536, 65_536),
@@ -824,11 +865,14 @@ mod tests {
     fn economy_is_independent_of_fast_and_never_silently_falls_back() {
         let mut config = AIConfig::default();
         for id in ["primary", "worker", "economical"] {
-            config.models.push(AIModelConfig {
-                id: id.into(),
-                enabled: true,
-                ..Default::default()
-            });
+            push_test_model(
+                &mut config,
+                AIModelConfig {
+                    id: id.into(),
+                    enabled: true,
+                    ..Default::default()
+                },
+            );
         }
         config.default_models.primary = Some("primary".into());
         config.default_models.fast = Some("worker".into());

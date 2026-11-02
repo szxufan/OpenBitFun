@@ -2,6 +2,7 @@ import { modelSelectionsConfigPath } from '@/infrastructure/config/services/mode
 import '@/app/scenes/settings/pages/ai/ModelSettingsPage.scss';
 import { ModelDiscoveryPicker, type ModelDiscoveryOption } from './ModelDiscoveryPicker';
 import { remoteModelCategory, remoteModelReasoning } from './remoteModelDraftFacts';
+import { resolveAIModels, splitFlattenedModel, type AIProviderConfigType } from '@/infrastructure/config/services/modelConfigs';
 import { ModelPoolsSection } from './ModelPoolsSection';
 import { ModelPoolCardActions } from './ModelPoolCardActions';
 import { ZcodeSubscriptionGroup } from './ZcodeSubscriptionGroup';
@@ -104,6 +105,7 @@ import {
 import type { DefaultModelsConfig, ModelCapability, ModelChannelRouting, SubscriptionProvider } from '@/infrastructure/config/types';
 import {
   AIModelConfig as AIModelConfigType,
+  AIModelEntry,
   ImageDialect,
   ModelCategory,
   ProxyConfig,
@@ -490,7 +492,20 @@ const ModelSettingsPage: React.FC = () => {
   const initialProxy = proxySeed.get<ProxyConfig | null>('ai.proxy', null) ?? { enabled: false, url: '', username: '', password: '' };
   const initialIdle = timeoutSeed.get<number | null>('ai.stream_idle_timeout_secs', null);
   const initialTtft = timeoutSeed.get<number | null>('ai.stream_ttft_timeout_secs', null);
-  const [aiModels, setAiModels] = useState<AIModelConfigType[]>(modelSeed.get<AIModelConfigType[] | null>('ai.models', null) ?? []);
+  const [aiProviders, setAiProviders] = useState<AIProviderConfigType[]>([]);
+  const [aiModelEntries, setAiModelEntries] = useState<AIModelConfigType[]>(modelSeed.get<AIModelConfigType[] | null>('ai.models', null) ?? []);
+  // Resolved runtime view. Entries written by hosts without normalization
+  // (imports, older payloads) still carry flattened provider fields; mirror
+  // the host's write normalization by synthesizing their provider records.
+  const aiModels = React.useMemo(() => {
+    const providers = [...aiProviders];
+    const entries = aiModelEntries.map((entry): AIModelEntry =>
+      entry.provider_id
+        ? entry as AIModelEntry
+        : splitFlattenedModel(entry as AIModelConfigType, providers),
+    );
+    return resolveAIModels(providers, entries);
+  }, [aiProviders, aiModelEntries]);
   const imageSettings = useImageGenerationSettings();
   const [poolDefaults, setPoolDefaults] = useState<DefaultModelsConfig>(modelSeed.get<DefaultModelsConfig | null>('ai.default_models', null) ?? {});
   const [poolQuery, setPoolQuery] = useState('');
@@ -575,11 +590,15 @@ const ModelSettingsPage: React.FC = () => {
   const [selectedModelDrafts, setSelectedModelDrafts] = useState<SelectedModelDraft[]>([]);
   const [showModelValidation, setShowModelValidation] = useState(false);
   useEffect(() => { setShowModelValidation(false); }, [editingTargetKey, isEditing]);
+  const editingExistingProvider = !!editingTargetKey?.startsWith('provider:');
   const missingModelFields = {
     name: !editingConfig?.name?.trim(),
     baseUrl: !editingConfig?.base_url?.trim(),
     apiKey: !subscriptionProviderOf(editingConfig?.auth) && !openCodeApiKey(editingConfig || {}),
-    model: selectedModelDrafts.length === 0 || selectedModelDrafts.some(draft => !draft.modelName.trim()),
+    // Editing an existing provider may save it with zero models (the provider
+    // record survives); new provider creation still requires one model.
+    model: selectedModelDrafts.some(draft => !draft.modelName.trim())
+      || (!editingExistingProvider && selectedModelDrafts.length === 0),
   };
   const missingModelFieldLabels = [
     missingModelFields.name && t('form.configName'),
@@ -845,12 +864,14 @@ const ModelSettingsPage: React.FC = () => {
     try {
       // Optional reads preserve missing-key compatibility while propagating host
       // failures, instead of presenting a failed model read as an empty pool.
-      const [models, defaults] = await Promise.all([
+      const [providers, entries, defaults] = await Promise.all([
+        configManager.getOptionalConfig<AIProviderConfigType[]>('ai.providers'),
         configManager.getOptionalConfig<AIModelConfigType[]>('ai.models'),
         configManager.getOptionalConfig<DefaultModelsConfig>('ai.default_models'),
       ]);
       if (!scope.isCurrent()) return;
-      setAiModels(models || []);
+      setAiProviders(providers || []);
+      setAiModelEntries(entries || []);
       setPoolDefaults(defaults || {});
     } catch (error) {
       if (!scope.isCurrent()) return;
@@ -1094,12 +1115,14 @@ const ModelSettingsPage: React.FC = () => {
       const scope = getActiveSurfaceScope();
       const requestRevision = ++revision;
       try {
-        const [models, defaults] = await Promise.all([
+        const [providers, entries, defaults] = await Promise.all([
+          configManager.getOptionalConfig<AIProviderConfigType[]>('ai.providers'),
           configManager.getOptionalConfig<AIModelConfigType[]>('ai.models'),
           configManager.getOptionalConfig<DefaultModelsConfig>('ai.default_models'),
         ]);
         if (disposed || !scope.isCurrent() || revision !== requestRevision) return;
-        setAiModels(models || []);
+        setAiProviders(providers || []);
+        setAiModelEntries(entries || []);
         setPoolDefaults(defaults || {});
       } catch (error) {
         if (!disposed && scope.isCurrent()) log.warn('Failed to refresh model pool', { error });
@@ -1998,12 +2021,39 @@ const ModelSettingsPage: React.FC = () => {
     setIsEditing(true);
   };
 
+  /** Opens the editor for a provider that currently has zero models. */
+  const handleEditEmptyProvider = (group: ProviderGroup) => {
+    const targetKey = `provider:${group.key}`;
+    requestEditorOpen(targetKey, () => {
+      editingModelsSnapshotRef.current = structuredClone(aiModelEntries);
+      setShowProviderManager(false);
+      resetRemoteModelDiscovery();
+      setManualModelInput('');
+      setShowApiKey(false);
+      setSelectedModelDrafts([]);
+      setEditingProviderModelIds(new Set());
+      setEditingTargetKey(targetKey);
+      setCreationMode(null);
+      setEditingConfig({
+        id: undefined,
+        name: group.providerName,
+        provider: 'openai',
+        model_name: '',
+        base_url: '',
+        enabled: true,
+        category: 'general_chat',
+        capabilities: ['text_chat'],
+        metadata: group.models.length > 0 ? undefined : { [PROVIDER_INSTANCE_METADATA_KEY]: group.key },
+      });
+    });
+  };
+
   const handleEditProvider = (config: AIModelConfigType) => {
     const providerName = getProviderDisplayName(config);
     const providerGroupKey = getProviderGroupKey(config);
     const targetKey = `provider:${providerGroupKey}`;
     requestEditorOpen(targetKey, () => {
-      editingModelsSnapshotRef.current = structuredClone(aiModels);
+      editingModelsSnapshotRef.current = structuredClone(aiModelEntries);
       setShowProviderManager(false);
       resetRemoteModelDiscovery();
       setManualModelInput('');
@@ -2059,7 +2109,7 @@ const ModelSettingsPage: React.FC = () => {
   const handleEdit = (config: AIModelConfigType) => {
     const targetKey = `model:${config.id || `${config.provider}:${config.base_url}:${config.model_name}`}`;
     requestEditorOpen(targetKey, () => {
-      editingModelsSnapshotRef.current = structuredClone(aiModels);
+      editingModelsSnapshotRef.current = structuredClone(aiModelEntries);
       setShowProviderManager(false);
       resetRemoteModelDiscovery();
       setManualModelInput('');
@@ -2316,6 +2366,45 @@ const ModelSettingsPage: React.FC = () => {
         };
       });
       let previousModelsBeforeSave: AIModelConfigType[] = [];
+      if (draftsToSave.length === 0 && editingExistingProvider) {
+        // Zero-model provider: the provider record itself is the saved entity.
+        const nextProvider: AIProviderConfigType = {
+          id: providerInstanceId,
+          name: providerConfig.name?.trim() || providerName,
+          provider: providerConfig.provider || 'openai',
+          base_url: baseUrl,
+          api_key: providerConfig.api_key ?? '',
+          enabled: providerConfig.enabled ?? true,
+          auth: providerConfig.auth ?? { type: 'api_key' },
+          custom_headers: providerConfig.custom_headers,
+          custom_headers_mode: providerConfig.custom_headers_mode,
+          skip_ssl_verify: providerConfig.skip_ssl_verify,
+          custom_request_body: providerConfig.custom_request_body,
+          custom_request_body_mode: providerConfig.custom_request_body_mode,
+          metadata: {
+            ...(providerConfig.metadata || {}),
+          },
+        };
+        await configManager.updateConfig<AIProviderConfigType[]>('ai.providers', current => {
+          const existing = current.findIndex(provider => provider.id === providerInstanceId);
+          if (existing >= 0) {
+            return current.map(provider => provider.id === providerInstanceId ? nextProvider : provider);
+          }
+          return [...current, nextProvider];
+        });
+        setIsEditing(false);
+        setEditingConfig(null);
+        setCreationMode(null);
+        setSelectedProviderId(null);
+        setEditingProviderModelIds(new Set());
+        setSelectedModelDrafts([]);
+        resetEditorPanels();
+        setEditingTargetKey(null);
+        setDraftCloseConfirmOpen(false);
+        setDraftConflictConfirmOpen(false);
+        notification.success(t('messages.settingsSaved'));
+        return true;
+      }
       const updatedModels = await configManager.updateConfig<AIModelConfigType[]>('ai.models', current => {
         previousModelsBeforeSave = current;
         if (providerConfig.id) {
@@ -2346,8 +2435,7 @@ const ModelSettingsPage: React.FC = () => {
         configsToSave,
         isProviderGroupEdit
       );
-      setAiModels(updatedModels);
-      // The host reconciles default selectors using model capabilities.
+      setAiModelEntries(updatedModels);
 
       setIsEditing(false);
       setEditingConfig(null);
@@ -2468,6 +2556,12 @@ const ModelSettingsPage: React.FC = () => {
     if (!request) return;
     let deletedModelIds = request.modelIds;
     try {
+      if (request.kind === 'provider') {
+        await configManager.updateConfig<AIProviderConfigType[]>(
+          'ai.providers',
+          current => current.filter(provider => provider.id !== request.groupKey),
+        );
+      }
       const updatedModels = await configManager.updateConfig<AIModelConfigType[]>(
         'ai.models',
         (current) => {
@@ -2507,7 +2601,7 @@ const ModelSettingsPage: React.FC = () => {
       } else if (editingTargetKey === `model:${request.config.id}`) {
         closeEditingModal();
       }
-      setAiModels(updatedModels);
+      setAiModelEntries(updatedModels);
       setDeleteRequest(null);
       notification.success(t(
         request.kind === 'provider'
@@ -2553,10 +2647,9 @@ const ModelSettingsPage: React.FC = () => {
     if (!config.id) return;
 
     try {
-      const updatedModels = await configManager.updateConfig<AIModelConfigType[]>(
+      await configManager.updateConfig<AIModelConfigType[]>(
         'ai.models', current => current.map(model => model.id === config.id ? { ...model, enabled } : model)
       );
-      setAiModels(updatedModels);
     } catch (error) {
       log.error('Failed to toggle model status', { configId: config.id, enabled, error });
       notification.error(t('messages.saveFailed'));
@@ -2732,7 +2825,9 @@ const ModelSettingsPage: React.FC = () => {
 
   const providerGroups = useMemo<ProviderGroup[]>(() => {
     const grouped = aiModels.reduce<Map<string, ProviderGroup>>((map, model) => {
-      const groupKey = getProviderGroupKey(model);
+      // Resolved models carry their owning provider id; fall back to the
+      // legacy instance-metadata grouping for unsaved drafts.
+      const groupKey = model.provider_id || getProviderGroupKey(model);
       const providerName = getProviderDisplayName(model);
       const existingGroup = map.get(groupKey);
       if (existingGroup) {
@@ -2749,6 +2844,19 @@ const ModelSettingsPage: React.FC = () => {
       return map;
     }, new Map());
 
+    // Providers are first-class entities: one with zero models stays visible
+    // so it can be reconfigured or refilled through quick add.
+    for (const provider of aiProviders) {
+      if (!grouped.has(provider.id)) {
+        grouped.set(provider.id, {
+          key: provider.id,
+          providerName: provider.name,
+          providerId: undefined,
+          models: [],
+        });
+      }
+    }
+
     return Array.from(grouped.values()).sort((a, b) => {
       const indexA = a.providerId ? providerOrder.indexOf(a.providerId) : -1;
       const indexB = b.providerId ? providerOrder.indexOf(b.providerId) : -1;
@@ -2759,11 +2867,12 @@ const ModelSettingsPage: React.FC = () => {
 
       return a.providerName.localeCompare(b.providerName);
     });
-  }, [aiModels, providerOrder]);
+  }, [aiModels, aiProviders, providerOrder]);
 
-  const apiProviderGroups = providerGroups.filter(group => !subscriptionProviderOf(group.models[0].auth));
+  const apiProviderGroups = providerGroups.filter(group =>
+    group.models.length === 0 || !subscriptionProviderOf(group.models[0].auth));
   const subscriptionProviderGroups = providerGroups
-    .filter(group => !!subscriptionProviderOf(group.models[0].auth))
+    .filter(group => group.models.length > 0 && !!subscriptionProviderOf(group.models[0].auth))
     .map(group => {
       const accountLabels = availableSubscriptionAccounts
         .filter(({ account, accountId }) => modelsUsingSubscriptionAccount(group.models, account.provider, accountId).length > 0)
@@ -4767,6 +4876,16 @@ const ModelSettingsPage: React.FC = () => {
       const imageCapable = getEffectiveModelCapabilities(config).includes('image_generation')
         && !roles.some(role => role.modelId === config.id
           && role.label === tDefault('optional.capabilities.image_generation.label'));
+      // Card facts: context window and multimodal support come straight from
+      // the model record (quick add fills both from the /models endpoint).
+      const contextLabel = config.context_window
+        ? i18nService.formatNumber(config.context_window, { notation: 'compact' })
+        : null;
+      const multimodal = getEffectiveModelCapabilities(config).includes('image_understanding');
+      const cardFacts = [
+        contextLabel ? t('pool.contextWindowLabel', { context: contextLabel }) : null,
+        multimodal ? t('pool.multimodalLabel') : null,
+      ].filter((fact): fact is string => typeof fact === 'string');
       return (
         <div key={config.id} className="openbitfun-model-settings__pool-item"
           data-openbitfun-component="model-settings" data-openbitfun-part="modelItem"
@@ -4783,11 +4902,14 @@ const ModelSettingsPage: React.FC = () => {
                   {(isTesting || testResult) && badge}
                 </div>
               )}
-              description={(roles.length > 0 || tags.length > 0 || imageCapable) ? (
+              description={(roles.length > 0 || tags.length > 0 || imageCapable || cardFacts.length > 0) ? (
                 <div className="openbitfun-model-settings__pool-tags">
-                  {imageCapable && <StatusPill tone="neutral">{t('capabilities.image_generation')}</StatusPill>}
                   {roles.map(role => <StatusPill key={role.label} tone="neutral">{role.label}</StatusPill>)}
+                  {imageCapable && <StatusPill tone="neutral">{t('capabilities.image_generation')}</StatusPill>}
                   {tags.map(tag => <StatusPill key={tag} tone="neutral">{tag}</StatusPill>)}
+                  {cardFacts.map(fact => (
+                    <span key={fact} className="openbitfun-model-settings__meta-tag">{fact}</span>
+                  ))}
                 </div>
               ) : undefined}
             />
@@ -4994,10 +5116,10 @@ const ModelSettingsPage: React.FC = () => {
                         />
                       </Tooltip>
                     )}>
-                      <Tooltip content={group.models[0].base_url} trigger="hover-focus">
+                      <Tooltip content={group.models[0]?.base_url ?? ''} trigger="hover-focus">
                         <Button size="sm" variant="outline" className="openbitfun-model-settings__source-pill"
                           aria-label={t('acquisition.configureProvider', { provider: group.providerName })}
-                          onClick={() => handleEditProvider(group.models[0])}>
+                          onClick={() => group.models[0] ? handleEditProvider(group.models[0]) : handleEditEmptyProvider(group)}>
                           {group.providerName}
                         </Button>
                       </Tooltip>

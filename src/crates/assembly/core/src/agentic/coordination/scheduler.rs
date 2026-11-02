@@ -3620,6 +3620,27 @@ pub fn clear_thread_goal_continuation_abort(session_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[allow(dead_code)]
+    fn test_ai_config(models: Vec<AIModelConfig>) -> AIConfig {
+        let mut providers = Vec::new();
+        let entries = models
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+        AIConfig {
+            providers,
+            models: entries,
+            ..Default::default()
+        }
+    }
+
+    #[allow(dead_code)]
+    fn push_test_model(config: &mut AIConfig, model: AIModelConfig) {
+        let entry =
+            openbitfun_config_contracts::split_flattened_model(&model, &mut config.providers);
+        config.models.push(entry);
+    }
+
     use super::*;
     include!("host_message_queue_tests.rs");
     use crate::agentic::core::{ProcessingPhase, SessionConfig};
@@ -3930,16 +3951,13 @@ mod tests {
 
         TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(
-                AIConfig {
-                    models: vec![AIModelConfig {
-                        id: "model-original".to_string(),
-                        name: "model-original".to_string(),
-                        model_name: "model-original".to_string(),
-                        enabled: true,
-                        ..Default::default()
-                    }],
+                test_ai_config(vec![AIModelConfig {
+                    id: "model-original".to_string(),
+                    name: "model-original".to_string(),
+                    model_name: "model-original".to_string(),
+                    enabled: true,
                     ..Default::default()
-                },
+                }]),
                 scheduler.deliver_background_result(
                     session_id.to_string(),
                     "external::opencode::agentic::generation-v1".to_string(),
@@ -5053,20 +5071,17 @@ mod tests {
                     )
                 })
                 .collect::<Vec<_>>();
-            let config = AIConfig {
-                models: vec![AIModelConfig {
-                    id: "limited-vision".into(),
-                    name: "Limited vision".into(),
-                    enabled: true,
-                    capabilities: vec![
-                        ModelCapability::TextChat,
-                        ModelCapability::ImageUnderstanding,
-                    ],
-                    max_images_per_request: Some(3),
-                    ..Default::default()
-                }],
+            let config = test_ai_config(vec![AIModelConfig {
+                id: "limited-vision".into(),
+                name: "Limited vision".into(),
+                enabled: true,
+                capabilities: vec![
+                    ModelCapability::TextChat,
+                    ModelCapability::ImageUnderstanding,
+                ],
+                max_images_per_request: Some(3),
                 ..Default::default()
-            };
+            }]);
             let turn_request = |attachments| AgentDialogTurnRequest {
                 session_id: session_id.into(),
                 message: "Continue".into(),

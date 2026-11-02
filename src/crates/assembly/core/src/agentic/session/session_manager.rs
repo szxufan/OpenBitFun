@@ -263,10 +263,10 @@ fn effective_session_model_selector(
         })
 }
 
-fn concrete_model_for_session_selection<'a>(
-    ai_config: &'a crate::service::config::types::AIConfig,
+fn concrete_model_for_session_selection(
+    ai_config: &crate::service::config::types::AIConfig,
     session: &Session,
-) -> Option<&'a crate::service::config::types::AIModelConfig> {
+) -> Option<crate::service::config::types::AIModelConfig> {
     let configured_model_id = effective_session_model_selector(ai_config, session);
 
     let resolved_model_id = if matches!(
@@ -279,8 +279,8 @@ fn concrete_model_for_session_selection<'a>(
     }?;
 
     ai_config
-        .models
-        .iter()
+        .resolved_models()
+        .into_iter()
         .find(|model| model.enabled && model.id == resolved_model_id)
 }
 
@@ -783,8 +783,8 @@ impl SessionManager {
                 ))
             })?;
         let model = ai_config
-            .models
-            .iter()
+            .resolved_models()
+            .into_iter()
             .find(|model| model.enabled && model.id == canonical_model_id)
             .ok_or_else(|| {
                 OpenBitFunError::AIClient(format!(
@@ -792,7 +792,7 @@ impl SessionManager {
                 ))
             })?;
         let models_dev = load_models_dev_reasoning_catalog_without_refresh().await;
-        let projection = project_model_reasoning_catalog(model, models_dev.catalog.as_deref());
+        let projection = project_model_reasoning_catalog(&model, models_dev.catalog.as_deref());
         let preset = match selected_preset
             .map(str::trim)
             .filter(|preset| !preset.is_empty())
@@ -819,8 +819,8 @@ impl SessionManager {
         let trimmed = model_id.trim();
         let resolved_model_id = ai_config.resolve_model_selection(trimmed)?;
         ai_config
-            .models
-            .iter()
+            .resolved_models()
+            .into_iter()
             .find(|model| model.id == resolved_model_id)
             .and_then(|model| model.context_window)
             .map(|tokens| tokens as usize)
@@ -870,7 +870,7 @@ impl SessionManager {
             return Some(preset_id.to_string());
         };
         let models_dev = load_models_dev_reasoning_catalog_without_refresh().await;
-        normalize_reasoning_preset_for_model(model, models_dev.catalog.as_deref(), Some(preset_id))
+        normalize_reasoning_preset_for_model(&model, models_dev.catalog.as_deref(), Some(preset_id))
     }
 
     fn normalize_session_title_input(title: &str) -> OpenBitFunResult<String> {
@@ -9409,9 +9409,10 @@ impl SessionManager {
                 .model_pool_binding
                 .as_ref()
                 .filter(|binding| binding.pool_id == pool_id);
+            let resolved = config.resolved_models();
             let model = bound
                 .and_then(|binding| {
-                    config.models.iter().find(|model| {
+                    resolved.iter().find(|model| {
                         model.enabled
                             && model.id == binding.model_id
                             && pool.member_model_ids.contains(&model.id)
@@ -9421,7 +9422,7 @@ impl SessionManager {
                 })
                 .or_else(|| {
                     pool.member_model_ids.iter().find_map(|id| {
-                        config.models.iter().find(|model| {
+                        resolved.iter().find(|model| {
                             &model.id == id && model.enabled && model.supports_text_generation()
                         })
                     })
@@ -9477,15 +9478,15 @@ impl SessionManager {
                     ))
                 })?;
             let model = ai_config
-                .models
-                .iter()
+                .resolved_models()
+                .into_iter()
                 .find(|model| model.enabled && model.id == canonical_model_id)
                 .ok_or_else(|| {
                     OpenBitFunError::Validation(format!(
                         "The interrupted turn model is unavailable: {resolved_model_id}"
                     ))
                 })?;
-            if model_runtime_binding_fingerprint(model) != expected_model_binding_fingerprint {
+            if model_runtime_binding_fingerprint(&model) != expected_model_binding_fingerprint {
                 return Err(OpenBitFunError::Validation(format!(
                 "The interrupted turn model binding changed after interruption: {resolved_model_id}"
             )));
@@ -11383,10 +11384,7 @@ mod tests {
     ) -> crate::util::errors::OpenBitFunResult<super::InterruptedTurnRecoveryPlan> {
         TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(
-                ServiceAIConfig {
-                    models: vec![configured_reasoning_model("model-original")],
-                    ..Default::default()
-                },
+                test_ai_config(vec![configured_reasoning_model("model-original")]),
                 manager.reopen_interrupted_dialog_turn(session_id, turn_id, expected_generation),
             )
             .await
@@ -11825,10 +11823,7 @@ mod tests {
 
         let error = TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(
-                ServiceAIConfig {
-                    models: vec![reasoning_model_with_default("model-original", "low")],
-                    ..Default::default()
-                },
+                test_ai_config(vec![reasoning_model_with_default("model-original", "low")]),
                 manager.reopen_interrupted_dialog_turn(&session.session_id, &turn_id, 0),
             )
             .await
@@ -11892,10 +11887,7 @@ mod tests {
         changed_model.model_name = "provider-model-v2".to_string();
         let error = TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(
-                ServiceAIConfig {
-                    models: vec![changed_model],
-                    ..Default::default()
-                },
+                test_ai_config(vec![changed_model]),
                 manager.reopen_interrupted_dialog_turn(&session.session_id, &turn_id, 0),
             )
             .await
@@ -11975,10 +11967,7 @@ mod tests {
         let expected = TurnAdmissionSessionFacts::from_session(&session);
         TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(
-                ServiceAIConfig {
-                    models: vec![test_model("model-original", 256_000)],
-                    ..Default::default()
-                },
+                test_ai_config(vec![test_model("model-original", 256_000)]),
                 manager.update_session_model_selection(&session.session_id, "model-original", None),
             )
             .await
@@ -13865,13 +13854,24 @@ mod tests {
         let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
         let manager = test_manager(persistence);
         let mut ai = crate::service::config::types::AIConfig::default();
+        ai.providers
+            .push(crate::service::config::types::AIProviderConfig {
+                id: "prov".into(),
+                name: "Provider prov".into(),
+                provider: "openai".into(),
+                base_url: "https://example.test/v1".into(),
+                api_key: "key".into(),
+                enabled: true,
+                ..Default::default()
+            });
         for id in ["removed-model", "fallback-model"] {
-            ai.models
-                .push(crate::service::config::types::AIModelConfig {
-                    id: id.into(),
-                    enabled: true,
-                    ..Default::default()
-                });
+            ai.models.push(crate::service::config::types::AIModelEntry {
+                id: id.into(),
+                provider_id: "prov".into(),
+                model_name: id.into(),
+                enabled: true,
+                ..Default::default()
+            });
         }
         ai.default_models.primary = Some("fallback-model".into());
         let (retained, manual) = TEST_MODEL_RESOLUTION_AI_CONFIG
@@ -13951,12 +13951,23 @@ mod tests {
             .join("retained-router-summary.json");
         std::fs::write(&summary_path, b"Retained historical summary evidence").unwrap();
         let mut ai = crate::service::config::types::AIConfig::default();
-        ai.models
-            .push(crate::service::config::types::AIModelConfig {
-                id: "fallback-model".into(),
+        ai.providers
+            .push(crate::service::config::types::AIProviderConfig {
+                id: "fallback-model".to_string() + "-provider",
+                name: "Provider".into(),
+                provider: "openai".into(),
+                base_url: "https://example.test/v1".into(),
+                api_key: "key".into(),
                 enabled: true,
                 ..Default::default()
             });
+        ai.models.push(crate::service::config::types::AIModelEntry {
+            id: "fallback-model".into(),
+            provider_id: "fallback-model".to_string() + "-provider",
+            model_name: "fallback-model".into(),
+            enabled: true,
+            ..Default::default()
+        });
         ai.default_models.primary = Some("fallback-model".into());
         let restored = TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(ai, manager.restore_session(workspace.path(), &id))
@@ -14071,12 +14082,23 @@ mod tests {
         let summary_path = directory.join("retained-router-summary.json");
         std::fs::write(&summary_path, b"Retained historical summary evidence").unwrap();
         let mut ai = crate::service::config::types::AIConfig::default();
-        ai.models
-            .push(crate::service::config::types::AIModelConfig {
-                id: "chosen-model".into(),
+        ai.providers
+            .push(crate::service::config::types::AIProviderConfig {
+                id: "chosen-model".to_string() + "-provider",
+                name: "Provider".into(),
+                provider: "openai".into(),
+                base_url: "https://example.test/v1".into(),
+                api_key: "key".into(),
                 enabled: true,
                 ..Default::default()
             });
+        ai.models.push(crate::service::config::types::AIModelEntry {
+            id: "chosen-model".into(),
+            provider_id: "chosen-model".to_string() + "-provider",
+            model_name: "chosen-model".into(),
+            enabled: true,
+            ..Default::default()
+        });
         let updated = TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(
                 ai,
@@ -14128,12 +14150,23 @@ mod tests {
             .await
             .unwrap();
         let mut ai = crate::service::config::types::AIConfig::default();
-        ai.models
-            .push(crate::service::config::types::AIModelConfig {
-                id: "chosen-model".into(),
+        ai.providers
+            .push(crate::service::config::types::AIProviderConfig {
+                id: "chosen-model".to_string() + "-provider",
+                name: "Provider".into(),
+                provider: "openai".into(),
+                base_url: "https://example.test/v1".into(),
+                api_key: "key".into(),
                 enabled: true,
                 ..Default::default()
             });
+        ai.models.push(crate::service::config::types::AIModelEntry {
+            id: "chosen-model".into(),
+            provider_id: "chosen-model".to_string() + "-provider",
+            model_name: "chosen-model".into(),
+            enabled: true,
+            ..Default::default()
+        });
         let target = openbitfun_core_types::model_pool::ModelSelection::Model {
             model_ref: "chosen-model".into(),
         };
@@ -14535,10 +14568,7 @@ mod tests {
             .await
             .expect("legacy session fixture should persist");
         let manager = test_manager(persistence_manager.clone());
-        let mut ai_config = ServiceAIConfig {
-            models: vec![test_model("primary-model", 512_000)],
-            ..Default::default()
-        };
+        let mut ai_config = test_ai_config(vec![test_model("primary-model", 512_000)]);
         ai_config.default_models.primary = Some("primary-model".to_string());
 
         let restored = TEST_MODEL_RESOLUTION_AI_CONFIG
@@ -15704,13 +15734,10 @@ mod tests {
         manager.sessions.insert(child_id.clone(), child.clone());
         TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(
-                ServiceAIConfig {
-                    models: vec![
-                        test_model("model-a", 128_000),
-                        configured_reasoning_model("model-b"),
-                    ],
-                    ..Default::default()
-                },
+                test_ai_config(vec![
+                    test_model("model-a", 128_000),
+                    configured_reasoning_model("model-b"),
+                ]),
                 async {
                     assert!(manager
                         .update_session_model_selection(&child_id, "model-b", Some("high"))
@@ -15766,10 +15793,25 @@ mod tests {
             .await;
     }
 
+    fn test_ai_config(models: Vec<ServiceAIModelConfig>) -> ServiceAIConfig {
+        let mut providers = Vec::new();
+        let entries = models
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect::<Vec<_>>();
+        ServiceAIConfig {
+            providers,
+            models: entries,
+            ..Default::default()
+        }
+    }
+
     fn configured_reasoning_model(id: &str) -> ServiceAIModelConfig {
         ServiceAIModelConfig {
             id: id.to_string(),
             name: id.to_string(),
+            provider: "openai".to_string(),
+            base_url: "https://example.test/v1".to_string(),
             model_name: id.to_string(),
             enabled: true,
             reasoning: Some(ReasoningConfig {
@@ -15791,6 +15833,8 @@ mod tests {
         ServiceAIModelConfig {
             id: id.to_string(),
             name: id.to_string(),
+            provider: "openai".to_string(),
+            base_url: "https://example.test/v1".to_string(),
             model_name: id.to_string(),
             enabled: true,
             reasoning: Some(ReasoningConfig {
@@ -15814,13 +15858,10 @@ mod tests {
     #[cfg(feature = "model-catalog")]
     #[tokio::test]
     async fn reasoning_preset_normalization_uses_the_updated_model() {
-        let ai_config = ServiceAIConfig {
-            models: vec![
-                configured_reasoning_model("model-a"),
-                test_model("model-b", 128_000),
-            ],
-            ..Default::default()
-        };
+        let mut ai_config = test_ai_config(vec![
+            configured_reasoning_model("model-a"),
+            test_model("model-b", 128_000),
+        ]);
         let mut session = Session::new_with_id(
             "reasoning-selection".to_string(),
             "Reasoning selection".to_string(),
@@ -15837,6 +15878,17 @@ mod tests {
             SessionManager::normalize_session_reasoning_preset(&session, &ai_config).await,
             Some("high".to_string())
         );
+        // model-b carries no explicit reasoning config; disable its catalog so
+        // the switched session must not inherit model-a's preset.
+        ai_config
+            .models
+            .iter_mut()
+            .find(|model| model.id == "model-b")
+            .unwrap()
+            .reasoning = Some(ReasoningConfig {
+            catalog: ReasoningCatalogBinding::Disabled,
+            ..Default::default()
+        });
         session.config.model_id = Some("model-b".to_string());
         assert_eq!(
             SessionManager::normalize_session_reasoning_preset(&session, &ai_config).await,
@@ -15881,10 +15933,7 @@ mod tests {
             .save_session(workspace.path(), &seeded)
             .await
             .expect("seeded preset should persist");
-        let ai_config = ServiceAIConfig {
-            models: vec![test_model("model-b", 128_000)],
-            ..Default::default()
-        };
+        let ai_config = test_ai_config(vec![test_model("model-b", 128_000)]);
 
         manager
             .reconcile_session_reasoning_preset_locked(&session.session_id, &ai_config, "test")
@@ -15913,10 +15962,7 @@ mod tests {
             PersistenceManager::new(workspace.path_manager()).expect("persistence manager"),
         );
         let manager = test_manager(persistence_manager.clone());
-        let ai_config = ServiceAIConfig {
-            models: vec![test_model("deepseek-v4-flash", 200_000)],
-            ..Default::default()
-        };
+        let ai_config = test_ai_config(vec![test_model("deepseek-v4-flash", 200_000)]);
 
         let session = TEST_MODEL_RESOLUTION_AI_CONFIG
             .scope(ai_config, async {
@@ -15947,10 +15993,7 @@ mod tests {
 
     #[test]
     fn sync_session_context_window_refreshes_stale_explicit_model_window() {
-        let ai_config = ServiceAIConfig {
-            models: vec![test_model("deepseek-v4-pro", 1_000_000)],
-            ..Default::default()
-        };
+        let ai_config = test_ai_config(vec![test_model("deepseek-v4-pro", 1_000_000)]);
 
         let mut session = Session::new_with_id(
             "session-804".to_string(),
@@ -15973,13 +16016,10 @@ mod tests {
 
     #[test]
     fn sync_session_context_window_resolves_missing_selection_through_mode_default_then_primary() {
-        let mut ai_config = ServiceAIConfig {
-            models: vec![
-                test_model("primary-model", 512_000),
-                test_model("agent-model", 1_000_000),
-            ],
-            ..Default::default()
-        };
+        let mut ai_config = test_ai_config(vec![
+            test_model("primary-model", 512_000),
+            test_model("agent-model", 1_000_000),
+        ]);
         ai_config.default_models.primary = Some("primary-model".to_string());
         ai_config
             .set_model_selections(
@@ -16031,13 +16071,10 @@ mod tests {
 
     #[test]
     fn sync_session_context_window_resolves_missing_subagent_selection_through_primary() {
-        let mut ai_config = ServiceAIConfig {
-            models: vec![
-                test_model("primary-model", 512_000),
-                test_model("mode-model", 1_000_000),
-            ],
-            ..Default::default()
-        };
+        let mut ai_config = test_ai_config(vec![
+            test_model("primary-model", 512_000),
+            test_model("mode-model", 1_000_000),
+        ]);
         ai_config.default_models.primary = Some("primary-model".to_string());
         ai_config
             .set_model_selections(

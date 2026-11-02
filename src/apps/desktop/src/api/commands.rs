@@ -1081,8 +1081,8 @@ pub async fn initialize_ai(state: State<'_, AppState>) -> Result<String, String>
         })?;
     let model_config = global_config
         .ai
-        .models
-        .iter()
+        .resolved_models()
+        .into_iter()
         .find(|m| m.id == primary_model_id)
         .ok_or_else(|| format!("Primary model '{}' does not exist", primary_model_id))?;
     let ai_client = create_transient_ai_client_for_config(&state, model_config.clone()).await?;

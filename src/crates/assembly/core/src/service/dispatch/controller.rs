@@ -316,6 +316,7 @@ fn protected_model_sync_payload(config: &Value) -> anyhow::Result<Value> {
         .ok_or_else(|| anyhow::anyhow!("exported model configuration has no AI section"))?;
     let mut payload = serde_json::Map::new();
     for key in [
+        "providers",
         "models",
         "default_models",
         "agent_model_defaults",
@@ -351,6 +352,41 @@ fn subscription_model_sync_requirements(
     let mut bindings = false;
     let mut failover = false;
     let mut channels = false;
+    let mut provider_auths = Vec::new();
+    for provider in restored
+        .pointer("/ai/providers")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let auth = match provider.get("auth") {
+            Some(auth) => serde_json::from_value::<AuthConfig>(auth.clone()).map_err(|_| {
+                SubscriptionModelSyncUnsupported {
+                    reason: "The controller has unsupported provider authentication; its configuration was preserved and no model sync was attempted.".into(),
+                }
+            })?,
+            None => AuthConfig::ApiKey,
+        };
+        match auth {
+            AuthConfig::SubscriptionPool { provider, .. } => {
+                provider_accounts |=
+                    provider != crate::service::config::types::SubscriptionProvider::Codex;
+                bindings = true;
+                failover = true;
+            }
+            AuthConfig::Subscription {
+                provider,
+                account_id: Some(_),
+                ..
+            } => {
+                bindings = true;
+                provider_accounts |=
+                    provider != crate::service::config::types::SubscriptionProvider::Codex;
+            }
+            _ => {}
+        }
+        provider_auths.push(auth);
+    }
     for model in restored
         .pointer("/ai/models")
         .and_then(Value::as_array)
@@ -376,33 +412,8 @@ fn subscription_model_sync_requirements(
             }
             channels = true;
         }
-        let auth = match model.get("auth") {
-            Some(auth) => serde_json::from_value::<AuthConfig>(auth.clone()).map_err(|_| {
-                SubscriptionModelSyncUnsupported {
-                    reason: "The controller has unsupported model authentication; its configuration was preserved and no model sync was attempted.".into(),
-                }
-            })?,
-            None => AuthConfig::ApiKey,
-        };
-        match auth {
-            AuthConfig::SubscriptionPool { provider, .. } => {
-                provider_accounts |=
-                    provider != crate::service::config::types::SubscriptionProvider::Codex;
-                bindings = true;
-                failover = true;
-            }
-            AuthConfig::Subscription {
-                provider,
-                account_id: Some(_),
-                ..
-            } => {
-                bindings = true;
-                provider_accounts |=
-                    provider != crate::service::config::types::SubscriptionProvider::Codex;
-            }
-            _ => {}
-        }
     }
+    let _ = provider_auths;
     let mut required = Vec::new();
     if provider_accounts {
         required.push(openbitfun_services_core::dispatch_contract::DISPATCH_SUBSCRIPTION_PROVIDER_ACCOUNTS_CAPABILITY);
@@ -1927,15 +1938,21 @@ mod tests {
 
     fn subscription_sync_fixture(auth: crate::service::config::AuthConfig) -> Value {
         let mut config = crate::service::config::GlobalConfig::default();
-        config.ai.models = vec![crate::service::config::AIModelConfig {
-            id: "sync-model".into(),
+        config.ai.providers = vec![crate::service::config::AIProviderConfig {
+            id: "sync-provider".into(),
             name: "Sync fixture".into(),
-            model_name: "fixture-model".into(),
             provider: "responses".into(),
             base_url: "https://fixture.invalid/v1".into(),
             enabled: true,
             api_key: "synthetic-static-key".into(),
             auth,
+            ..Default::default()
+        }];
+        config.ai.models = vec![openbitfun_config_contracts::AIModelEntry {
+            id: "sync-model".into(),
+            provider_id: "sync-provider".into(),
+            model_name: "fixture-model".into(),
+            enabled: true,
             ..Default::default()
         }];
         config.ai.default_models.primary = Some("sync-model".into());

@@ -823,17 +823,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn model_snapshot_rejects_concurrent_same_epoch_and_pool_to_fixed_overwrites() {
-        use crate::service::config::types::{AIModelConfig, AuthConfig, SubscriptionProvider};
+    async fn model_snapshot_rejects_concurrent_same_epoch_writes() {
+        use crate::service::config::types::AIModelConfig;
         let (service, dir) = test_service("account-model-cas").await;
         let model = AIModelConfig {
             id: "subscription-model".into(),
             temperature: Some(1.0),
-            auth: AuthConfig::SubscriptionPool {
-                provider: SubscriptionProvider::Codex,
-                accounts: vec!["codex".into(), "backup".into()],
-                revision: 5,
-            },
             ..Default::default()
         };
         service.set_config("ai.models", vec![model]).await.unwrap();
@@ -841,11 +836,7 @@ mod tests {
         // The actual browser returns an integer JSON number for this f64.
         snapshot[0]["temperature"] = Value::from(1);
         let mut first = snapshot.clone();
-        first[0]["auth"]["accounts"] = serde_json::json!(["backup", "codex"]);
-        first[0]["auth"]["revision"] = Value::from(6);
-        let mut second = snapshot.clone();
-        second[0]["auth"]["accounts"] = serde_json::json!(["codex"]);
-        second[0]["auth"]["revision"] = Value::from(6);
+        first[0]["temperature"] = Value::from(2);
         apply_legacy_config_mutation_with_model_snapshot(
             &service,
             "ai.models",
@@ -860,45 +851,43 @@ mod tests {
                 .app_config_file();
         let committed_bytes = std::fs::read(&config_file).unwrap();
         let changes = service.subscribe_local_changes();
-        for replacement in [second, {
-            let mut fixed = snapshot.clone();
-            fixed[0]["auth"] = serde_json::json!({"type":"subscription", "provider":"codex"});
-            fixed
-        }] {
-            let error = apply_legacy_config_mutation_with_model_snapshot(
-                &service,
-                "ai.models",
-                replacement,
-                Some(snapshot.clone()),
-            )
-            .await
-            .unwrap_err();
-            assert!(
-                error.contains("SUBSCRIPTION_ACCOUNT_POOL_CONFLICT"),
-                "{error}"
-            );
-            assert_eq!(
-                service
-                    .get_config::<Value>(Some("ai.models"))
-                    .await
-                    .unwrap(),
-                committed
-            );
-            assert_eq!(std::fs::read(&config_file).unwrap(), committed_bytes);
-            assert!(!changes.has_changed().unwrap());
-        }
-        let mut fixed = committed.clone();
-        fixed[0]["auth"] = serde_json::json!({"type":"subscription", "provider":"codex"});
+        // A stale snapshot (still carrying the pre-commit temperature) must be
+        // rejected by the compare-and-snapshot guard.
+        let error = apply_legacy_config_mutation_with_model_snapshot(
+            &service,
+            "ai.models",
+            snapshot.clone(),
+            Some(snapshot.clone()),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error.contains("SUBSCRIPTION_ACCOUNT_POOL_CONFLICT"),
+            "{error}"
+        );
+        assert_eq!(
+            service
+                .get_config::<Value>(Some("ai.models"))
+                .await
+                .unwrap(),
+            committed
+        );
+        assert_eq!(std::fs::read(&config_file).unwrap(), committed_bytes);
+        assert!(!changes.has_changed().unwrap());
+        // Auth lives on provider records now: injecting an auth block into a
+        // model entry must not change the provider's binding.
+        let mut with_auth = committed.clone();
+        with_auth[0]["auth"] = serde_json::json!({"type":"subscription", "provider":"codex"});
         apply_legacy_config_mutation_with_model_snapshot(
             &service,
             "ai.models",
-            fixed,
-            Some(committed),
+            with_auth,
+            Some(committed.clone()),
         )
         .await
         .unwrap();
-        let current: Value = service.get_config(Some("ai.models")).await.unwrap();
-        assert_eq!(current[0]["auth"]["type"], "subscription");
+        let providers: Value = service.get_config(Some("ai.providers")).await.unwrap();
+        assert_eq!(providers[0]["auth"]["type"], serde_json::json!("api_key"));
     }
 
     #[test]

@@ -77,10 +77,9 @@ pub fn resolve_vision_model_from_ai_config(
     };
 
     let model = ai_config
-        .models
-        .iter()
+        .resolved_models()
+        .into_iter()
         .find(|m| m.id == id)
-        .cloned()
         .ok_or_else(|| OpenBitFunError::service(format!("Model not found: {}", id)))?;
 
     if !model.enabled {
@@ -148,8 +147,8 @@ pub(crate) fn resolve_image_input_route(
     analysis_tool_available: bool,
 ) -> OpenBitFunResult<ImageInputRoute> {
     let model = ai_config
-        .models
-        .iter()
+        .resolved_models()
+        .into_iter()
         .find(|model| model.id == primary_model_id)
         .ok_or_else(|| {
             OpenBitFunError::validation(format!("Model not found: {primary_model_id}"))
@@ -196,7 +195,12 @@ mod input_model_tests {
             ..Default::default()
         };
         let mut config = ServiceAIConfig::default();
-        config.models = vec![native, text];
+        let mut providers = Vec::new();
+        config.models = vec![native, text]
+            .iter()
+            .map(|model| openbitfun_config_contracts::split_flattened_model(model, &mut providers))
+            .collect();
+        config.providers = providers;
         assert!(validate_image_input_model(&config, "native", false).is_ok());
         assert!(validate_image_input_model(&config, "text", true)
             .unwrap_err()

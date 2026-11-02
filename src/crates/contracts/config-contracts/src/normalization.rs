@@ -24,30 +24,92 @@ pub(crate) fn validate_image_budget_request_body(
     Ok(())
 }
 
-/// Provider-neutral model validation, shared by startup and offline import.
-pub fn validate_model_config(model: &crate::AIModelConfig, index: usize) -> Result<(), String> {
-    if !model.supports_text_generation() {
+/// Provider-neutral provider validation, shared by startup and offline import.
+pub fn validate_provider_config(
+    provider: &crate::AIProviderConfig,
+    index: usize,
+) -> Result<(), String> {
+    if provider.provider.trim().is_empty() {
+        return Err(format!("Provider protocol is required at index {index}"));
+    }
+    Ok(())
+}
+
+/// Provider-neutral model entry validation, shared by startup and offline
+/// import. Rules spanning an entry and its provider (the image request budget
+/// against the provider's custom request body) are checked by
+/// [`validate_resolved_model_config`].
+pub fn validate_model_entry(entry: &crate::AIModelEntry, index: usize) -> Result<(), String> {
+    if !entry.supports_text_generation() {
         for (field, present) in [
-            ("context_window", model.context_window.is_some()),
-            ("max_tokens", model.max_tokens.is_some()),
-            ("temperature", model.temperature.is_some()),
-            ("top_p", model.top_p.is_some()),
+            ("context_window", entry.context_window.is_some()),
+            ("max_tokens", entry.max_tokens.is_some()),
+            ("temperature", entry.temperature.is_some()),
+            ("top_p", entry.top_p.is_some()),
         ] {
             if present {
                 return Err(format!(
                     "Model '{}' has text-generation-only field {field} at index {index}",
-                    model.name
+                    entry.model_name
                 ));
             }
         }
     }
-    if !model.enabled {
+    if !entry.enabled {
         return Ok(());
     }
+    if entry.max_images_per_request == Some(0) {
+        return Err(format!(
+            "Model '{}' max_images_per_request must be greater than 0 at index {index}",
+            entry.model_name
+        ));
+    }
+    if entry.provider_id.trim().is_empty() {
+        return Err(format!(
+            "Model '{}' provider_id is required at index {index}",
+            entry.model_name
+        ));
+    }
+    if entry.supports_text_generation() {
+        if entry
+            .context_window
+            .is_some_and(|size| size < crate::MIN_MODEL_CONTEXT_WINDOW_TOKENS)
+        {
+            return Err(format!(
+                "Model '{}' context_window must be at least {} at index {index}",
+                entry.model_name,
+                crate::MIN_MODEL_CONTEXT_WINDOW_TOKENS
+            ));
+        }
+        if entry.max_tokens == Some(0) {
+            return Err(format!(
+                "Model '{}' max_tokens must be greater than 0 at index {index}",
+                entry.model_name
+            ));
+        }
+    }
+    if let Some(reasoning) = &entry.reasoning {
+        reasoning.validate_schema().map_err(|error| {
+            format!(
+                "Model '{}' reasoning config is invalid at index {index}: {error}",
+                entry.model_name
+            )
+        })?;
+    }
+    Ok(())
+}
+
+/// Validate the resolved projection of one entry. The image request budget is
+/// enforced against the owning provider's custom request body, so this needs
+/// the join result rather than the bare entry.
+pub fn validate_resolved_model_config(
+    model: &crate::AIModelConfig,
+    index: usize,
+) -> Result<(), String> {
     if model.max_images_per_request == Some(0) {
         return Err(format!(
             "Model '{}' max_images_per_request must be greater than 0 at index {index}",
-            model.name
+            model.model_name
         ));
     }
     if model.max_images_per_request.is_some() {
@@ -56,39 +118,7 @@ pub fn validate_model_config(model: &crate::AIModelConfig, index: usize) -> Resu
             .as_deref()
             .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok());
         validate_image_budget_request_body(model.max_images_per_request, body.as_ref())
-            .map_err(|error| format!("Model '{}' {error} at index {index}", model.name))?;
-    }
-    if model.name.trim().is_empty() {
-        return Err(format!("Model name is required at index {index}"));
-    }
-    if model.provider.trim().is_empty() {
-        return Err(format!("Model provider is required at index {index}"));
-    }
-    if model.supports_text_generation() {
-        if model
-            .context_window
-            .is_some_and(|size| size < crate::MIN_MODEL_CONTEXT_WINDOW_TOKENS)
-        {
-            return Err(format!(
-                "Model '{}' context_window must be at least {} at index {index}",
-                model.name,
-                crate::MIN_MODEL_CONTEXT_WINDOW_TOKENS
-            ));
-        }
-        if model.max_tokens == Some(0) {
-            return Err(format!(
-                "Model '{}' max_tokens must be greater than 0 at index {index}",
-                model.name
-            ));
-        }
-    }
-    if let Some(reasoning) = &model.reasoning {
-        reasoning.validate_schema().map_err(|error| {
-            format!(
-                "Model '{}' reasoning config is invalid at index {index}: {error}",
-                model.name
-            )
-        })?;
+            .map_err(|error| format!("Model '{}' {error} at index {index}", model.model_name))?;
     }
     Ok(())
 }
@@ -126,8 +156,36 @@ pub fn recover_persisted_config(config: &mut GlobalConfig) -> Vec<ConfigDiagnost
         config.app.logging.level = defaults.app.logging.level;
         repaired("app.logging.level");
     }
+    for (index, provider) in config.ai.providers.iter_mut().enumerate() {
+        if let Err(message) = validate_provider_config(provider, index) {
+            provider.enabled = false;
+            diagnostics.push(ConfigDiagnostic {
+                path: format!("ai.providers[{index}]"),
+                message,
+                code: "CONFIG_PROVIDER_DISABLED".into(),
+                severity: ConfigDiagnosticSeverity::Warning,
+                recoverability: ConfigDiagnosticRecoverability::ModelDisabled,
+            });
+        }
+    }
+    let provider_ids: HashSet<&str> = config
+        .ai
+        .providers
+        .iter()
+        .map(|provider| provider.id.as_str())
+        .collect();
     for (index, model) in config.ai.models.iter_mut().enumerate() {
-        if let Err(message) = validate_model_config(model, index) {
+        let mut message = validate_model_entry(model, index).err();
+        // A dangling reference only matters while the entry can still run;
+        // already-disabled entries keep their record without new diagnostics.
+        if message.is_none() && model.enabled && !provider_ids.contains(model.provider_id.as_str())
+        {
+            message = Some(format!(
+                "Model '{}' references missing provider '{}' at index {index}",
+                model.model_name, model.provider_id
+            ));
+        }
+        if let Some(message) = message {
             model.enabled = false;
             diagnostics.push(ConfigDiagnostic {
                 path: format!("ai.models[{index}]"),
@@ -183,13 +241,25 @@ impl ModelReferenceReconcileResult {
     }
 }
 
+fn provider_enabled(config: &GlobalConfig, provider_id: &str) -> bool {
+    config
+        .ai
+        .providers
+        .iter()
+        .find(|provider| provider.id == provider_id)
+        .is_some_and(|provider| provider.enabled)
+}
+
 fn enabled_model_with_capability(
     config: &GlobalConfig,
     model_id: &str,
     capability: ModelCapability,
 ) -> bool {
     config.ai.models.iter().any(|model| {
-        model.enabled && model.id == model_id && model.supports_capability(capability.clone())
+        model.enabled
+            && provider_enabled(config, &model.provider_id)
+            && model.id == model_id
+            && model.supports_capability(capability.clone())
     })
 }
 
@@ -201,7 +271,11 @@ fn first_enabled_model_with_capability(
         .ai
         .models
         .iter()
-        .find(|model| model.enabled && model.supports_capability(capability.clone()))
+        .find(|model| {
+            model.enabled
+                && provider_enabled(config, &model.provider_id)
+                && model.supports_capability(capability.clone())
+        })
         .map(|model| model.id.clone())
 }
 
@@ -466,17 +540,37 @@ pub fn reconcile_model_references(config: &mut GlobalConfig) -> ModelReferenceRe
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{AIModelEntry, ModelCapability, ModelCategory};
+
+    fn test_entry(
+        id: &str,
+        category: ModelCategory,
+        capabilities: Vec<ModelCapability>,
+    ) -> AIModelEntry {
+        AIModelEntry {
+            id: id.to_string(),
+            provider_id: "prov".to_string(),
+            model_name: id.to_string(),
+            enabled: true,
+            category,
+            capabilities,
+            ..AIModelEntry::default()
+        }
+    }
 
     #[test]
     fn recovery_preserves_models_and_repairs_all_invalid_reference_families() {
         let mut value = serde_json::to_value(GlobalConfig::default()).unwrap();
         let patch = serde_json::json!({"ai": {
             "stream_idle_timeout_secs": 0, "stream_ttft_timeout_secs": 0,
+            "providers": [
+                {"id":"prov", "name":"Prov", "provider":"openai", "base_url":"https://prov.test/v1", "api_key":"retained-secret", "enabled":true}
+            ],
             "models": [
-                {"id":"text", "name":"Text", "provider":"openai", "enabled":true},
-                {"id":"speech", "name":"Speech", "provider":"openai", "enabled":true,
+                {"id":"text", "provider_id":"prov", "model_name":"text", "enabled":true},
+                {"id":"speech", "provider_id":"prov", "model_name":"speech", "enabled":true,
                  "capabilities":["speech_recognition"], "context_window":0, "max_tokens":0, "temperature":1.0, "top_p":1.0},
-                {"id":"broken", "name":"", "enabled":true, "api_key":"retained-secret"}
+                {"id":"broken", "provider_id":"missing", "model_name":"broken", "enabled":true}
             ],
             "default_models":{"primary":"missing", "fast":"broken", "search":"text", "speech_recognition":"text"},
             "task_models":{"session_title":{"kind":"fixed","model_id":"speech"}, "git_commit":{"kind":"inherit"}},
@@ -494,7 +588,7 @@ mod tests {
         assert!(!diagnostics.is_empty());
         assert_eq!(config.ai.models.len(), 3);
         assert!(!config.ai.models[2].enabled);
-        assert_eq!(config.ai.models[2].api_key, "retained-secret");
+        assert_eq!(config.ai.providers[0].api_key, "retained-secret");
         assert!(config.ai.models[1].enabled);
         assert_eq!(config.ai.models[1].context_window, None);
         assert_eq!(config.ai.models[1].top_p, None);
@@ -539,20 +633,17 @@ mod tests {
         assert!(recover_persisted_config(&mut reloaded).is_empty());
         assert_eq!(serde_json::to_value(reloaded).unwrap(), saved);
     }
-    use crate::types::{AIModelConfig, ModelCapability, ModelCategory};
-
     #[test]
     fn pure_speech_models_drop_text_generation_sentinels() {
         let mut config = GlobalConfig::default();
-        config.ai.models.push(AIModelConfig {
-            id: "speech-cloud".to_string(),
-            name: "Qwen ASR".to_string(),
-            category: ModelCategory::SpeechRecognition,
-            capabilities: vec![ModelCapability::SpeechRecognition],
+        config.ai.models.push(AIModelEntry {
             context_window: Some(0),
             max_tokens: Some(0),
-            enabled: true,
-            ..AIModelConfig::default()
+            ..test_entry(
+                "speech-cloud",
+                ModelCategory::SpeechRecognition,
+                vec![ModelCapability::SpeechRecognition],
+            )
         });
 
         let diagnostics = normalize_typed_config(&mut config);
@@ -568,16 +659,17 @@ mod tests {
     #[test]
     fn mixed_text_and_speech_models_keep_generation_fields() {
         let mut config = GlobalConfig::default();
-        config.ai.models.push(AIModelConfig {
-            id: "mixed".to_string(),
-            category: ModelCategory::GeneralChat,
-            capabilities: vec![
-                ModelCapability::TextChat,
-                ModelCapability::SpeechRecognition,
-            ],
+        config.ai.models.push(AIModelEntry {
             context_window: Some(64_000),
             max_tokens: Some(8_000),
-            ..AIModelConfig::default()
+            ..test_entry(
+                "mixed",
+                ModelCategory::GeneralChat,
+                vec![
+                    ModelCapability::TextChat,
+                    ModelCapability::SpeechRecognition,
+                ],
+            )
         });
 
         assert!(normalize_typed_config(&mut config).is_empty());
@@ -588,21 +680,22 @@ mod tests {
     #[test]
     fn default_slots_reconcile_by_capability() {
         let mut config = GlobalConfig::default();
+        config.ai.providers.push(crate::AIProviderConfig {
+            id: "prov".into(),
+            name: "Prov".into(),
+            ..Default::default()
+        });
         config.ai.models = vec![
-            AIModelConfig {
-                id: "speech".to_string(),
-                enabled: true,
-                category: ModelCategory::SpeechRecognition,
-                capabilities: vec![ModelCapability::SpeechRecognition],
-                ..AIModelConfig::default()
-            },
-            AIModelConfig {
-                id: "text".to_string(),
-                enabled: true,
-                category: ModelCategory::GeneralChat,
-                capabilities: vec![ModelCapability::TextChat],
-                ..AIModelConfig::default()
-            },
+            test_entry(
+                "speech",
+                ModelCategory::SpeechRecognition,
+                vec![ModelCapability::SpeechRecognition],
+            ),
+            test_entry(
+                "text",
+                ModelCategory::GeneralChat,
+                vec![ModelCapability::TextChat],
+            ),
         ];
         config.ai.default_models.primary = Some("speech".to_string());
         config.ai.default_models.fast = Some("speech".to_string());
@@ -622,21 +715,22 @@ mod tests {
     #[test]
     fn missing_fast_slot_is_preserved_and_resolves_to_primary() {
         let mut config = GlobalConfig::default();
+        config.ai.providers.push(crate::AIProviderConfig {
+            id: "prov".into(),
+            name: "Prov".into(),
+            ..Default::default()
+        });
         config.ai.models = vec![
-            AIModelConfig {
-                id: "first-text".to_string(),
-                enabled: true,
-                category: ModelCategory::GeneralChat,
-                capabilities: vec![ModelCapability::TextChat],
-                ..AIModelConfig::default()
-            },
-            AIModelConfig {
-                id: "primary-text".to_string(),
-                enabled: true,
-                category: ModelCategory::GeneralChat,
-                capabilities: vec![ModelCapability::TextChat],
-                ..AIModelConfig::default()
-            },
+            test_entry(
+                "first-text",
+                ModelCategory::GeneralChat,
+                vec![ModelCapability::TextChat],
+            ),
+            test_entry(
+                "primary-text",
+                ModelCategory::GeneralChat,
+                vec![ModelCapability::TextChat],
+            ),
         ];
         config.ai.default_models.primary = Some("primary-text".to_string());
         config.ai.default_models.fast = None;
