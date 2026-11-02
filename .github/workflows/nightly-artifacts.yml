@@ -66,7 +66,7 @@ jobs:
   package:
     name: Package (${{ matrix.platform }})
     if: ${{ inputs.build_desktop_packages }}
-    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-latest","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-15","macos-x64":"macos-15-intel","windows-x64":"windows-latest"}')[matrix.platform] }}
+    runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-22.04","linux-arm64":"ubuntu-22.04-arm","macos-arm64":"macos-15","macos-x64":"macos-15-intel","windows-x64":"windows-latest"}')[matrix.platform] }}
     env:
       NODE_OPTIONS: --max-old-space-size=6144
       OPENBITFUN_RELEASE_CHANNEL: nightly
@@ -259,6 +259,17 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Check Desktop Linux glibc floor
+        if: runner.os == 'Linux'
+        shell: bash
+        # Same tripwire and same 2.35 baseline as desktop-package.yml:
+        # nightly artifacts are published too, so a runner that drifts past
+        # the supported glibc floor must fail here rather than ship packages
+        # that cannot load on older hosts.
+        run: |
+          bash scripts/ci/check-glibc-floor.sh 2.35 \
+            "target/${{ env.PACKAGE_TARGET }}/release/openbitfun-desktop"
 
       - name: Package macOS CLI for SSH dispatch
         if: runner.os == 'macOS'
