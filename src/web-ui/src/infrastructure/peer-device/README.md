@@ -9,6 +9,11 @@ The selected Desktop or CLI owns execution, persisted records, workspaces, PTYs,
 and blocking interactions. A controller owns presentation and drafts. Its lifetime
 never determines whether an accepted turn continues running.
 
+An unmaterialized draft (`editing`/`creating`) has only a reserved ID the host has
+never seen, so it opens no subscription and reads no history; a host rejection
+there would falsely lock an empty session as a failed restore. The subscription
+starts when the host accepts the draft.
+
 `RelaySessionHistory` owns one subscription per visible surface/session.
 `SessionRecordReplica` applies both replayed pages and live canonical records
 using stable IDs, revisions and tombstones; every page comes from the online
@@ -18,6 +23,20 @@ open or explicit reader request can warm one adjacent page while the document is
 visible and the shared resource budget permits it. This never recursively drains
 the transcript. Hiding a view pauses optional prefetch only; live records,
 reconnect and interaction-mailbox delivery keep their subscriptions.
+
+The host sends each record of a page as its own event. Records reduce into the
+replica as they arrive; rendering the changed turns is coalesced to one store
+update per frame, and a page in flight renders as one batch before its ready
+event. Rendering per record is quadratic in the items of a long turn and freezes the UI thread. Live
+pages have no ready event, so the frame timer publishes them; it is a timer
+rather than an animation frame so hidden windows keep applying records. A running
+turn reaching a terminal status, a visibility change, and any direct turn, round
+or tool event flush first, so those facts never apply over a stale render. Any
+new path that presents a page as ready, including a synthetic one, must flush
+first and must not report `hasMore: false` without proof.
+
+A turn stays pending until it was converted: the replica will not report a held
+revision again.
 Receive cursors advance only after applying
 records, never from a send acknowledgement. Transport reconnect resumes that same
 subscription. Local Runtime projection machinery is not a second Relay content
@@ -159,6 +178,9 @@ listener alone recovers an interaction emitted before attachment.
     commands are high priority within each submission burst and use the shared
     transport admission policy. Both local and SSH-backed PTY cursors on B must
     notify A without placing raw output into an unbounded event queue.
+    A host that announces cursors instead of fanning out `terminal_event`
+    advertises `terminal_cursor_replay_v1`; a CLI host that predates the key is
+    treated as advertising it, and the choice is re-made once capabilities resolve.
     Remote `SIGINT` / `SIGTSTP` map to PTY control bytes instead of silently
     succeeding without affecting the process.
 
@@ -203,6 +225,16 @@ listener alone recovers an interaction emitted before attachment.
     must not introduce a second `restore_session_view` or window-RPC content owner.
     Rollback remains an explicit runtime operation; it never falls back to a
     controller-local mutation. Never log catalog preview text.
+
+    A successful targeted rollback confirms the pre-request suffix even when
+    an older host omits `retiredTurnIds` or supplies only active/queued IDs.
+    Capture that suffix's stable identities from materialized Turns and the
+    catalog before invoking; after completion remove them and their send
+    previews before reporting success or submitting the edited prompt. Do not
+    delete by storage index after the response: a new Turn may reuse that slot.
+    Fence delayed records in the surface's replica until the host supplies its
+    real tombstone revision or starts a new authoritative replay. This must not
+    blacklist another device's equal IDs or prevent host-authoritative redo.
 
 15. **Git ownership trust is read on the peer, granted at the machine.**
     `git_get_repository_trust` is a read-only probe and routes to the peer
@@ -254,6 +286,9 @@ listener alone recovers an interaction emitted before attachment.
     before RPC. Missing capability means unsupported, including older Desktop
     and CLI peers. Discovery reports the host's OS availability; it must never
     inspect or execute the controller's WSL installation as a fallback.
+    `ssh_none_auth_v1` gates SSH profile requests with `auth.type === 'None'`
+    the same way; an older host cannot parse that method, so controllers reject
+    the request before RPC and keep the record unchanged.
 
 19. **Session copying needs an explicitly negotiated request contract.**
     `whole_session_copy_v1` enables the dedicated `copy_session` command.

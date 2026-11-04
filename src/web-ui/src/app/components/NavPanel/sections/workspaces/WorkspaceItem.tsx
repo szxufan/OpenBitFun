@@ -55,6 +55,7 @@ import type { AcpClientInfo } from '@/infrastructure/api/service-api/ACPClientAP
 import { loadWorkspaceAcpMenuClients } from './workspaceAcpMenuClients';
 import WorkspaceAcpSessionSubmenu from './WorkspaceAcpSessionSubmenu';
 import SessionsSection from '../sessions/SessionsSection';
+import { remoteWorkspaceBadge, type RemoteWorkspaceBadge } from './remoteWorkspaceBadge';
 import { useWorkspaceSessionViewStore } from '../../workspaceSessionView';
 import {
   WorkspaceKind,
@@ -93,6 +94,8 @@ function containsWorkspaceNameControlCharacter(value: string): boolean {
 
 interface WorkspaceItemProps {
   workspace: WorkspaceInfo;
+  /** Compact remote badge computed across opened workspaces; derived locally when absent. */
+  remoteBadge?: RemoteWorkspaceBadge;
   isActive: boolean;
   isSelected: boolean;
   isSingle?: boolean;
@@ -106,6 +109,7 @@ interface WorkspaceItemProps {
 
 const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
   workspace,
+  remoteBadge,
   isActive,
   isSelected,
   isSingle = false,
@@ -151,7 +155,6 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
   const [assistantHistoryOpen, setAssistantHistoryOpen] = useState(false);
   const assistantHistoryId = useId();
   const openingAssistantRef = useRef(false);
-  const sessionDisclosureIcon = sessionsCollapsed ? 'chevron-right' : 'chevron-down';
   const collapseAllRequestId = useWorkspaceSessionViewStore(state => state.collapseAllRequestId);
   const [searchIndexModalOpen, setSearchIndexModalOpen] = useState(false);
   const [scheduledJobsModalOpen, setScheduledJobsModalOpen] = useState(false);
@@ -271,17 +274,14 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     const statusLabel = t(`nav.workspaces.remote.status.${status}`, {
       defaultValue: t('nav.workspaces.remote.status.unknown'),
     });
-    const connectionLabel =
-      workspace.connectionName?.trim()
-      || workspace.sshHost?.trim()
-      || workspace.connectionId?.trim()
-      || '';
-    const hostLabel = workspace.sshHost?.trim() || connectionLabel;
+    const badge = remoteBadge ?? remoteWorkspaceBadge(workspace);
+    const connectionLabel = badge?.connection ?? '';
+    const hostLabel = badge?.host || connectionLabel;
 
     return {
       status,
       statusLabel,
-      connectionLabel,
+      badgeLabel: badge?.label ?? connectionLabel,
       /** A green dot already reads as "fine"; spell out only the states that need attention. */
       showStatusText: status !== 'connected',
       tooltip: t('nav.workspaces.remote.tooltip', {
@@ -295,11 +295,10 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
       }),
     };
   }, [
+    remoteBadge,
     remoteConnStatus,
     t,
-    workspace.connectionId,
-    workspace.connectionName,
-    workspace.sshHost,
+    workspace,
     workspaceIsRemote,
   ]);
 
@@ -504,37 +503,42 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     }
 
     let cancelled = false;
+    let requestId = 0;
     const remoteWorkspace = isRemoteWorkspace(workspace);
 
-    const loadAcpClients = async () => {
+    const loadAcpClients = async (refreshIfMissing = true) => {
+      const request = ++requestId;
       setAcpClients([]);
       setAcpClientsLoading(true);
       try {
         const clients = await loadWorkspaceAcpMenuClients({
           remoteWorkspace,
           remoteConnectionId: remoteWorkspace ? workspace.connectionId : undefined,
+          refreshIfMissing,
         });
-        if (!cancelled) {
+        if (!cancelled && request === requestId) {
           setAcpClients(clients);
         }
       } catch (_error) {
-        if (!cancelled) {
+        if (!cancelled && request === requestId) {
           setAcpClients([]);
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && request === requestId) {
           setAcpClientsLoading(false);
         }
       }
     };
 
+    const onClientsChanged = () => { void loadAcpClients(); };
+    const onRequirementsChanged = () => { void loadAcpClients(false); };
     void loadAcpClients();
-    window.addEventListener('openbitfun:acp-clients-changed', loadAcpClients);
-    window.addEventListener('openbitfun:acp-requirements-changed', loadAcpClients);
+    window.addEventListener('openbitfun:acp-clients-changed', onClientsChanged);
+    window.addEventListener('openbitfun:acp-requirements-changed', onRequirementsChanged);
     return () => {
       cancelled = true;
-      window.removeEventListener('openbitfun:acp-clients-changed', loadAcpClients);
-      window.removeEventListener('openbitfun:acp-requirements-changed', loadAcpClients);
+      window.removeEventListener('openbitfun:acp-clients-changed', onClientsChanged);
+      window.removeEventListener('openbitfun:acp-requirements-changed', onRequirementsChanged);
     };
   }, [menuOpen, workspace]);
 
@@ -938,11 +942,11 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
                 data-workspace-id={workspace.id}
               >
                 <MenuItem
-                  leading={<Icon glyph={MessageCirclePlus} size="sm" />}
-                  onClick={() => { void handleCreateSession(); }}
-                  data-testid="nav-workspace-menu-create-session"
+                  leading={<Icon name="folder-open" size="sm" />}
+                  onClick={handleOpenFiles}
+                  data-testid="nav-workspace-menu-open-directory"
                 >
-                  {t('nav.workspaces.actions.newSession')}
+                  {t('nav.workspaces.actions.openDirectory')}
                 </MenuItem>
                 <MenuItem leading={<Icon name="clock" size="sm" />} onClick={handleOpenScheduledJobs}>
                   {t('nav.scheduledJobs.open')}
@@ -1126,12 +1130,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
           data-workspace-id={workspace.id}
         >
           <span className="openbitfun-nav-panel__workspace-item-icon" data-openbitfun-product-component="workspace-item" data-openbitfun-product-part="icon" aria-hidden="true">
-            <span className="openbitfun-nav-panel__workspace-item-icon-default">
-              <WorkspaceIcon workspace={workspace} />
-            </span>
-            <span className="openbitfun-nav-panel__workspace-item-icon-toggle">
-              <Icon name={sessionDisclosureIcon} size="sm" />
-            </span>
+            <WorkspaceIcon workspace={workspace} expanded={!sessionsCollapsed} />
           </span>
         </button>
         <div className="openbitfun-nav-panel__workspace-item-name-cluster">
@@ -1318,7 +1317,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
                       aria-hidden="true"
                     />
                     <span className="openbitfun-nav-panel__workspace-item-remote-host">
-                      {remoteMeta.connectionLabel}
+                      {remoteMeta.badgeLabel}
                     </span>
                     {remoteMeta.showStatusText ? (
                       <span className="openbitfun-nav-panel__workspace-item-remote-status">
@@ -1391,7 +1390,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
                 data-workspace-id={workspace.id}
               >
                 <MenuItem
-                  leading={<Icon name="folder" size="sm" />}
+                  leading={<Icon name="folder-open" size="sm" />}
                   onClick={handleOpenFiles}
                   data-testid="nav-workspace-menu-open-directory"
                 >
@@ -1482,17 +1481,21 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
       <div
         data-openbitfun-product-component="workspace-item"
         data-openbitfun-product-part="sessions"
-        className={`openbitfun-nav-panel__workspace-item-sessions${sessionsCollapsed ? ' is-collapsed' : ''}`}
+        className={`openbitfun-nav-panel__workspace-item-sessions openbitfun-nav-panel__workspace-item-sessions--project${sessionsCollapsed ? ' is-collapsed' : ''}`}
+        {...{ inert: sessionsCollapsed ? '' : undefined }}
+        aria-hidden={sessionsCollapsed || undefined}
         data-testid="nav-workspace-session-region"
         data-workspace-id={workspace.id}
       >
-        <SessionsSection
-          workspaceId={workspace.id}
-          workspacePath={workspace.rootPath}
-          isActiveWorkspace={isActive}
-          isVisible={!sessionsCollapsed}
-          useWorkspaceViewPreferences
-        />
+        <div className="openbitfun-nav-panel__workspace-item-sessions-inner">
+          <SessionsSection
+            workspaceId={workspace.id}
+            workspacePath={workspace.rootPath}
+            isActiveWorkspace={isActive}
+            isVisible={!sessionsCollapsed}
+            useWorkspaceViewPreferences
+          />
+        </div>
       </div>
 
       <InputDialog

@@ -692,7 +692,8 @@ pub fn command_allowed(scope: GrantScope, command: &super::RemoteCommand) -> boo
         | SendSessionToDevice { .. }
         | ExecuteOnDevice { .. }
         | StoreSessionAttachment { .. }
-        | CreateWorkspace { .. } => scope == GrantScope::Drive,
+        | CreateWorkspace { .. }
+        | SetModelDefaults { .. } => scope == GrantScope::Drive,
     }
 }
 

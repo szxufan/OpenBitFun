@@ -68,6 +68,10 @@ pub mod host_stream_subscriber {
     pub use openbitfun_services_integrations::remote_connect::host_stream_subscriber::*;
 }
 
+pub mod rpc_execution {
+    pub use openbitfun_services_integrations::remote_connect::rpc_execution::*;
+}
+
 pub mod session_records {
     pub use openbitfun_services_integrations::remote_connect::session_records::*;
 }
@@ -1047,11 +1051,14 @@ impl RemoteConnectService {
     ///
     /// `notifier` delivers host stream hints to subscribed controllers; the host
     /// adapter owns pairwise encryption and the routing lease, so it supplies it.
+    /// `priority` decides which host serves this device when several OpenBitFun
+    /// hosts on the machine share its identity.
     pub async fn start_device_connection(
         &self,
         relay_url: &str,
         token: &str,
         device_name: &str,
+        priority: relay_client::DeviceRoutingPriority,
         notifier: Arc<dyn host_stream::HostStreamNotifier>,
     ) -> Result<(
         tokio::sync::mpsc::Receiver<relay_client::RelayEvent>,
@@ -1062,7 +1069,7 @@ impl RemoteConnectService {
         // Disconnect previous device connection if any.
         self.stop_device_connection_inner().await;
 
-        let (client, mut event_rx) = RelayClient::new();
+        let (client, mut event_rx) = RelayClient::new_device_host(priority);
         client.connect(relay_url).await?;
         client.connect_authenticated(token, device_name).await?;
 

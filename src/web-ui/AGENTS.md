@@ -120,6 +120,16 @@ pnpm --dir src/web-ui run test:run src/app/scenes/agents/components/CreateAgentD
 These DOM fixtures cover local forms and simulated Peer surface switches;
 they do not establish native rendering or live remote behavior.
 
+For startup logo handoff, welcome typing, reduced motion, and interrupted startup exits:
+
+```bash
+pnpm --dir src/web-ui run test:run src/app/startup/startupOverlay.test.ts src/app/startup/startupPreload.test.ts src/app/startup/startupPerformanceContract.test.ts src/app/scenes/welcome/WelcomeScene.test.tsx
+pnpm run motion:audit
+```
+
+These DOM fixtures use measured rectangles and animation stubs. They do not
+establish native WebView animation fidelity or live remote behavior.
+
 For navigation-divider dragging, elastic feedback, cancellation, and keyboard resizing:
 
 ```bash
@@ -151,6 +161,18 @@ drift and cover conditional settings, saved/new views, separate endpoint drafts,
 credential-only retries, custom container values, search clearing, independent actions,
 numeric bounds, and focus ownership; DOM assertions do not establish native
 rendering or live connections.
+
+For remote workspace reconciliation and ACP requirement cache invalidation:
+
+```bash
+pnpm --dir src/web-ui run test:run src/features/ssh-remote/SSHRemoteProvider.test.tsx src/infrastructure/api/service-api/ACPClientAPI.test.ts src/app/components/NavPanel/sections/workspaces/workspaceAcpMenuClients.test.ts src/app/components/NavPanel/sections/workspaces/workspaceAcpMenuClients.integration.test.ts
+```
+
+These fixtures cover idle metadata updates, live-status recovery, explicit
+activation, concurrent binding changes/closure, partial restore failures,
+config invalidation, menu probe feedback, and simulated Peer surface changes.
+They do not establish live SSH, Remote Control or Detached
+Dispatch behavior. Editor polling checks belong in `src/tools/editor/AGENTS.md`.
 
 For conversation selection and the floating annotation editor (placement,
 dragging, resizing, draft retention, and nonmodal interaction):
@@ -206,6 +228,16 @@ For cross-device undo/redo/rollback history invalidation and settled-Turn fences
 run `pnpm --dir src/web-ui run test:run src/flow_chat/services/flow-chat-manager/EventHandlerModule.test.ts`.
 Missing fence identities (including legacy payloads) must reload authoritative
 history; an explicit settled-Turn identity must preserve newer live Turns.
+
+For edit/rollback receipts, legacy peer outcomes, and delayed record replay:
+
+```bash
+pnpm --dir src/web-ui run test:run src/flow_chat/services/SessionRollbackService.test.ts src/flow_chat/services/UserMessageEditService.test.ts src/flow_chat/store/FlowChatStore.test.ts src/flow_chat/session-stream/SessionRecordReplica.test.ts src/flow_chat/services/RelaySessionHistory.test.ts
+```
+
+These tests exercise the shared mutation services and real presentation store
+with simulated Peer records, including device switches and redo. They do not
+establish live Desktop-to-Desktop or Desktop-to-CLI behavior.
 
 For text-entry guards, composer sanitization, or keyboard focus routing, run
 `pnpm --dir src/web-ui run test:run src/shared/utils/textInputGuard.test.tsx src/flow_chat/components/RichTextInput.test.tsx src/flow_chat/hooks/useComposerDefaultFocus.test.tsx src/flow_chat/utils/chatInputKeyOwnership.test.ts`.

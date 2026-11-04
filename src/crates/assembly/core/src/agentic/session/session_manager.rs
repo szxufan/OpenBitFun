@@ -745,6 +745,27 @@ impl SessionManager {
         Self::load_effective_ai_config_from_service(config_service.as_ref()).await
     }
 
+    pub(crate) async fn load_ai_config_for_session(
+        config: &SessionConfig,
+    ) -> OpenBitFunResult<Option<AIConfig>> {
+        #[cfg(test)]
+        if let Ok(ai_config) = TEST_MODEL_RESOLUTION_AI_CONFIG.try_with(Clone::clone) {
+            return Ok(Some(ai_config));
+        }
+        let Ok(service) = get_global_config_service().await else {
+            return Ok(None);
+        };
+        service
+            .get_project_ai_config(
+                config
+                    .project_workspace_id
+                    .as_deref()
+                    .or(config.workspace_id.as_deref()),
+            )
+            .await
+            .map(Some)
+    }
+
     async fn load_effective_ai_config_from_service(
         config_service: &crate::service::config::ConfigService,
     ) -> Option<AIConfig> {
@@ -2494,7 +2515,13 @@ impl SessionManager {
         session_id: &str,
         reason: &'static str,
     ) -> OpenBitFunResult<Option<String>> {
-        let Some(ai_config) = Self::load_ai_config_for_model_resolution().await else {
+        let config = self
+            .get_session(session_id)
+            .map(|session| session.config.clone());
+        let Some(ai_config) = (match config {
+            Some(config) => Self::load_ai_config_for_session(&config).await?,
+            None => None,
+        }) else {
             return Ok(self
                 .sessions
                 .get(session_id)
@@ -2505,13 +2532,13 @@ impl SessionManager {
     }
 
     async fn reconcile_loaded_session_reasoning_presets(&self, reason: &'static str) {
-        let Some(ai_config) = Self::load_ai_config_for_model_resolution().await else {
+        if Self::load_ai_config_for_model_resolution().await.is_none() {
             debug!(
                 "Skipping session reasoning preset reconciliation because AI config is unavailable: reason={}",
                 reason
             );
             return;
-        };
+        }
         let candidates = self
             .sessions
             .iter()
@@ -2521,7 +2548,7 @@ impl SessionManager {
 
         for session_id in candidates {
             if let Err(error) = self
-                .reconcile_session_reasoning_preset_locked(&session_id, &ai_config, reason)
+                .reconcile_session_reasoning_preset_for_turn(&session_id, reason)
                 .await
             {
                 warn!(
@@ -2816,7 +2843,7 @@ impl SessionManager {
         };
         session.created_by = created_by;
         session.kind = kind;
-        let ai_config = Self::load_ai_config_for_model_resolution().await;
+        let ai_config = Self::load_ai_config_for_session(&session.config).await?;
         if session.config.model_routing.is_none()
             && kind != SessionKind::Subagent
             && session.config.model_binding_policy == SessionModelBindingPolicy::Mutable
@@ -4522,7 +4549,7 @@ impl SessionManager {
                 "An approved immutable model binding cannot be replaced by model pool selection",
             ));
         }
-        let ai_config = Self::load_ai_config_for_model_resolution().await;
+        let ai_config = Self::load_ai_config_for_session(&original_session.config).await?;
         let mut resolved_context_window = None;
         let mut auto_cleared_reasoning_preset = None;
         let mut updated_session = original_session.clone();
@@ -4997,7 +5024,13 @@ impl SessionManager {
     /// model's actual configured `context_window`, so subagents with large-context
     /// models are not prematurely capped.
     pub async fn refresh_session_context_window(&self, session_id: &str) -> OpenBitFunResult<()> {
-        if let Some(ai_config) = Self::load_ai_config_for_model_resolution().await {
+        let config = self
+            .get_session(session_id)
+            .map(|session| session.config.clone());
+        if let Some(ai_config) = match config {
+            Some(config) => Self::load_ai_config_for_session(&config).await?,
+            None => None,
+        } {
             if let Some(mut session) = self.sessions.get_mut(session_id) {
                 let previous = session.config.max_context_tokens;
                 Self::sync_session_context_window_from_ai_config(&mut session, &ai_config);
@@ -6237,7 +6270,7 @@ impl SessionManager {
             elapsed_ms_u64(session_started_at)
         );
 
-        let ai_config_for_restore = Self::load_ai_config_for_model_resolution().await;
+        let ai_config_for_restore = Self::load_ai_config_for_session(&session.config).await?;
         let mut should_persist_restored_session = false;
         let mut fallback_previous_model_id = None;
         let mut auto_cleared_reasoning_preset = None;
@@ -8107,6 +8140,14 @@ impl SessionManager {
                         || !tool_items.is_empty()
                         || !thinking_items.is_empty()
                     {
+                        // Messages written before the Runtime recorded round
+                        // timing leave these unknown rather than claiming 0 ms.
+                        let timing = msg
+                            .metadata
+                            .model_execution
+                            .as_ref()
+                            .and_then(|facts| facts.timing)
+                            .unwrap_or_default();
                         rounds.push(ModelRoundData {
                             id: round_id,
                             turn_id: turn_id.to_string(),
@@ -8118,7 +8159,7 @@ impl SessionManager {
                             thinking_items,
                             start_time: timestamp,
                             end_time: Some(timestamp),
-                            duration_ms: Some(0),
+                            duration_ms: timing.duration_ms,
                             provider_id: None,
                             model_config_id: msg
                                 .metadata
@@ -8135,11 +8176,11 @@ impl SessionManager {
                                 .model_execution
                                 .as_ref()
                                 .and_then(|facts| facts.routing.clone()),
-                            first_chunk_ms: None,
-                            first_visible_output_ms: None,
-                            stream_duration_ms: None,
-                            ttft_ms: None,
-                            attempt_count: None,
+                            first_chunk_ms: timing.first_chunk_ms,
+                            first_visible_output_ms: timing.first_visible_output_ms,
+                            stream_duration_ms: timing.stream_duration_ms,
+                            ttft_ms: timing.ttft_ms,
+                            attempt_count: timing.attempt_count,
                             attempt_diagnostics: vec![],
                             failure_category: None,
                             token_details: None,
@@ -8781,7 +8822,15 @@ impl SessionManager {
                 round.timestamp = existing.timestamp;
                 round.start_time = existing.start_time;
                 round.end_time = existing.end_time.or(round.end_time);
-                round.duration_ms = existing.duration_ms.or(round.duration_ms);
+                // Round timing is a Runtime fact carried by the generation
+                // journal. The client checkpoint only mirrors
+                // `ModelRoundCompleted`, and for the last round it routinely
+                // loses the race with Turn completion, so it is a fallback for
+                // journals written before the Runtime recorded timing. Older
+                // completion writers persisted `0` for unknown durations.
+                round.duration_ms = round
+                    .duration_ms
+                    .or(existing.duration_ms.filter(|duration_ms| *duration_ms > 0));
                 round.provider_id = existing.provider_id.clone();
                 round.model_config_id = round
                     .model_config_id
@@ -8790,11 +8839,13 @@ impl SessionManager {
                     .effective_model_name
                     .or_else(|| existing.effective_model_name.clone());
                 round.routing = round.routing.or_else(|| existing.routing.clone());
-                round.first_chunk_ms = existing.first_chunk_ms;
-                round.first_visible_output_ms = existing.first_visible_output_ms;
-                round.stream_duration_ms = existing.stream_duration_ms;
-                round.ttft_ms = existing.ttft_ms;
-                round.attempt_count = existing.attempt_count;
+                round.first_chunk_ms = round.first_chunk_ms.or(existing.first_chunk_ms);
+                round.first_visible_output_ms = round
+                    .first_visible_output_ms
+                    .or(existing.first_visible_output_ms);
+                round.stream_duration_ms = round.stream_duration_ms.or(existing.stream_duration_ms);
+                round.ttft_ms = round.ttft_ms.or(existing.ttft_ms);
+                round.attempt_count = round.attempt_count.or(existing.attempt_count);
                 round.attempt_diagnostics = existing.attempt_diagnostics.clone();
                 round.failure_category = existing.failure_category.clone();
                 round.token_details = existing.token_details.clone();
@@ -8809,6 +8860,95 @@ impl SessionManager {
             }
         }
         generated_count
+    }
+
+    /// Record a spawned subagent's child Session on the parent Turn's tool item.
+    ///
+    /// A synchronous delegated command is stamped in memory before its synthetic
+    /// Turn is written. An asynchronous spawn returns to the parent Turn long
+    /// before the child Turn finishes, so the link has to become durable on the
+    /// already persisted parent Turn for hosts that only read persisted Turns.
+    /// Rounds are materialized from the live generation exactly like a relay
+    /// read, so the stamped item keeps the round and item identity that the
+    /// later completion merge preserves.
+    ///
+    /// This is a best-effort annotation of an in-progress Turn: an unknown Turn,
+    /// an already terminal Turn, or a missing tool item leaves the Turn as is.
+    pub(crate) async fn link_subagent_session_on_parent_tool_item(
+        &self,
+        parent_session_id: &str,
+        parent_dialog_turn_id: &str,
+        parent_tool_call_id: &str,
+        subagent_session_id: &str,
+        subagent_dialog_turn_id: &str,
+        subagent_model_id: Option<String>,
+    ) -> OpenBitFunResult<()> {
+        if !self.should_persist_session_id(parent_session_id)
+            && !self.transient_turns.contains_key(parent_session_id)
+        {
+            return Ok(());
+        }
+        let Some(workspace_path) = self.effective_session_storage_path(parent_session_id).await
+        else {
+            return Ok(());
+        };
+        let _mutation_guard = self.acquire_session_mutation(parent_session_id).await?;
+        let Some(turn_index) = self.sessions.get(parent_session_id).and_then(|session| {
+            session
+                .dialog_turn_ids
+                .iter()
+                .position(|turn_id| turn_id == parent_dialog_turn_id)
+        }) else {
+            return Ok(());
+        };
+        let Some(mut turn) = self
+            .load_runtime_dialog_turn(&workspace_path, parent_session_id, turn_index)
+            .await?
+        else {
+            return Ok(());
+        };
+        // A terminal Turn is owned by its completion writer, which merges the
+        // same link from the in-memory rounds instead.
+        if turn.status != TurnStatus::InProgress {
+            return Ok(());
+        }
+        // Rounds materialize on the Turn's own start time, so a mid-Turn
+        // checkpoint does not reorder the running generation.
+        let materialized_at = turn.start_time;
+        let messages: Vec<Message> = self
+            .context_store
+            .get_context_messages(parent_session_id)
+            .into_iter()
+            .filter(|message| message.metadata.turn_id.as_deref() == Some(parent_dialog_turn_id))
+            .collect();
+        Self::append_generation_rounds(
+            &mut turn,
+            parent_dialog_turn_id,
+            &messages,
+            materialized_at,
+        );
+        let Some(tool_item) = turn
+            .model_rounds
+            .iter_mut()
+            .flat_map(|round| round.tool_items.iter_mut())
+            .find(|item| {
+                item.id == parent_tool_call_id || item.tool_call.id == parent_tool_call_id
+            })
+        else {
+            return Ok(());
+        };
+        tool_item.subagent_session_id = Some(subagent_session_id.to_string());
+        tool_item.subagent_dialog_turn_id = Some(subagent_dialog_turn_id.to_string());
+        if subagent_model_id.is_some() {
+            tool_item.subagent_model_id = subagent_model_id;
+        }
+        self.save_runtime_dialog_turn(&workspace_path, &turn)
+            .await?;
+        debug!(
+            "Linked spawned subagent Session on the parent tool item: parent_session_id={}, parent_turn_id={}, parent_tool_call_id={}, subagent_session_id={}",
+            parent_session_id, parent_dialog_turn_id, parent_tool_call_id, subagent_session_id
+        );
+        Ok(())
     }
 
     /// Complete a reopened interrupted turn by appending only the messages
@@ -10251,8 +10391,11 @@ impl SessionManager {
         let ai_client_factory = get_global_ai_client_factory().await.map_err(|e| {
             OpenBitFunError::AIClient(format!("Failed to get AI client factory: {}", e))
         })?;
-        let ai_config = Self::load_ai_config_for_model_resolution()
-            .await
+        let title_session = self
+            .get_session(session_id)
+            .ok_or_else(|| OpenBitFunError::NotFound(format!("Session not found: {session_id}")))?;
+        let ai_config = Self::load_ai_config_for_session(&title_session.config)
+            .await?
             .ok_or_else(|| {
                 OpenBitFunError::AIClient("Failed to load AI configuration".to_string())
             })?;
@@ -10663,6 +10806,7 @@ mod tests {
                     latency_ms: 17,
                     fallback_reason: None,
                 }),
+                timing: None,
             });
         let restored: Message =
             serde_json::from_value(serde_json::to_value(routed).unwrap()).unwrap();
@@ -10675,6 +10819,77 @@ mod tests {
             Some("economy-api-model")
         );
         assert_eq!(rounds[1].routing.as_ref().unwrap().latency_ms, 17);
+    }
+
+    #[test]
+    fn completion_merge_keeps_runtime_round_timing_over_stale_client_checkpoint() {
+        let timed_message = |round_id: &str, timing| {
+            let mut message = Message::assistant("answer".into()).with_round_id(round_id.into());
+            message.metadata.model_execution =
+                Some(crate::agentic::core::message::ModelExecutionMetadata {
+                    model_config_id: "model".into(),
+                    effective_model_name: "model".into(),
+                    routing: None,
+                    timing,
+                });
+            message
+        };
+        let mut turn = DialogTurnData::new(
+            "turn".into(),
+            0,
+            "session".into(),
+            UserMessageData {
+                id: "input".into(),
+                content: "hi".into(),
+                timestamp: 1,
+                metadata: None,
+            },
+        );
+        // The client checkpointed the final round before its
+        // `ModelRoundCompleted` arrived, and a checkpoint from an older writer
+        // recorded an unknown duration as 0.
+        let mut stale = SessionManager::build_model_rounds_from_messages(
+            &[timed_message("final", None)],
+            "turn",
+            1,
+        );
+        stale[0].duration_ms = Some(0);
+        // A legacy journal without timing keeps the client's real facts.
+        let mut checkpointed = SessionManager::build_model_rounds_from_messages(
+            &[timed_message("legacy", None)],
+            "turn",
+            1,
+        );
+        checkpointed[0].duration_ms = Some(900);
+        checkpointed[0].ttft_ms = Some(150);
+        turn.model_rounds = vec![checkpointed.remove(0), stale.remove(0)];
+
+        let runtime_timing = crate::agentic::core::message::ModelRoundTimingMetadata {
+            duration_ms: Some(2172),
+            first_chunk_ms: Some(10),
+            first_visible_output_ms: Some(20),
+            stream_duration_ms: Some(1500),
+            ttft_ms: Some(690),
+            attempt_count: Some(1),
+        };
+        SessionManager::append_generation_rounds(
+            &mut turn,
+            "turn",
+            &[
+                timed_message("legacy", None),
+                timed_message("final", Some(runtime_timing)),
+            ],
+            2,
+        );
+
+        let legacy = &turn.model_rounds[0];
+        assert_eq!(legacy.duration_ms, Some(900));
+        assert_eq!(legacy.ttft_ms, Some(150));
+        let last = &turn.model_rounds[1];
+        assert_eq!(last.duration_ms, Some(2172));
+        assert_eq!(last.ttft_ms, Some(690));
+        assert_eq!(last.stream_duration_ms, Some(1500));
+        assert_eq!(last.attempt_count, Some(1));
     }
 
     #[test]

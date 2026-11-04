@@ -6285,6 +6285,7 @@ dependencies = [
  "win32job",
  "windows 0.61.3",
  "windows-core 0.61.2",
+ "windows-version",
  "wry",
  "xz2",
  "zip 4.6.1",
@@ -6783,6 +6784,7 @@ dependencies = [
  "futures",
  "futures-util",
  "git2",
+ "glob",
  "hex",
  "hkdf",
  "hostname",
@@ -6824,7 +6826,6 @@ dependencies = [
  "sherpa-onnx",
  "sioc",
  "sse-stream",
- "ssh_config",
  "tar",
  "tempfile",
  "terminal-core",
@@ -10066,12 +10067,6 @@ dependencies = [
  "subtle",
  "zeroize",
 ]
-
-[[package]]
-name = "ssh_config"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08044686521f352c6d1f522ba349c3dd52813819fa8353b60bd3d2107f6dca0a"
 
 [[package]]
 name = "stable_deref_trait"

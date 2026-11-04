@@ -25,6 +25,19 @@ use tokio::sync::oneshot;
 use super::remote_connect_api::{account_app_handle, current_device_id_for_peer, RelayRoute};
 
 const DEFAULT_INVOKE_TIMEOUT: Duration = Duration::from_secs(120);
+/// Browser Control setup waits for browser-owned consent: up to one minute for
+/// the Remote debugging toggle plus up to 90 seconds for the connection
+/// approval prompt. The controller adapter uses the same budget.
+pub(crate) const BROWSER_CONTROL_SETUP_INVOKE_TIMEOUT: Duration = Duration::from_secs(180);
+
+fn invoke_timeout_for(command: &str) -> Duration {
+    match command {
+        "browser_control_launch"
+        | "browser_control_enable_default_cdp"
+        | "browser_control_restart_with_cdp" => BROWSER_CONTROL_SETUP_INVOKE_TIMEOUT,
+        _ => DEFAULT_INVOKE_TIMEOUT,
+    }
+}
 
 static PENDING: OnceLock<Mutex<HashMap<String, oneshot::Sender<HostInvokeBridgeResult>>>> =
     OnceLock::new();
@@ -137,27 +150,26 @@ pub(crate) fn detach_route_controller(route: RelayRoute, device_id: &str) -> Vec
 
 fn retain_online_in_state(
     state: &mut PeerControlState,
+    route: RelayRoute,
     online_device_ids: &HashSet<String>,
-) -> Vec<String> {
-    let had_controllers = !state.controllers.is_empty();
-    state.controllers.retain(|(route, device_id)| {
-        *route != RelayRoute::Official
-            || device_id.starts_with("grant-v1:")
+) {
+    state.controllers.retain(|(owner, device_id)| {
+        // Cross-account granted controllers ride the Official route, but their
+        // presence is reported under the granting account, never in this
+        // account's device list; absence here is not presence loss.
+        *owner != route
+            || (route == RelayRoute::Official && device_id.starts_with("grant-v1:"))
             || online_device_ids.contains(device_id)
     });
-    if had_controllers && state.controllers.is_empty() {
-        return state.permission_request_ids.drain().collect();
-    }
-    Vec::new()
 }
 
-/// Remove controllers missing from account presence and return requests that
-/// lost their final control surface.
-pub fn retain_online_controllers(online_device_ids: &HashSet<String>) -> Vec<String> {
+/// Remove offline delivery subscribers only on the reporting route. Presence
+/// loss does not revoke pending permissions; reconnect recovers the mailbox.
+pub(crate) fn retain_online_controllers(route: RelayRoute, online_device_ids: &HashSet<String>) {
     let Ok(mut state) = peer_control_state().lock() else {
-        return Vec::new();
+        return;
     };
-    retain_online_in_state(&mut state, online_device_ids)
+    retain_online_in_state(&mut state, route, online_device_ids);
 }
 
 /// Clear all attached controllers after the device-routing stream closes.
@@ -453,14 +465,15 @@ async fn bridge_via_webview(
         return Err(format!("failed to emit peer host invoke request: {e}"));
     }
 
-    match tokio::time::timeout(DEFAULT_INVOKE_TIMEOUT, rx).await {
+    let invoke_timeout = invoke_timeout_for(command);
+    match tokio::time::timeout(invoke_timeout, rx).await {
         Ok(Ok(result)) => Ok(result),
         Ok(Err(_)) => Err("peer host invoke channel closed".to_string()),
         Err(_) => {
             pending_map().lock().ok().map(|mut map| map.remove(&id));
             Err(format!(
                 "peer host invoke timed out after {}s for '{command}'",
-                DEFAULT_INVOKE_TIMEOUT.as_secs()
+                invoke_timeout.as_secs()
             ))
         }
     }
@@ -478,6 +491,24 @@ mod tests {
                 .collect(),
             permission_request_ids: requests.iter().map(|value| value.to_string()).collect(),
         }
+    }
+
+    #[test]
+    fn browser_control_setup_commands_get_the_consent_budget() {
+        for command in [
+            "browser_control_launch",
+            "browser_control_enable_default_cdp",
+            "browser_control_restart_with_cdp",
+        ] {
+            assert_eq!(
+                invoke_timeout_for(command),
+                BROWSER_CONTROL_SETUP_INVOKE_TIMEOUT
+            );
+        }
+        assert_eq!(
+            invoke_timeout_for("browser_control_get_status"),
+            DEFAULT_INVOKE_TIMEOUT
+        );
     }
 
     #[test]
@@ -751,14 +782,46 @@ mod tests {
     }
 
     #[test]
-    fn presence_loss_drains_requests_only_when_every_controller_is_offline() {
+    fn presence_loss_preserves_pending_permissions_after_the_last_controller_leaves() {
         let mut state = control_state(&["controller-a", "controller-b"], &["request-1"]);
         let online = HashSet::from(["controller-b".to_string()]);
-        assert!(retain_online_in_state(&mut state, &online).is_empty());
+        retain_online_in_state(&mut state, RelayRoute::Official, &online);
+        assert_eq!(state.controllers.len(), 1);
 
-        assert_eq!(
-            retain_online_in_state(&mut state, &HashSet::new()),
-            vec!["request-1".to_string()]
-        );
+        retain_online_in_state(&mut state, RelayRoute::Official, &HashSet::new());
+        assert!(state.controllers.is_empty());
+        assert!(state.permission_request_ids.contains("request-1"));
+    }
+
+    #[test]
+    fn presence_updates_only_remove_subscribers_from_the_reporting_route() {
+        for route in [RelayRoute::Official, RelayRoute::Lan] {
+            let other = if route == RelayRoute::Official {
+                RelayRoute::Lan
+            } else {
+                RelayRoute::Official
+            };
+            let mut state = PeerControlState::default();
+            state.controllers.extend([
+                (route, "shared-device".to_string()),
+                (other, "shared-device".to_string()),
+                (route, "online-device".to_string()),
+            ]);
+            state.permission_request_ids.insert("request-1".to_string());
+
+            retain_online_in_state(
+                &mut state,
+                route,
+                &HashSet::from(["online-device".to_string()]),
+            );
+            assert_eq!(state.controllers.len(), 2);
+            assert!(state
+                .controllers
+                .contains(&(other, "shared-device".to_string())));
+            assert!(state
+                .controllers
+                .contains(&(route, "online-device".to_string())));
+            assert!(state.permission_request_ids.contains("request-1"));
+        }
     }
 }

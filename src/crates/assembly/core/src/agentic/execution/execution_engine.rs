@@ -2003,8 +2003,8 @@ impl ExecutionEngine {
                 )
                 .await;
         }
-        let ai_config = SessionManager::load_ai_config_for_model_resolution()
-            .await
+        let ai_config = SessionManager::load_ai_config_for_session(&session.config)
+            .await?
             .ok_or_else(|| {
                 OpenBitFunError::AIClient(
                     "Failed to get config service for model resolution".to_string(),
@@ -2874,6 +2874,7 @@ impl ExecutionEngine {
         session_id: &'a str,
         dialog_turn_id: &'a str,
         workspace: Option<&'a WorkspaceBinding>,
+        workspace_services: Option<&'a crate::agentic::workspace::WorkspaceServices>,
         model: &'a str,
     ) -> NativeHookSessionFacts<'a> {
         NativeHookSessionFacts {
@@ -2884,6 +2885,7 @@ impl ExecutionEngine {
             is_remote_workspace: workspace.is_some_and(|workspace| workspace.is_remote()),
             model,
             bypass_permissions: false,
+            workspace_services,
         }
     }
 
@@ -2917,6 +2919,7 @@ impl ExecutionEngine {
                     &session_id,
                     &dialog_turn_id,
                     context.workspace.as_ref(),
+                    context.workspace_services.as_ref(),
                     &scaffold.ai_client.config.model,
                 ),
                 trigger,
@@ -3163,6 +3166,7 @@ impl ExecutionEngine {
                         &session_id,
                         &dialog_turn_id,
                         context.workspace.as_ref(),
+                        context.workspace_services.as_ref(),
                         &scaffold.ai_client.config.model,
                     ),
                     trigger,
@@ -5552,6 +5556,7 @@ impl ExecutionEngine {
                                     &context.session_id,
                                     &context.dialog_turn_id,
                                     context.workspace.as_ref(),
+                                    context.workspace_services.as_ref(),
                                     &ai_client.config.model,
                                 ),
                                 stop_hook_continuations > 0,

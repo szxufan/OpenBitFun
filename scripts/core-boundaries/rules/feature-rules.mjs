@@ -291,7 +291,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'openbitfun-agent-workflows', ownerFeatures: ['deep-research'] },
       {
         depName: 'openbitfun-core-types',
-        ownerFeatures: ['deep-research', 'remote-connect', 'remote-ssh-concrete', 'speech'],
+        ownerFeatures: ['deep-research', 'ptc-runtime', 'remote-connect', 'remote-ssh-concrete', 'speech'],
       },
       { depName: 'openbitfun-product-domains', ownerFeatures: ['account-identity', 'canvas-runtime', 'function-agents', 'hook-import', 'miniapp-market', 'miniapp-runtime', 'miniapp-storage', 'plugin-source', 'remote-connect'] },
       { depName: 'openbitfun-runtime-ports', ownerFeatures: ['deep-research', 'git', 'ptc-runtime', 'remote-connect', 'remote-ssh', 'remote-ssh-concrete', 'script-tool-runtime', 'web-tools'] },
@@ -353,7 +353,6 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'sherpa-onnx', ownerFeatures: ['speech'] },
       { depName: 'shellexpand', ownerFeatures: ['remote-ssh-concrete'] },
       { depName: 'sse-stream', ownerFeatures: ['mcp'] },
-      { depName: 'ssh_config', ownerFeatures: ['remote-ssh-concrete', 'ssh_config'] },
       { depName: 'terminal-core', ownerFeatures: ['remote-ssh', 'remote-ssh-concrete'] },
       { depName: 'tar', ownerFeatures: ['speech'] },
       { depName: 'thiserror', ownerFeatures: ['account-identity', 'browser-control', 'git', 'hook-import', 'miniapp-market', 'plugin-source', 'remote-connect', 'remote-ssh', 'remote-ssh-concrete', 'review-platform', 'speech', 'web-tools', 'workspace-search'] },

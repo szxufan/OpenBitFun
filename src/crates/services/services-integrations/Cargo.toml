@@ -36,6 +36,7 @@ chrono = { workspace = true, optional = true }
 dunce = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
+glob = { workspace = true, optional = true }
 fs2 = { workspace = true, optional = true }
 git2 = { workspace = true, optional = true }
 hostname = { workspace = true, optional = true }
@@ -75,7 +76,6 @@ russh = { workspace = true, optional = true }
 russh-sftp = { workspace = true, optional = true }
 russh-keys = { workspace = true, optional = true }
 shellexpand = { workspace = true, optional = true }
-ssh_config = { workspace = true, optional = true }
 terminal-core = { path = "../terminal", optional = true }
 x25519-dalek = { workspace = true, optional = true }
 
@@ -110,7 +110,7 @@ models-dev = [
     "tokio/time",
     "windows",
 ]
-browser-control = ["anyhow", "openbitfun-services-core/process-runtime", "openbitfun-services-core/tls-provider", "dirs", "reqwest", "reqwest/json", "reqwest/rustls-no-provider", "thiserror", "tokio/time"]
+browser-control = ["anyhow", "openbitfun-services-core/process-runtime", "openbitfun-services-core/tls-provider", "dirs", "reqwest", "reqwest/json", "reqwest/rustls-no-provider", "thiserror", "tokio/rt", "tokio/time"]
 canvas-runtime = [
     "dep:openbitfun-product-domains",
     "oxc",
@@ -469,6 +469,7 @@ script-tool-runtime = [
 ]
 ptc-runtime = [
     "async-trait",
+    "dep:openbitfun-core-types",
     "openbitfun-runtime-ports/ptc-runtime",
     "process-tree",
     "tokio/io-util",
@@ -510,7 +511,7 @@ product-full = [
     "workspace-search",
 ]
 skillhub = ["openbitfun-services-core/tls-provider", "reqwest", "reqwest/json", "reqwest/query", "reqwest/rustls-no-provider", "reqwest/stream", "zip", "tempfile", "tokio/fs", "tokio/io-util"]
-ssh_config = ["dep:ssh_config"]
+ssh_config = ["dep:glob"]
 
 [dev-dependencies]
 tempfile = { workspace = true }

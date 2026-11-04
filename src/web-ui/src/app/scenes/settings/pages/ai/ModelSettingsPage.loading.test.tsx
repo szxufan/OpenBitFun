@@ -116,6 +116,88 @@ describe('ModelSettingsPage loading and provider actions', () => {
     await act(async () => container.querySelector<HTMLButtonElement>(`button[data-provider-id="${provider}"]`)!.click());
   };
 
+  const captureConfigEvents = () => {
+    const listeners = new Set<(path: string, oldValue: unknown, newValue: unknown) => void>();
+    vi.spyOn(configManager, 'onConfigChange').mockImplementation(listener => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    });
+    return (path: string) => { for (const listener of listeners) listener(path, undefined, undefined); };
+  };
+  const loadModelPool = async () => {
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+  };
+  const testModel = async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>(`[data-config-id="${model.id}"] button[aria-label="${copy('actions.test')}"]`)!.click());
+  };
+  const connectionBadge = () => container.querySelector<HTMLElement>(`[data-testid="settings-model-test-status"][data-config-id="${model.id}"]`);
+
+  it.each([
+    'ai.model_routing', 'ai.model_routing.protocol', 'ai.model_routing.timeout_ms', 'ai.model_routing.router_model_id',
+  ])('clears a cached failed model badge after Router settings change at %s without starting a probe', async path => {
+    const emit = captureConfigEvents();
+    const probe = vi.spyOn(aiApi, 'testAIConfigConnection').mockResolvedValue({ success: false, response_time_ms: 12 });
+    await loadModelPool(); await testModel();
+    expect(connectionBadge()?.dataset.status).toBe('error');
+    await act(async () => emit(path));
+    expect(connectionBadge()).toBeNull();
+    expect(probe).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])('ignores a late model probe result %s after a Router profile edit', async success => {
+    const emit = captureConfigEvents();
+    const pending = deferred();
+    const probe = vi.spyOn(aiApi, 'testAIConfigConnection').mockReturnValueOnce(pending.promise as ReturnType<typeof aiApi.testAIConfigConnection>);
+    await loadModelPool(); await testModel();
+    expect(connectionBadge()?.dataset.status).toBe('testing');
+    await act(async () => emit('ai.model_routing.protocol'));
+    expect(connectionBadge()).toBeNull();
+    await act(async () => pending.resolve({ success, response_time_ms: 12 }));
+    expect(connectionBadge()).toBeNull();
+    expect(probe).toHaveBeenCalledOnce();
+    probe.mockResolvedValueOnce({ success: true, response_time_ms: 8 });
+    await testModel();
+    expect(connectionBadge()?.dataset.status).toBe('success');
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let an invalidated model probe clear a newer in-flight check', async () => {
+    const emit = captureConfigEvents();
+    const old = deferred(); const current = deferred();
+    vi.spyOn(aiApi, 'testAIConfigConnection')
+      .mockReturnValueOnce(old.promise as ReturnType<typeof aiApi.testAIConfigConnection>)
+      .mockReturnValueOnce(current.promise as ReturnType<typeof aiApi.testAIConfigConnection>);
+    await loadModelPool(); await testModel();
+    await act(async () => emit('ai.model_routing.timeout_ms'));
+    await testModel();
+    await act(async () => old.resolve({ success: false, response_time_ms: 12 }));
+    expect(connectionBadge()?.dataset.status).toBe('testing');
+    await act(async () => current.resolve({ success: true, response_time_ms: 8 }));
+    expect(connectionBadge()?.dataset.status).toBe('success');
+  });
+
+  it('clears model connection state on device activation and ignores the previous activation result', async () => {
+    const pending = deferred();
+    const probe = vi.spyOn(aiApi, 'testAIConfigConnection').mockReturnValueOnce(pending.promise as ReturnType<typeof aiApi.testAIConfigConnection>);
+    await loadModelPool(); await testModel();
+    expect(connectionBadge()?.dataset.status).toBe('testing');
+    await act(async () => activateSurface('peer-model-probe'));
+    expect(connectionBadge()).toBeNull();
+    await act(async () => pending.resolve({ success: false, response_time_ms: 12 }));
+    expect(connectionBadge()).toBeNull();
+    expect(probe).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the ordinary model test request unchanged and does not probe automatically', async () => {
+    const probe = vi.spyOn(aiApi, 'testAIConfigConnection').mockResolvedValue({ success: true, response_time_ms: 8 });
+    await loadModelPool();
+    expect(probe).not.toHaveBeenCalled();
+    await testModel();
+    expect(probe).toHaveBeenCalledExactlyOnceWith(model);
+    expect(connectionBadge()?.dataset.status).toBe('success');
+  });
+
   it.each([
     ['en-US', 'cancel'], ['zh-CN', 'escape'], ['zh-TW', 'close'],
   ] as const)('opens a neutral, pristine custom provider in %s and dismisses with %s', async (locale, dismissal) => {
@@ -132,8 +214,8 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(editor()!.textContent).not.toContain('bigmodel.cn');
     expect(editor()!.querySelector('.openbitfun-model-settings__resolved-url')).toBeNull();
     expect(editorDraft().dirty).toBe(false);
-    expect(editor()!.getAttribute('data-preset')).toBe('default');
-    expect(editor()!.getAttribute('data-size')).toBe('lg');
+    expect(editor()!.getAttribute('data-preset')).toBe('panel');
+    expect(editor()!.getAttribute('data-size')).toBe('xl');
     expect(endpoint.closest('[data-field-surface]')?.getAttribute('data-field-surface')).toBe('filled');
     await act(async () => editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-advanced-toggle"] button')!.click());
     expect(editorDraft().dirty).toBe(false);
@@ -1055,7 +1137,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
         const editor = document.querySelector<HTMLElement>('.openbitfun-model-settings__editor-dialog')!;
         const brand = editor.querySelector<HTMLElement>('[data-testid="settings-provider-editor-brand"]')!;
         expect(brand.getAttribute('aria-label')).toBe(model.name);
-        expect(editor.getAttribute('data-preset')).toBe('default');
+        expect(editor.getAttribute('data-preset')).toBe('panel');
         expect(editor.querySelector('[data-openbitfun-part="title"]')?.classList.contains('sr-only')).toBe(true);
         expect(brand.closest('[data-openbitfun-part="heading"]')).not.toBeNull();
         if (kind === 'subscription') expect(brand.querySelector<HTMLElement>('[data-product-logo="codex"]')?.style.width).toBe('64px');

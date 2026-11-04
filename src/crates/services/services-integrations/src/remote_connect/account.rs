@@ -1472,6 +1472,26 @@ impl AccountClient {
         target_device_id: &str,
         plaintext_command: &str,
     ) -> Result<String> {
+        self.device_rpc_with_timeout(
+            relay_url,
+            session,
+            target_device_id,
+            plaintext_command,
+            super::realtime_client::DEFAULT_RPC_TIMEOUT,
+        )
+        .await
+    }
+
+    /// Like [`Self::device_rpc`], with an explicit end-to-end deadline that
+    /// the relay forwards to the target as its reply deadline.
+    pub async fn device_rpc_with_timeout(
+        &self,
+        relay_url: &str,
+        session: &AccountSession,
+        target_device_id: &str,
+        plaintext_command: &str,
+        timeout: std::time::Duration,
+    ) -> Result<String> {
         // Encrypt for the authenticated target device
         let sealed = session
             .encrypt_for_peer(relay_url, target_device_id, plaintext_command)
@@ -1581,11 +1601,12 @@ impl AccountClient {
             })
             .await?;
         let (encrypted_data, nonce, key_id) = transport
-            .request_device(
+            .request_device_with_timeout(
                 target_device_id,
                 &sealed.data,
                 &sealed.nonce,
                 sealed.key_id.as_deref(),
+                timeout,
             )
             .await?;
         // Decrypt using the authenticated target device key

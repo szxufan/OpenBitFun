@@ -34,6 +34,8 @@ pub mod macos_menubar;
 mod macos_window_chrome;
 #[cfg(target_os = "macos")]
 mod macos_window_close;
+#[cfg(target_os = "macos")]
+mod macos_window_resize;
 mod miniapp_desktop;
 mod miniapp_web_host;
 
@@ -47,6 +49,7 @@ pub mod sleep_prevention;
 pub mod startup_trace;
 pub mod tray;
 mod webview_recovery;
+mod window_material;
 mod window_state_support;
 #[cfg(target_os = "windows")]
 mod window_webview_geometry;
@@ -2435,6 +2438,13 @@ static PROCESS_EXIT_CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
 static PROCESS_EXIT_CLEANUP_COMPLETE: AtomicBool = AtomicBool::new(false);
 static DESKTOP_EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 static PROCESS_EXIT_CLEANUP_NOTIFY: OnceLock<tokio::sync::Notify> = OnceLock::new();
+
+/// Whether a graceful desktop exit has started; background recovery must not
+/// recreate windows while the app is shutting down.
+pub(crate) fn desktop_exit_in_progress() -> bool {
+    DESKTOP_EXIT_REQUESTED.load(Ordering::Acquire)
+        || PROCESS_EXIT_CLEANUP_STARTED.load(Ordering::Acquire)
+}
 
 pub(crate) async fn perform_process_exit_cleanup() -> bool {
     let notify = PROCESS_EXIT_CLEANUP_NOTIFY.get_or_init(tokio::sync::Notify::new);

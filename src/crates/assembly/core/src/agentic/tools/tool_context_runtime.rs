@@ -49,7 +49,7 @@ use openbitfun_agent_runtime::user_questions::{
 };
 use openbitfun_agent_tools::{
     LoadedDeferredToolSpec, PortableToolContextProvider, ToolContextFacts, ToolWorkspaceKind,
-    PTC_TOOL_PRESENTATION_CONTEXT_KEY,
+    PTC_LANGUAGE_CONTEXT_KEY, PTC_TOOL_PRESENTATION_CONTEXT_KEY,
 };
 #[cfg(feature = "canvas-runtime")]
 use openbitfun_product_domains::canvas::CanvasStoragePort;
@@ -459,6 +459,12 @@ fn build_tool_context_custom_data(context: &ToolExecutionContext) -> HashMap<Str
             Value::String(mode.clone()),
         );
     }
+    if let Some(language) = context.context_vars.get(PTC_LANGUAGE_CONTEXT_KEY) {
+        extension_custom_data.insert(
+            PTC_LANGUAGE_CONTEXT_KEY.to_string(),
+            Value::String(language.clone()),
+        );
+    }
     for key in [
         USER_INPUT_AVAILABLE_CONTEXT_KEY,
         AUTO_APPROVE_ASK_CONTEXT_KEY,
@@ -740,7 +746,7 @@ impl ToolUseContext {
         if workspace.is_remote() {
             let identity = &workspace.session_identity;
             Ok(remote_workspace_runtime_root(
-                &identity.hostname,
+                &identity.identity_host(),
                 identity.logical_workspace_path(),
             ))
         } else {

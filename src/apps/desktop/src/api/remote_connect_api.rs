@@ -29,7 +29,7 @@ use openbitfun_services_integrations::remote_connect::{
 };
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -2849,6 +2849,8 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
             &relay_url,
             &session.token,
             &device_name,
+            // Desktop serves the device ahead of a CLI/daemon on this machine.
+            openbitfun_core::service::remote_connect::relay_client::DeviceRoutingPriority::Primary,
             Arc::new(DesktopHostStreamNotifier(route)),
         )
         .await
@@ -2954,6 +2956,13 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                             devices.iter().map(|d| d.device_id.clone()).collect();
                         hub.retain_online(&online);
                     }
+                    // Peer controllers are presence-scoped as well. A controller
+                    // that dropped off must stop being a fanout target, otherwise
+                    // every peer event for it is rejected by the relay and the log
+                    // fills with failures that never resolve on their own.
+                    let online_ids: HashSet<String> =
+                        devices.iter().map(|d| d.device_id.clone()).collect();
+                    crate::api::peer_host_invoke::retain_online_controllers(route, &online_ids);
                     // Offline presence does not revoke an account device or its
                     // permission mailbox. Reconnect resumes the same ownership.
                     if !device_routing_owner_is_current(&event_owner).await {
@@ -3158,21 +3167,17 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                     let ping_generation = control_ping_generation(&rpc_owner);
                                     let ping_received_at = std::time::Instant::now();
                                     tokio::spawn(async move {
-                                        tokio::select! {
-                                            biased;
-                                            _ = cancelled.changed() => {},
-                                            _ = async move {
-                                        // A transition cancels this future before
-                                        // taking the write lease. Captured account
-                                        // ownership cannot cross into its replacement.
+                                        use openbitfun_core::service::remote_connect::rpc_execution::run_rpc_stage;
+
+                                        // Keep the routing lease until an accepted
+                                        // model write finishes, even after retirement.
                                         let _routing_effect = routing_effect;
                                         // Pairing enforcement: when this host
                                         // requires PSK pairing, an unpaired
                                         // controller gets nothing but the probe
                                         // and the pairing handshake itself.
-                                        let Ok((_, gate_relay_url)) = route
-                                            .context(route.generation())
-                                            .await
+                                        let Ok((_, gate_relay_url)) =
+                                            route.context(route.generation()).await
                                         else {
                                             return;
                                         };
@@ -3214,79 +3219,87 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                                 return;
                                             }
                                         }
-                                        // Host streams are answered from this host's
-                                        // memory for the requesting device; every
-                                        // other command goes to the local dispatcher.
-                                        let hub = route_host_stream_hub(route).await;
-                                        let execution = match openbitfun_core::service::remote_connect::handle_host_stream_command(
-                                            hub.as_ref(),
-                                            &source_device_id,
-                                            &cmd,
-                                        )
-                                        .await
-                                        {
-                                            Some(response) => serde_json::to_value(response)
-                                                .map_err(anyhow::Error::from),
-                                            None => execute_local_remote_command(
-                                                &cmd,
-                                                route,
+                                        let model_write =
+                                            matches!(&cmd, RemoteCommand::SetSessionModel { .. });
+                                        let execute = async {
+                                            // Host streams are answered from this host's
+                                            // memory for the requesting device; every
+                                            // other command goes to the local dispatcher.
+                                            let hub = route_host_stream_hub(route).await;
+                                            match openbitfun_core::service::remote_connect::handle_host_stream_command(
+                                                hub.as_ref(),
                                                 &source_device_id,
-                                                source_account_id.as_deref(),
+                                                &cmd,
                                             )
-                                            .await,
-                                        };
-                                        // Returning drops this reply only. The loop
-                                        // re-checks ownership at the top of every
-                                        // iteration, so a stale connection is still
-                                        // retired there — just not from in here.
-                                        if !device_routing_owner_is_current(&rpc_owner).await {
-                                            return;
-                                        }
-                                        match execution {
-                                            Ok(resp_value) => {
-                                                let control_ping =
-                                                    is_successful_control_ping(&cmd, &resp_value);
-                                                let sent = send_rpc_envelope(
-                                                    &rpc_owner,
-                                                    &rpc_session,
+                                            .await
+                                            {
+                                                Some(response) => serde_json::to_value(response)
+                                                    .map_err(anyhow::Error::from),
+                                                None => execute_local_remote_command(
+                                                    &cmd,
+                                                    route,
                                                     &source_device_id,
-                                                    &correlation_id,
-                                                    rpc_key_id.as_deref(),
-                                                    resp_value,
+                                                    source_account_id.as_deref(),
                                                 )
-                                                .await;
-                                                if let Some(generation) =
-                                                    ping_generation.filter(|_| sent && control_ping)
-                                                {
-                                                    record_control_ping_if_owner(
-                                                        &rpc_owner,
-                                                        generation,
-                                                        ping_received_at,
-                                                        match &cmd {
-                                                            RemoteCommand::Ping { client } => {
-                                                                client.as_ref()
-                                                            }
-                                                            _ => None,
-                                                        },
+                                                .await,
+                                            }
+                                        };
+                                        let Some(execution) =
+                                            run_rpc_stage(&mut cancelled, model_write, execute)
+                                                .await
+                                        else {
+                                            return;
+                                        };
+                                        let reply = async {
+                                            if !device_routing_owner_is_current(&rpc_owner).await {
+                                                return;
+                                            }
+                                            match execution {
+                                                Ok(resp_value) => {
+                                                    let control_ping = is_successful_control_ping(
+                                                        &cmd,
+                                                        &resp_value,
                                                     );
+                                                    let sent = send_rpc_envelope(
+                                                        &rpc_owner,
+                                                        &rpc_session,
+                                                        &source_device_id,
+                                                        &correlation_id,
+                                                        rpc_key_id.as_deref(),
+                                                        resp_value,
+                                                    )
+                                                    .await;
+                                                    if let Some(generation) = ping_generation
+                                                        .filter(|_| sent && control_ping)
+                                                    {
+                                                        record_control_ping_if_owner(
+                                                            &rpc_owner,
+                                                            generation,
+                                                            ping_received_at,
+                                                            match &cmd {
+                                                                RemoteCommand::Ping { client } => {
+                                                                    client.as_ref()
+                                                                }
+                                                                _ => None,
+                                                            },
+                                                        );
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    log::warn!("RPC: execute command failed: {e}");
+                                                    send_rpc_error(
+                                                        &rpc_owner,
+                                                        &rpc_session,
+                                                        &source_device_id,
+                                                        &correlation_id,
+                                                        rpc_key_id.as_deref(),
+                                                        format!("RPC execute failed: {e}"),
+                                                    )
+                                                    .await;
                                                 }
                                             }
-                                            Err(e) => {
-                                                log::warn!("RPC: execute command failed: {e}");
-                                                send_rpc_error(
-                                                    &rpc_owner,
-                                                    &rpc_session,
-                                                    &source_device_id,
-                                                    &correlation_id,
-                                                    rpc_key_id.as_deref(),
-                                                    format!("RPC execute failed: {e}"),
-                                                )
-                                                .await;
-                                            }
-                                        }
-
-                                            } => {}
-                                        }
+                                        };
+                                        let _ = run_rpc_stage(&mut cancelled, false, reply).await;
                                     });
                                 }
                                 Err(e) => {
@@ -3582,13 +3595,17 @@ pub async fn account_delete_device(targetDeviceId: String) -> Result<(), String>
 /// Returns the decrypted response JSON.
 const ACCOUNT_DEVICE_RPC_DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const ACCOUNT_DEVICE_RPC_MIN_TIMEOUT_MS: u64 = 1_000;
+/// Upper bound for a controller-requested deadline. Ordinary commands keep
+/// the 120 s default; Browser Control setup asks for 185 s because it waits
+/// on browser-owned consent (see `peer_host_invoke::invoke_timeout_for`).
+const ACCOUNT_DEVICE_RPC_MAX_TIMEOUT_MS: u64 = 190_000;
 
 fn account_device_rpc_timeout_ms(requested: Option<u64>) -> u64 {
     requested
         .unwrap_or(ACCOUNT_DEVICE_RPC_DEFAULT_TIMEOUT_MS)
         .clamp(
             ACCOUNT_DEVICE_RPC_MIN_TIMEOUT_MS,
-            ACCOUNT_DEVICE_RPC_DEFAULT_TIMEOUT_MS,
+            ACCOUNT_DEVICE_RPC_MAX_TIMEOUT_MS,
         )
 }
 
@@ -3602,9 +3619,18 @@ pub async fn account_device_rpc(
     let (session, relay_url) = read_account_context_for_generation(account_generation).await?;
     let client = AccountClient::new();
     let timeout_ms = account_device_rpc_timeout_ms(timeout_ms);
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+    // The relay forwards this deadline to the target as `timeoutMs`; the local
+    // guard below only bounds the controller wait for the same budget.
     let response = tokio::time::timeout(
-        std::time::Duration::from_millis(timeout_ms),
-        client.device_rpc(&relay_url, &session, &target_device_id, &command_json),
+        timeout + std::time::Duration::from_secs(5),
+        client.device_rpc_with_timeout(
+            &relay_url,
+            &session,
+            &target_device_id,
+            &command_json,
+            timeout,
+        ),
     )
     .await
     .map_err(|_| format!("device RPC timed out after {timeout_ms}ms"))?
@@ -4624,7 +4650,15 @@ mod sync_state_tests {
         );
         assert_eq!(
             account_device_rpc_timeout_ms(Some(u64::MAX)),
-            ACCOUNT_DEVICE_RPC_DEFAULT_TIMEOUT_MS
+            ACCOUNT_DEVICE_RPC_MAX_TIMEOUT_MS
+        );
+        // Browser Control setup's Peer budget must survive the clamp and
+        // still exceed the host invoke limit for those commands.
+        assert_eq!(account_device_rpc_timeout_ms(Some(185_000)), 185_000);
+        assert!(
+            account_device_rpc_timeout_ms(Some(185_000))
+                > crate::api::peer_host_invoke::BROWSER_CONTROL_SETUP_INVOKE_TIMEOUT.as_millis()
+                    as u64
         );
     }
 
