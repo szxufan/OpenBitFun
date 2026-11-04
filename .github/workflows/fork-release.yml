@@ -339,6 +339,10 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob globstar
+          # relay-image*.json is a glob on purpose: top-up runs
+          # (skip_relay_image) build no image descriptor, nullglob drops the
+          # missing file, and the descriptor already attached to the release
+          # is left untouched.
           mkdir -p release-upload-assets
           for asset in \
             desktop-assets/**/*.exe \
@@ -350,7 +354,7 @@ jobs:
             linux-release-assets/openbitfun-cli-*.tar.gz.sha256 \
             linux-release-assets/openbitfun-relay-server-*.tar.gz \
             linux-release-assets/openbitfun-relay-server-*.tar.gz.sha256 \
-            relay-image.json; do
+            relay-image*.json; do
             cp "$asset" release-upload-assets/
           done
           (cd release-upload-assets && sha256sum ./* > "SHA256SUMS")
