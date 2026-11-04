@@ -431,13 +431,14 @@ jobs:
         # runner newer than the supported baseline produces packages that fail
         # to load on older hosts (GLIBC_x.y not found) with no policy anywhere
         # declared as broken. v1.0.10-beta.13 deb required GLIBC_2.43 because
-        # this path built on the rolling ubuntu-latest with no check. Keep the
-        # 2.35 floor and the pinned ubuntu-22.04 runners aligned with the
-        # relay/CLI check in linux-binaries.yml; raise them only together with
-        # an announced minimum-supported-distro change for Desktop Linux
-        # packages.
+        # this path built on the rolling ubuntu-latest with no check. Desktop
+        # Linux packages moved to the pinned ubuntu-24.04 runners starting with
+        # v1.0.10-beta.15's linux-x64 top-up, raising this floor to 2.39 — an
+        # announced minimum-supported-distro change: Desktop Linux now requires
+        # glibc >= 2.39 (Ubuntu 24.04+). The relay/CLI archives in
+        # linux-binaries.yml stay on ubuntu-22.04 with the 2.35 floor.
         run: |
-          bash scripts/ci/check-glibc-floor.sh 2.35 \
+          bash scripts/ci/check-glibc-floor.sh 2.39 \
             "target/${{ matrix.platform.target }}/release/openbitfun-desktop"
 
       - name: Connect Certum SimplySign
