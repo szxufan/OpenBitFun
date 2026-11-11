@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { recordInteractionModality } from '@/shared/utils/motionPreference';
-import { registerSessionSceneNavigation, useSceneStore } from './sceneStore';
+import { beginDeviceOpen, endDeviceOpen } from '@/infrastructure/peer-device/deviceOpenIntent';
+import { registerSessionSceneNavigation, resetSceneStoreForTest, useSceneStore } from './sceneStore';
 import { getSessionSceneTabId } from '../components/SceneBar/types';
 import { useSettingsStore } from '../scenes/settings/settingsStore';
 import { projectResourceSceneId } from '../scenes/project-resources/projectResourceTarget';
@@ -17,7 +18,7 @@ describe('sceneStore transition snapshots', () => {
   beforeEach(() => {
     recordInteractionModality('programmatic');
     resetSettingsDraftRegistryForTests();
-    useSceneStore.getState().resetForPeerSwitch();
+    resetSceneStoreForTest();
   });
 
   afterEach(() => {
@@ -60,29 +61,55 @@ describe('sceneStore transition snapshots', () => {
     } finally { stop(); }
   });
 
-  it('keeps the five most recently opened sessions per workspace, moving repeats to the front', () => {
+  it('opens one tab per session and closes the least recently used past the limit', () => {
+    let now = 1_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => (now += 1));
     const scenes = useSceneStore.getState();
-    for (let index = 1; index <= 7; index++) {
+    scenes.openSessionScene({ ...sessionTarget, sessionId: '1' });
+    scenes.openSessionScene({ ...sessionTarget, sessionId: '2' });
+    scenes.openSessionScene({ ...sessionTarget, sessionId: '1' });
+    expect(useSceneStore.getState().openTabs.map(tab => tab.session?.sessionId)).toEqual(['1', '2']);
+    for (let index = 3; index <= 14; index++) {
       scenes.openSessionScene({ ...sessionTarget, sessionId: String(index) });
     }
-    scenes.openSessionScene({ ...sessionTarget, sessionId: '4' });
-    expect(useSceneStore.getState().openTabs).toHaveLength(1);
-    expect(useSceneStore.getState().openTabs[0].sessionHistory).toEqual(['4', '7', '6', '5', '3']);
-    scenes.openSessionScene({ ...sessionTarget, workspaceKey: 'other', sessionId: 'elsewhere' });
-    expect(useSceneStore.getState().openTabs.map(tab => tab.sessionHistory))
-      .toEqual([['4', '7', '6', '5', '3'], ['elsewhere']]);
+    const open = useSceneStore.getState().openTabs.map(tab => tab.session?.sessionId);
+    expect(open).toHaveLength(12);
+    // '2' and '1' were used least recently; the shown session always stays.
+    expect(open).not.toContain('1');
+    expect(open).not.toContain('2');
+    expect(useSceneStore.getState().activeTabId).toBe(getSessionSceneTabId({ ...sessionTarget, sessionId: '14' }));
   });
 
-  it('accepts legacy tabs without history and records background session changes without stealing focus', () => {
+  it('keeps session tabs of every device through a switch, without selecting them', () => {
     const scenes = useSceneStore.getState();
     scenes.openSessionScene(sessionTarget);
-    useSceneStore.setState(state => ({ openTabs: state.openTabs.map(({ sessionHistory: _history, ...tab }) => tab) }));
     scenes.openScene('git');
     scenes.updateSessionScene({ ...sessionTarget, sessionId: 'next' });
     expect(useSceneStore.getState().activeTabId).toBe('git');
-    expect(useSceneStore.getState().openTabs[0].sessionHistory).toEqual(['next', 'current']);
+    expect(useSceneStore.getState().openTabs.map(tab => tab.session?.sessionId).filter(Boolean)).toEqual(['current']);
+    scenes.openSessionScene(sessionTarget);
     scenes.resetForPeerSwitch();
-    expect(useSceneStore.getState().openTabs).toEqual([]);
+    expect(useSceneStore.getState().openTabs.map(tab => tab.id)).toEqual([sessionTabId]);
+    expect(useSceneStore.getState().activeTabId).toBeNull();
+  });
+
+  it('holds a cross-device session tab through both switch resets and reconciliation until the open settles', () => {
+    const target = { surfaceId: 'peer-b', workspaceKey: '["workspace","w"]', sessionId: 'remote' };
+    const intent = beginDeviceOpen({ surfaceId: 'peer-b', key: 'session:remote', sessionId: 'remote' });
+    useSceneStore.getState().openScene('git');
+    useSceneStore.getState().holdSessionScene(target);
+    const heldId = useSceneStore.getState().activeTabId;
+    expect(useSceneStore.getState().openTabs.find(tab => tab.id === heldId)?.session).toEqual(target);
+    // The runtime reset, then the lifecycle's restoring reset on the new surface.
+    useSceneStore.getState().resetForPeerSwitch();
+    useSceneStore.getState().resetForPeerSwitch(true);
+    useSceneStore.getState().reconcileSessionScenes(new Map());
+    expect(useSceneStore.getState().activeTabId).toBe(heldId);
+    // The open ended without rendering peer-b: its tab stays, unselected.
+    endDeviceOpen(intent);
+    useSceneStore.getState().reconcileSessionScenes(new Map());
+    expect(useSceneStore.getState().openTabs.some(tab => tab.id === heldId)).toBe(true);
+    expect(useSceneStore.getState().activeTabId).not.toBe(heldId);
   });
 
   it('does not add a failed session activation to the recent list', async () => {
@@ -285,7 +312,7 @@ describe('sceneStore transition snapshots', () => {
     expect(state.navCursor).toBe(-1);
   });
 
-  it('keeps the session tab first while allowing it to close back to another scene', () => {
+  it('keeps the session tab first while entering welcome when it is the active last session', () => {
     useSceneStore.getState().openScene('settings');
     useSceneStore.getState().openSessionScene(sessionTarget);
 
@@ -298,8 +325,26 @@ describe('sceneStore transition snapshots', () => {
 
     const state = useSceneStore.getState();
     expect(state.openTabs.map(tab => tab.id)).toEqual(['settings']);
+    expect(state.activeTabId).toBeNull();
+    expect(state.paneSelections.primary).toEqual({ kind: 'empty' });
+    expect(state.navHistory).toEqual([]);
+    expect(state.navCursor).toBe(-1);
+
+    useSceneStore.getState().activateScene('settings');
+    expect(useSceneStore.getState().activeTabId).toBe('settings');
+  });
+
+  it('keeps the settings scene selected when closing a background session', () => {
+    useSceneStore.getState().openSessionScene(sessionTarget);
+    useSceneStore.getState().openScene('settings');
+
+    useSceneStore.getState().closeScene(sessionTabId);
+
+    const state = useSceneStore.getState();
+    expect(state.openTabs.map(tab => tab.id)).toEqual(['settings']);
     expect(state.activeTabId).toBe('settings');
-    expect(state.navHistory).not.toContain(sessionTabId);
+    expect(state.paneSelections.primary).toEqual({ kind: 'scene', tabId: 'settings' });
+    expect(state.navHistory).toEqual(['settings']);
   });
 
   it('preserves close fallback and history navigation across many open tabs', () => {

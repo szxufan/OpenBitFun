@@ -6,11 +6,11 @@ import { flowChatManager } from '@/flow_chat/services/FlowChatManager';
 import { flowChatStore } from '@/flow_chat/store/FlowChatStore';
 import { requireSessionOwningWorkspaceId } from '@/flow_chat/utils/sessionOrdering';
 import { sessionAPI } from '@/infrastructure/api/service-api/SessionAPI';
-import { confirmDanger } from '@/infrastructure/confirm-dialog';
 import { useI18n } from '@/infrastructure/i18n';
 import { getActiveSurfaceScope, isSurfaceChangedError } from '@/infrastructure/peer-device/deviceSurface';
 import { notificationService } from '@/shared/notification-system';
 import { createLogger } from '@/shared/utils/logger';
+import SessionDeleteMenuItem from './SessionDeleteMenuItem';
 
 const log = createLogger('ArchivedSessionMenuItems');
 
@@ -20,9 +20,14 @@ interface Props {
   workspaceName: string;
   onClose: () => void;
   onChanged: () => void;
+  /**
+   * Render the session's device before acting (device catalog rows). Resolves
+   * false when a newer switch won; the action then does nothing.
+   */
+  activate?: () => Promise<boolean>;
 }
 
-export default function ArchivedSessionMenuItems({ session, title, workspaceName, onClose, onChanged }: Props) {
+export default function ArchivedSessionMenuItems({ session, title, workspaceName, onClose, onChanged, activate }: Props) {
   const { t } = useI18n('common');
   const pendingRef = useRef(false);
   const [pending, setPending] = useState(false);
@@ -31,22 +36,24 @@ export default function ArchivedSessionMenuItems({ session, title, workspaceName
     if (pendingRef.current) return;
     pendingRef.current = true;
     setPending(true);
-    const scope = getActiveSurfaceScope();
+    let scope = getActiveSurfaceScope();
     const labels = { name: title, workspace: workspaceName };
     const sourceView = session.externalHistory?.mode === 'follow';
     try {
       if (action === 'delete') {
-        const confirmed = await confirmDanger(
-          t(sourceView ? 'nav.sessions.removeSourceConfirmTitle' : 'nav.sessions.deleteArchivedConfirmTitle'),
-          t(sourceView ? 'nav.sessions.removeSourceConfirmMessage' : 'nav.sessions.deleteArchivedConfirmMessage', labels),
-          { confirmText: t('nav.sessions.deleteArchived') },
-        );
-        if (!confirmed) return;
         scope.assertCurrent('delete archived session');
+        if (activate) {
+          if (!await activate()) return;
+          scope = getActiveSurfaceScope();
+        }
         await flowChatManager.deleteChatSession(session.sessionId);
         scope.assertCurrent('finish deleting archived session');
         notificationService.success(t(sourceView ? 'nav.sessions.removedSourceSucceeded' : 'nav.sessions.deleteArchivedSucceeded', labels));
       } else {
+        if (activate) {
+          if (!await activate()) return;
+          scope = getActiveSurfaceScope();
+        }
         const workspaceId = requireSessionOwningWorkspaceId(session);
         await sessionAPI.unarchiveSession(session.sessionId, workspaceId);
         scope.assertCurrent('finish restoring archived session');
@@ -91,15 +98,13 @@ export default function ArchivedSessionMenuItems({ session, title, workspaceName
     >
       {t('nav.sessions.restore')}
     </MenuItem>
-    <MenuItem
-      leading={<Icon name="delete" size="sm" />}
-      tone="danger"
+    <SessionDeleteMenuItem
+      sessionId={session.sessionId}
+      label={t(session.externalHistory?.mode === 'follow' ? 'nav.sessions.removeSource' : 'nav.sessions.delete')}
+      description={t(session.externalHistory?.mode === 'follow' ? 'nav.sessions.removeSourceConfirmMessage' : 'nav.sessions.deleteArchivedConfirmMessage', { name: title, workspace: workspaceName })}
       disabled={pending}
-      data-testid="nav-session-menu-delete-archived"
-      data-session-id={session.sessionId}
-      onClick={event => { event.stopPropagation(); void runAction('delete'); }}
-    >
-      {t('nav.sessions.deleteArchived')}
-    </MenuItem>
+      testId="nav-session-menu-delete-archived"
+      onConfirm={() => runAction('delete')}
+    />
   </>;
 }

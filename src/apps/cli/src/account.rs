@@ -182,6 +182,7 @@ impl CliAccountRoutingHost {
         // A Desktop host on this machine serves the shared device first; this
         // client stands by and takes over once that host exits.
         let (client, mut event_rx) = RelayClient::new_device_host(DeviceRoutingPriority::Secondary);
+        let client = client.with_account_session(&request.session);
         client.connect(&request.relay_url).await?;
         client
             .connect_authenticated(&request.session.token, &request.device_name)
@@ -438,12 +439,6 @@ impl CliAccountRoutingHost {
                 }
             }
             RelayEvent::DevicePresence { devices } => {
-                if let Ok((session, _)) = runtime
-                    .read_account_context_for_generation(account_generation)
-                    .await
-                {
-                    session.clear_peer_keys().await;
-                }
                 tracing::info!("Device presence updated: {} online", devices.len());
                 if !self
                     .routing_loop_is_current(account_generation, relay_client)
@@ -464,6 +459,7 @@ impl CliAccountRoutingHost {
                 source_device_id,
                 source_account_id,
                 correlation_id,
+                encoding_offer,
                 encrypted_data,
                 nonce,
                 key_id,
@@ -499,12 +495,13 @@ impl CliAccountRoutingHost {
                     };
                     let source_device_id = peer.key();
                     let plaintext = match session
-                        .decrypt_from_peer(
+                        .decrypt_peer_message(
                             &relay_url,
                             &source_device_id,
                             &encrypted_data,
                             &nonce,
                             key_id.as_deref(),
+                            encoding_offer,
                         )
                         .await
                     {
@@ -625,6 +622,9 @@ impl CliAccountRoutingHost {
                 let Some(response) = run_rpc_stage(cancellation, model_write, execute).await else {
                     return;
                 };
+                if correlation_id.is_empty() {
+                    return;
+                }
                 let reply = async {
                     if !self
                         .routing_loop_is_current(account_generation, relay_client)
@@ -640,13 +640,15 @@ impl CliAccountRoutingHost {
                             r#"{"resp":"error","message":"serialize failed"}"#.to_string()
                         })
                     });
-                    // Responses mirror the derivation that decrypted the request.
+                    // Responses mirror the derivation that decrypted the request,
+                    // and answer in the encoding the request offered.
                     let sealed = match session
                         .encrypt_for_peer_variant(
                             &relay_url,
                             &source_device_id,
                             key_id.as_deref(),
                             &response_json,
+                            encoding_offer.accepts_zstd(),
                         )
                         .await
                     {
@@ -958,9 +960,10 @@ impl openbitfun_core::service::remote_connect::host_stream::HostStreamNotifier
                 tracing::warn!("Host stream hint authorization refused: {error}");
                 return;
             }
-            let sealed = match lease
+            let before_send = lease.session.peer_message_guard();
+            let (sealed, uses_zstd) = match lease
                 .session
-                .encrypt_for_peer(&lease.relay_url, &target, &envelope)
+                .encrypt_for_peer_with_encoding(&lease.relay_url, &target, &envelope)
                 .await
             {
                 Ok(encrypted) => encrypted,
@@ -972,12 +975,13 @@ impl openbitfun_core::service::remote_connect::host_stream::HostStreamNotifier
             let correlation_id = uuid::Uuid::new_v4().to_string();
             if let Err(error) = lease
                 .relay_client
-                .send_device_message(
+                .send_device_message_guarded(
                     &target,
                     &correlation_id,
                     &sealed.data,
                     &sealed.nonce,
                     sealed.key_id.as_deref(),
+                    || before_send(uses_zstd),
                 )
                 .await
             {

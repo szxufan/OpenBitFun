@@ -1,5 +1,5 @@
 import { GitHubAccountProfile, GitHubProfileLoader } from '../../services/GitHubAccountProfile';
-import { normalizeAccountRelayUrl, normalizeManualRelayUrl } from '../../services/AccountDeviceLink';
+import { normalizeAccountRelayUrl, normalizeManualRelayUrl, sameRelayDeployment } from '../../services/AccountDeviceLink';
 import { RemoteI18n } from '../../i18n/RemoteI18n';
 import { stampRemoteSessionsDevice } from '../../services/RemoteSessionIdentity';
 import {
@@ -247,8 +247,8 @@ export class SettingsController {
   selectAccountRelay(relayUrl: string): void {
     const endpoint = normalizeAccountRelayUrl(relayUrl);
     if (!endpoint) throw new Error('Invalid Relay URL');
-    if (this.cloudRelayUrl !== endpoint) {
-      // Relay credentials are database-scoped: switching relays ends the
+    if (!sameRelayDeployment(this.cloudRelayUrl, endpoint)) {
+      // Relay credentials are database-scoped: switching deployments ends the
       // current session and requires a fresh sign-in against the new relay.
       this.teardownCloudAccountProjection(this.requireCloud());
       this.rememberSelectedRelay(endpoint);
@@ -981,9 +981,9 @@ export class SettingsController {
         return;
       }
       const persistedRelay = normalizeAccountRelayUrl(persisted.relayUrl) || normalizeManualRelayUrl(persisted.relayUrl);
-      if (!persistedRelay || persistedRelay !== this.selectedRelayUrl) {
+      if (!persistedRelay || !sameRelayDeployment(persistedRelay, this.selectedRelayUrl)) {
         // Relay credentials are database-scoped; never replay a credential at a
-        // different endpoint. This covers an upgraded official relay, a
+        // different deployment. This covers an upgraded official relay, a
         // user-settable relay that changed since the last sign-in, and an
         // unreadable address the same way: keep the encrypted record and
         // display name, but expose the sign-in entry again.

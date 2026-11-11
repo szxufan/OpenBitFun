@@ -347,6 +347,10 @@
     gap: var(--openbitfun-space-2);
   }
 
+  .miniapp-ChatComposer-body:has(> .miniapp-ChatComposer-queue > [data-openbitfun-component="chat-composer-queue"]) {
+    gap: 0;
+  }
+
   .miniapp-ChatComposer-queue {
     /* The wrapper exists when a queue component later renders `null`. Keeping
        it out of the box tree makes both that transition and the no-queue path
@@ -2245,6 +2249,9 @@
 .flow-text-block.streaming .markdown-renderer {
   animation: none;
 }
+.flow-text-block > .markdown-renderer.flow-text-block__section {
+  margin-block-start: var(--openbitfun-control-flow-chat-paragraph-gap);
+}
 .flow-text-block--runtime-status {
   display: flex;
   align-items: center;
@@ -2410,6 +2417,13 @@
   align-items: flex-start;
   justify-content: center;
   gap: var(--openbitfun-control-flow-chat-inline-gap);
+}
+
+.user-message-item__host-evidence {
+  margin: 0;
+  color: var(--openbitfun-color-content-secondary);
+  font-size: var(--openbitfun-type-flow-meta-font-size);
+  line-height: var(--openbitfun-type-flow-meta-line-height);
 }
 
 .user-message-item__main-contents-bridge {
@@ -2805,6 +2819,11 @@
 }
 .user-message-item__lightbox-close[data-openbitfun-component=icon-button] > [data-openbitfun-part=icon] {
   display: contents;
+}
+
+.user-message-item__large-paste-text {
+  min-height: 280px;
+  font-family: var(--openbitfun-type-code-md-font-family);
 }
 /* Model round item styles (BEM). */
 .model-round-item:is([data-flow-item-stack], .explore-region__content, .flow-group-content-segment):not([data-agent-card-grid]) > :is(.flow-text-block, .flow-thinking-item, .flowchat-flow-item,

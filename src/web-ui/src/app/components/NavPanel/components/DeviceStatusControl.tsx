@@ -1,11 +1,13 @@
-import { useDeviceDirectory, resolveDeviceName, isDeviceControllable, deviceClientVersion } from '@/infrastructure/account/deviceDirectory';
+import { applyDeviceOrder, sortAccountDevices, useDeviceOrderPreferences } from '@/app/navigation/deviceOrderPreferences';
+import { useDeviceDirectory, resolveDeviceName, isDeviceControllable, deviceClientVersion, refreshDeviceDirectory } from '@/infrastructure/account/deviceDirectory';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { subscribeOverlayInteraction, createOverlayPortal, OverflowText, Button, Card, CardBody, CardHeader, Icon, IconButton, ScrollArea, type IconSize } from '@openbitfun/ui';
-import { ArrowRightLeft, ChevronLeft, ChevronRight, CircleAlert, House, Link, MessageCircle, Monitor, MonitorSmartphone, Smartphone, Undo2, Unplug } from 'lucide-react';
+import { subscribeOverlayInteraction, createOverlayPortal, OverflowText, Button, Card, CardBody, CardHeader, Icon, IconButton, Input, ScrollArea, type IconSize } from '@openbitfun/ui';
+import { Check, ChevronLeft, ChevronRight, CircleAlert, MessageCircle, Pencil, X, Monitor, MonitorSmartphone, Smartphone } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
 import { usePeerDeviceModeOptional } from '@/infrastructure/peer-device/peerDeviceContextState';
+import { LOCAL_SURFACE_ID, surfaceIdForDevice } from '@/infrastructure/peer-device/deviceSurface';
 import { useAccountIdentity } from '@/infrastructure/account-identity';
 import { remoteConnectAPI, type AccountDeviceInfo } from '@/infrastructure/api/service-api/RemoteConnectAPI';
 import { api } from '@/infrastructure/api/service-api/ApiClient';
@@ -23,9 +25,12 @@ import {
   type DeviceOverviewHostKind,
 } from '../deviceInterconnectionOverview';
 import { useDeviceInterconnectionOverview } from './useDeviceInterconnectionOverview';
+import { DEVICES_DIALOG_MORPH_KEY } from '@/app/components/RemoteConnectDialog/morphKey';
+import { rememberMorphOrigin } from '@/app/services/surfaceMorph';
 import { DeviceArtwork } from './DeviceArtwork';
 import { DeviceSystemGlyph } from './DeviceSystemGlyph';
 import { useDevicePreviewMotion } from './useDevicePreviewMotion';
+import { DeviceVisibilityButton } from './DeviceVisibilityButton';
 
 interface DeviceStatusControlProps {
   open: boolean;
@@ -99,15 +104,16 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
   onManageDevices,
 }) => {
   useDeviceDirectory();
+  const deviceOrder = useDeviceOrderPreferences(state => state.order);
   const { t, formatNumber } = useI18n('common');
-  const { warning } = useNotification();
+  const { warning, error: notifyError } = useNotification();
   const peerContext = usePeerDeviceModeOptional();
   const identity = useAccountIdentity();
   const accountId = identity.status === 'signed-in' ? identity.me?.user.id : undefined;
   const [switchTargets, setSwitchTargets] = useState<{
     accountId: string; localId: string; devices: AccountDeviceInfo[];
   } | null>(null);
-  const [switchingAction, setSwitchingAction] = useState<'connect' | 'switch' | 'disconnect' | null>(null);
+  const [switchingAction, setSwitchingAction] = useState<'disconnect' | null>(null);
   const switchingDevice = switchingAction !== null;
   const switchingRef = useRef(false);
   const activePeerId = peerContext?.peerMode.active ? peerContext.peerMode.deviceId : null;
@@ -144,14 +150,16 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
   }, [accountId, open, warning]);
 
   const availableTargets = switchTargets?.accountId === accountId ? switchTargets : null;
-  const carouselDeviceIds = availableTargets?.devices.map(device => device.device_id) ?? [];
-  // Presence can lag behind a live control link; keep its disconnect entry reachable.
-  if (availableTargets && activePeerId && !carouselDeviceIds.includes(activePeerId)) {
-    carouselDeviceIds.unshift(activePeerId);
-  }
+  const carouselDeviceIds = useMemo(() => {
+    if (!availableTargets) return [];
+    const ids = sortAccountDevices(availableTargets.devices, availableTargets.localId, []).map(device => device.device_id);
+    // Presence can lag behind a live link. Retain that peer, in its saved
+    // position, only for as long as it remains the rendered device.
+    if (activePeerId && !ids.includes(activePeerId)) ids.unshift(activePeerId);
+    return applyDeviceOrder(ids, deviceOrder, id => id);
+  }, [availableTargets, activePeerId, deviceOrder]);
   const currentId = peerContext?.peerMode.active ? peerContext.peerMode.deviceId : availableTargets?.localId;
   const previewTarget = availableTargets?.devices.find(device => device.device_id === previewId);
-  const isPreviewing = Boolean(previewTarget && previewTarget.device_id !== currentId);
   const platformHint = typeof navigator === 'undefined'
     ? ''
     : `${navigator.platform ?? ''} ${navigator.userAgent ?? ''}`;
@@ -221,9 +229,6 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const artworkRef = useRef<HTMLDivElement>(null);
-  const headingRef = useRef<HTMLDivElement>(null);
-  const actionsRef = useRef<HTMLDivElement>(null);
-  const paginationRef = useRef<HTMLSpanElement>(null);
   const selectPreview = useCallback((deviceId: string) => {
     setPreviewId(deviceId);
   }, []);
@@ -231,34 +236,9 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
     scope: JSON.stringify([open, accountId, activePeerId, carouselDeviceIds]),
     surfaceRef: popoverRef,
     artworkRef,
-    headingRef,
-    actionsRef,
-    paginationRef,
     onSelect: selectPreview,
   });
-  const connectPreview = async () => {
-    if (!peerContext || !availableTargets || !previewTarget || !isPreviewing || switchingRef.current || previewMotion.isTransitioning) return;
-    const target = previewTarget;
-    // A confirmed-incompatible peer is shown so its state is legible, but it is
-    // never a control target. This machine is never gated by its own flag.
-    if (target.device_id !== availableTargets.localId && !isDeviceControllable(target)) return;
-    switchingRef.current = true;
-    const alreadyConnected = peerContext.attachments.some(attachment => (
-      attachment.deviceId === target.device_id && attachment.health === 'ready'
-    ));
-    setSwitchingAction(target.device_id === availableTargets.localId || alreadyConnected ? 'switch' : 'connect');
-    try {
-      if (target.device_id === availableTargets.localId) await peerContext.switchToLocal('manual');
-      else await peerContext.switchToDevice(target.device_id, resolveDeviceName(target.device_id, target.device_alias ?? target.device_name ?? target.device_id));
-      popoverRef.current?.focus();
-    } catch (error) {
-      warning(error instanceof Error ? error.message : String(error));
-    } finally {
-      switchingRef.current = false;
-      setSwitchingAction(null);
-    }
-  };
-  const browseDevice = (direction: -1 | 1) => {
+  const browseDevice = (direction: -1 | 1, animate: boolean) => {
     if (!availableTargets || switchingRef.current) return;
     const selectedId = previewMotion.pendingDeviceId() ?? previewTarget?.device_id ?? currentId ?? '';
     const index = carouselDeviceIds.indexOf(selectedId);
@@ -266,7 +246,7 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
       ? (direction === 1 ? 0 : carouselDeviceIds.length - 1)
       : (index + direction + carouselDeviceIds.length) % carouselDeviceIds.length;
     const targetId = carouselDeviceIds[targetIndex];
-    if (targetId) previewMotion.navigateTo(targetId, direction);
+    if (targetId) previewMotion.navigateTo(targetId, direction, animate);
   };
   const popoverLayout = useAnchoredPopoverPosition({
     open,
@@ -306,6 +286,8 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
   }, [activePeerId, peerContext, warning]);
 
   const handleManageDevices = useCallback(() => {
+    // The dialog grows out of this card instead of replacing it.
+    rememberMorphOrigin(DEVICES_DIALOG_MORPH_KEY, popoverRef.current);
     onOpenChange(false);
     onManageDevices();
   }, [onManageDevices, onOpenChange]);
@@ -357,28 +339,35 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
     return device.name;
   }, [t]);
   const displayedDevice = previewDevices[previewIndex] ?? overview.primaryDevice;
+  // The account device the card shows, when the directory lists it: only those
+  // can be renamed, and only through a Relay that supports device aliases.
+  const displayedAccountDevice = availableTargets?.devices.find(device => device.device_id === carouselDeviceIds[previewIndex]);
+  const aliasSupported = useRelayDeviceAliasSupport(open && Boolean(availableTargets));
+  const [aliasEdit, setAliasEdit] = useState<{ deviceId: string; draft: string; saving: boolean } | null>(null);
+  useEffect(() => { if (!open) setAliasEdit(null); }, [open]);
+  const editingAlias = aliasEdit && aliasEdit.deviceId === displayedAccountDevice?.device_id ? aliasEdit : null;
+  const saveAlias = async () => {
+    if (!editingAlias || editingAlias.saving) return;
+    const { deviceId, draft } = editingAlias;
+    setAliasEdit({ ...editingAlias, saving: true });
+    try {
+      await remoteConnectAPI.accountUpdateDevice(deviceId, draft.trim() || null);
+      await refreshDeviceDirectory();
+      setAliasEdit(current => current?.deviceId === deviceId ? null : current);
+    } catch (error) {
+      setAliasEdit(current => current?.deviceId === deviceId ? { ...current, saving: false } : current);
+      notifyError(error instanceof Error && /unsupported|not found|unknown command|404|405/i.test(error.message)
+        ? t('accountLogin.deviceAliasUnsupported') : error instanceof Error ? error.message : String(error));
+    }
+  };
   const displayedActive = !displayedDevice.local
     && displayedDevice.activities.includes('current-use') && overview.peerActive;
-  const displayedConnected = peerContext?.attachments.some(attachment => (
-    attachment.deviceId === carouselDeviceIds[previewIndex] && attachment.health === 'ready'
-  )) ?? false;
   const displayedIncompatible = previewIncompatible && !displayedActive;
-  const displayedHasAction = displayedActive || isPreviewing || displayedIncompatible;
   const displayedControlState = displayedIncompatible ? 'incompatible'
     : displayedActive ? 'active' : displayedDevice.local ? 'local' : 'available';
-  const displayedActionLabel = displayedIncompatible
-    ? previewIncompatibleNotice
-    : displayedActive ? t('deviceOverview.disconnectActionHint')
-      : displayedDevice.local ? t('deviceOverview.backToThisDevice')
-        : displayedConnected ? t('deviceOverview.switchUse') : t('deviceOverview.connectAndUse');
-  const displayedIdleActionText = displayedIncompatible ? t('deviceOverview.unavailableAction')
-    : displayedActive ? t('deviceOverview.disconnectAction')
-      : displayedDevice.local ? t('deviceOverview.returnLocalAction')
-        : displayedConnected ? t('deviceOverview.switchUse') : t('deviceOverview.connectAndUse');
-  const displayedActionText = switchingAction === 'connect' ? t('deviceOverview.connectingAction')
-    : switchingAction === 'switch' ? t('deviceOverview.switchingAction')
-      : switchingAction === 'disconnect' ? t('deviceOverview.disconnectingAction')
-        : displayedIdleActionText;
+  const displayedDeviceId = carouselDeviceIds[previewIndex] ?? activePeerId;
+  const displayedSurfaceId = displayedDevice.local ? LOCAL_SURFACE_ID
+    : displayedDeviceId ? surfaceIdForDevice(displayedDeviceId) : null;
 
   return (
     <>
@@ -390,7 +379,13 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
           aria-label={accessibleSummary}
           aria-expanded={open}
           aria-haspopup="dialog"
-          onClick={() => onOpenChange(!open)}
+          onClick={() => {
+            if (identity.status !== 'signed-in') {
+              handleManageDevices();
+              return;
+            }
+            onOpenChange(!open);
+          }}
           data-testid="nav-footer-device-status"
           data-openbitfun-component="nav-panel"
           data-openbitfun-part="deviceStatus"
@@ -449,6 +444,7 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
             data-openbitfun-state={overview.mode}
             data-openbitfun-placement={popoverLayout?.placement ?? 'top'}
             data-control-state={displayedControlState}
+            data-preview-motion={previewMotion.isTransitioning ? 'true' : undefined}
             style={{
               // Opening upward, the card is pinned by its bottom edge so any
               // height change grows away from the trigger in the same frame
@@ -523,7 +519,7 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
                         title={t('deviceOverview.previousDevice')}
                         icon={<Icon glyph={ChevronLeft} size="sm" />}
                         disabled={!peerContext || switchingDevice}
-                        onClick={() => { browseDevice(-1); }}
+                        onClick={event => { browseDevice(-1, event.detail > 0); }}
                       />
                       <IconButton
                         className="openbitfun-device-overview__carousel-button"
@@ -532,13 +528,13 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
                         title={t('deviceOverview.nextDevice')}
                         icon={<Icon glyph={ChevronRight} size="sm" />}
                         disabled={!peerContext || switchingDevice}
-                        onClick={() => { browseDevice(1); }}
+                        onClick={event => { browseDevice(1, event.detail > 0); }}
                       />
                     </div>
                   )}
                   {previewDevices.length > 1 && (
                     <span className="openbitfun-device-overview__pagination" data-testid="nav-device-status-pagination">
-                      <span className="openbitfun-device-overview__pagination-index" ref={paginationRef}
+                      <span className="openbitfun-device-overview__pagination-index"
                         style={{ minInlineSize: `${formatNumber(previewDevices.length).length}ch` }}>
                         {formatNumber(previewIndex + 1)}
                       </span>
@@ -546,15 +542,49 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
                       <span data-testid="nav-device-status-total">{formatNumber(previewDevices.length)}</span>
                     </span>
                   )}
-                  <div className="openbitfun-device-overview__device-heading" ref={headingRef} data-overflow-trigger aria-live="polite" aria-atomic="true">
+                  <div className="openbitfun-device-overview__device-heading" data-overflow-trigger aria-live="polite" aria-atomic="true">
                     {/* The system is drawn, not written: the same mark the trigger and
                         the device rows use. State is drawn after the name. */}
                     <span className="openbitfun-device-overview__device-mark" aria-hidden="true">
                       <DeviceMark device={displayedDevice} size="md" />
                     </span>
-                    <OverflowText className="openbitfun-device-overview__device-name" title="" data-testid="nav-device-status-name">
-                      {displayedDevice.name}
-                    </OverflowText>
+                    {editingAlias ? (
+                      <span className="openbitfun-device-overview__alias-editor">
+                        {/* The name itself becomes editable: same type, an underline
+                            in the card's light, actions inside the same line. */}
+                        <Input
+                          className="openbitfun-device-overview__alias-input"
+                          size="sm"
+                          value={editingAlias.draft}
+                          onChange={event => setAliasEdit({ ...editingAlias, draft: event.target.value })}
+                          onKeyDown={event => {
+                            if (event.key === 'Enter') { event.preventDefault(); void saveAlias(); }
+                            if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setAliasEdit(null); }
+                          }}
+                          placeholder={displayedAccountDevice?.device_name ?? displayedDevice.name}
+                          aria-label={t('accountLogin.deviceAlias')}
+                          title={t('accountLogin.deviceAliasPlaceholder')}
+                          autoFocus
+                          onFocus={event => event.currentTarget.select()}
+                          disabled={editingAlias.saving}
+                          data-testid="nav-device-alias-input"
+                          trailing={<>
+                            <IconButton className="openbitfun-device-overview__alias-action" size="xs" variant="quiet"
+                              icon={<Icon glyph={Check} size="xs" />}
+                              aria-label={t('accountLogin.saveDeviceAlias')} loading={editingAlias.saving}
+                              onClick={() => { void saveAlias(); }} data-testid="nav-device-alias-save" />
+                            <IconButton className="openbitfun-device-overview__alias-action" size="xs" variant="quiet"
+                              icon={<Icon glyph={X} size="xs" />}
+                              aria-label={t('accountLogin.cancel')} disabled={editingAlias.saving}
+                              onClick={() => setAliasEdit(null)} />
+                          </>}
+                        />
+                      </span>
+                    ) : (
+                      <OverflowText className="openbitfun-device-overview__device-name" title="" data-testid="nav-device-status-name">
+                        {displayedDevice.name}
+                      </OverflowText>
+                    )}
                     {displayedActive && (
                       <span
                         className="openbitfun-device-overview__usage-badge"
@@ -564,52 +594,33 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
                         data-testid="nav-device-usage-status"
                       />
                     )}
-                    {!displayedHasAction && displayedDevice.local && (
-                      <span
-                        className="openbitfun-device-overview__local-mark"
-                        role="img"
-                        aria-label={t('deviceOverview.localDevice')}
-                        title={t('deviceOverview.localDevice')}
-                        data-testid="nav-device-status-local"
-                      >
-                        <Icon glyph={House} size="xs" />
+                    {displayedIncompatible && (
+                      <span role="img" aria-label={previewIncompatibleNotice} title={previewIncompatibleNotice}
+                        data-testid="nav-device-status-incompatible">
+                        <Icon glyph={CircleAlert} size="sm" tone="warning" />
                       </span>
+                    )}
+                    {!editingAlias && aliasSupported && displayedAccountDevice && (
+                      <IconButton
+                        className="openbitfun-device-overview__alias-edit"
+                        size="xs"
+                        variant="quiet"
+                        icon={<Icon glyph={Pencil} size="xs" />}
+                        aria-label={t('accountLogin.editDeviceAlias')}
+                        data-testid="nav-device-alias-edit"
+                        onClick={() => setAliasEdit({
+                          deviceId: displayedAccountDevice.device_id, draft: displayedAccountDevice.device_alias ?? '', saving: false,
+                        })}
+                      />
                     )}
                   </div>
                 </div>
-                <div className="openbitfun-device-overview__device-actions" ref={actionsRef}>
-                  {displayedHasAction && (
-                    <div className="openbitfun-device-overview__device-status"
-                      role="group"
-                      aria-label={[displayedDevice.name, deviceActivity(displayedDevice)].join(' · ')}
-                      data-control-state={displayedControlState}>
-                      {/* One round action: the glyph says what it does, the tooltip and
-                          the accessible name carry the words. */}
-                      <IconButton
-                        className="openbitfun-device-overview__connection-status"
-                        variant={displayedIncompatible ? 'fill' : 'primary'}
-                        size="md"
-                        shape="circle"
-                        icon={displayedIncompatible
-                          ? <Icon glyph={CircleAlert} size="md" />
-                          : displayedActive ? <Icon glyph={Unplug} size="md" />
-                            : displayedDevice.local ? <Icon glyph={Undo2} size="md" />
-                              : displayedConnected ? <Icon glyph={ArrowRightLeft} size="md" /> : <Icon glyph={Link} size="md" />}
-                        aria-label={`${displayedDevice.name} · ${displayedActionText}`}
-                        title={switchingDevice ? displayedActionText : displayedActionLabel}
-                        // An incompatible device stays focusable so its version notice
-                        // (the tooltip) is reachable; it simply has no action.
-                        disabled={!displayedIncompatible && ((!displayedActive && !isPreviewing) || !peerContext || switchingDevice || previewMotion.isTransitioning)}
-                        aria-disabled={displayedIncompatible || undefined}
-                        loading={switchingDevice}
-                        data-testid={displayedIncompatible ? 'nav-device-status-incompatible'
-                          : displayedActive ? 'nav-device-status-disconnect'
-                            : displayedDevice.local ? 'nav-device-status-return-local' : 'nav-device-status-connect'}
-                        onClick={displayedIncompatible ? undefined : displayedActive
-                          ? () => { void handleDisconnect(); }
-                          : () => { void connectPreview(); }}
-                      />
-                    </div>
+                <div className="openbitfun-device-overview__device-actions">
+                  {displayedSurfaceId && !['mobile', 'watch'].includes(displayedAccountDevice?.device_kind?.trim().toLowerCase() ?? '') && (
+                    <DeviceVisibilityButton
+                      surfaceId={displayedSurfaceId}
+                      name={displayedDevice.name}
+                    />
                   )}
                 </div>
               </div>
@@ -666,3 +677,17 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
 };
 
 export default DeviceStatusControl;
+
+/** Whether the Relay renames devices (`device_alias_v1`), asked when the card opens. */
+function useRelayDeviceAliasSupport(enabled: boolean): boolean {
+  const [supported, setSupported] = useState(false);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let current = true;
+    void remoteConnectAPI.accountRelayCapabilities()
+      .then(capabilities => { if (current) setSupported(capabilities.includes('device_alias_v1')); })
+      .catch(() => { if (current) setSupported(false); });
+    return () => { current = false; };
+  }, [enabled]);
+  return supported;
+}

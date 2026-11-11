@@ -5,8 +5,9 @@ import io.ktor.http.Url
 public data class AccountDeviceLink(public val relayUrl: String, public val deviceId: String)
 
 /**
- * Canonical form of any http(s) relay endpoint: no credentials, query, or
- * fragment, and no trailing slash.
+ * Canonical form of any http(s) relay endpoint: no credentials or fragment, at
+ * most a single service-version `v` query (which is stripped), and no trailing
+ * slash. Official alias paths resolve to the official base.
  *
  * This is the shape the transport needs every relay URL handed to it to share,
  * so one relay is one string. It gates nothing by itself — the entries that
@@ -17,8 +18,22 @@ public data class AccountDeviceLink(public val relayUrl: String, public val devi
 public fun normalizeRelayEndpointUrl(value: String): String? = runCatching {
     val url = Url(value.trim())
     if (url.protocol.name !in setOf("http", "https") || url.user != null || url.password != null ||
-        url.parameters.names().isNotEmpty() || url.fragment.isNotEmpty()) return null
-    url.toString().trimEnd('/')
+        url.fragment.isNotEmpty()) return null
+    // The endpoint may announce its service version as a single `v` parameter.
+    // Any other query content is rejected: the query must never become a
+    // channel for per-request data.
+    val names = url.parameters.names()
+    if (names.isNotEmpty()) {
+        val versions = url.parameters.getAll("v").orEmpty()
+        if (names != setOf("v") || versions.size != 1 ||
+            !Regex("[A-Za-z0-9.-]{1,32}").matches(versions.single())) return null
+    }
+    val normalized = url.toString().substringBefore('?').trimEnd('/')
+    if (normalized == DEFAULT_CLOUD_RELAY_URL) return normalized
+    // `/v/1.0.2` and `/relay` are one deployment, so a stored credential or
+    // invitation from either alias keeps working and resolves to the base.
+    if (sameRelayDeployment(normalized, DEFAULT_CLOUD_RELAY_URL)) return DEFAULT_CLOUD_RELAY_URL
+    normalized
 }.getOrNull()
 
 /** Loopback and private-LAN hosts: the only plain-http relays a link or setting may name. */
@@ -63,7 +78,7 @@ public fun normalizeConfiguredRelayUrl(value: String): String? {
 public fun accountDeviceLink(value: String): AccountDeviceLink? = runCatching {
     if (value.length > 8192) return null
     val url = Url(value.trim())
-    if (url.parameters.names().isNotEmpty() || !url.fragment.startsWith("/pair?")) return null
+    if (!url.fragment.startsWith("/pair?")) return null
     val endpoint = normalizeAccountRelayUrl(value.trim().substringBefore('#')) ?: return null
     val query = Url("https://localhost/?" + url.fragment.removePrefix("/pair?"))
     if (query.parameters.names() != setOf("did")) return null

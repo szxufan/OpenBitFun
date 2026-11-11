@@ -278,7 +278,7 @@ describe('Remote Connect shared status through the real dialog and sidebar', () 
     await tick();
     const connections = element('[data-openbitfun-part="connections"]');
     expect(connections.querySelector('.openbitfun-remote-connect__card-header [role="status"]')).toBeNull();
-    expect(connections.querySelectorAll('[data-openbitfun-component="status-pill"]')).toHaveLength(1);
+    expect(connections.querySelectorAll('[data-openbitfun-part="stateMark"]')).toHaveLength(1);
     expect(cardStatus()).toBe('remoteConnect.stateWaiting');
     await clickText('remoteConnect.cancelInvitation');
     expect(element('[data-openbitfun-part="connections"] .openbitfun-remote-connect__card-header [role="status"]').textContent)
@@ -421,6 +421,25 @@ describe('Remote Connect shared status through the real dialog and sidebar', () 
       expect.objectContaining({ method: 'openbitfun_server', relay_connected: true }),
     ]);
     expect(attachedMobile()).not.toBeNull();
+  });
+
+  it('shows the invitation when the start it is waiting on publishes an account login', async () => {
+    const pending = deferred<ConnectionResult>();
+    boundary.startConnection.mockReturnValueOnce(pending.promise);
+    await render();
+    await generateInvitation();
+    await act(async () => {
+      boundary.backend = status({ relay_connected: true, relay_url: relayA, active_method: 'openbitfun_server' });
+      for (const listener of boundary.listeners.get('account://login-state') ?? []) {
+        listener({ logged_in: true, relay_url: relayA });
+      }
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => { pending.resolve(invitation()); });
+    await tick();
+    expect(dialog().textContent).toContain(invitation().qr_url);
+    expect(dialog().textContent).not.toContain('remoteConnect.connecting');
+    expect(boundary.stopConnection).not.toHaveBeenCalled();
   });
 
   it('keeps the LAN invitation when the official credential expires', async () => {

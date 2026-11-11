@@ -1,6 +1,8 @@
 import { ReadFileChunkResult } from '../main/ets/model/RemoteModels';
 import { GitHubAccountProfile, GitHubProfileLoader, normalizeGitHubProfile, readCachedGitHubProfile } from '../main/ets/services/GitHubAccountProfile';
-import { accountDeviceLink, normalizeManualRelayUrl } from '../main/ets/services/AccountDeviceLink';
+import { accountDeviceLink, normalizeAccountRelayUrl, normalizeManualRelayUrl,
+  OFFICIAL_RELAY_ENDPOINT, OFFICIAL_RELAY_URL, RELAY_SERVICE_VERSION,
+  sameRelayDeployment } from '../main/ets/services/AccountDeviceLink';
 import { describe, it, expect } from '@ohos/hypium';
 import { RemoteI18n } from '../main/ets/i18n/RemoteI18n';
 import { ChatSessionController, ChatSessionSnapshot } from '../main/ets/services/ChatSessionController';
@@ -694,18 +696,46 @@ export default function transportAndGeneralChatUnitTest() {
     });
 
     it('uses the same device selector for official and LAN endpoints', 0, () => {
-      for (const endpoint of ['https://remote.openbitfun.com/v/1.0.2', 'http://192.168.1.10:9700']) {
+      for (const endpoint of [OFFICIAL_RELAY_URL, 'http://192.168.1.10:9700']) {
         const parsed = accountDeviceLink(`${endpoint}/#/pair?did=desktop-1`);
         expect(parsed?.deviceId).assertEqual('desktop-1');
         expect(parsed?.relayUrl).assertEqual(endpoint);
       }
     });
+    it('resolves a versioned link to the endpoint base', 0, () => {
+      // A link the user opens may carry the service version as a GET parameter
+      // before the fragment; the endpoint it resolves to is the base, so no join
+      // can ever produce `...?v=1.0.9/api/...`.
+      expect(OFFICIAL_RELAY_ENDPOINT).assertEqual(OFFICIAL_RELAY_URL);
+      const versioned = accountDeviceLink(`${OFFICIAL_RELAY_URL}?v=${RELAY_SERVICE_VERSION}/#/pair?did=desktop-1`);
+      expect(versioned?.deviceId).assertEqual('desktop-1');
+      expect(versioned?.relayUrl).assertEqual(OFFICIAL_RELAY_URL);
+      expect(normalizeAccountRelayUrl(`${OFFICIAL_RELAY_URL}?v=${RELAY_SERVICE_VERSION}`)).assertEqual(OFFICIAL_RELAY_URL);
+      // Exactly one `v` may ride along: every other parameter is not an endpoint.
+      expect(normalizeAccountRelayUrl(`${OFFICIAL_RELAY_URL}?v=1.0.9&relay=evil`)).assertEqual('');
+      expect(normalizeAccountRelayUrl(`${OFFICIAL_RELAY_URL}?version=1.0.9`)).assertEqual('');
+      expect(normalizeAccountRelayUrl(`${OFFICIAL_RELAY_URL}?v=1.0.9#/pair?did=desktop-1`)).assertEqual('');
+    });
+    it('keeps the official origin-root deployment identity stable', 0, () => {
+      const rooted = accountDeviceLink(`${OFFICIAL_RELAY_URL}/#/pair?did=desktop-1`);
+      expect(rooted?.deviceId).assertEqual('desktop-1');
+      expect(rooted?.relayUrl).assertEqual(OFFICIAL_RELAY_URL);
+      // The fork's relay serves the origin root; a stray trailing slash or a
+      // version query is the same deployment, so a stored token or master key
+      // from either stays usable. A versioned path is a different deployment.
+      expect(sameRelayDeployment(OFFICIAL_RELAY_ENDPOINT, OFFICIAL_RELAY_URL)).assertTrue();
+      expect(sameRelayDeployment(`${OFFICIAL_RELAY_URL}/`, OFFICIAL_RELAY_URL)).assertTrue();
+      expect(sameRelayDeployment(`${OFFICIAL_RELAY_URL}?v=1.0.9`, OFFICIAL_RELAY_URL)).assertTrue();
+      expect(sameRelayDeployment(`${OFFICIAL_RELAY_URL}/v/1.0.0`, OFFICIAL_RELAY_URL)).assertFalse();
+      expect(sameRelayDeployment('http://192.168.1.10:9700/', 'http://192.168.1.10:9700')).assertTrue();
+    });
     it('rejects credentials, legacy rooms, duplicate targets and public lookalikes', 0, () => {
-      const prefix = 'https://remote.openbitfun.com/v/1.0.2/#/pair?';
+      const prefix = `${OFFICIAL_RELAY_ENDPOINT}/#/pair?`;
       for (const suffix of ['did=desktop-1&pk=untrusted', 'did=desktop-1&relay=evil',
         'did=desktop-1&did=desktop-2', 'did=%00', 'did=%ZZ', 'room=old&pk=old']) {
         expect(accountDeviceLink(prefix + suffix)).assertUndefined();
       }
+      expect(accountDeviceLink('https://evil.test/relay/#/pair?did=desktop-1')).assertUndefined();
       expect(accountDeviceLink('https://evil.test/v/1.0.0/#/pair?did=desktop-1')).assertUndefined();
       expect(accountDeviceLink('https://remote.openbitfun.com@evil.test/v/1.0.0/#/pair?did=desktop-1')).assertUndefined();
     });
@@ -744,7 +774,9 @@ export default function transportAndGeneralChatUnitTest() {
   describe('RemoteSessionManager account connection', () => {
     it('loads account device sessions through either relay endpoint', 0, async () => {
       const manager = new RemoteSessionManager();
-      for (const endpoint of ['https://remote.openbitfun.com/v/1.0.2', 'http://192.168.1.10:9700']) {
+      // The versioned official endpoint and the older live path both address the
+      // one deployment, next to a LAN relay that never carries a version.
+      for (const endpoint of [OFFICIAL_RELAY_ENDPOINT, OFFICIAL_RELAY_URL + '?v=1.0.9', 'http://192.168.1.10:9700']) {
         const result = await manager.connectAccountDevice(new RecordingAccountDeviceClient(), endpoint,
           { token: 'token', userId: 'account-user', masterKey: new Uint8Array(32) }, 'desktop-device');
         expect(result.workspace.path).assertEqual('/account-workspace');

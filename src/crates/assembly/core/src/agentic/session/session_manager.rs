@@ -243,6 +243,26 @@ fn session_model_allows_fallback(binding_policy: SessionModelBindingPolicy) -> b
     binding_policy == SessionModelBindingPolicy::Mutable
 }
 
+/// Project the same authoritative selection for runtime and persisted headers.
+pub fn session_model_target(
+    session: Session,
+) -> openbitfun_core_types::model_pool::SessionModelTarget {
+    use openbitfun_core_types::model_pool::{ModelSelection, SessionModelTarget};
+    let selection = if let Some(pool_id) = session.config.model_pool_id {
+        ModelSelection::Pool { pool_id }
+    } else {
+        ModelSelection::Model {
+            model_ref: session.config.model_id.unwrap_or_else(|| "primary".into()),
+        }
+    };
+    SessionModelTarget {
+        session_id: session.session_id,
+        selection,
+        reasoning_preset: session.config.reasoning_preset,
+        binding: session.config.model_pool_binding,
+    }
+}
+
 fn effective_session_model_selector(
     ai_config: &crate::service::config::types::AIConfig,
     session: &Session,
@@ -2989,6 +3009,53 @@ impl SessionManager {
     /// Get session
     pub fn get_session(&self, session_id: &str) -> Option<Session> {
         self.sessions.get(session_id).map(|s| s.clone())
+    }
+
+    /// Read selector facts without restoring history, reserving runtime capacity,
+    /// or waiting for an executing Turn's mutation permit. An omitted locator
+    /// supports legacy callers only when this host already owns the session.
+    pub(crate) async fn read_session_header(
+        &self,
+        storage_path: Option<&Path>,
+        session_id: &str,
+        include_internal: bool,
+    ) -> OpenBitFunResult<Session> {
+        openbitfun_core_types::validate_session_id(session_id)
+            .map_err(OpenBitFunError::Validation)?;
+        if let Some(path) = storage_path {
+            self.validate_session_storage_path_binding(session_id, path)?;
+        }
+        let session = match self.get_session(session_id) {
+            Some(session) => session,
+            None => {
+                let path = storage_path.ok_or_else(|| {
+                    OpenBitFunError::NotFound(format!("Session not found: {session_id}"))
+                })?;
+                let persisted = self
+                    .persistence_manager
+                    .load_session_header(path, session_id)
+                    .await;
+                // A real restore or selector update may have completed during
+                // disk IO. Its live selection takes precedence over disk.
+                self.validate_session_storage_path_binding(session_id, path)?;
+                self.get_session(session_id).map(Ok).unwrap_or(persisted)?
+            }
+        };
+        if let Some(path) = storage_path {
+            self.validate_session_storage_path_binding(session_id, path)?;
+        }
+        if !include_internal
+            && (session.kind != SessionKind::Standard
+                || SessionMetadata::is_legacy_leaked_subagent_identity(
+                    session.created_by.as_deref(),
+                    &session.session_name,
+                ))
+        {
+            return Err(OpenBitFunError::NotFound(format!(
+                "Session not found: {session_id}"
+            )));
+        }
+        Ok(session)
     }
 
     /// Read only the execution fact; navigation must not clone Session content.
@@ -5955,18 +6022,15 @@ impl SessionManager {
             .persistence_manager
             .load_session_revert_state(session_storage_path, session_id)
             .await?;
-        let effective_tail_turn_count = staged_revert
-            .as_ref()
-            .map(|_| None)
-            .unwrap_or(tail_turn_count);
         let session_started_at = Instant::now();
         let (mut session, mut persisted_turns, mut total_turn_count, turn_load) =
-            if let Some(tail_turn_count) = effective_tail_turn_count {
+            if let Some(tail_turn_count) = tail_turn_count {
                 self.persistence_manager
-                    .load_session_with_tail_turns_timed(
+                    .load_session_with_tail_turns_before_timed(
                         session_storage_path,
                         session_id,
                         tail_turn_count,
+                        staged_revert.as_ref().map(|revert| revert.boundary_turn),
                     )
                     .await?
             } else {
@@ -5979,7 +6043,9 @@ impl SessionManager {
             };
         if let Some(revert) = staged_revert.as_ref() {
             persisted_turns.retain(|turn| turn.turn_index < revert.boundary_turn);
-            total_turn_count = persisted_turns.len();
+            if tail_turn_count.is_none() {
+                total_turn_count = persisted_turns.len();
+            }
         }
         let load_session_with_turns_duration_ms = elapsed_ms_u64(session_started_at);
         debug!(
@@ -8533,6 +8599,37 @@ impl SessionManager {
             .await
     }
 
+    async fn load_turn_token_usage(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+    ) -> OpenBitFunResult<Option<crate::service::session::DialogTurnTokenUsageData>> {
+        let Some(workspace_path) = self.effective_session_storage_path(session_id).await else {
+            return Ok(None);
+        };
+        let Some(turn_index) = self
+            .sessions
+            .get(session_id)
+            .and_then(|session| session.dialog_turn_ids.iter().position(|id| id == turn_id))
+        else {
+            return Ok(None);
+        };
+        let Some(turn) = self
+            .load_runtime_dialog_turn(&workspace_path, session_id, turn_index)
+            .await?
+            .filter(|turn| turn.turn_id == turn_id)
+        else {
+            return Ok(None);
+        };
+        Ok(super::turn_usage::load_turn_token_usage(
+            self.persistence_manager.path_manager(),
+            session_id,
+            &turn.turn_id,
+            turn.start_time,
+        )
+        .await)
+    }
+
     /// Complete a dialog turn in its history owner.
     pub async fn complete_dialog_turn(
         &self,
@@ -8585,6 +8682,8 @@ impl SessionManager {
             "turn_completed",
         )
         .await;
+
+        let token_usage = self.load_turn_token_usage(session_id, turn_id).await?;
 
         // Serialize Runtime completion against projected UI checkpoints. If a
         // checkpoint wins first, the generation journal below repairs it; if
@@ -8697,6 +8796,7 @@ impl SessionManager {
         turn.has_final_response = has_final_response;
         turn.duration_ms = Some(stats.duration_ms);
         turn.end_time = Some(completion_timestamp);
+        super::turn_usage::reconcile_turn_token_usage(&mut turn, token_usage);
 
         // Persist
         self.save_runtime_dialog_turn(&workspace_path, &turn)
@@ -8716,15 +8816,16 @@ impl SessionManager {
         new_messages: &[Message],
         timestamp: u64,
     ) -> usize {
-        let mut next_round_index = turn
-            .model_rounds
-            .iter()
-            .map(|round| round.round_index)
-            .max()
-            .map_or(0, |index| index.saturating_add(1));
         let generated_rounds =
             Self::build_model_rounds_from_messages(new_messages, turn_id, timestamp);
         let generated_count = generated_rounds.len();
+        if generated_count == 0 {
+            return 0;
+        }
+        let mut generation_order = BTreeMap::new();
+        for (index, round) in generated_rounds.iter().enumerate() {
+            generation_order.entry(round.id.clone()).or_insert(index);
+        }
         for mut round in generated_rounds {
             if let Some(existing_index) = turn
                 .model_rounds
@@ -8817,7 +8918,6 @@ impl SessionManager {
                     .cloned()
                     .collect::<Vec<_>>();
                 round.tool_items.extend(derived_tool_items);
-                round.round_index = existing.round_index;
                 round.round_group_id = existing.round_group_id.clone();
                 round.timestamp = existing.timestamp;
                 round.start_time = existing.start_time;
@@ -8854,11 +8954,39 @@ impl SessionManager {
                 }
                 turn.model_rounds[existing_index] = round;
             } else {
-                round.round_index = next_round_index;
-                next_round_index = next_round_index.saturating_add(1);
                 turn.model_rounds.push(round);
             }
         }
+
+        // A client can checkpoint only a suffix or scattered rounds. Appending
+        // missing earlier rounds behind that checkpoint puts the final answer
+        // in the middle. The generation journal owns their relative order.
+        // Keep older generations before the first shared round; other rounds
+        // absent from this journal stay beside their preceding shared round.
+        // Nothing is discarded, including interrupted or client-only records.
+        let mut preceding_generation_index = None;
+        let mut ordered = std::mem::take(&mut turn.model_rounds)
+            .into_iter()
+            .map(|round| {
+                let generation_index = generation_order.get(&round.id).copied();
+                if generation_index.is_some() {
+                    preceding_generation_index = generation_index;
+                }
+                (
+                    (preceding_generation_index, generation_index.is_none()),
+                    round,
+                )
+            })
+            .collect::<Vec<_>>();
+        ordered.sort_by_key(|(order, _)| *order);
+        turn.model_rounds = ordered
+            .into_iter()
+            .enumerate()
+            .map(|(index, (_, mut round))| {
+                round.round_index = index;
+                round
+            })
+            .collect();
         generated_count
     }
 
@@ -8964,6 +9092,7 @@ impl SessionManager {
         finish_reason: Option<String>,
         has_final_response: Option<bool>,
     ) -> OpenBitFunResult<()> {
+        let token_usage = self.load_turn_token_usage(session_id, turn_id).await?;
         let _mutation_guard = self.acquire_session_mutation(session_id).await?;
         let workspace_path = self
             .effective_session_storage_path(session_id)
@@ -9057,6 +9186,7 @@ impl SessionManager {
         turn.has_final_response = has_final_response;
         turn.duration_ms = Some(stats.duration_ms);
         turn.end_time = Some(completion_timestamp);
+        super::turn_usage::reconcile_turn_token_usage(&mut turn, token_usage);
 
         // A recovered generation is Runtime-owned, so its context snapshot is
         // part of the completion commit. Persist it before the Completed Turn:
@@ -10893,6 +11023,133 @@ mod tests {
     }
 
     #[test]
+    fn generation_round_order_follows_journal_for_sparse_checkpoints() {
+        let ids = ["z-opening", "b-tool", "y-analysis", "a-tool", "m-final"];
+        let messages = ids
+            .iter()
+            .map(|id| Message::assistant((*id).into()).with_round_id((*id).into()))
+            .collect::<Vec<_>>();
+        // Runtime-rebuilt rounds can all have the completion timestamp. Neither
+        // timestamps, lexical IDs nor a partial checkpoint's indexes own order.
+        let rounds = SessionManager::build_model_rounds_from_messages(&messages, "turn", 10);
+        for mask in 0..(1 << ids.len()) {
+            for reverse in [false, true] {
+                let mut turn = DialogTurnData::new(
+                    "turn".into(),
+                    0,
+                    "session".into(),
+                    UserMessageData {
+                        id: "input".into(),
+                        content: "request".into(),
+                        timestamp: 1,
+                        metadata: None,
+                    },
+                );
+                turn.model_rounds = rounds
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| mask & (1 << index) != 0)
+                    .map(|(_, round)| round.clone())
+                    .collect();
+                if reverse {
+                    turn.model_rounds.reverse();
+                }
+                for (index, round) in turn.model_rounds.iter_mut().enumerate() {
+                    round.round_index = index;
+                    round.provider_id = Some("checkpoint-provider".into());
+                }
+                // The saved legacy shape needs no new fields to recover order.
+                let mut turn: DialogTurnData =
+                    serde_json::from_value(serde_json::to_value(turn).unwrap()).unwrap();
+                for _ in 0..2 {
+                    assert_eq!(
+                        SessionManager::append_generation_rounds(&mut turn, "turn", &messages, 10),
+                        ids.len()
+                    );
+                    assert_eq!(
+                        turn.model_rounds
+                            .iter()
+                            .map(|round| round.id.as_str())
+                            .collect::<Vec<_>>(),
+                        ids,
+                        "mask={mask}, reverse={reverse}"
+                    );
+                    for (index, round) in turn.model_rounds.iter().enumerate() {
+                        assert_eq!(round.round_index, index);
+                        assert_eq!(round.text_items[0].content, ids[index]);
+                        if mask & (1 << index) != 0 {
+                            assert_eq!(round.provider_id.as_deref(), Some("checkpoint-provider"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn generation_round_order_preserves_prior_generations_and_unjournaled_rounds() {
+        let message = |id: &str| Message::assistant(id.into()).with_round_id(id.into());
+        let mut turn = DialogTurnData::new(
+            "turn".into(),
+            0,
+            "session".into(),
+            UserMessageData {
+                id: "input".into(),
+                content: "request".into(),
+                timestamp: 1,
+                metadata: None,
+            },
+        );
+        turn.model_rounds = SessionManager::build_model_rounds_from_messages(
+            &[
+                message("interrupted"),
+                message("second"),
+                message("retry"),
+                message("final"),
+                message("pending"),
+            ],
+            "turn",
+            10,
+        );
+        turn.model_rounds[0].status = "cancelled".into();
+        turn.model_rounds[2].status = "error".into();
+        turn.model_rounds[4].status = "streaming".into();
+        let preserved = [0, 2, 4].map(|index| turn.model_rounds[index].clone());
+        let messages = [message("first"), message("second"), message("final")];
+        for _ in 0..2 {
+            SessionManager::append_generation_rounds(&mut turn, "turn", &messages, 20);
+            assert_eq!(
+                turn.model_rounds
+                    .iter()
+                    .map(|round| round.id.as_str())
+                    .collect::<Vec<_>>(),
+                [
+                    "interrupted",
+                    "first",
+                    "second",
+                    "retry",
+                    "final",
+                    "pending"
+                ]
+            );
+            for (old, index) in preserved.iter().zip([0, 3, 5]) {
+                let mut expected = old.clone();
+                expected.round_index = index;
+                assert_eq!(
+                    serde_json::to_value(&turn.model_rounds[index]).unwrap(),
+                    serde_json::to_value(expected).unwrap()
+                );
+            }
+        }
+        let before = serde_json::to_value(&turn).unwrap();
+        assert_eq!(
+            SessionManager::append_generation_rounds(&mut turn, "turn", &[], 30),
+            0
+        );
+        assert_eq!(serde_json::to_value(&turn).unwrap(), before);
+    }
+
+    #[test]
     fn classified_edit_history_preserves_detail_and_readable_error() {
         let assistant = Message::assistant_with_tools(
             String::new(),
@@ -11490,7 +11747,171 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn completion_replaces_a_projected_text_prefix_with_runtime_generation_content() {
+    async fn completion_turn_usage_survives_missing_or_stale_client_and_reopen() {
+        use crate::service::token_usage::TokenUsageService;
+        for checkpointed in [false, true] {
+            let workspace = TestWorkspace::new();
+            let persistence = Arc::new(PersistenceManager::new(workspace.path_manager()).unwrap());
+            let manager = test_manager(persistence.clone());
+            let session = manager
+                .create_session(
+                    "Turn usage".into(),
+                    "Standard".into(),
+                    SessionConfig {
+                        workspace_path: Some(workspace.path().to_string_lossy().to_string()),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+            let turn_id = manager
+                .start_dialog_turn(
+                    &session.session_id,
+                    "Standard".into(),
+                    "weather".into(),
+                    Some("turn-usage".into()),
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+            if checkpointed {
+                let mut turn = persistence
+                    .load_dialog_turn(workspace.path(), &session.session_id, 0)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                // An older frontend saved only the first request before the
+                // final request completed. The completion must replace it.
+                turn.token_usage = Some(
+                    serde_json::from_value(json!({
+                        "input_tokens": 28928, "output_tokens": 97,
+                        "total_tokens": 29025, "timestamp": 1
+                    }))
+                    .unwrap(),
+                );
+                persistence
+                    .save_dialog_turn(workspace.path(), &turn)
+                    .await
+                    .unwrap();
+            }
+            let ledger = TokenUsageService::new(workspace.path_manager())
+                .await
+                .unwrap();
+            let details = |attempt: &str| {
+                Some(json!({"openbitfunModelRequest": {
+                    "version": 1, "roundId": attempt, "attemptId": attempt,
+                    "attemptIndex": 1, "startedAt": chrono::Utc::now(),
+                    "authentication": "api_key", "requestedModel": "model",
+                    "outcome": "completed", "usageKnown": true
+                }}))
+            };
+            let second_details = details("second");
+            for (sid, tid, input, output, detail, is_child) in [
+                (
+                    session.session_id.as_str(),
+                    turn_id.as_str(),
+                    28928,
+                    97,
+                    details("first"),
+                    false,
+                ),
+                (
+                    session.session_id.as_str(),
+                    turn_id.as_str(),
+                    42794,
+                    237,
+                    second_details.clone(),
+                    false,
+                ),
+                (
+                    session.session_id.as_str(),
+                    turn_id.as_str(),
+                    6000,
+                    600,
+                    None,
+                    false,
+                ),
+                // Subscriber replay of the same immutable attempt is deduped.
+                (
+                    session.session_id.as_str(),
+                    turn_id.as_str(),
+                    42794,
+                    237,
+                    second_details,
+                    false,
+                ),
+                (
+                    session.session_id.as_str(),
+                    "other-turn",
+                    9000,
+                    900,
+                    details("other"),
+                    false,
+                ),
+                (
+                    "child-session",
+                    turn_id.as_str(),
+                    8000,
+                    800,
+                    details("child"),
+                    true,
+                ),
+            ] {
+                ledger
+                    .record_usage(
+                        "config".into(),
+                        "model".into(),
+                        sid.into(),
+                        tid.into(),
+                        input,
+                        output,
+                        None,
+                        detail,
+                        is_child,
+                    )
+                    .await
+                    .unwrap();
+            }
+            for _ in 0..2 {
+                manager
+                    .complete_dialog_turn(
+                        &session.session_id,
+                        &turn_id,
+                        "Sunny".into(),
+                        &[],
+                        TurnStats {
+                            total_rounds: 2,
+                            total_tools: 1,
+                            total_tokens: 0,
+                            duration_ms: 4250,
+                        },
+                        Some("complete".into()),
+                        Some(true),
+                    )
+                    .await
+                    .unwrap();
+            }
+            // Read through a fresh persistence instance, with no live client
+            // or event journal available to fill in the missing final usage.
+            let reopened = PersistenceManager::new(workspace.path_manager()).unwrap();
+            let restored = reopened
+                .load_dialog_turn(workspace.path(), &session.session_id, 0)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(restored.status, TurnStatus::Completed);
+            let usage = restored.token_usage.unwrap();
+            assert_eq!(usage.input_tokens, 71722);
+            assert_eq!(usage.output_tokens, Some(334));
+            assert_eq!(usage.total_tokens, 72056);
+            assert_eq!(usage.cached_tokens, None);
+            assert!((usage.output_tokens.unwrap() as f64 / 4.25 - 78.588235).abs() < 0.00001);
+        }
+    }
+
+    #[tokio::test]
+    async fn generation_round_order_survives_completion_with_a_projected_final_prefix() {
         let workspace = TestWorkspace::new();
         let persistence_manager = Arc::new(
             PersistenceManager::new(workspace.path_manager()).expect("persistence manager"),
@@ -11550,17 +11971,48 @@ mod tests {
             .expect("projected prefix should persist");
 
         let complete_response = "Saved prefix: 1. first item\n2. second item";
+        let earlier = Message::assistant_with_tools(
+            "Checking the source".into(),
+            vec![ToolCall {
+                tool_id: "read-source".into(),
+                tool_name: "Read".into(),
+                arguments: json!({"path": "README.md"}),
+                raw_arguments: None,
+                is_error: false,
+                parse_error: None,
+                recovered_from_truncation: false,
+                repair_kind: Default::default(),
+            }],
+        )
+        .with_turn_id(turn_id.clone())
+        .with_round_id("round-first".into());
+        let result = Message::tool_result(ToolResult {
+            tool_id: "read-source".into(),
+            tool_name: "Read".into(),
+            effective_tool_name: None,
+            result: json!({"content": "source"}),
+            result_for_assistant: None,
+            is_error: false,
+            duration_ms: Some(1),
+            image_attachments: None,
+        })
+        .with_turn_id(turn_id.clone())
+        .with_round_id("round-first".into());
         manager
             .complete_dialog_turn(
                 &session.session_id,
                 &turn_id,
                 complete_response.to_string(),
-                &[Message::assistant(complete_response.to_string())
-                    .with_turn_id(turn_id.clone())
-                    .with_round_id("round-final".to_string())],
+                &[
+                    earlier,
+                    result,
+                    Message::assistant(complete_response.to_string())
+                        .with_turn_id(turn_id.clone())
+                        .with_round_id("round-final".to_string()),
+                ],
                 TurnStats {
-                    total_rounds: 1,
-                    total_tools: 0,
+                    total_rounds: 2,
+                    total_tools: 1,
                     total_tokens: 0,
                     duration_ms: 1,
                 },
@@ -11578,15 +12030,25 @@ mod tests {
         assert_eq!(completed.status, TurnStatus::Completed);
         assert_eq!(completed.finish_reason.as_deref(), Some("complete"));
         assert_eq!(completed.has_final_response, Some(true));
-        assert_eq!(completed.model_rounds.len(), 1);
-        assert_eq!(completed.model_rounds[0].id, "round-final");
+        assert_eq!(completed.model_rounds.len(), 2);
+        assert_eq!(completed.model_rounds[0].id, "round-first");
+        assert_eq!(completed.model_rounds[0].round_index, 0);
+        assert!(
+            completed.model_rounds[0].tool_items[0]
+                .tool_result
+                .as_ref()
+                .unwrap()
+                .success
+        );
+        assert_eq!(completed.model_rounds[1].id, "round-final");
+        assert_eq!(completed.model_rounds[1].round_index, 1);
         assert_eq!(
-            completed.model_rounds[0].text_items[0].content,
+            completed.model_rounds[1].text_items[0].content,
             complete_response,
         );
-        assert_eq!(completed.model_rounds[0].tool_items.len(), 1);
+        assert_eq!(completed.model_rounds[1].tool_items.len(), 1);
         assert_eq!(
-            completed.model_rounds[0].tool_items[0].id,
+            completed.model_rounds[1].tool_items[0].id,
             "plan-display-test",
         );
     }
@@ -12498,7 +12960,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn recovered_completion_appends_rounds_after_the_existing_history() {
+    async fn recovered_completion_appends_rounds_and_turn_usage_after_interruption() {
         let workspace = TestWorkspace::new();
         let persistence_manager = Arc::new(
             PersistenceManager::new(workspace.path_manager()).expect("persistence manager"),
@@ -12534,6 +12996,30 @@ mod tests {
             )
             .await
             .expect("turn should start");
+        let details = |attempt: &str| {
+            Some(json!({"openbitfunModelRequest": {
+                "version": 1, "roundId": attempt, "attemptId": attempt, "attemptIndex": 1,
+                "startedAt": chrono::Utc::now(), "authentication": "api_key",
+                "requestedModel": "model", "outcome": "completed", "usageKnown": true
+            }}))
+        };
+        let ledger = crate::service::token_usage::TokenUsageService::new(workspace.path_manager())
+            .await
+            .unwrap();
+        ledger
+            .record_usage(
+                "config".into(),
+                "model".into(),
+                session.session_id.clone(),
+                turn_id.clone(),
+                28928,
+                97,
+                None,
+                details("before"),
+                false,
+            )
+            .await
+            .unwrap();
         let mut persisted_turn = persistence_manager
             .load_dialog_turn(workspace.path(), &session.session_id, 0)
             .await
@@ -12578,6 +13064,20 @@ mod tests {
             .turn_settlement_result(&session.session_id, &turn_id)
             .is_none());
 
+        ledger
+            .record_usage(
+                "config".into(),
+                "model".into(),
+                session.session_id.clone(),
+                turn_id.clone(),
+                42794,
+                237,
+                None,
+                details("after"),
+                false,
+            )
+            .await
+            .unwrap();
         manager
             .complete_recovered_dialog_turn(
                 &session.session_id,
@@ -12604,6 +13104,13 @@ mod tests {
             .await
             .expect("turn should load")
             .expect("turn should exist");
+        assert_eq!(
+            completed
+                .token_usage
+                .as_ref()
+                .and_then(|usage| usage.output_tokens),
+            Some(334)
+        );
         assert_eq!(completed.model_rounds.len(), 2);
         assert_eq!(completed.model_rounds[0].round_index, 0);
         assert_eq!(completed.model_rounds[1].round_index, 1);
@@ -13602,6 +14109,100 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn session_permission_read_preserves_override_legacy_default_and_live_turn_authority() {
+        use openbitfun_services_core::session::SessionStorageLayout;
+
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let mut session = Session::new_with_id(
+            id.clone(),
+            "Permission header".into(),
+            "Standard".into(),
+            SessionConfig {
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                ..Default::default()
+            },
+        );
+        let storage_path = paths.project_sessions_dir(workspace.path());
+        let layout = SessionStorageLayout::new(&storage_path);
+        for mode in [
+            None,
+            Some(PermissionMode::Ask),
+            Some(PermissionMode::AutoApprove),
+            Some(PermissionMode::FullAccess),
+        ] {
+            session.config.permission_mode = mode;
+            persistence
+                .save_session(workspace.path(), &session)
+                .await
+                .unwrap();
+            let header = manager
+                .read_session_header(Some(&storage_path), &id, false)
+                .await
+                .unwrap();
+            // Read the session override as stored. None continues to mean
+            // inherit; a query must not resolve or persist a global default.
+            assert_eq!(header.config.permission_mode, mode);
+            assert!(manager.get_session(&id).is_none());
+            assert!(manager.active_session_permits.is_empty());
+            assert!(!manager.context_store.has_session(&id));
+        }
+        let state_path = layout.state_path(&id);
+        let mut state: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&state_path).unwrap()).unwrap();
+        state["runtime_state"] = serde_json::to_value(SessionState::Processing {
+            current_turn_id: "interrupted".into(),
+            phase: ProcessingPhase::Thinking,
+        })
+        .unwrap();
+        std::fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+        let header = manager
+            .read_session_header(Some(&storage_path), &id, false)
+            .await
+            .unwrap();
+        assert!(matches!(header.state, SessionState::Idle));
+        assert_eq!(
+            manager.active_turn_permission_mode(&id, "interrupted"),
+            None
+        );
+        assert!(manager.get_session(&id).is_none());
+
+        std::fs::remove_file(&state_path).unwrap();
+        let legacy = manager
+            .read_session_header(Some(&storage_path), &id, false)
+            .await
+            .unwrap();
+        assert_eq!(legacy.config.permission_mode, None);
+        assert!(!state_path.exists());
+        // Without a workspace or live Session, the override is unknown rather
+        // than inherited. Do not manufacture a null/default permission reply.
+        assert!(manager.read_session_header(None, &id, false).await.is_err());
+
+        session.state = SessionState::Processing {
+            current_turn_id: "live-turn".into(),
+            phase: ProcessingPhase::Thinking,
+        };
+        manager.sessions.insert(id.clone(), session);
+        assert!(manager.set_active_turn_permission_mode(&id, "live-turn", PermissionMode::Ask));
+        let live = manager.read_session_header(None, &id, false).await.unwrap();
+        assert_eq!(
+            live.config.permission_mode,
+            Some(PermissionMode::FullAccess)
+        );
+        assert_eq!(
+            manager.active_turn_permission_mode(&id, "live-turn"),
+            Some(PermissionMode::Ask)
+        );
+        assert_eq!(
+            manager.active_turn_permission_mode(&id, "interrupted"),
+            None
+        );
+    }
+
+    #[tokio::test]
     async fn session_permission_mode_is_per_session_and_clearable() {
         let workspace = TestWorkspace::new();
         let manager = in_memory_test_manager();
@@ -14409,6 +15010,240 @@ mod tests {
             .unwrap();
         assert_eq!(saved.config.model_routing.as_deref(), Some("manual"));
         assert_eq!(saved.config.model_id.as_deref(), Some("chosen-model"));
+        assert!(manager.get_session(&id).is_none());
+    }
+
+    #[tokio::test]
+    async fn cold_session_model_read_ignores_history_and_context_without_activating_runtime() {
+        use openbitfun_core_types::model_pool::{ModelPoolBinding, ModelSelection};
+        use openbitfun_services_core::session::SessionStorageLayout;
+
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let binding = ModelPoolBinding {
+            pool_id: "pool".into(),
+            model_id: "chosen-member".into(),
+            configuration_fingerprint: "current-binding".into(),
+            generation: 7,
+        };
+        let session = Session::new_with_id(
+            id.clone(),
+            "Cold selector read".into(),
+            "Standard".into(),
+            SessionConfig {
+                workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                model_id: Some("primary".into()),
+                model_pool_id: Some("pool".into()),
+                model_pool_binding: Some(binding.clone()),
+                reasoning_preset: Some("high".into()),
+                model_routing: Some("manual".into()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        let storage_path = paths.project_sessions_dir(workspace.path());
+        let layout = SessionStorageLayout::new(&storage_path);
+        std::fs::create_dir_all(layout.turns_dir(&id)).unwrap();
+        std::fs::create_dir_all(layout.snapshots_dir(&id)).unwrap();
+        let unreadable = "unreadable unrelated historical content".repeat(32_768);
+        std::fs::write(layout.turn_path(&id, 0), &unreadable).unwrap();
+        std::fs::write(layout.context_snapshot_path(&id, 0), &unreadable).unwrap();
+        let state_bytes = std::fs::read(layout.state_path(&id)).unwrap();
+        let metadata_bytes = std::fs::read(layout.metadata_path(&id)).unwrap();
+
+        let header = manager
+            .read_session_header(Some(&storage_path), &id, false)
+            .await
+            .unwrap();
+        assert!(header.dialog_turn_ids.is_empty());
+        assert_eq!(header.config.model_routing.as_deref(), Some("manual"));
+        let target = super::session_model_target(header);
+        assert_eq!(
+            target.selection,
+            ModelSelection::Pool {
+                pool_id: "pool".into()
+            }
+        );
+        assert_eq!(target.binding, Some(binding));
+        assert_eq!(target.reasoning_preset.as_deref(), Some("high"));
+        assert!(manager.get_session(&id).is_none());
+        assert!(!manager
+            .is_session_loaded_from_storage_path(&storage_path, &id)
+            .unwrap());
+        assert!(manager.active_session_permits.is_empty());
+        assert!(manager.session_write_locks.is_empty());
+        assert!(!manager.context_store.has_session(&id));
+        assert!(!manager.session_storage_path_index.contains_key(&id));
+        assert_eq!(std::fs::read(layout.state_path(&id)).unwrap(), state_bytes);
+        assert_eq!(
+            std::fs::read(layout.metadata_path(&id)).unwrap(),
+            metadata_bytes
+        );
+        assert_eq!(
+            std::fs::read_to_string(layout.turn_path(&id, 0)).unwrap(),
+            unreadable
+        );
+        assert_eq!(
+            std::fs::read_to_string(layout.context_snapshot_path(&id, 0)).unwrap(),
+            unreadable
+        );
+    }
+
+    #[tokio::test]
+    async fn session_model_read_prefers_live_selection_without_waiting_for_turn_or_ignoring_scope()
+    {
+        use openbitfun_core_types::model_pool::ModelSelection;
+
+        let workspace = TestWorkspace::new();
+        let persistence = Arc::new(PersistenceManager::new(workspace.path_manager()).unwrap());
+        let manager = test_manager(persistence);
+        let id = Uuid::new_v4().to_string();
+        let mut session = Session::new_with_id(
+            id.clone(),
+            "Live selector".into(),
+            "Standard".into(),
+            SessionConfig {
+                model_id: Some("live-model".into()),
+                reasoning_preset: Some("low".into()),
+                ..Default::default()
+            },
+        );
+        session.state = SessionState::Processing {
+            current_turn_id: "running".into(),
+            phase: ProcessingPhase::Thinking,
+        };
+        manager.sessions.insert(id.clone(), session);
+        manager.bind_session_storage_path_committed(&id, workspace.path().to_path_buf());
+        // No persisted session exists. A running Turn holds this permit until
+        // completion; reading the selector must still return its live facts.
+        let _turn = manager.acquire_session_mutation(&id).await.unwrap();
+        let header = tokio::time::timeout(
+            Duration::from_secs(1),
+            manager.read_session_header(Some(workspace.path()), &id, false),
+        )
+        .await
+        .expect("a model read must not wait for the running Turn")
+        .unwrap();
+        assert!(matches!(header.state, SessionState::Processing { .. }));
+        let target = super::session_model_target(header);
+        assert_eq!(
+            target.selection,
+            ModelSelection::Model {
+                model_ref: "live-model".into()
+            }
+        );
+        assert_eq!(target.reasoning_preset.as_deref(), Some("low"));
+        assert!(manager.read_session_header(None, &id, false).await.is_ok());
+        assert!(manager
+            .read_session_header(Some(&workspace.path().join("other")), &id, false)
+            .await
+            .is_err());
+        manager.sessions.get_mut(&id).unwrap().kind = SessionKind::Subagent;
+        assert!(manager.read_session_header(None, &id, false).await.is_err());
+        assert!(manager.read_session_header(None, &id, true).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn cold_session_model_read_preserves_legacy_metadata_and_internal_visibility() {
+        use openbitfun_core_types::model_pool::{ModelSelection, SessionModelTarget};
+        use openbitfun_services_core::session::SessionStorageLayout;
+
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let id = Uuid::new_v4().to_string();
+        let mut session = Session::new_with_id(
+            id.clone(),
+            "Legacy selector".into(),
+            "Standard".into(),
+            SessionConfig {
+                workspace_path: Some(workspace.path().to_string_lossy().into()),
+                model_id: Some("fast".into()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        let storage_path = paths.project_sessions_dir(workspace.path());
+        let layout = SessionStorageLayout::new(&storage_path);
+        std::fs::remove_file(layout.state_path(&id)).unwrap();
+        let metadata_bytes = std::fs::read(layout.metadata_path(&id)).unwrap();
+        let target = super::session_model_target(
+            manager
+                .read_session_header(Some(&storage_path), &id, false)
+                .await
+                .unwrap(),
+        );
+        assert_eq!(
+            target.selection,
+            ModelSelection::Model {
+                model_ref: "fast".into()
+            }
+        );
+        assert_eq!(target.reasoning_preset, None);
+        assert_eq!(target.binding, None);
+        let old_payload =
+            json!({ "sessionId": id, "selection": { "kind": "model", "model_ref": "fast" } });
+        let old_target: SessionModelTarget = serde_json::from_value(old_payload).unwrap();
+        assert_eq!(target, old_target);
+        assert_eq!(
+            serde_json::from_value::<SessionModelTarget>(serde_json::to_value(&target).unwrap())
+                .unwrap(),
+            old_target
+        );
+        assert!(!layout.state_path(&id).exists());
+        assert_eq!(
+            std::fs::read(layout.metadata_path(&id)).unwrap(),
+            metadata_bytes
+        );
+        assert!(manager.read_session_header(None, &id, false).await.is_err());
+        assert!(manager
+            .read_session_header(Some(&storage_path), "missing-session", false)
+            .await
+            .is_err());
+        session.kind = SessionKind::Subagent;
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        assert!(manager
+            .read_session_header(Some(&storage_path), &id, false)
+            .await
+            .is_err());
+        assert!(manager
+            .read_session_header(Some(&storage_path), &id, true)
+            .await
+            .is_ok());
+        // Pre-kind releases leaked internal children as Standard sessions.
+        // Keep the metadata owner's compatibility rule for both cold and live reads.
+        session.kind = SessionKind::Standard;
+        session.created_by = Some("session-parent".into());
+        session.session_name = "Subagent: legacy child".into();
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        assert!(manager
+            .read_session_header(Some(&storage_path), &id, false)
+            .await
+            .is_err());
+        assert!(manager
+            .read_session_header(Some(&storage_path), &id, true)
+            .await
+            .is_ok());
+        manager.sessions.insert(id.clone(), session);
+        assert!(manager.read_session_header(None, &id, false).await.is_err());
+        assert!(manager.read_session_header(None, &id, true).await.is_ok());
+        manager.sessions.remove(&id);
         assert!(manager.get_session(&id).is_none());
     }
 
@@ -17579,6 +18414,160 @@ mod tests {
             .context_store
             .get_context_messages(&session_id)
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn restore_session_view_tail_with_staged_revert_reads_only_visible_tail() {
+        use crate::agentic::session::revert::{
+            SessionRevertPhase, SessionRevertState, SESSION_REVERT_SCHEMA_VERSION,
+        };
+        use openbitfun_services_core::session::SessionStorageLayout;
+
+        let workspace = TestWorkspace::new();
+        let paths = workspace.path_manager();
+        let persistence = Arc::new(PersistenceManager::new(paths.clone()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let session_id = Uuid::new_v4().to_string();
+        let session = Session::new_with_id(
+            session_id.clone(),
+            "Visible history tail".into(),
+            "Standard".into(),
+            SessionConfig {
+                workspace_path: Some(workspace.path().to_string_lossy().into()),
+                ..Default::default()
+            },
+        );
+        persistence
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        // A sparse legacy sequence proves the boundary is a storage index,
+        // while total_turn_count and tail selection use visible ordinals.
+        for index in [0, 2, 4, 7] {
+            let mut turn = DialogTurnData::new(
+                format!("turn-{index}"),
+                index,
+                session_id.clone(),
+                UserMessageData {
+                    id: format!("user-{index}"),
+                    content: format!("prompt {index}"),
+                    timestamp: index as u64,
+                    metadata: None,
+                },
+            );
+            turn.mark_completed();
+            persistence
+                .save_dialog_turn(workspace.path(), &turn)
+                .await
+                .unwrap();
+        }
+        let storage_path = paths.project_sessions_dir(workspace.path());
+        let layout = SessionStorageLayout::new(&storage_path);
+        let answer = "complete last visible answer\n".repeat(8192);
+        let rounds = SessionManager::build_model_rounds_from_messages(
+            &[Message::assistant(answer.clone()).with_round_id("visible-round".into())],
+            "turn-2",
+            2,
+        );
+        // Keep an old persisted shape: no kind, recovery, usage or finish fields.
+        let legacy_turn = json!({
+            "schema_version": 1,
+            "turnId": "turn-2", "turnIndex": 2, "sessionId": session_id,
+            "timestamp": 2, "startTime": 2, "status": "completed",
+            "userMessage": { "id": "user-2", "content": "visible prompt", "timestamp": 2 },
+            "modelRounds": rounds,
+        });
+        std::fs::write(
+            layout.turn_path(&session_id, 2),
+            serde_json::to_vec(&legacy_turn).unwrap(),
+        )
+        .unwrap();
+        std::fs::remove_file(layout.turn_catalog_path(&session_id)).unwrap();
+        // Neither unrelated older content nor the hidden suffix may be parsed.
+        for index in [0, 4, 7] {
+            std::fs::write(
+                layout.turn_path(&session_id, index),
+                "unreadable unrelated turn",
+            )
+            .unwrap();
+        }
+        let mut revert = SessionRevertState {
+            schema_version: SESSION_REVERT_SCHEMA_VERSION,
+            boundary_turn: 4,
+            original_turn_end: 8,
+            phase: SessionRevertPhase::Staged,
+            workspace_checkpoint: Vec::new(),
+        };
+        persistence
+            .save_session_revert_state(workspace.path(), &session_id, &revert)
+            .await
+            .unwrap();
+
+        // Local path resolution and the resolved host-storage entry used by
+        // Peer callers must share the same bounded restore behavior.
+        for resolved_storage in [false, true] {
+            let (view, turns, total, timing) = if resolved_storage {
+                manager
+                    .restore_session_view_from_storage_path_tail_timed(
+                        &storage_path,
+                        &session_id,
+                        1,
+                    )
+                    .await
+            } else {
+                manager
+                    .restore_session_view_tail_timed(workspace.path(), &session_id, 1)
+                    .await
+            }
+            .expect("only the requested visible Turn should be read");
+            assert_eq!(total, 2);
+            assert_eq!(timing.turn_load.requested_tail_turn_count, Some(1));
+            assert_eq!(timing.turn_load.loaded_turn_count, 1);
+            assert_eq!(view.dialog_turn_ids, ["turn-2"]);
+            assert_eq!(turns.len(), 1);
+            assert_eq!(turns[0].turn_index, 2);
+            assert_eq!(turns[0].model_rounds[0].text_items[0].content, answer);
+            let round_trip: DialogTurnData =
+                serde_json::from_value(serde_json::to_value(&turns[0]).unwrap()).unwrap();
+            assert_eq!(round_trip.model_rounds[0].text_items[0].content, answer);
+            let catalog = persistence
+                .load_session_turn_catalog(&storage_path, &session_id, &turns, total)
+                .await
+                .unwrap();
+            assert_eq!(
+                catalog
+                    .entries
+                    .iter()
+                    .map(|entry| entry.storage_turn_index)
+                    .collect::<Vec<_>>(),
+                [0, 2]
+            );
+            assert!(manager.get_session(&session_id).is_none());
+        }
+
+        let (_, turns, total, _) = manager
+            .restore_session_view_tail_timed(workspace.path(), &session_id, 0)
+            .await
+            .unwrap();
+        assert!(turns.is_empty());
+        assert_eq!(total, 2);
+        revert.boundary_turn = 0;
+        persistence
+            .save_session_revert_state(workspace.path(), &session_id, &revert)
+            .await
+            .unwrap();
+        let (_, turns, total, _) = manager
+            .restore_session_view_tail_timed(workspace.path(), &session_id, 1)
+            .await
+            .unwrap();
+        assert!(turns.is_empty());
+        assert_eq!(total, 0);
+        for index in [0, 4, 7] {
+            assert_eq!(
+                std::fs::read_to_string(layout.turn_path(&session_id, index)).unwrap(),
+                "unreadable unrelated turn"
+            );
+        }
     }
 
     #[tokio::test]

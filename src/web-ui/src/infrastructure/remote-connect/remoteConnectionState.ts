@@ -1,9 +1,15 @@
 import type { ConnectionResult, RemoteConnectionMethod, RemoteConnectStatus } from '../api/service-api/RemoteConnectAPI';
+import {
+  OFFICIAL_RELAY_URL,
+  relayEndpointBase,
+  sameRelayDeployment,
+} from '../../../../shared/relay-transport/RelayEndpoint';
 
 export type RemoteNetworkMethod = 'lan' | 'openbitfun_server';
-// The fork's hosted relay, served at the origin root (no `/v/<version>` prefix).
-// The `openbitfun_server` wire value above is a protocol enum and stays unchanged.
-export const OFFICIAL_RELAY_URL = 'https://obf.test.linkerpi.com';
+
+// The fork's hosted relay (origin root) is the shared OFFICIAL_RELAY_URL. The
+// `openbitfun_server` wire value above is a protocol enum and stays unchanged.
+export { OFFICIAL_RELAY_URL };
 
 /** The relay the host dials for the server method: the self-hosted override
  *  when configured, the hosted endpoint otherwise (and on older hosts). */
@@ -16,13 +22,10 @@ export function remoteNetworkMethod(method: RemoteConnectionMethod | null | unde
   return method === 'openbitfun_server' ? 'openbitfun_server' : null;
 }
 
+/** Endpoint identity used for joins, comparisons, and status: the version
+ * parameter is accepted once and removed. */
 export function normalizeRelayUrl(value: string | null | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) return null;
-    return url.href.replace(/\/+$/, '');
-  } catch { return null; }
+  return relayEndpointBase(value);
 }
 
 export function invitationRelayUrl(invitation: ConnectionResult | null | undefined): string | null {
@@ -52,7 +55,9 @@ export function selectRemoteNetworkConnection(
   // both the resolved relay and the official endpoint classify as server.
   const legacyMethod = remoteNetworkMethod(status?.active_method)
     ?? (legacyUrl
-      ? legacyUrl === serverRelayUrl(status) || legacyUrl === OFFICIAL_RELAY_URL ? 'openbitfun_server' : 'lan'
+      ? sameRelayDeployment(legacyUrl, serverRelayUrl(status)) || sameRelayDeployment(legacyUrl, OFFICIAL_RELAY_URL)
+        ? 'openbitfun_server'
+        : 'lan'
       : null);
   const method = requestedMethod ?? remoteNetworkMethod(invitation?.method)
     ?? status?.connections?.find(route => route.relay_connected)?.method ?? legacyMethod;

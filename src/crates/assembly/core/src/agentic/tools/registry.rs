@@ -565,6 +565,7 @@ mod tests {
             "Write",
             "Edit",
             "Delete",
+            "GenOfficeFile",
             "ExecCommand",
             "WriteStdin",
             "ExecControl",
@@ -589,10 +590,6 @@ mod tests {
             "CallDeferredTool",
             "OpenBitFunControl",
             "GetFileDiff",
-            "CreateCanvas",
-            "ReadCanvas",
-            "UpdateCanvas",
-            "PatchCanvas",
             "ListWorkspaces",
             "SessionControl",
             "SessionMessage",
@@ -683,7 +680,6 @@ mod tests {
                 "core.miniapp",
                 "core.pages",
                 "core.creation",
-                "core.canvas",
             ],
             "provider groups must preserve the reviewed atomic ownership order"
         );
@@ -852,7 +848,6 @@ mod tests {
                 "submit_code_review",
                 "GetToolSpec",
                 "GetFileDiff",
-                "ReadCanvas",
                 "ListWorkspaces",
                 "SessionHistory",
                 "WebSearch",
@@ -861,7 +856,6 @@ mod tests {
                 "ReadMCPResource",
                 "ListMCPPrompts",
                 "GetMCPPrompt",
-                "GenerativeUI",
                 "Playbook",
             ],
             "readonly tool manifest must stay stable before moving registry ownership"

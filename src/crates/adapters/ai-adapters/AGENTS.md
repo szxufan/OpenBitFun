@@ -255,6 +255,18 @@ metadata with credential revision checks, preserving their tokens and models.
 A failed account request (including 404) must not fall back to public OAuth
 inference. Account route metadata must not contain keys or token material.
 
+HTTP proxy policy (legacy disabled settings stay direct; Windows bypass rules
+retain wildcard and `<local>` semantics):
+
+```bash
+cargo test --locked -p openbitfun-ai-adapters --lib client::http::tests
+cargo test --locked -p openbitfun-ai-adapters --features subscription-auth --lib client::http::tests::router_proxy_policy_preserves_environment_explicit_and_disabled_routes
+```
+
+The second command uses the auth feature's hidden-process helper for an isolated
+environment-proxy fixture, including on Windows. Fixtures do not change the OS
+proxy, access provider accounts, or verify remote-host behavior.
+
 Router HTTP serialization, classifier parsing, authentication, and failures:
 
 ```bash
@@ -376,3 +388,30 @@ and sends no inference request. This does not verify remote-host behavior.
 The image-generation filter uses synthetic HTTP credentials. The ignored Codex
 probe requires a real in-app subscription login and generates a billed image;
 run it explicitly only when live provider validation is needed.
+Set `PROBE_CODEX_IMAGE_OUTPUT_DIR` to save the generated image for visual review.
+Set `PROBE_CODEX_IMAGE_OUTPUT_FORMAT=gif` to request GIF output and
+`PROBE_CODEX_IMAGE_PROMPT` to describe the subject and looping motion. The probe
+checks the GIF signature; inspect frame count and timing in the saved file to
+confirm animation.
+The probe uses the production standalone subscription Images route and built-in
+image model. It does not discover or invoke a chat model. Saved legacy
+`/responses` endpoints are translated in memory to `/images/generations`.
+
+```bash
+cargo test --locked -p openbitfun-ai-adapters --features image-generation,subscription-auth --lib client::image_generation::tests::probe_codex_subscription_image_generation -- --ignored --exact --nocapture
+```
+
+## Magpie gateway discovery
+
+Magpie discovery is identity plus catalog IO only, never inference or credential
+file discovery. Preserve gateway-prefixed URLs, bounded reads, redirect refusal,
+and distinct offline/authentication/catalog states. Hosts supply proxy settings.
+Loopback discovery and model requests connect directly on the inference host;
+remote URLs retain configured proxy policy. Match the effective request URL,
+including custom overrides, and do not follow redirects with a direct client.
+Verify with `cargo test --locked -p openbitfun-ai-adapters --lib magpie::tests`
+and `cargo test --locked -p openbitfun-ai-adapters --lib client::http::tests`.
+The ignored `magpie::tests::live_local_gateway_catalog` reads only the default
+loopback gateway, without inference. Set `OPENBITFUN_LIVE_MAGPIE_PROXY` to verify
+discovery while an explicit outbound proxy is configured. It proves local catalog access, not remote
+transport or model generation.

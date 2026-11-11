@@ -1,3 +1,4 @@
+import { acceptsRelayZstd, prepareRelayEncoding, relayZstd } from './relayMessageEncoding';
 import {
   openHostStream, parseStreamHint, parseStreamPage,
   type HostStreamOptions, type SessionStreamHandle, type StreamHint, type StreamReadRequest,
@@ -100,6 +101,7 @@ export class RelayHttpClient {
   private targetDeviceIdValue: string | null = null;
   private controlTargetEpochValue = 0;
   private controlTargetListeners = new Set<(snapshot: ControlTargetSnapshot) => void>();
+  private peerEncodings = new Set<string>();
   private deviceMessageKeys = new Map<string, { expires: number; key: Promise<Uint8Array> }>();
   private streamHintListeners = new Set<(hint: StreamHint) => void>();
 
@@ -119,10 +121,17 @@ export class RelayHttpClient {
     this.realtime = null;
     this.identity?.masterKey.fill(0);
     this.identity = { ...identity, masterKey: identity.masterKey.slice(), generation: ++this.identityGeneration };
+    prepareRelayEncoding();
     this.realtime = new AccountRealtime({ url: this.relayUrl, token: identity.token });
-    const notifyDirectory = () => { for (const listener of this.directoryListeners) listener(); };
+    const notifyDirectory = () => {
+      this.peerEncodings = new Set();
+      for (const listener of this.directoryListeners) listener();
+    };
     this.realtime.onDeviceDirectoryChanged(notifyDirectory);
     this.realtime.onReconnect(notifyDirectory);
+    this.realtime.onStatus(status => {
+      if (status === 'disconnected') this.peerEncodings = new Set();
+    });
     this.realtime.onDeviceEvent(envelope => { void this.receiveDeviceEvent(envelope); });
     this.accountEpochValue += 1;
     this.directorySnapshot = [];
@@ -130,6 +139,7 @@ export class RelayHttpClient {
     // A read that started under the previous identity must not seed the cache.
     this.appliedDirectoryRequest = this.directoryRequest;
     this.deviceMessageKeys.clear();
+    this.peerEncodings = new Set();
     this.setTargetDeviceId(null);
     for (const listener of this.ownerListeners) listener({ kind, epoch: this.accountEpochValue, userId: identity.userId });
   }
@@ -167,6 +177,7 @@ export class RelayHttpClient {
     // A read from the closed identity must not seed the cache either.
     this.appliedDirectoryRequest = this.directoryRequest;
     this.deviceMessageKeys.clear();
+    this.peerEncodings = new Set();
     this.setTargetDeviceId(null);
     for (const listener of this.ownerListeners) listener({ kind: 'unavailable', epoch: this.accountEpochValue, userId: null });
   }
@@ -217,12 +228,16 @@ export class RelayHttpClient {
   private async receiveDeviceEvent(envelope: DeviceEventEnvelope): Promise<void> {
     const identity = this.identity;
     const target = this.getControlTargetSnapshot();
+    const encodings = this.peerEncodings;
     if (!identity || envelope.sourceDeviceId !== target.deviceId) return;
     try {
       const messageKey = await this.receiverMessageKey(identity, envelope.sourceDeviceId, envelope.key_id);
       if (this.identity !== identity || !this.isControlTargetCurrent(target)) return;
       const plaintext = JSON.parse(await decrypt(messageKey, envelope.encrypted_data, envelope.nonce)) as { cmd?: unknown; event?: unknown; payload?: unknown };
       if (plaintext?.cmd !== 'device_event' || typeof plaintext.event !== 'string') return;
+      if (encodings !== this.peerEncodings || this.identity !== identity || !this.isControlTargetCurrent(target)) return;
+      if (envelope.accept_encoding === relayZstd) encodings.add(envelope.sourceDeviceId);
+      else encodings.delete(envelope.sourceDeviceId);
       const hint = parseStreamHint(envelope.sourceDeviceId, plaintext.event, plaintext.payload);
       if (hint) for (const listener of this.streamHintListeners) listener(hint);
     } catch (error) {
@@ -409,23 +424,38 @@ export class RelayHttpClient {
     const targetEpoch = this.controlTargetEpochValue;
     return this.withAccount(async (identity) => {
       const selected = await this.senderMessageKey(identity, targetDeviceId);
+      if (identity.generation !== this.identityGeneration || targetEpoch !== this.controlTargetEpochValue) {
+        throw new AccountIdentityChangedError();
+      }
+      const connection = this.realtime;
+      if (!connection) throw new AccountIdentityChangedError();
+      await connection.ready();
+      const encodings = this.peerEncodings;
       const plaintext = JSON.stringify(command);
-      const { data: encData, nonce: encNonce } = await encrypt(
+      const { data: encData, nonce: encNonce, usesZstd } = await encrypt(
         selected.key,
         plaintext,
+        acceptsRelayZstd() && encodings.has(targetDeviceId),
       );
 
       if (identity.generation !== this.identityGeneration || targetEpoch !== this.controlTargetEpochValue) {
         throw new AccountIdentityChangedError();
       }
+      const assertEncodingCurrent = () => {
+        if (usesZstd && encodings !== this.peerEncodings) {
+          throw new Error('Relay capabilities changed; request was not submitted');
+        }
+      };
+      assertEncodingCurrent();
       const timeoutMs = options.timeoutMs ?? (options.retryable ? 20_000 : 130_000);
-      const connection = this.realtime;
-      if (!connection) throw new AccountIdentityChangedError();
       const params: Record<string, string> = { encrypted_data: encData, nonce: encNonce };
       if (selected.keyId) params.key_id = selected.keyId;
-      const data = await connection.call<{ encrypted_data: string; nonce: string; key_id?: string }>(targetDeviceId,
-        params, {
+      if (acceptsRelayZstd()) params.accept_encoding = relayZstd;
+      const data = await connection.call<
+        { encrypted_data: string; nonce: string; key_id?: string; accept_encoding?: string }
+      >(targetDeviceId, params, {
           timeoutMs,
+          beforeSubmit: assertEncodingCurrent,
           beforeSend: () => {
             if (identity.generation !== this.identityGeneration || targetEpoch !== this.controlTargetEpochValue) {
               throw new AccountIdentityChangedError();
@@ -444,6 +474,8 @@ export class RelayHttpClient {
         // back to the legacy derivation would undo the pairing's protection.
         throw new Error(data.key_id ? PSK_KEY_MISMATCH_MESSAGE : (error as Error).message);
       }
+      if (data.accept_encoding === relayZstd) encodings.add(targetDeviceId);
+      else encodings.delete(targetDeviceId);
       const parsed = JSON.parse(decrypted);
       // Retiring the caller suppresses presentation, not the fact that the host
       // finished. Never expose the decoded response to a replacement owner.

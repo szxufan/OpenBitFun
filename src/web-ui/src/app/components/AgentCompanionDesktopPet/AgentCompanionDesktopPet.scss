@@ -235,8 +235,15 @@
   &__bubbles {
     position: relative;
     flex-shrink: 0;
-    width: 180px;
-    max-width: 180px;
+    /* Bubbles stay 180px; the inline-end room (open space before the pet)
+       holds their bottom-right shadow, and the negative margin keeps the pet
+       where it was. */
+    width: calc(180px + var(--_bubble-shadow-room));
+    max-width: calc(180px + var(--_bubble-shadow-room));
+    padding-inline-end: var(--_bubble-shadow-room);
+    margin-inline-end: calc(-1 * var(--_bubble-shadow-room));
+    --_bubble-shadow-room: 28px;
+    box-sizing: border-box;
     min-height: 0;
     max-height: 100vh;
     /* The slot clips (`overflow: hidden`), so the buffer has to sit inside it:
@@ -357,29 +364,18 @@
     width: 180px;
     max-width: 100%;
     box-sizing: border-box;
-    /* Same language as the device overview: the opaque themed surface lit
-       from the corner nearest the title by the task state, a faint ring in
-       that light, and the tail corner pointing at the pet. */
+    /* Both themes use an 80% opaque neutral surface. Task color belongs to the
+       status glyph; a neutral inset edge keeps the bubble clear on any desktop. */
     --_bubble-light: var(--openbitfun-color-accent-default);
-    --_bubble-glow: radial-gradient(
-      130% 150% at 0% 0%,
-      color-mix(in srgb, var(--_bubble-light) 20%, transparent),
-      transparent 68%
-    );
-    /* No border: the bubble is defined by its surface, the state light, the
-       theme's top highlight and a soft tinted drop shadow. Everything stays
-       inside the bubble column, which clips sideways. */
     --_bubble-edge:
-      var(--openbitfun-shadow-inner-highlight),
-      0 10px 20px -12px color-mix(in srgb, var(--_bubble-light) 34%, transparent);
+      inset 0 0 0 var(--openbitfun-border-width-default) var(--openbitfun-color-border-subtle),
+      var(--openbitfun-shadow-raised);
     padding: 9px 12px;
     border: none;
     border-radius: 14px 14px 4px 14px;
-    background-color: var(--openbitfun-color-surface-raised);
-    background-image: var(--_bubble-glow);
+    background-color: color-mix(in srgb, var(--openbitfun-color-surface-raised) 80%, transparent);
     color: var(--openbitfun-color-content-primary);
     box-shadow: var(--_bubble-edge);
-    backdrop-filter: blur(10px);
     cursor: pointer;
     position: relative;
     z-index: 0;
@@ -467,8 +463,7 @@
     font-weight: var(--openbitfun-type-label-selected-font-weight);
   }
 
-  /* The words behind the glyph stay for assistive tech; sighted users get
-     them in the bubble's tooltip. */
+  /* The words behind the glyph stay for assistive tech. */
   &__bubble-status {
     position: absolute;
     width: 1px;
@@ -510,47 +505,26 @@
     }
   }
 
-  /* Each state sets the light and lays its status tint over the opaque themed
-     surface, fading away from the lit corner so the bubble stays calm. */
+  /* All task states share the translucent surface; glyphs carry the status color. */
   &__bubble--attention {
     --_bubble-light: var(--openbitfun-color-status-warning-content);
-    background-image: linear-gradient(
-      135deg,
-      var(--openbitfun-color-status-warning-surface),
-      transparent 72%
-    ), var(--_bubble-glow);
     box-shadow:
       var(--_bubble-edge),
-      0 0 0 0 color-mix(in srgb, var(--openbitfun-color-status-warning-content) 50%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, var(--openbitfun-color-status-warning-content) 40%, transparent);
     animation: openbitfun-agent-companion-attention-pulse 1.5s ease-in-out infinite !important;
   }
 
   &__bubble--waiting {
     --_bubble-light: var(--openbitfun-color-status-warning-content);
-    background-image: linear-gradient(
-      135deg,
-      var(--openbitfun-color-status-warning-surface),
-      transparent 72%
-    ), var(--_bubble-glow);
   }
 
   &__bubble--completed {
     --_bubble-light: var(--openbitfun-color-status-success-content);
-    background-image: linear-gradient(
-      135deg,
-      var(--openbitfun-color-status-success-surface),
-      transparent 72%
-    ), var(--_bubble-glow);
   }
 
   &__bubble--error,
   &__bubble--interrupted {
     --_bubble-light: var(--openbitfun-color-status-danger-content);
-    background-image: linear-gradient(
-      135deg,
-      var(--openbitfun-color-status-danger-surface),
-      transparent 72%
-    ), var(--_bubble-glow);
   }
 
   .openbitfun-agent-companion-pet {
@@ -575,18 +549,20 @@
 }
 
 @keyframes openbitfun-agent-companion-attention-pulse {
+  /* The pulse breathes inside the bubble's edge: an outward ring would be
+     clipped by the column on both sides. */
   0%,
   100% {
     box-shadow:
       var(--_bubble-edge),
-      0 0 0 0 color-mix(in srgb, var(--openbitfun-color-status-warning-content) 40%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, var(--openbitfun-color-status-warning-content) 18%, transparent);
     transform: translateY(0);
   }
 
   50% {
     box-shadow:
       var(--_bubble-edge),
-      0 0 0 6px transparent;
+      inset 0 0 0 1.5px color-mix(in srgb, var(--openbitfun-color-status-warning-content) 55%, transparent);
     transform: translateY(-1px);
   }
 }

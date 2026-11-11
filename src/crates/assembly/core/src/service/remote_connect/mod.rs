@@ -396,12 +396,24 @@ impl RemoteConnectService {
             .await
             .clone()
             .ok_or_else(|| anyhow::anyhow!("No authenticated relay connection"))?;
-        if self.prepared_relay_url.read().await.as_deref() != Some(relay_url.as_str())
-            || self.active_method.read().await.as_ref() != Some(&method)
-        {
+        // A restored device connection uses the endpoint base, while the
+        // prepared endpoint also announces `?v=`; only the base identifies it.
+        let prepared_relay_url = self
+            .prepared_relay_url
+            .read()
+            .await
+            .clone()
+            .filter(|prepared| {
+                openbitfun_product_domains::account::relay_endpoint_base(prepared)
+                    == openbitfun_product_domains::account::relay_endpoint_base(&relay_url)
+            });
+        let Some(prepared_relay_url) = prepared_relay_url else {
+            anyhow::bail!("Relay endpoint changed; start the connection again");
+        };
+        if self.active_method.read().await.as_ref() != Some(&method) {
             anyhow::bail!("Relay endpoint changed; start the connection again");
         }
-        let qr_url = QrGenerator::build_device_url(&relay_url, &device_id)?;
+        let qr_url = QrGenerator::build_device_url(&prepared_relay_url, &device_id)?;
         Ok(ConnectionResult {
             method,
             qr_data: Some(QrGenerator::generate_png_base64_from_url(&qr_url)?),
@@ -1056,7 +1068,7 @@ impl RemoteConnectService {
     pub async fn start_device_connection(
         &self,
         relay_url: &str,
-        token: &str,
+        session: &AccountSession,
         device_name: &str,
         priority: relay_client::DeviceRoutingPriority,
         notifier: Arc<dyn host_stream::HostStreamNotifier>,
@@ -1070,8 +1082,11 @@ impl RemoteConnectService {
         self.stop_device_connection_inner().await;
 
         let (client, mut event_rx) = RelayClient::new_device_host(priority);
+        let client = client.with_account_session(session);
         client.connect(relay_url).await?;
-        client.connect_authenticated(token, device_name).await?;
+        client
+            .connect_authenticated(&session.token, device_name)
+            .await?;
 
         // Wait for AuthOk (or AuthError) before proceeding so that the
         // device is registered as online on the relay before the caller
@@ -1260,6 +1275,28 @@ impl RemoteConnectService {
         nonce: &str,
         key_id: Option<&str>,
     ) -> Result<bool> {
+        self.send_device_message_if_connection_guarded(
+            expected_connection_id,
+            target_device_id,
+            correlation_id,
+            encrypted_data,
+            nonce,
+            key_id,
+            || Ok(()),
+        )
+        .await
+    }
+
+    pub async fn send_device_message_if_connection_guarded(
+        &self,
+        expected_connection_id: u64,
+        target_device_id: &str,
+        correlation_id: &str,
+        encrypted_data: &str,
+        nonce: &str,
+        key_id: Option<&str>,
+        before_send: impl Fn() -> Result<()>,
+    ) -> Result<bool> {
         let _lifecycle = self.device_relay_lifecycle.lock().await;
         if *self.active_device_connection_id.read().await != Some(expected_connection_id) {
             return Ok(false);
@@ -1272,12 +1309,13 @@ impl RemoteConnectService {
             .ok_or_else(|| anyhow::anyhow!("device routing not connected"))?;
         drop(_lifecycle);
         client
-            .send_device_message(
+            .send_device_message_guarded(
                 target_device_id,
                 correlation_id,
                 encrypted_data,
                 nonce,
                 key_id,
+                before_send,
             )
             .await?;
         Ok(true)

@@ -372,7 +372,6 @@ export function runManifestParserSelfTest({
     'agent-runtime',
     'diagnostics',
     'diff',
-    'canvas-runtime',
     'dispatch-store',
     'file-watch',
     'filesystem',
@@ -557,11 +556,6 @@ export function runManifestParserSelfTest({
         'openbitfun-services-integrations/remote-ssh',
       ],
     ],
-    [
-      coreManifest,
-      'canvas-runtime',
-      ['dep:openbitfun-product-domains', 'openbitfun-services-integrations/canvas-runtime'],
-    ],
     [coreManifest, 'file-watch', ['openbitfun-services-integrations/file-watch']],
     [coreManifest, 'git', ['openbitfun-services-integrations/git']],
     [coreManifest, 'review-platform', ['openbitfun-services-integrations/review-platform']],
@@ -635,6 +629,7 @@ export function runManifestParserSelfTest({
         'openbitfun-core/tools-computer-use',
         'openbitfun-core/tools-image-analysis',
         'openbitfun-core/tools-image-generation',
+        'openbitfun-core/tools-office-documents',
         'openbitfun-core/tools-agent-control',
       ],
     ],
@@ -2763,16 +2758,6 @@ export function runManifestParserSelfTest({
       contracts: ['[features]', 'default = []'],
     },
     {
-      path: 'src/crates/execution/agent-runtime/src/context_profile.rs',
-      contracts: [
-        'ContextProfile',
-        'ModelCapabilityProfile',
-        'ContextProfilePolicy',
-        'for_subagent_context_and_models',
-        'model_capability_weak_for_mini',
-      ],
-    },
-    {
       path: 'src/crates/execution/agent-runtime/src/session_state.rs',
       contracts: [
         'SessionState',
@@ -4493,8 +4478,6 @@ export function runManifestParserSelfTest({
         'openbitfun-product-domains = \\{ path = "\\.\\.\\/\\.\\.\\/contracts\\/product-domains", optional = true \\}',
         'dep:openbitfun-ai-adapters',
         'ai-adapter-runtime',
-        'canvas-runtime',
-        'openbitfun-services-integrations\\/canvas-runtime',
         'openbitfun-services-integrations\\/function-agents',
         'openbitfun-services-integrations\\/miniapp-runtime',
         'dep:openbitfun-product-capabilities',

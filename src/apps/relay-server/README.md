@@ -5,7 +5,15 @@ are created on the Relay itself with an SMS verification code (Aliyun SMS);
 an optional password can be set afterwards. Users sign in from OpenBitFun;
 they do not deploy the server themselves.
 
-The official endpoint is `https://remote.openbitfun.com/v/1.0.2`. This release is deployed with
+For connection choices, internet requirements, privacy, service limits, and
+self-hosting, see the user FAQ: [English](FAQ.md) / [中文](FAQ.zh-CN.md).
+
+The official endpoint is `https://remote.openbitfun.com/relay?v=1.0.10`: the
+service version travels as a `v` query parameter so a release no longer needs
+its own proxy location, and the bare origin is the account controller. The
+older `https://remote.openbitfun.com/v/1.0.2/` path stays live on the same
+process and database for builds that predate the parameter, so both aliases
+share credentials and device registration. This release is deployed with
 its own process, database, assets, and reverse-proxy location. An existing
 `/relay` deployment remains on its existing binary and data directory.
 
@@ -13,15 +21,21 @@ The Relay forwards opaque encrypted messages. Each device generates an X25519
 private key locally and registers its public key after account sign-in. Peers obtain public keys through the authenticated same-account
 directory and derive an AES-GCM key with X25519 and HKDF-SHA256. The Relay does
 not receive device private keys or upload copies of settings and sessions.
-Sessions and files are read from the owning online device on demand.
+Sessions and files are read from the owning online device on demand. Account,
+device, public-key, and routing metadata remain visible to the service. Published
+Pages and their server-side storage/functions are separate from this encrypted
+device-control path; see the [privacy boundary](FAQ.md#what-can-the-services-see).
 
 Selecting **Same network** starts the same Relay implementation inside the
 Desktop host at `http://<LAN-IP>:9700`. Its SQLite database is local to that
 host (`<product-home>/relay-v1.0.0/local-server/relay.db`), separate from the
-official server database. Login, device registration, device discovery,
-public-key lookup, RPC and presence all use the selected Relay endpoint.
-The two modes differ only in endpoint and host startup; no device traffic is
-forwarded from the local Relay to the official Relay.
+official server database. The official and embedded LAN connections can run
+concurrently. Each connection uses its own Relay for device registration,
+discovery, public-key lookup, RPC, and presence; the local Relay does not forward
+its device traffic to the official Relay. **My devices**, Peer Device Mode,
+account synchronization, and account-device Detached Dispatch continue to use
+the official account endpoint. Starting or stopping LAN mode does not switch
+that endpoint. See the [Desktop connection lifecycle](../desktop/README.md#remote-connect).
 
 Both modes authenticate relay-local accounts: users register and sign in with
 an SMS verification code delivered through Aliyun SMS (an optional password can
@@ -41,12 +55,12 @@ Relay URL. A private Relay therefore needs a matching client build.
 
 1. Fork this workspace and read `CONTRIBUTING.md`. Build the Relay and mobile
    controller from the same revision. Keep your fork's changes in source control.
-2. Select your HTTPS endpoint in `product-domains/src/account.rs`, then align
+2. Select your HTTPS endpoint in `src/crates/contracts/product-domains/src/account.rs`, then align
    the frontend constants in `src/web-ui/src/infrastructure/remote-connect/remoteConnectionState.ts`
    and `src/mobile-web/src/services/pairingLink.ts`. Native clients have
    matching constants in KMP `core-transport/AccountDeviceLink.kt` and HarmonyOS
    `services/AccountDeviceLink.ets`; update the HarmonyOS account-link parser too.
-   Search for `https://remote.openbitfun.com/v/1.0.2` to verify every runtime
+   Search for `https://remote.openbitfun.com/relay?v=` to verify every runtime
    reference and corresponding test before building your distribution.
 3. Accounts are owned by this relay itself. Configure Aliyun SMS delivery with
    the `RELAY_SMS_*` variables (see Configuration) so phone verification works;

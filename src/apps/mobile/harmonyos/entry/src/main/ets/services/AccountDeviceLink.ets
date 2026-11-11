@@ -1,13 +1,62 @@
-// The fork's hosted relay, served at the origin root (no `/v/<version>` prefix).
-// `normalizeAccountRelayUrl` below only admits this exact origin plus loopback /
-// private-LAN hosts, so a named hosted relay has to be listed here.
-export const OFFICIAL_RELAY_URL: string = 'https://obf.test.linkerpi.com';
+/** Hosted Relay service version announced by the official endpoint. */
+export const RELAY_SERVICE_VERSION: string = '1.0.10';
+
+const OFFICIAL_RELAY_ORIGIN: string = 'https://obf.test.linkerpi.com';
+
+/** Paths served by the same deployed Relay and the same account database.
+ * `?v=` replaced the path segment as the client-facing version, but `/v/1.0.2`
+ * stays live for builds that predate the change: a token, master key, or device
+ * registration obtained through either path is interchangeable, because both
+ * reach one process and one database. Any other `/v/<version>` path is a
+ * different deployment. */
+const LIVE_RELAY_ENDPOINT_PATHS: string[] = ['/relay', '/v/1.0.2'];
+
+const VERSION_PATTERN: RegExp = /^[A-Za-z0-9.]{1,32}$/;
+
+/** Identity of the fork's official Relay: served at the origin root, so there
+ * is no `/relay` or `/v/<version>` path and no version query. Every path join
+ * and every deployment comparison uses this value; the relay reports its
+ * service version over `/health`. */
+export const OFFICIAL_RELAY_URL: string = OFFICIAL_RELAY_ORIGIN;
+
+/** The same deployment as a user sees and shares it: the fork's relay serves
+ * its controller page at the origin root, so the shared endpoint carries no
+ * version. */
+export const OFFICIAL_RELAY_ENDPOINT: string = OFFICIAL_RELAY_URL;
+
 export interface AccountDeviceLink { relayUrl: string; deviceId: string; }
 
+/** Strip the version parameter and any trailing slash, or explain why not.
+ * Exactly one `v=<version>` parameter is accepted; every other query parameter
+ * is rejected so the query can never carry per-request data, and a fragment
+ * means the value is a page rather than an endpoint. */
+function endpointBase(value: string): string | undefined {
+  const text = value.trim();
+  if (text === '' || text.indexOf('#') >= 0) return undefined;
+  const mark = text.indexOf('?');
+  const base = (mark >= 0 ? text.substring(0, mark) : text).replace(/\/+$/, '');
+  if (mark >= 0) {
+    const pairs = text.substring(mark + 1).split('&');
+    if (pairs.length !== 1 || pairs[0].substring(0, 2) !== 'v=' ||
+      !VERSION_PATTERN.test(pairs[0].substring(2))) return undefined;
+  }
+  return base;
+}
+
+function officialPath(value: string): string {
+  return value.startsWith(OFFICIAL_RELAY_ORIGIN) ? value.substring(OFFICIAL_RELAY_ORIGIN.length) : '';
+}
+
 export function normalizeAccountRelayUrl(value: string): string {
-  const normalized = value.trim().replace(/\/+$/, '');
-  if (normalized === OFFICIAL_RELAY_URL) return normalized;
-  const match = /^(https?:\/\/)(localhost|\[[0-9a-fA-F:]+\]|[0-9.]+)(?::([0-9]{1,5}))?$/.exec(normalized);
+  const base = endpointBase(value);
+  if (!base) return '';
+  // The fork's official relay is served at the origin root, so it is its own
+  // canonical identity with no alias path.
+  if (base === OFFICIAL_RELAY_URL) return OFFICIAL_RELAY_URL;
+  // Both live aliases of the official host answer as one deployment, so an
+  // endpoint stored by an older build still resolves to today's identity.
+  if (LIVE_RELAY_ENDPOINT_PATHS.indexOf(officialPath(base)) >= 0) return OFFICIAL_RELAY_URL;
+  const match = /^(https?:\/\/)(localhost|\[[0-9a-fA-F:]+\]|[0-9.]+)(?::([0-9]{1,5}))?$/.exec(base);
   if (!match) return '';
   if (match[3] && (Number(match[3]) < 1 || Number(match[3]) > 65535)) return '';
   const host = match[2].toLowerCase();
@@ -17,7 +66,33 @@ export function normalizeAccountRelayUrl(value: string): string {
     (octets.length === 4 && octets.every((part: number): boolean => Number.isInteger(part) && part >= 0 && part <= 255) &&
       (octets[0] === 10 || octets[0] === 127 || (octets[0] === 192 && octets[1] === 168) ||
         (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 169 && octets[1] === 254)));
-  return local ? normalized : '';
+  return local ? base : '';
+}
+
+interface RelayEndpointIdentity { origin: string; path: string; }
+
+function endpointIdentity(value: string): RelayEndpointIdentity | undefined {
+  const base = endpointBase(value);
+  if (!base) return undefined;
+  const match = /^(https?):\/\/(\[[0-9a-fA-F:]+\]|[^/?#:@]+)(?::([0-9]{1,5}))?([^?#]*)$/.exec(base);
+  if (!match) return undefined;
+  const scheme = match[1].toLowerCase();
+  const port = match[3] ? Number(match[3]) : (scheme === 'https' ? 443 : 80);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return undefined;
+  return { origin: `${scheme}://${match[2].toLowerCase()}:${port}`, path: match[4] };
+}
+
+/** Whether two endpoints resolve to the same deployed Relay.
+ * This is the comparison behind reusing a stored token or master key: both live
+ * aliases of one host count as one deployment, so a build that moves from
+ * `/v/1.0.2` to `/relay?v=` keeps its credential, while any other versioned
+ * path is a different or retired deployment. */
+export function sameRelayDeployment(left: string, right: string): boolean {
+  const a = endpointIdentity(left);
+  const b = endpointIdentity(right);
+  if (!a || !b || a.origin !== b.origin) return false;
+  return a.path === b.path ||
+    (LIVE_RELAY_ENDPOINT_PATHS.indexOf(a.path) >= 0 && LIVE_RELAY_ENDPOINT_PATHS.indexOf(b.path) >= 0);
 }
 
 /**

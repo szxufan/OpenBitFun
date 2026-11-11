@@ -13,6 +13,7 @@ import type * as Monaco from 'monaco-editor';
 import { registerMermaidLanguage } from '../languages/mermaid.language';
 import { registerTomlLanguage } from '../languages/toml.language';
 import { registerCangjieLanguage } from '../languages/cangjie.language';
+import { registerLatexLanguage } from '../languages/latex.language';
 import { getMonacoPath, getMonacoWorkerPath, logMonacoResourceCheck } from '../utils/monacoPathHelper';
 import { setMonacoRuntime } from './monacoRuntime';
 import { createLogger } from '@/shared/utils/logger';
@@ -20,20 +21,6 @@ import { monacoAppearanceAdapter } from '@/infrastructure/appearance/adapters/Mo
 import type { ContentResourceScope } from '@/shared/types/contentResource';
 
 const log = createLogger('MonacoInitManager');
-
-const MONACO_WORKER_MAP: Record<string, string> = {
-  json: 'language/json/jsonWorker.js',
-  css: 'language/css/cssWorker.js',
-  scss: 'language/css/cssWorker.js',
-  less: 'language/css/cssWorker.js',
-  html: 'language/html/htmlWorker.js',
-  handlebars: 'language/html/htmlWorker.js',
-  razor: 'language/html/htmlWorker.js',
-  typescript: 'language/typescript/tsWorker.js',
-  javascript: 'language/typescript/tsWorker.js',
-};
-
-const DEFAULT_WORKER = 'base/worker/workerMain.js';
 
 class MonacoInitManager {
   private static instance: MonacoInitManager;
@@ -109,8 +96,10 @@ class MonacoInitManager {
 
     (window as any).MonacoEnvironment = {
       getWorker(_workerId: string, label: string) {
-        const workerFile = MONACO_WORKER_MAP[label] || DEFAULT_WORKER;
-        const workerPath = getMonacoWorkerPath(workerFile);
+        // The runtime uses the AMD distribution. Language files are AMD
+        // modules, not standalone Worker entries; workerMain installs the
+        // loader and loads the requested module through Monaco's protocol.
+        const workerPath = getMonacoWorkerPath('base/worker/workerMain.js');
 
         return new Worker(workerPath, {
           type: 'classic',
@@ -195,6 +184,7 @@ class MonacoInitManager {
       registerTomlLanguage(monaco);
       registerMermaidLanguage(monaco);
       registerCangjieLanguage(monaco);
+      registerLatexLanguage(monaco);
       log.debug('TOML language registered');
       log.debug('Mermaid language registered');
       log.debug('Cangjie language registered');

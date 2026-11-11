@@ -6,7 +6,7 @@ import SessionScene from '../scenes/session/SessionScene';
 import WorkbenchLayout from './WorkbenchLayout';
 import { sessionPaneLayoutStore } from '../scenes/session/sessionPaneLayoutStore';
 import SessionPanelSettingsSection from '../scenes/settings/pages/application/SessionPanelSettingsSection';
-import { useSceneStore } from '../stores/sceneStore';
+import { useSceneStore, resetSceneStoreForTest } from '../stores/sceneStore';
 import { getSessionSceneTabId } from '../components/SceneBar/types';
 import { useWindowResizeLayout } from '../layout/windowResizeScheduler';
 
@@ -59,7 +59,7 @@ describe('workbench pane layout integration', () => {
   beforeEach(() => {
     mocks.terminalPosition = 'right';
     useWindowResizeLayout.setState(useWindowResizeLayout.getInitialState());
-    useSceneStore.getState().resetForPeerSwitch();
+    resetSceneStoreForTest();
     sessionPaneLayoutStore.setState(sessionPaneLayoutStore.getInitialState());
     vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
@@ -200,6 +200,37 @@ describe('workbench pane layout integration', () => {
       expect(container.querySelector('iframe')).toBe(editor);
       expect(container.querySelector('[data-testid="bottom-terminal"]')).toBe(terminal);
       expect(chat.value).toBe('unsent edit');
+    }
+  });
+
+  it('suspends measurements through navigation resize and settling without freezing or remounting content', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(0), 16));
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
+    mocks.terminalPosition = 'bottom';
+    sessionPaneLayoutStore.getState().showContent();
+    const render = (navigationResizing: boolean) => act(() => root.render(
+      <WorkbenchLayout navigationResizing={navigationResizing}><SessionScene /></WorkbenchLayout>,
+    ));
+    render(false);
+    act(() => vi.advanceTimersByTime(300));
+    const chat = container.querySelector<HTMLTextAreaElement>('[data-testid="chat-draft"]')!;
+    const editor = container.querySelector('iframe')!;
+    const terminal = container.querySelector<HTMLElement>('[data-testid="bottom-terminal"]')!;
+    chat.value = 'keep this draft';
+    for (let cycle = 0; cycle < 2; cycle++) {
+      render(true);
+      act(() => vi.advanceTimersByTime(300));
+      expect(chat.dataset.dragging).toBe('false');
+      for (const element of [chat, editor, terminal]) expect(element.dataset.resizeSuspended).toBe('true');
+      render(false);
+      expect(chat.dataset.resizeSuspended).toBe('true');
+      act(() => vi.advanceTimersByTime(32));
+      for (const element of [chat, editor, terminal]) expect(element.dataset.resizeSuspended).toBe('false');
+      expect(container.querySelector('[data-testid="chat-draft"]')).toBe(chat);
+      expect(container.querySelector('iframe')).toBe(editor);
+      expect(container.querySelector('[data-testid="bottom-terminal"]')).toBe(terminal);
+      expect(chat.value).toBe('keep this draft');
     }
   });
 

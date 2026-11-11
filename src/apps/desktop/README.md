@@ -109,12 +109,13 @@ completion quality, total latency, model/cache usage and auxiliary request cost.
 
 ## Remote Connect
 
-Sign in once with the shared GitHub account. The official Relay and **Same
-network** (the embedded LAN Relay) can run at the same time. Each tab shows its
-own connection and connected browsers; **Disconnect** affects that tab only.
+Sign in with the same OpenBitFun account on each device, using the same GitHub
+or email-code login method. The official Relay needs no user deployment. The
+official Relay and **Same network** (the embedded LAN Relay) can run at the same
+time. Each tab shows its own connection and connected browsers; **Disconnect** affects that tab only.
 Closing a connection code keeps an established connection running.
 
-**My devices**, Peer Device Mode, account synchronization and detached dispatch
+**My devices**, Peer Device Mode, account synchronization and account-device detached dispatch
 use the official Relay. Starting or stopping the LAN Relay does not switch their
 account or endpoint. LAN invitations advertise the selected network interface;
 select it again and create a new invitation after changing networks.
@@ -124,6 +125,29 @@ is temporary and starts when requested. Builds that previously saved a temporary
 LAN session in the account slot attempt to restore the official Relay from the
 shared identity; failed sign-in leaves the previous credential on disk. Signing
 out closes both connections.
+
+Both modes require the online identity service for sign-in. Same-network mode
+does not provide offline login. See the [Relay FAQ](../relay-server/FAQ.md) for
+privacy, service availability, and private-deployment requirements.
+
+## Writing a LaTeX paper
+
+Choose **Other agents → Paper Writing** in the session composer and ask the
+agent to draft or revise files in your workspace. Open the main `.tex` file
+from the file tree or its chat link. The editor shows source on the left and the
+typeset PDF on the right. Use **Save & compile** or turn on **Auto compile**
+to save and recompile the main source after you pause. A failed build keeps the
+last successful preview and shows the compiler log.
+
+Install `latexmk` and the selected pdfLaTeX or XeLaTeX engine on the machine that
+owns the workspace. For SSH, Docker, and WSL workspaces, compile in that
+environment. In Peer Device Mode the selected Desktop host must advertise
+LaTeX preview support. Mobile and bot surfaces can continue an existing writing
+session and receive PDF files saved to the workspace by the agent.
+
+Preview compilation uses temporary files and accepts PDFs up to 8 MiB.
+It disables shell escape and skips `latexmk` configuration scripts.
+Enable automatic compilation for projects you trust.
 
 ## Global agent instructions
 

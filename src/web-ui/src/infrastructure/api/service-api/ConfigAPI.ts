@@ -4,6 +4,7 @@ import { workspaceScopedRequest } from './legacyWorkspaceCompatibility';
 
 import { api } from './ApiClient';
 import { createTauriCommandError } from '../errors/TauriCommandError';
+import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import type {
   AgentProfileConfigItem,
   DiagnosticsBundleInfo,
@@ -45,6 +46,7 @@ export interface GetModeSkillConfigsParams {
   modeId: string;
   forceRefresh?: boolean;
   workspaceId?: string;
+  summaryModeIds?: string[];
 }
 
 export interface SetGlobalSkillDisabledParams {
@@ -99,6 +101,11 @@ export interface DownloadSkillMarketParams {
 
 const SKILL_CONFIG_REQUEST_TIMEOUT_MS = 60_000;
 
+function isMissingConfigPath(error: unknown, path: string): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return message.includes('not found:') && message.includes('config path')
+    && message.includes(`'${path.toLowerCase()}'`);
+}
 
 export class ConfigAPI {
    
@@ -116,13 +123,7 @@ export class ConfigAPI {
         shouldSkipRetry ? { retries: 0 } : undefined
       );
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const normalized = errorMessage.toLowerCase();
-      if (
-        normalized.includes('not found:') &&
-        normalized.includes('config path') &&
-        normalized.includes(`'${path}'`)
-      ) {
+      if (path && isMissingConfigPath(error, path)) {
         return undefined;
       }
       throw createTauriCommandError('get_config', error, { path });
@@ -133,6 +134,7 @@ export class ConfigAPI {
     paths: string[],
     options?: { skipRetryOnNotFound?: boolean }
   ): Promise<Record<string, any>> {
+    const scope = getActiveSurfaceScope();
     const uniquePaths = Array.from(new Set(paths));
     if (uniquePaths.length === 0) {
       return {};
@@ -141,19 +143,32 @@ export class ConfigAPI {
     const shouldSkipRetry = options?.skipRetryOnNotFound ?? false;
 
     try {
-      return await api.invoke('get_configs', {
+      const configs = await api.invoke<Record<string, any>>('get_configs', {
         request: {
           paths: uniquePaths,
           skipRetryOnNotFound: shouldSkipRetry,
         },
       });
-    } catch {
+      scope.assertCurrent('read configuration batch');
+      return configs;
+    } catch (error) {
+      scope.assertCurrent('retry configuration batch');
+      // Older hosts fail the whole batch for an absent optional key. Reuse
+      // that result, then keep the remaining keys in a single batch request.
+      const missingPath = uniquePaths.find(path => isMissingConfigPath(error, path));
+      if (missingPath) {
+        return {
+          ...await this.getConfigs(uniquePaths.filter(path => path !== missingPath), options),
+          [missingPath]: undefined,
+        };
+      }
       const entries = await Promise.all(
         uniquePaths.map(async (path) => [
           path,
           await this.getConfig(path, options),
         ] as const)
       );
+      scope.assertCurrent('read legacy configuration batch');
       return Object.fromEntries(entries);
     }
   }
@@ -419,16 +434,39 @@ export class ConfigAPI {
     }
   }
 
-  async getModeSkillScanReport({ modeId, forceRefresh, workspaceId }: GetModeSkillConfigsParams): Promise<SkillScanReport<ModeSkillInfo>> {
+  async getModeSkillScanReport({ modeId, forceRefresh, workspaceId, summaryModeIds }: GetModeSkillConfigsParams): Promise<SkillScanReport<ModeSkillInfo>> {
     try {
       const response = await invokePrepared<ModeSkillInfo[] | Omit<SkillScanReport<ModeSkillInfo>, 'diagnosticsAvailable'>>(
-        'get_mode_skill_configs', async () => (await workspaceScopedRequest({ modeId, forceRefresh, workspaceId, includeDiagnostics: true })),
+        'get_mode_skill_configs', async () => (await workspaceScopedRequest({ modeId, forceRefresh, workspaceId, includeDiagnostics: true, ...(summaryModeIds ? { summaryModeIds } : {}) })),
         { timeout: SKILL_CONFIG_REQUEST_TIMEOUT_MS },
       );
       return normalizeSkillScanReport(response);
     } catch (error) {
       throw createTauriCommandError('get_mode_skill_configs', error, { modeId, forceRefresh, workspaceId });
     }
+  }
+
+  async getModeSkillCounts(modeIds: string[], workspaceId?: string): Promise<Record<string, number>> {
+    const scope = getActiveSurfaceScope();
+    const ids = [...new Set(modeIds)];
+    if (ids.length === 0) return {};
+    const report = await this.getModeSkillScanReport({ modeId: ids[0], summaryModeIds: ids, workspaceId });
+    scope.assertCurrent('Agent skill summaries');
+    if (report.skillCountsVersion === 1) {
+      const counts = report.enabledSkillCounts;
+      if (!counts || ids.some(id => !Number.isSafeInteger(counts[id]) || counts[id] < 0)) {
+        throw new Error('Invalid Agent skill count summary');
+      }
+      return counts;
+    }
+    // Legacy hosts still return the anchor mode's normal report. Its data is
+    // usable, and the remaining reads keep cross-version behavior intact.
+    const entries = await Promise.all(ids.map(async (id, index) => {
+      const skills = index === 0 ? report.skills : await this.getModeSkillConfigs({ modeId: id, workspaceId });
+      return [id, skills.filter(skill => skill.effectiveEnabled).length] as const;
+    }));
+    scope.assertCurrent('Agent skill summaries');
+    return Object.fromEntries(entries);
   }
 
   async getGlobalSkillSettings(workspaceId?: string): Promise<GlobalSkillSettings> {

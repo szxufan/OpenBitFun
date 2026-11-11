@@ -26,7 +26,7 @@ Peer Device Mode ownership and boundaries:
 Frontend regression guards:
 `src/web-ui/src/infrastructure/peer-device/README.md`.
 
-GitHub identity is shared through `account_identity_api.rs`. Relay device
+OpenBitFun account identity (GitHub or email-code sign-in) is shared through `account_identity_api.rs`. Relay device
 registration and lifecycle live in `src/api/remote_connect_api.rs`; settings
 remain on their owning device and never sync automatically. The only
 cross-device settings transfer is the manual config backup
@@ -147,6 +147,10 @@ is `node tests/e2e/scripts/run-subscription-pool.mjs` (see its E2E guide).
 
 For desktop card stacking, native parenting rollback, and legacy record/request compatibility,
 run `cargo test --locked -p openbitfun-desktop --no-default-features --lib desktop_cards`.
+This also checks host-stamped Peer turn metadata for legacy controllers. Tool
+admission is turn-scoped: attached Peer controllers are observers and must not
+block local card creation or display. Run the Core guide's `desktop_card` tests
+for request-origin propagation; these fixtures do not establish live remote behavior.
 On a graphical Windows session with Explorer running, also run
 `cargo test --locked -p openbitfun-desktop --no-default-features --lib live_explorer_attachment_round_trip -- --ignored`.
 The native fixtures use hidden disposable windows; they do not establish WebView rendering,
@@ -156,6 +160,12 @@ global always-on-top, and hide/show. For Explorer restart (`taskkill /f /im expl
 start it again) a pinned card must reattach within about 30 s, or come back unpinned with the
 pin-failure notice; it must never stay "Shown" without a window. UI, hidden-card pinning, and old-host negotiation coverage:
 `pnpm --dir src/web-ui run test:run src/app/components/DesktopCard/DesktopCardWindow.test.tsx src/infrastructure/api/service-api/DesktopCardAPI.test.ts src/app/scenes/personal-overview/OverviewDesktopCardsSection.test.tsx src/app/scenes/settings/pages/application/DesktopCardsSettingsSection.test.tsx`.
+
+For frontend customization with background Peer subscribers, direct Peer tool
+refusal, revision recovery, and legacy state compatibility, run
+`cargo test --locked -p openbitfun-desktop --no-default-features --lib frontend_workbench`.
+The Core guide's `frontend_workbench` tests cover per-turn origin admission.
+These fixtures do not launch the native confirmation controls or a live Peer connection.
 
 For session storage directory access, run
 `cargo test -p openbitfun-desktop --lib api::session_storage_directory::tests`
@@ -178,12 +188,16 @@ For model selector request compatibility and configuration effect routing:
 ```bash
 cargo test --locked -p openbitfun-desktop --lib update_session_model_distinguishes_omitted_null_and_explicit_reasoning_presets
 cargo test --locked -p openbitfun-desktop --lib model_routing_status_preserves_legacy_requests_and_internal_session_opt_in
+cargo test --locked -p openbitfun-desktop --lib session_permission_read
 cargo test --locked -p openbitfun-desktop --lib backend_effect_routing_is_owned_by_the_control_transaction
 ```
 
 Use the Core guide's session-model tests for cold persistence, no-op writes,
 rollback, and ownership; the Desktop adapter must not restore history for a
-model selection alone.
+model selection alone. Permission reads use the same header path, preserve a
+missing override as `null`, and obtain active-Turn facts only from the live runtime.
+Legacy scope-less reads require a loaded session; an unknown override must fail
+instead of pretending to inherit the default.
 
 For MiniApp Agent session and context changes, run
 `cargo test --locked -p openbitfun-desktop --lib api::miniapp_agent_api::tests`.
@@ -422,3 +436,14 @@ adapter owns HTTP authentication, explicit-refresh headers and peer RPC wiring.
 Use `node tests/e2e/scripts/run-html-preview.mjs` after building Desktop and Web UI
 to verify CSS, JavaScript modules, images and concurrent preview cookies in native
 browser child views. The fixture uses isolated storage; see `tests/e2e/AGENTS.md`.
+
+For the LaTeX workspace compiler, run:
+
+```bash
+cargo test --locked -p openbitfun-desktop --no-default-features --lib latex_api::tests
+```
+
+Use `-- --include-ignored` with `latexmk`, pdfLaTeX, and XeLaTeX on PATH to
+exercise a multi-file paper build, error diagnostics, and temporary output.
+The POSIX build test checks the remote command in a local shell. Verify live
+SSH, container, and peer routing separately.

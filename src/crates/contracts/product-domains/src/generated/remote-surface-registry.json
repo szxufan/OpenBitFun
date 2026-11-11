@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:cf2a544a150eb5b9",
+  "digest": "fnv1a64:e400f0e22ef6fbae",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -9,12 +9,15 @@
   ],
   "capabilities": {
     "ids": [
+      "gen_ui_libraries_v1",
       "model_routing_v1",
       "model_pool_selection_v1",
+      "magpie_discovery_v1",
       "background_result_delivery_v1",
       "dialog_queue_v1",
       "idempotent_dialog_submit",
       "inline_image_attachments_v1",
+      "runtime_attachment_upload_v1",
       "btw_initial_model_selection_v1",
       "btw_model_pool_selection_v1",
       "control_conversation_v1",
@@ -47,22 +50,28 @@
       "workspace_icon_v1",
       "workspace_id_references_v1",
       "workspace_html_preview_v1",
+      "workspace_latex_preview_v1",
       "whole_session_copy_v1",
       "session_trajectory_v1",
+      "session_reference_browse_v1",
       "user_question_response",
       "user_question_interaction_v1",
       "psk_pairing_v1",
       "device_grant_v1",
       "ssh_none_auth_v1",
-      "terminal_cursor_replay_v1"
+      "terminal_cursor_replay_v1",
+      "git_tracked_change_count_v1"
     ],
     "desktop": [
+      "gen_ui_libraries_v1",
       "model_routing_v1",
       "model_pool_selection_v1",
+      "magpie_discovery_v1",
       "background_result_delivery_v1",
       "dialog_queue_v1",
       "idempotent_dialog_submit",
       "inline_image_attachments_v1",
+      "runtime_attachment_upload_v1",
       "btw_initial_model_selection_v1",
       "btw_model_pool_selection_v1",
       "control_conversation_v1",
@@ -95,23 +104,28 @@
       "workspace_icon_v1",
       "workspace_id_references_v1",
       "workspace_html_preview_v1",
+      "workspace_latex_preview_v1",
       "whole_session_copy_v1",
       "session_trajectory_v1",
+      "session_reference_browse_v1",
       "user_question_response",
       "user_question_interaction_v1",
       "psk_pairing_v1",
       "device_grant_v1",
-      "ssh_none_auth_v1"
+      "ssh_none_auth_v1",
+      "git_tracked_change_count_v1"
     ],
     "cli": [
       "model_routing_v1",
       "model_pool_selection_v1",
+      "magpie_discovery_v1",
       "background_result_delivery_v1",
       "dialog_queue_v1",
       "control_conversation_v1",
       "control_conversation_reset_v1",
       "idempotent_dialog_submit",
       "inline_image_attachments_v1",
+      "runtime_attachment_upload_v1",
       "btw_initial_model_selection_v1",
       "btw_model_pool_selection_v1",
       "targeted_session_rollback",
@@ -130,7 +144,8 @@
       "user_question_interaction_v1",
       "psk_pairing_v1",
       "device_grant_v1",
-      "terminal_cursor_replay_v1"
+      "terminal_cursor_replay_v1",
+      "git_tracked_change_count_v1"
     ]
   },
   "operations": [
@@ -1216,6 +1231,19 @@
     },
     {
       "id": "compact_session",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteRouted",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "compile_workspace_latex",
       "surface": "tauri_command",
       "remoteWorkspace": "RemoteRouted",
       "peer": {
@@ -2630,6 +2658,19 @@
       "observeAllowed": false
     },
     {
+      "id": "gen_ui_provider_call",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "unsupported",
+        "reason": "the CLI peer host has no handler for this command"
+      },
+      "observeAllowed": false
+    },
+    {
       "id": "generate_commit_message",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -3709,8 +3750,7 @@
         "kind": "proxied"
       },
       "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host has no handler for this command"
+        "kind": "handled"
       },
       "observeAllowed": false
     },
@@ -4169,6 +4209,18 @@
     },
     {
       "id": "git_get_status",
+      "surface": "tauri_command",
+      "remoteWorkspace": "RemoteRouted",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "handled"
+      },
+      "observeAllowed": false
+    },
+    {
+      "id": "git_get_tracked_change_count",
       "surface": "tauri_command",
       "remoteWorkspace": "RemoteRouted",
       "peer": {
@@ -4953,32 +5005,6 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "the controller keeps this command; peer hosts refuse it before dispatch"
-      },
-      "observeAllowed": false
-    },
-    {
-      "id": "load_canvas_artifact",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "proxied"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host has no handler for this command"
-      },
-      "observeAllowed": false
-    },
-    {
-      "id": "load_canvas_state",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "proxied"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host has no handler for this command"
       },
       "observeAllowed": false
     },
@@ -6285,6 +6311,18 @@
       "observeAllowed": false
     },
     {
+      "id": "probe_magpie_gateway",
+      "surface": "tauri_command",
+      "remoteWorkspace": "WorkspaceAgnostic",
+      "peer": {
+        "kind": "proxied"
+      },
+      "cliPeer": {
+        "kind": "handled"
+      },
+      "observeAllowed": false
+    },
+    {
       "id": "product_control_invoke",
       "surface": "tauri_command",
       "remoteWorkspace": "WorkspaceAgnostic",
@@ -6991,32 +7029,6 @@
       "observeAllowed": false
     },
     {
-      "id": "report_canvas_runtime_error",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "proxied"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host has no handler for this command"
-      },
-      "observeAllowed": false
-    },
-    {
-      "id": "report_canvas_runtime_ready",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "proxied"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host has no handler for this command"
-      },
-      "observeAllowed": false
-    },
-    {
       "id": "report_ide_control_result",
       "surface": "tauri_command",
       "remoteWorkspace": "LegacyUnaudited",
@@ -7551,19 +7563,6 @@
       "cliPeer": {
         "kind": "unsupported",
         "reason": "ACP agents cannot be managed or launched from a controller on the CLI peer host yet; use the `acp clients` commands on that device"
-      },
-      "observeAllowed": false
-    },
-    {
-      "id": "save_canvas_state",
-      "surface": "tauri_command",
-      "remoteWorkspace": "WorkspaceAgnostic",
-      "peer": {
-        "kind": "proxied"
-      },
-      "cliPeer": {
-        "kind": "unsupported",
-        "reason": "the CLI peer host has no handler for this command"
       },
       "observeAllowed": false
     },

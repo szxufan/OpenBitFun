@@ -1,4 +1,4 @@
-**中文** · [English](README.md)
+**中文** · [English](README.md) · [日本語](README.ja.md)
 
 <div align="center">
 
@@ -19,6 +19,14 @@ OpenBitFun 是一个高度可定制的开源 Agent 工作台，让任务按你�
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square)](https://openbitfun.com/zh/download)
 
 [![Trendshift](https://trendshift.io/api/badge/repositories/44672)](https://trendshift.io/repositories/44672)
+
+## 加入社区群
+
+使用微信扫描下方二维码，添加好友后申请加入 OpenBitFun 社区群。
+
+<a href="./png/openbitfun-community-wechat.png">
+  <img src="./png/openbitfun-community-wechat.png" alt="OpenBitFun 社区微信二维码" width="147" />
+</a>
 
 </div>
 
@@ -57,6 +65,8 @@ OpenBitFun 是一个高度可定制的开源 Agent 工作台，让任务按你�
 
 **手机就是远程控制端。** 通过手机或浏览器发送指令、查看进度、补充要求和处理授权。任务始终在所选设备上运行，切换界面或断开控制端连接后仍会继续。
 
+**官方 Relay 开箱即用，无需部署服务器。** 在各设备上使用同一个 OpenBitFun 账号登录，可选择 GitHub 或受支持的邮箱验证码登录；也可使用同一网络连接。登录、联网与自托管条件见[连接常见问题](./src/apps/relay-server/FAQ.zh-CN.md)。
+
 **手机端支持单屏、双屏、三屏布局自由切换。** 单屏时专注对话，展开后并排查看会话与文件；界面随屏幕形态调整，让折叠屏的空间真正用起来。
 
 ![在多台电脑间切换完整工作台，并通过手机远程控制所选设备](./png/openbitfun-multi-device.png)
@@ -64,9 +74,11 @@ OpenBitFun 是一个高度可定制的开源 Agent 工作台，让任务按你�
 <details>
 <summary>连接与部署说明</summary>
 
-工作区也可以通过 SSH 连接到远程主机、跳板机或容器，让文件、命令与 Agent 在目标环境中工作。桌面和 CLI 共享核心执行能力，移动端与消息机器人提供更多控制入口。
+工作区也可以通过 SSH 连接到远程主机、跳板机或容器，让文件访问、终端与工作区命令在目标环境中执行；Agent Runtime 仍由 OpenBitFun 宿主运行。桌面和 CLI 共享核心执行能力，移动端与消息机器人提供更多控制入口。
 
-同账号设备互控、登录与同步服务由你[自部署 Relay](./src/apps/relay-server/README.md)。更多连接方式见[远程连接](./docs/interactive-capabilities/capabilities/feature.remote-connect.md)与[远程工作区](./docs/features/remote-workspaces.md)。
+同账号设备互控默认使用官方 Relay；桌面端也可启动本地 Relay，供同一网络内的手机连接。两种方式登录时都需要访问 OpenBitFun 在线身份服务，局域网模式不提供离线登录。私有 Relay 需要配套客户端构建，详见[部署指南](./src/apps/relay-server/README.md#for-community-developers-and-forks)。
+
+设备间传输的内容采用端到端加密，密钥在设备上生成，会话与文件按需从持有它们的在线设备读取；Relay 仍处理账号、设备和路由元数据。这一加密边界不涵盖模型服务商、聊天机器人平台或已发布的 Pages。详见[隐私边界](./src/apps/relay-server/FAQ.zh-CN.md#服务能看到什么)、[远程连接](./docs/interactive-capabilities/capabilities/feature.remote-connect.md)与[远程工作区](./docs/features/remote-workspaces.md)。
 
 </details>
 
@@ -143,12 +155,6 @@ pnpm run desktop:dev
 </details>
 
 核心代码采用 [MIT License](./LICENSE)，第三方依赖与资源遵循各自的许可证。感谢所有开源作者与贡献者。漏洞报告方式见[安全策略](./SECURITY_CN.md)。
-
-## 加入社区群
-
-使用微信扫描下方二维码，添加好友后申请加入 OpenBitFun 社区群。
-
-<img src="./png/openbitfun-community-wechat.png" alt="OpenBitFun 社区微信二维码" width="360" />
 
 ## Star 历史
 

@@ -561,7 +561,7 @@ async fn peer_preview_fixture(benchmark: bool) {
     .await
     .unwrap();
     let (client, mut events) = RelayClient::new();
-    let client = Arc::new(client);
+    let client = Arc::new(client.with_account_session(&target));
     client.connect(&host.url()).await.unwrap();
     client
         .connect_authenticated(&target.token, "preview-peer")
@@ -578,11 +578,12 @@ async fn peer_preview_fixture(benchmark: bool) {
         while let Some(event) = events.recv().await {
             let RelayEvent::DeviceMessageReceived {
                 source_device_id,
+                source_account_id: _,
                 correlation_id,
                 encrypted_data,
                 nonce,
                 key_id,
-                ..
+                encoding_offer,
             } = event
             else {
                 continue;
@@ -600,12 +601,13 @@ async fn peer_preview_fixture(benchmark: bool) {
             let serving_requests = serving_requests.clone();
             handlers.spawn(async move {
                 let plaintext = target
-                    .decrypt_from_peer(
+                    .decrypt_peer_message(
                         &relay_url,
                         &source_device_id,
                         &encrypted_data,
                         &nonce,
                         key_id.as_deref(),
+                        encoding_offer,
                     )
                     .await
                     .unwrap();
@@ -636,14 +638,21 @@ async fn peer_preview_fixture(benchmark: bool) {
                     value: Some(value),
                     error: None,
                 };
+                assert!(encoding_offer.accepts_zstd());
+                let json = serde_json::to_string(&response).unwrap();
                 let sealed = target
-                    .encrypt_for_peer(
+                    .encrypt_for_peer_variant(
                         &relay_url,
                         &source_device_id,
-                        &serde_json::to_string(&response).unwrap(),
+                        key_id.as_deref(),
+                        &json,
+                        encoding_offer.accepts_zstd(),
                     )
                     .await
                     .unwrap();
+                if json.len() > 4096 {
+                    assert!(sealed.data.len() < json.len(), "compressible fixture should shrink on the wire, even with base64");
+                }
                 serving_client
                     .send_device_message(
                         &source_device_id,

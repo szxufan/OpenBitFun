@@ -4,6 +4,8 @@ import { ModelDiscoveryPicker, type ModelDiscoveryOption } from './ModelDiscover
 import { remoteModelCategory, remoteModelReasoning } from './remoteModelDraftFacts';
 import { resolveAIModels, splitFlattenedModel, formatContextLength, type AIProviderConfigType } from '@/infrastructure/config/services/modelConfigs';
 import { ModelPoolsSection } from './ModelPoolsSection';
+import { MagpieSourceSection } from './MagpieSourceSection';
+import { isMagpieModel } from '@/infrastructure/config/services/magpieModels';
 import { ModelPoolCardActions } from './ModelPoolCardActions';
 import { ZcodeSubscriptionGroup } from './ZcodeSubscriptionGroup';
 import { SubscriptionProviderPicker } from './SubscriptionProviderPicker';
@@ -129,7 +131,7 @@ import { useNotification } from '@/shared/notification-system';
 import type { ProviderRegion } from '@/shared/types';
 import { translateConnectionTestMessage } from '@/shared/utils/aiConnectionTestMessages';
 import { createLogger } from '@/shared/utils/logger';
-import {
+import { captureConfirmationAnchor,
   Button,
   Capsule,
   Card,
@@ -712,6 +714,7 @@ const ModelSettingsPage: React.FC = () => {
   const [subscriptionLoginClock, setSubscriptionLoginClock] = useState(() => Date.now());
   const [subscriptionLoginAccountId, setSubscriptionLoginAccountId] = useState<string | null>(null);
   const [subscriptionLogoutRequest, setSubscriptionLogoutRequest] = useState<SubscriptionLogoutRequest | null>(null);
+  const [deleteAnchor, setDeleteAnchor] = useState<ReturnType<typeof captureConfirmationAnchor>>(undefined);
   const [deleteRequest, setDeleteRequest] = useState<DeleteRequest | null>(null);
   const modelDiscoveryRef = React.useRef(new ModelDiscoveryCoordinator());
   const editorSavingRef = React.useRef(false);
@@ -1994,7 +1997,9 @@ const ModelSettingsPage: React.FC = () => {
       name: providerName,
       base_url: template.baseUrl,
       request_url: '',
-      api_key: '',
+      // Magpie accepts an app identity as the key on loopback. A remote
+      // gateway requires the user's gateway key in its place.
+      api_key: providerId === 'magpie' ? 'magpie-openbitfun' : '',
       model_name: '',
       provider: template.format,
       enabled: true,
@@ -2002,7 +2007,7 @@ const ModelSettingsPage: React.FC = () => {
       category: 'multimodal',
       capabilities: getCapabilitiesByCategory('multimodal'),
       recommended_for: [],
-      metadata: {},
+      metadata: providerId === 'magpie' ? { model_source: 'magpie' } : {},
       inline_think_in_text: true,
     });
     // Provider templates supply available choices, never an implicit selection.
@@ -2548,10 +2553,12 @@ const ModelSettingsPage: React.FC = () => {
       .reduce<number>((count, value) => count + countModelConfigReferences(value, ids), 0);
   };
 
-  const requestDelete = async (config: AIModelConfigType) => {
+  const requestDelete = async (config: AIModelConfigType, trigger?: HTMLElement) => {
+    const anchor = captureConfirmationAnchor(trigger);
     if (!config.id) return;
     try {
       const referenceCount = await inspectModelReferenceCount([config.id]);
+      setDeleteAnchor(anchor);
       setDeleteRequest({ kind: 'model', config, modelIds: [config.id], referenceCount });
     } catch (error) {
       log.error('Failed to inspect model references before deletion', { configId: config.id, error });
@@ -2903,7 +2910,8 @@ const ModelSettingsPage: React.FC = () => {
   }, [aiModels, aiProviders, providerOrder]);
 
   const apiProviderGroups = providerGroups.filter(group =>
-    group.models.length === 0 || !subscriptionProviderOf(group.models[0].auth));
+    group.models.length === 0
+      || (!subscriptionProviderOf(group.models[0].auth) && !isMagpieModel(group.models[0])));
   const subscriptionProviderGroups = providerGroups
     .filter(group => group.models.length > 0 && !!subscriptionProviderOf(group.models[0].auth))
     .map(group => {
@@ -3968,7 +3976,8 @@ const ModelSettingsPage: React.FC = () => {
 
     const apiKeyRequired = !isOpenCodeZenApiKeyConfig(editingConfig);
     const renderApiKeyRow = (label: string) => (
-      <ConfigPageRow label={label} required={apiKeyRequired} align="center" wide>
+      <ConfigPageRow label={label} required={apiKeyRequired} align="center" wide
+        description={selectedProviderId === 'magpie' ? t('magpie.keyHint') : undefined}>
         <Input
           data-testid="settings-model-api-key-input"
           hideNativePasswordReveal
@@ -4893,7 +4902,7 @@ const ModelSettingsPage: React.FC = () => {
               aria-label={t('actions.delete')}
               tone="danger"
               size="sm"
-              onClick={() => void requestDelete(config)}
+              onClick={event => void requestDelete(config, event.currentTarget)}
               icon={<Icon name="delete" size="sm" />}
             />
           </Tooltip>
@@ -4958,7 +4967,7 @@ const ModelSettingsPage: React.FC = () => {
                 connectionTestSupported={connectionTestSupported}
                 onEdit={() => handleEdit(config)}
                 onTest={() => void handleTest(config)}
-                onDelete={() => void requestDelete(config)}
+                onDelete={trigger => void requestDelete(config, trigger)}
                 onEnabledChange={enabled => void handleToggleEnabled(config, enabled)}
               />
             </CardFooter>
@@ -5163,6 +5172,20 @@ const ModelSettingsPage: React.FC = () => {
               </ul>
             ) : <span className="openbitfun-model-settings__pool-caption">{t('acquisition.noneConfigured')}</span>}
           </ConfigPageRow>
+          <MagpieSourceSection models={aiModels} ready={modelConfigReady}
+            onModelsChange={models => {
+              // Magpie hands back the full catalog it wants stored. Persist
+              // through the same normalized host write the rest of this page
+              // uses, then mirror it into the local entry state.
+              void (async () => {
+                const updated = await configManager.updateConfig<AIModelConfigType[]>(
+                  'ai.models',
+                  () => models,
+                );
+                setAiModelEntries(updated);
+              })();
+            }}
+            onManual={() => requestEditorOpen('new-provider:magpie', () => handleSelectProvider('magpie'))} />
           <ConfigPageRow multiline className="openbitfun-model-settings__acquisition-row"
             label={(
               <div className="openbitfun-model-settings__import-row">
@@ -5245,8 +5268,6 @@ const ModelSettingsPage: React.FC = () => {
           </ConfigPageRow>
 
         </ConfigPageSection>
-
-        <ModelPoolsSection models={aiModels} />
 
         <div>
           <ConfigPageSection title={t('sections.pool')} bodySurface={false}
@@ -5335,6 +5356,8 @@ const ModelSettingsPage: React.FC = () => {
             )}
           </ConfigPageSection>
         </div>
+
+        <ModelPoolsSection models={aiModels} />
 
         <Disclosure summary={t('sections.more')} className="openbitfun-model-settings__more-settings"
           contentInnerClassName="openbitfun-model-settings__more-content">
@@ -5926,6 +5949,7 @@ const ModelSettingsPage: React.FC = () => {
         type="warning"
       />
       <ConfirmDialog
+        anchor={deleteRequest?.kind === 'model' ? deleteAnchor : undefined}
         open={!!deleteRequest}
         onOpenChange={(open) => { if (!open) setDeleteRequest(null); }}
         onConfirm={handleDelete}

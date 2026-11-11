@@ -514,8 +514,9 @@ async fn fanout_peer_device_event_current(item: PeerEventFanoutItem) {
             log::warn!("Peer event authorization refused: {error}");
             continue;
         }
-        let sealed = match session
-            .encrypt_for_peer(&relay_url, &target, &envelope)
+        let before_send = session.peer_message_guard();
+        let (sealed, uses_zstd) = match session
+            .encrypt_for_peer_with_encoding(&relay_url, &target, &envelope)
             .await
         {
             Ok(value) => value,
@@ -532,6 +533,7 @@ async fn fanout_peer_device_event_current(item: PeerEventFanoutItem) {
             &sealed.data,
             &sealed.nonce,
             sealed.key_id.as_deref(),
+            || before_send(uses_zstd),
         )
         .await
         {
@@ -630,6 +632,7 @@ async fn send_device_message_with_routing_lease(
     encrypted_data: &str,
     nonce: &str,
     key_id: Option<&str>,
+    before_send: impl Fn() -> anyhow::Result<()>,
 ) -> Result<(), String> {
     if !device_routing_owner_is_current(owner).await {
         return Err("device routing changed".to_string());
@@ -642,13 +645,14 @@ async fn send_device_message_with_routing_lease(
         .as_ref()
         .ok_or_else(|| "remote connect service not initialized".to_string())?;
     let sent = service
-        .send_device_message_if_connection(
+        .send_device_message_if_connection_guarded(
             owner.service_connection_id,
             target_device_id,
             correlation_id,
             encrypted_data,
             nonce,
             key_id,
+            before_send,
         )
         .await
         .map_err(|error| error.to_string())?;
@@ -667,6 +671,7 @@ async fn send_rpc_envelope(
     source_device_id: &str,
     correlation_id: &str,
     mirror_key_id: Option<&str>,
+    accepts_zstd: bool,
     resp_value: serde_json::Value,
 ) -> bool {
     if !device_routing_owner_is_current(owner).await {
@@ -687,7 +692,13 @@ async fn send_rpc_envelope(
         return false;
     };
     match session
-        .encrypt_for_peer_variant(&relay_url, source_device_id, mirror_key_id, &resp_json)
+        .encrypt_for_peer_variant(
+            &relay_url,
+            source_device_id,
+            mirror_key_id,
+            &resp_json,
+            accepts_zstd,
+        )
         .await
     {
         Ok(sealed) => {
@@ -698,6 +709,7 @@ async fn send_rpc_envelope(
                 &sealed.data,
                 &sealed.nonce,
                 sealed.key_id.as_deref(),
+                || Ok(()),
             )
             .await
             {
@@ -721,6 +733,7 @@ async fn send_rpc_error(
     source_device_id: &str,
     correlation_id: &str,
     mirror_key_id: Option<&str>,
+    accepts_zstd: bool,
     message: impl Into<String>,
 ) {
     send_rpc_envelope(
@@ -729,6 +742,7 @@ async fn send_rpc_error(
         source_device_id,
         correlation_id,
         mirror_key_id,
+        accepts_zstd,
         serde_json::json!({
             "resp": "error",
             "message": message.into(),
@@ -2173,7 +2187,7 @@ pub async fn remote_connect_start(
     };
     let result = async {
         let current_url = read_account_context().await.ok().map(|(_, url)| url);
-        if current_url.as_deref() != Some(relay_url.as_str()) {
+        if relay_requires_account_login(current_url.as_deref(), &relay_url) {
             refresh_relogin_on_relay(relay_url).await?;
         }
         account_connect_devices().await?;
@@ -2548,6 +2562,22 @@ fn configured_relay_url() -> Result<String, String> {
         .map_err(|e| format!("{e}"))
 }
 
+/// Whether showing an invitation must sign in again on `target`.
+///
+/// A restored session keeps the endpoint base while the prepared official
+/// endpoint also announces `?v=`. The version is not part of the endpoint
+/// identity, and an unneeded login rotates the token and drops device routing.
+fn relay_requires_account_login(current: Option<&str>, target: &str) -> bool {
+    current.map(openbitfun_product_domains::account::relay_endpoint_base)
+        != Some(openbitfun_product_domains::account::relay_endpoint_base(
+            target,
+        ))
+}
+
+async fn login_account_on_relay(relay_url: String) -> Result<AccountLoginResult, String> {
+    login_account_on_relay_for_generation(relay_url, None, None).await
+}
+
 async fn login_account_on_relay_for_generation(
     relay_url: String,
     required_generation: Option<u64>,
@@ -2847,7 +2877,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
     let (mut event_rx, auth_device_id, service_connection_id) = match service
         .start_device_connection(
             &relay_url,
-            &session.token,
+            &session,
             &device_name,
             // Desktop serves the device ahead of a CLI/daemon on this machine.
             openbitfun_core::service::remote_connect::relay_client::DeviceRoutingPriority::Primary,
@@ -2940,7 +2970,6 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                     break;
                 }
                 RelayEvent::DevicePresence { devices } => {
-                    event_session.clear_peer_keys().await;
                     let Some(_routing_effect) = lock_current_device_routing(&event_owner).await
                     else {
                         break 'routing_events;
@@ -2976,6 +3005,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                     source_device_id,
                     source_account_id,
                     correlation_id,
+                    encoding_offer,
                     encrypted_data,
                     nonce,
                     key_id,
@@ -2998,12 +3028,13 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                     };
                     let source_device_id = peer.key();
                     match event_session
-                        .decrypt_from_peer(
+                        .decrypt_peer_message(
                             &event_relay_url,
                             &source_device_id,
                             &encrypted_data,
                             &nonce,
                             key_id.as_deref(),
+                            encoding_offer,
                         )
                         .await
                     {
@@ -3035,6 +3066,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                             &source_device_id,
                                             &correlation_id,
                                             key_id.as_deref(),
+                                            false,
                                             error.to_string(),
                                         )
                                         .await;
@@ -3210,6 +3242,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                                     &source_device_id,
                                                     &correlation_id,
                                                     rpc_key_id.as_deref(),
+                                                    false,
                                                     refused.unwrap_or(serde_json::json!({
                                                         "resp": "error",
                                                         "message": "pairing required",
@@ -3266,6 +3299,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                                         &source_device_id,
                                                         &correlation_id,
                                                         rpc_key_id.as_deref(),
+                                                        encoding_offer.accepts_zstd(),
                                                         resp_value,
                                                     )
                                                     .await;
@@ -3293,6 +3327,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                                         &source_device_id,
                                                         &correlation_id,
                                                         rpc_key_id.as_deref(),
+                                                        encoding_offer.accepts_zstd(),
                                                         format!("RPC execute failed: {e}"),
                                                     )
                                                     .await;
@@ -3316,6 +3351,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                             &source_device_id,
                                             &correlation_id,
                                             key_id.as_deref(),
+                                            encoding_offer.accepts_zstd(),
                                             format!("invalid RPC command: {e}"),
                                         )
                                         .await;
@@ -3340,6 +3376,7 @@ async fn connect_route_devices(route: RelayRoute) -> Result<Vec<OnlineDeviceInfo
                                     &source_device_id,
                                     &correlation_id,
                                     key_id.as_deref(),
+                                    false, // The request could not be authenticated.
                                     format!("failed to decrypt RPC request: {e}"),
                                 )
                                 .await;
@@ -3448,8 +3485,9 @@ pub async fn account_execute_on_device(
     if !device_routing_owner_is_current(&routing_owner).await {
         return Err("device routing changed".to_string());
     }
-    let sealed = session
-        .encrypt_for_peer(&relay_url, &target_device_id, &envelope)
+    let before_send = session.peer_message_guard();
+    let (sealed, uses_zstd) = session
+        .encrypt_for_peer_with_encoding(&relay_url, &target_device_id, &envelope)
         .await
         .map_err(|e| format!("{e}"))?;
 
@@ -3461,6 +3499,7 @@ pub async fn account_execute_on_device(
         &sealed.data,
         &sealed.nonce,
         sealed.key_id.as_deref(),
+        || before_send(uses_zstd),
     )
     .await
 }
@@ -4933,4 +4972,40 @@ pub async fn account_unsubscribe_session(request: UnsubscribeSessionRequest) -> 
             .remove(&request.subscription_id);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod relay_account_login_tests {
+    use super::relay_requires_account_login;
+
+    #[test]
+    fn version_parameter_does_not_change_the_endpoint_identity() {
+        let official = "https://remote.openbitfun.com/relay?v=1.0.9";
+        for current in [
+            "https://remote.openbitfun.com/relay",
+            "https://remote.openbitfun.com/relay/",
+            "https://remote.openbitfun.com/relay?v=1.0.8",
+            official,
+        ] {
+            assert!(
+                !relay_requires_account_login(Some(current), official),
+                "{current}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_or_different_endpoint_requires_login() {
+        let official = "https://remote.openbitfun.com/relay?v=1.0.9";
+        assert!(relay_requires_account_login(None, official));
+        // The legacy alias migrates to the current endpoint through one login.
+        assert!(relay_requires_account_login(
+            Some("https://remote.openbitfun.com/v/1.0.2"),
+            official
+        ));
+        assert!(relay_requires_account_login(
+            Some("http://192.168.1.2:9700"),
+            official
+        ));
+    }
 }

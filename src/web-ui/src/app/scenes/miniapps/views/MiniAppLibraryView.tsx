@@ -1,4 +1,4 @@
-import { subscribeOverlayInteraction, createOverlayPortal,
+import { captureConfirmationAnchor, subscribeOverlayInteraction, createOverlayPortal,
   Button,
   ConfirmDialog,
   Icon,
@@ -53,6 +53,7 @@ import { useMarketAccountIdentity } from '@/features/market-account';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useCurrentWorkspace } from '@/infrastructure/contexts/WorkspaceContext';
 import { useI18n } from '@/infrastructure/i18n';
+import { isPeerDeviceModeActive } from '@/infrastructure/peer-device/peerModeFlag';
 import { useNotification } from '@/shared/notification-system';
 import { isRemoteWorkspace } from '@/shared/types';
 import { isImeOwnedKeyboardEvent } from '@/shared/utils/ime';
@@ -142,7 +143,7 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
   const [cachedPage] = useState(() => miniAppMarketAPI.getCachedPage({ query: '', category: 'all', sort: 'downloads', limit: 30 }));
   const [marketItems, setMarketItems] = useState<MarketListingSummary[]>(cachedPage?.items ?? []);
   const [nextCursor, setNextCursor] = useState<string | undefined>(cachedPage?.nextCursor);
-  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogLoading, setCatalogLoading] = useState(!cachedPage);
   const [loadingMore, setLoadingMore] = useState(false);
   const [catalogError, setCatalogError] = useState<string>();
   const [detail, setDetail] = useState<MarketListingDetail>();
@@ -153,6 +154,7 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
   const [busyListingId, setBusyListingId] = useState<string>();
   const [installPrompt, setInstallPrompt] = useState(false);
   const [releasesExpanded, setReleasesExpanded] = useState(false);
+  const [deleteAnchor, setDeleteAnchor] = useState<ReturnType<typeof captureConfirmationAnchor>>(undefined);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [selectedApp, setSelectedApp] = useState<MiniAppMeta | null>(initialDetailApp ?? null);
   const selectedInstance = presentationSnapshot?.instances.find(instance => instance.appId === selectedApp?.id);
@@ -165,6 +167,7 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
   const importTriggerRef = useRef<HTMLButtonElement>(null);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const catalogRequestRef = useRef(0);
+  const loadedCatalogKeyRef = useRef<string | null>(cachedPage ? JSON.stringify(['', 'all', 'downloads']) : null);
   const animateList = useRef(true);
   const detailRequestRef = useRef(0);
   const catalogContentRef = useRef<HTMLDivElement>(null);
@@ -250,11 +253,10 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
   ]), [activityById, presentationSnapshot]);
   const customizingIdSet = useMemo(() => new Set(customizingAppIds), [customizingAppIds]);
 
-  const handleOpenApp = (appId: string, kind: 'tab' | 'window' = 'tab') => {
+  const handleOpenApp = (appId: string, kind: 'tab' | 'window' = 'tab', trigger?: HTMLElement) => {
     const icon = useMiniAppStore.getState().apps.find(app => app.id === appId)?.icon
       ?? (selectedApp?.id === appId ? selectedApp.icon : undefined);
-    closeDetail();
-    void launch.openApp(appId, kind, icon);
+    void launch.openApp(appId, kind, icon, captureConfirmationAnchor(trigger));
   };
 
   const handleAddToSystem = async (app: MiniAppMeta) => {
@@ -269,17 +271,18 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
       disabled={disabled}
       busy={launch.busyAppIds.includes(appId)}
       windowSupported={launch.supported}
-      onOpenTab={() => handleOpenApp(appId, 'tab')}
-      onOpenWindow={() => handleOpenApp(appId, 'window')}
+      onOpenTab={trigger => handleOpenApp(appId, 'tab', trigger)}
+      onOpenWindow={trigger => handleOpenApp(appId, 'window', trigger)}
     />
   );
 
-  const fetchCatalog = useCallback(async (cursor?: string, append = false) => {
+  const fetchCatalog = useCallback(async (cursor?: string, append = false, background = false) => {
     if (!surfaceScope.isCurrent()) return;
     const requestId = ++catalogRequestRef.current;
+    const catalogKey = JSON.stringify([query, category, sort]);
     if (append) setLoadingMore(true);
     else {
-      setCatalogLoading(true);
+      setCatalogLoading(!(background && loadedCatalogKeyRef.current === catalogKey));
       setLoadingMore(false);
     }
     setCatalogError(undefined);
@@ -295,6 +298,7 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
       if (requestId !== catalogRequestRef.current) return;
       setMarketItems((current) => append ? [...current, ...page.items] : page.items);
       setNextCursor(page.nextCursor);
+      loadedCatalogKeyRef.current = catalogKey;
     } catch (loadError) {
       if (requestId !== catalogRequestRef.current) return;
       log.error('Failed to load MiniApp marketplace catalog', loadError);
@@ -310,7 +314,7 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      void fetchCatalog(undefined, false);
+      void fetchCatalog(undefined, false, true);
     }, 250);
     return () => {
       window.clearTimeout(timeout);
@@ -321,7 +325,8 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
 
   const refetchMiniAppLibrary = useCallback(async () => {
     if (!surfaceScope.isCurrent()) return;
-    setLoading(true);
+    // The startup catalog owner manages initial loading. A return refresh must
+    // neither replace a valid empty view nor clear another owner's pending load.
     try {
       const [refreshed, running, origins] = await Promise.all([
         miniAppAPI.listMiniApps(),
@@ -332,14 +337,15 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
       setApps(refreshed);
       setRunningWorkerIds(running);
       setMarketOrigins(origins);
-      await fetchCatalog(undefined, false);
     } catch (error) {
       if (!surfaceScope.isCurrent()) return;
       log.error('Failed to refresh MiniApp library', error);
-    } finally {
-      if (surfaceScope.isCurrent()) setLoading(false);
+      return;
     }
-  }, [fetchCatalog, setApps, setLoading, setMarketOrigins, setRunningWorkerIds, surfaceScope]);
+    // Installed entries are ready independently of the network catalog. Keep
+    // refreshing marketplace metadata without extending the local loading state.
+    await fetchCatalog(undefined, false, true);
+  }, [fetchCatalog, setApps, setMarketOrigins, setRunningWorkerIds, surfaceScope]);
 
   useGallerySceneAutoRefresh({
     sceneId: 'miniapps',
@@ -425,6 +431,12 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
 
   const preparePackageImport = useCallback(async (path: string) => {
     if (!path.toLowerCase().endsWith('.bfminiapp')) return;
+    // The package path belongs to this controller; a rendered peer would
+    // resolve it against its own filesystem.
+    if (isPeerDeviceModeActive()) {
+      notification.warning(t('market.import.peerUnsupported'));
+      return;
+    }
     try {
       const inspection = await miniAppMarketAPI.inspectPackage(path);
       setPendingPackage({ path, inspection });
@@ -435,6 +447,10 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
   }, [notification, t]);
 
   const handleAddPackage = async () => {
+    if (isPeerDeviceModeActive()) {
+      notification.warning(t('market.import.peerUnsupported'));
+      return;
+    }
     const selected = await open({
       directory: false,
       multiple: false,
@@ -696,9 +712,9 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
                     if (item.listing) void openMarketDetail(item.listing);
                     else openInstalledDetail(app);
                   }}
-                  onLaunch={() => handleOpenApp(app.id)}
+                  onLaunch={trigger => handleOpenApp(app.id, 'tab', trigger)}
                   onAddToSystem={() => handleAddToSystem(app)}
-                  onDelete={() => setPendingDeleteId(app.id)}
+                  onDelete={trigger => { setDeleteAnchor(captureConfirmationAnchor(trigger)); setPendingDeleteId(app.id); }}
                   systemAppSupported={launch.supported}
                   busy={launch.busyAppIds.includes(app.id)}
                   launchDisabled={workspaceUnsupported}
@@ -986,12 +1002,12 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
         isActive={selectedApp ? activeIdSet.has(selectedApp.id) : false}
         isCustomizing={selectedApp ? customizingIdSet.has(selectedApp.id) : false}
         onClose={closeDetail}
-        onOpen={handleOpenApp}
+        onOpen={(id, trigger) => handleOpenApp(id, 'tab', trigger)}
         launchActions={selectedApp ? renderLaunchActions(selectedApp.id, Boolean(workspace && isRemoteWorkspace(workspace) && requiresWorkspace(selectedApp.permissions)), 'menu') : undefined}
         systemAppActions={selectedApp ? <MiniAppSystemAppActions key={selectedApp.id} app={selectedApp}
           workspacePath={selectedInstance ? selectedInstance.workspacePath : workspacePath}
           supported={launch.supported} /> : undefined}
-        onDelete={setPendingDeleteId}
+        onDelete={(id, trigger) => { setDeleteAnchor(captureConfirmationAnchor(trigger)); setPendingDeleteId(id); }}
         onStop={handleStopRunning}
       />
 
@@ -1169,6 +1185,7 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
       </MiniAppDetailPage>}
 
       <ConfirmDialog
+        anchor={deleteAnchor}
         open={pendingDeleteId !== null}
         onOpenChange={() => setPendingDeleteId(null)}
         onConfirm={handleDeleteConfirm}
@@ -1184,6 +1201,7 @@ const MiniAppLibraryContent: React.FC<MiniAppLibraryViewProps> = ({
       />
 
       <ConfirmDialog
+        anchor={launch.transfer?.anchor}
         open={Boolean(launch.transfer)}
         onOpenChange={open => { if (!open) launch.cancelTransfer(); }}
         title={launch.transfer?.kind === 'window' ? t('presentation.openWindow') : t('presentation.openTab')}

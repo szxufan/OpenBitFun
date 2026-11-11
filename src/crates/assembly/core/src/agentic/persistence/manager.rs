@@ -7,6 +7,7 @@ mod external_history;
 #[cfg(feature = "external-sources")]
 pub(crate) use external_history::external_history_catalog;
 mod session_catalog;
+mod turn_window_index;
 mod usage_context;
 pub(crate) use usage_context::SessionUsageContextSnapshot;
 
@@ -72,6 +73,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Mutex, Semaphore};
+use turn_window_index::{TurnWindowIndex, TurnWindowIndexCache};
 
 pub use openbitfun_services_core::session::SessionMetadataPage;
 
@@ -574,6 +576,7 @@ pub struct PersistenceManager {
     path_manager: Arc<PathManager>,
     runtime_service: Arc<WorkspaceRuntimeService>,
     catalog_cache: Mutex<session_catalog::CatalogCache>,
+    turn_window_index_cache: Mutex<TurnWindowIndexCache>,
     #[cfg(test)]
     fail_next_session_state_write: std::sync::Mutex<Option<String>>,
     #[cfg(test)]
@@ -592,6 +595,7 @@ impl PersistenceManager {
             runtime_service: Arc::new(WorkspaceRuntimeService::new(path_manager.clone())),
             path_manager,
             catalog_cache: Mutex::new(session_catalog::CatalogCache::default()),
+            turn_window_index_cache: Mutex::new(TurnWindowIndexCache::default()),
             #[cfg(test)]
             fail_next_session_state_write: std::sync::Mutex::new(None),
             #[cfg(test)]
@@ -3162,16 +3166,48 @@ impl PersistenceManager {
         session_id: &str,
         tail_turn_count: usize,
     ) -> OpenBitFunResult<(Session, Vec<DialogTurnData>, usize, SessionTurnLoadTiming)> {
-        Self::validate_session_id(session_id)?;
-        #[cfg(feature = "external-sources")]
-        if let Some(view) = Box::pin(self.load_external_history_view(
+        self.load_session_with_tail_turns_before_timed(
             workspace_path,
             session_id,
-            Some(tail_turn_count),
-        ))
-        .await?
+            tail_turn_count,
+            None,
+        )
+        .await
+    }
+
+    /// Read the tail of the visible prefix without parsing the rolled-back
+    /// suffix or unrelated older Turns. The boundary is a storage index, not a
+    /// count: legacy histories can have gaps in their physical Turn sequence.
+    pub(crate) async fn load_session_with_tail_turns_before_timed(
+        &self,
+        workspace_path: &Path,
+        session_id: &str,
+        tail_turn_count: usize,
+        before_turn_index: Option<usize>,
+    ) -> OpenBitFunResult<(Session, Vec<DialogTurnData>, usize, SessionTurnLoadTiming)> {
+        Self::validate_session_id(session_id)?;
+        #[cfg(feature = "external-sources")]
+        if let Some((mut session, mut turns, mut total_turn_count, mut timing)) =
+            Box::pin(self.load_external_history_view(
+                workspace_path,
+                session_id,
+                before_turn_index.is_none().then_some(tail_turn_count),
+            ))
+            .await?
         {
-            return Ok(view);
+            // External snapshots own their loading/cache contract. Keep that
+            // compatibility path, applying the same visible boundary before
+            // selecting its tail rather than filtering an already-cut suffix.
+            if let Some(boundary) = before_turn_index {
+                turns.retain(|turn| turn.turn_index < boundary);
+                total_turn_count = turns.len();
+                turns.drain(..turns.len().saturating_sub(tail_turn_count));
+                session.dialog_turn_ids = turns.iter().map(|turn| turn.turn_id.clone()).collect();
+                timing.requested_tail_turn_count = Some(tail_turn_count);
+                timing.loaded_turn_count = turns.len();
+                timing.total_turn_count = total_turn_count;
+            }
+            return Ok((session, turns, total_turn_count, timing));
         }
         #[cfg(feature = "external-sources")]
         self.ensure_external_session_materialized(workspace_path, session_id)
@@ -3201,14 +3237,17 @@ impl PersistenceManager {
         let state_duration = state_started_at.elapsed();
 
         let fast_path_started_at = Instant::now();
-        let fast_path_turns = self
-            .read_metadata_tail_turns(
+        let fast_path_turns = if before_turn_index.is_none() {
+            self.read_metadata_tail_turns(
                 &request.workspace_path,
                 &request.session_id,
                 metadata.turn_count,
                 tail_turn_count,
             )
-            .await?;
+            .await?
+        } else {
+            None
+        };
         let fast_path_duration = fast_path_started_at.elapsed();
 
         let (
@@ -3231,9 +3270,12 @@ impl PersistenceManager {
             )
         } else {
             let scan_started_at = Instant::now();
-            let indexed_paths = self
+            let mut indexed_paths = self
                 .list_indexed_turn_paths(&request.workspace_path, &request.session_id)
                 .await?;
+            if let Some(boundary) = before_turn_index {
+                indexed_paths.retain(|(index, _)| *index < boundary);
+            }
             let scan_duration = scan_started_at.elapsed();
             let total_turn_count = indexed_paths.len();
             let start = indexed_paths.len().saturating_sub(tail_turn_count);
@@ -3471,15 +3513,21 @@ impl PersistenceManager {
         self.ensure_external_session_materialized(workspace_path, session_id)
             .await?;
         let _session_write = self.lock_session_write_operation(workspace_path, session_id)?;
+        let persistence_lock = self
+            .get_session_persistence_lock(workspace_path, session_id)
+            .await;
+        let _persistence_guard = persistence_lock.lock().await;
 
+        let observed_revision = self.turn_window_revision(workspace_path, session_id).await;
+        let mut scanned_paths = None;
         let (physical_indices, can_persist_physical_projection) = match self
             .list_indexed_turn_paths(workspace_path, session_id)
             .await
         {
             Ok(paths) => {
                 let persisted_indices = paths
-                    .into_iter()
-                    .map(|(index, _)| index)
+                    .iter()
+                    .map(|(index, _)| *index)
                     .collect::<BTreeSet<_>>()
                     .into_iter()
                     .collect::<Vec<_>>();
@@ -3491,6 +3539,9 @@ impl PersistenceManager {
                     visible_total_turn_count,
                 );
                 let can_persist = projected_indices == persisted_indices;
+                if can_persist && paths.len() == persisted_indices.len() {
+                    scanned_paths = Some(paths);
+                }
                 (projected_indices, can_persist)
             }
             Err(error) => {
@@ -3517,19 +3568,35 @@ impl PersistenceManager {
                 visible_total_turn_count,
             )
             .await?;
+        let mut catalog_replaced = false;
         if can_persist_physical_projection && projection.physical_changed {
-            if let Err(error) = self
+            match self
                 .write_json_atomic(
                     &self.turn_catalog_path(workspace_path, session_id),
                     &projection.physical,
                 )
                 .await
             {
-                warn!(
+                Ok(()) => catalog_replaced = true,
+                Err(error) => warn!(
                     "Failed to persist incrementally repaired Session Turn catalog: session_id={} error={}",
                     session_id, error
-                );
+                ),
             }
+        }
+        if let (Some(paths), Some(revision)) = (scanned_paths, observed_revision.as_ref()) {
+            self.remember_turn_window_index(
+                workspace_path,
+                session_id,
+                revision,
+                catalog_replaced,
+                Arc::new(TurnWindowIndex {
+                    paths: Arc::new(paths),
+                    catalog: projection.physical,
+                    needs_catalog_repair: projection.physical_changed && !catalog_replaced,
+                }),
+            )
+            .await;
         }
         Ok(projection.visible)
     }
@@ -3630,56 +3697,57 @@ impl PersistenceManager {
             .await?;
         let _session_write =
             self.lock_session_write_operation(&request.workspace_path, &request.session_id)?;
+        let persistence_lock = self
+            .get_session_persistence_lock(&request.workspace_path, &request.session_id)
+            .await;
+        let _persistence_guard = persistence_lock.lock().await;
         let boundary_turn = self
             .load_session_revert_state(&request.workspace_path, &request.session_id)
             .await?
             .map(|state| state.boundary_turn);
-        let physical_indexed_paths = self
-            .list_indexed_turn_paths(&request.workspace_path, &request.session_id)
+        let (index, observed_revision) = self
+            .load_turn_window_index(&request.workspace_path, &request.session_id)
             .await?;
-        let physical_indices = physical_indexed_paths
-            .iter()
-            .map(|(index, _)| *index)
-            .collect::<Vec<_>>();
-        let indexed_paths = physical_indexed_paths
-            .into_iter()
-            .filter(|(index, _)| boundary_turn.is_none_or(|boundary| *index < boundary))
-            .collect::<Vec<_>>();
-        let visible_indices = indexed_paths
-            .iter()
-            .map(|(index, _)| *index)
-            .collect::<Vec<_>>();
-        let catalog = self
-            .build_session_turn_catalog_projection(
-                &request.workspace_path,
+        let visible_count = boundary_turn.map_or(index.paths.len(), |boundary| {
+            index.paths.partition_point(|(index, _)| *index < boundary)
+        });
+        let indexed_paths = &index.paths[..visible_count];
+        let catalog = if visible_count == index.paths.len() {
+            Cow::Borrowed(&index.catalog)
+        } else {
+            Cow::Owned(build_turn_catalog(
                 &request.session_id,
-                visible_indices.clone(),
-                &[],
-                visible_indices.len(),
-            )
-            .await?;
+                index.catalog.entries[..visible_count].to_vec(),
+            ))
+        };
 
         if request
             .expected_catalog_revision
             .as_deref()
             .is_some_and(|revision| revision != catalog.revision)
         {
-            return Ok(SessionTurnWindowResponse::Stale { catalog });
+            return Ok(SessionTurnWindowResponse::Stale {
+                catalog: catalog.into_owned(),
+            });
         }
 
-        let Some(target_ordinal) = catalog
-            .entries
-            .iter()
-            .position(|entry| entry.storage_turn_index == request.target_storage_turn_index)
-        else {
-            return Ok(SessionTurnWindowResponse::NotFound { catalog });
-        };
+        let target_ordinal =
+            indexed_paths.partition_point(|(index, _)| *index < request.target_storage_turn_index);
+        if indexed_paths.get(target_ordinal).map(|(index, _)| *index)
+            != Some(request.target_storage_turn_index)
+        {
+            return Ok(SessionTurnWindowResponse::NotFound {
+                catalog: catalog.into_owned(),
+            });
+        }
         if let (Some(expected_turn_id), Some(catalog_turn_id)) = (
             request.expected_turn_id.as_deref(),
             catalog.entries[target_ordinal].turn_id.as_deref(),
         ) {
             if expected_turn_id != catalog_turn_id {
-                return Ok(SessionTurnWindowResponse::Stale { catalog });
+                return Ok(SessionTurnWindowResponse::Stale {
+                    catalog: catalog.into_owned(),
+                });
             }
         }
 
@@ -3701,6 +3769,8 @@ impl PersistenceManager {
         if read_result.missing_turn_file_count > 0
             || read_result.turns.len() != selected_indices.len()
         {
+            self.forget_turn_window_index(&request.workspace_path, &request.session_id)
+                .await;
             let refreshed_indices = self
                 .list_indexed_turn_paths(&request.workspace_path, &request.session_id)
                 .await?
@@ -3729,27 +3799,42 @@ impl PersistenceManager {
             }
         }
 
-        let repaired_projection = self
-            .build_session_turn_catalog_projection_with_physical(
-                &request.workspace_path,
-                &request.session_id,
-                physical_indices.clone(),
-                &read_result.turns,
-                physical_indices.len(),
-            )
-            .await?;
-        if repaired_projection.physical_changed {
-            if let Err(error) = self
-                .write_json_atomic(
+        let page_matches_catalog = read_result.turns.iter().enumerate().all(|(offset, turn)| {
+            let ordinal = start_ordinal + offset;
+            turn_catalog_entry(turn, ordinal) == index.catalog.entries[ordinal]
+        });
+        if index.needs_catalog_repair || !page_matches_catalog {
+            let repaired_projection = self
+                .build_session_turn_catalog_projection_with_physical(
+                    &request.workspace_path,
+                    &request.session_id,
+                    index.paths.iter().map(|(index, _)| *index).collect(),
+                    &read_result.turns,
+                    index.paths.len(),
+                )
+                .await?;
+            if repaired_projection.physical_changed {
+                match self.write_json_atomic(
                     &self.turn_catalog_path(&request.workspace_path, &request.session_id),
                     &repaired_projection.physical,
-                )
-                .await
-            {
-                warn!(
-                    "Failed to persist Session Turn catalog metadata loaded by a window request: session_id={} start_ordinal={} end_ordinal_exclusive={} error={}",
-                    request.session_id, start_ordinal, end_ordinal_exclusive, error
-                );
+                ).await {
+                    Ok(()) => {
+                        if let Some(revision) = &observed_revision {
+                            self.remember_turn_window_index(
+                                &request.workspace_path, &request.session_id, revision, true,
+                                Arc::new(TurnWindowIndex {
+                                    paths: Arc::clone(&index.paths),
+                                    catalog: repaired_projection.physical,
+                                    needs_catalog_repair: false,
+                                }),
+                            ).await;
+                        }
+                    }
+                    Err(error) => warn!(
+                        "Failed to persist Session Turn catalog metadata loaded by a window request: session_id={} start_ordinal={} end_ordinal_exclusive={} error={}",
+                        request.session_id, start_ordinal, end_ordinal_exclusive, error
+                    ),
+                }
             }
         }
 
@@ -3764,7 +3849,7 @@ impl PersistenceManager {
                 .build_session_turn_catalog_projection(
                     &request.workspace_path,
                     &request.session_id,
-                    visible_indices,
+                    indexed_paths.iter().map(|(index, _)| *index).collect(),
                     &read_result.turns,
                     indexed_paths.len(),
                 )
@@ -3773,7 +3858,7 @@ impl PersistenceManager {
         }
 
         Ok(SessionTurnWindowResponse::Ready {
-            catalog_revision: catalog.revision,
+            catalog_revision: catalog.revision.clone(),
             total_turn_count: catalog.total_turn_count,
             start_ordinal,
             end_ordinal_exclusive,
@@ -5966,6 +6051,72 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "local staged-revert first-view performance comparison"]
+    async fn staged_revert_tail_benchmark_against_full_materialization() {
+        let workspace = TestWorkspace::new();
+        let manager = PersistenceManager::new(workspace.path_manager()).unwrap();
+        let session_id = Uuid::new_v4().to_string();
+        let session = Session::new_with_id(
+            session_id.clone(),
+            "Visible tail benchmark".into(),
+            "Standard".into(),
+            SessionConfig {
+                workspace_path: Some(workspace.path().to_string_lossy().into()),
+                ..Default::default()
+            },
+        );
+        manager
+            .save_session(workspace.path(), &session)
+            .await
+            .unwrap();
+        for index in 0..128 {
+            let turn = DialogTurnData::new(
+                format!("turn-{index}"),
+                index,
+                session_id.clone(),
+                user_message(&"x".repeat(128 * 1024)),
+            );
+            manager
+                .save_dialog_turn(workspace.path(), &turn)
+                .await
+                .unwrap();
+        }
+        let mut full_times = Vec::new();
+        let mut tail_times = Vec::new();
+        for _ in 0..7 {
+            let start = Instant::now();
+            let (_, mut full, _) = manager
+                .load_session_with_turns_timed(workspace.path(), &session_id)
+                .await
+                .unwrap();
+            full.retain(|turn| turn.turn_index < 96);
+            let total = full.len();
+            full.drain(..full.len().saturating_sub(1));
+            full_times.push(start.elapsed().as_micros());
+            let start = Instant::now();
+            let (_, tail, visible_total, timing) = manager
+                .load_session_with_tail_turns_before_timed(
+                    workspace.path(),
+                    &session_id,
+                    1,
+                    Some(96),
+                )
+                .await
+                .unwrap();
+            tail_times.push(start.elapsed().as_micros());
+            assert_eq!(visible_total, total);
+            assert_eq!(
+                serde_json::to_value(&tail).unwrap(),
+                serde_json::to_value(&full).unwrap()
+            );
+            assert_eq!(timing.loaded_turn_count, 1);
+        }
+        full_times.sort_unstable();
+        tail_times.sort_unstable();
+        eprintln!("staged revert tail median: full_us={} tail_us={} physical_turns=128 visible_turns=96 loaded_tail_turns=1", full_times[3], tail_times[3]);
+    }
+
+    #[tokio::test]
     async fn load_session_tail_turns_uses_metadata_turn_count_as_normal_path_boundary() {
         let workspace = TestWorkspace::new();
         let manager =
@@ -7212,6 +7363,10 @@ mod tests {
             .load_session_turn_catalog(workspace.path(), &session_id, &[], 30)
             .await
             .expect("catalog should load");
+        let (initial_index, _) = manager
+            .load_turn_window_index(workspace.path(), &session_id)
+            .await
+            .expect("Turn window index should load");
         let request = SessionTurnWindowRequest {
             workspace_path: workspace.path().to_path_buf(),
             session_id: session_id.clone(),
@@ -7248,6 +7403,28 @@ mod tests {
             response => panic!("unexpected response: {response:?}"),
         }
 
+        let (reused_index, _) = manager
+            .load_turn_window_index(workspace.path(), &session_id)
+            .await
+            .expect("unchanged Turn window index should load");
+        assert!(Arc::ptr_eq(&initial_index, &reused_index));
+
+        let mut repaired_catalog = initial_index.catalog.clone();
+        repaired_catalog.entries[0].preview = Some("updated preview".to_string());
+        manager
+            .write_json_atomic(
+                &manager.turn_catalog_path(workspace.path(), &session_id),
+                &repaired_catalog,
+            )
+            .await
+            .expect("catalog metadata should be replaceable");
+        let (updated_index, _) = manager
+            .load_turn_window_index(workspace.path(), &session_id)
+            .await
+            .expect("Turn window index should pick up the replacement");
+        assert_eq!(updated_index.catalog, repaired_catalog);
+        assert!(Arc::ptr_eq(&initial_index.paths, &updated_index.paths));
+
         let mut stale_revision_request = request.clone();
         stale_revision_request.expected_catalog_revision = Some("obsolete".to_string());
         assert!(matches!(
@@ -7268,6 +7445,13 @@ mod tests {
             SessionTurnWindowResponse::Stale { .. }
         ));
 
+        std::fs::remove_file(manager.turn_path(workspace.path(), &session_id, 29))
+            .expect("Turn should be removable outside the index cache");
+        assert!(matches!(
+            manager.load_session_turn_window(&request).await.unwrap(),
+            SessionTurnWindowResponse::Stale { catalog } if catalog.total_turn_count == 29
+        ));
+
         manager
             .save_session_revert_state(
                 workspace.path(),
@@ -7275,7 +7459,7 @@ mod tests {
                 &SessionRevertState {
                     schema_version: SESSION_REVERT_SCHEMA_VERSION,
                     boundary_turn: 8,
-                    original_turn_end: 30,
+                    original_turn_end: 29,
                     phase: SessionRevertPhase::Staged,
                     workspace_checkpoint: Vec::new(),
                 },

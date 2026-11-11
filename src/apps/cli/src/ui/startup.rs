@@ -1112,6 +1112,7 @@ impl StartupPage {
             | ActionHandler::PromptStash
             | ActionHandler::PromptStashPop
             | ActionHandler::PromptStashList
+            | ActionHandler::MessageQueue
             | ActionHandler::ToggleTimestamps
             | ActionHandler::ToggleThinking
             | ActionHandler::ToggleToolDetails

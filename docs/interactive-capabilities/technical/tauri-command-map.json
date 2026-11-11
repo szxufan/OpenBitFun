@@ -1,13 +1,13 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "6bd00ddf2c920f0448d22e87c14b4b38779c5fb5f4021266b22a72ca24a0add0",
-  "commandCount": 723,
+  "catalogDigest": "9a58d1016484ab18fe56bbc45e3ab8c0acfa11b8f82df5f41ec2aa959a6b78aa",
+  "commandCount": 722,
   "coverage": {
-    "commandCount": 723,
-    "documentedCommandCount": 646,
-    "implementationCommandCount": 77,
-    "implementationDigest": "e04860a09a39739eda904349b9941a0de3e603523d5a9b1ac06594d10e9e0b39"
+    "commandCount": 722,
+    "documentedCommandCount": 643,
+    "implementationCommandCount": 79,
+    "implementationDigest": "a3486ab1ca6c2a7c1ff048d966dff9c1c85d02308c7848162def1544b07ff68e"
   },
   "commands": [
     {
@@ -1355,7 +1355,21 @@
       "visibility": "documented",
       "rustPath": "api::agentic_api::compact_session",
       "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
-      "signature": "fn compact_session( coordinator: State<'_, Arc<ConversationCoordinator>>, request: CompactSessionRequest, ) -> Result<StartDialogTurnResponse, String>",
+      "signature": "fn compact_session( coordinator: State<'_, Arc<ConversationCoordinator>>, request: CompactSessionRequest, ) -> Result<CompactSessionResponse, String>",
+      "remoteWorkspacePolicy": "RemoteRouted"
+    },
+    {
+      "id": "compile_workspace_latex",
+      "moduleId": "latex",
+      "capabilityId": "feature.files-editor",
+      "capabilityIds": [
+        "feature.files-editor"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::latex_api::compile_workspace_latex",
+      "sourceFile": "src/apps/desktop/src/api/latex_api.rs",
+      "signature": "fn compile_workspace_latex( request: CompileWorkspaceLatexRequest, ) -> Result<CompileWorkspaceLatexResponse, String>",
       "remoteWorkspacePolicy": "RemoteRouted"
     },
     {
@@ -1419,7 +1433,7 @@
       "visibility": "documented",
       "rustPath": "computer_use_control_status",
       "sourceFile": "src/apps/desktop/src/api/computer_use_api.rs",
-      "signature": "fn computer_use_control_status( ) -> Result<openbitfun_agent_tools::computer_use_control::ControlSnapshot, String>",
+      "signature": "fn computer_use_control_status( request: Option<ComputerUseControlStatusRequest>, ) -> Result<openbitfun_agent_tools::computer_use_control::ControlSnapshot, String>",
       "remoteWorkspacePolicy": "LocalOnly"
     },
     {
@@ -2882,6 +2896,20 @@
       "remoteWorkspacePolicy": "LocalOnly"
     },
     {
+      "id": "gen_ui_provider_call",
+      "moduleId": "generative_ui",
+      "capabilityId": "feature.generative-ui",
+      "capabilityIds": [
+        "feature.generative-ui"
+      ],
+      "documentedItemIds": [],
+      "visibility": "implementation",
+      "rustPath": "api::generative_ui_api::gen_ui_provider_call",
+      "sourceFile": "src/apps/desktop/src/api/generative_ui_api.rs",
+      "signature": "fn gen_ui_provider_call(request: GenUIProviderRequest) -> Result<Value, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "generate_commit_message",
       "moduleId": "git_agent",
       "capabilityId": null,
@@ -3809,7 +3837,7 @@
       "visibility": "documented",
       "rustPath": "get_mode_skill_configs",
       "sourceFile": "src/apps/desktop/src/api/skill_api.rs",
-      "signature": "fn get_mode_skill_configs( state: State<'_, AppState>, mode_id: String, force_refresh: Option<bool>, include_diagnostics: Option<bool>, workspace_id: Option<String>, workspace_path: Option<String>, ) -> Result<Value, String>",
+      "signature": "fn get_mode_skill_configs( state: State<'_, AppState>, mode_id: String, force_refresh: Option<bool>, include_diagnostics: Option<bool>, workspace_id: Option<String>, workspace_path: Option<String>, summary_mode_ids: Option<Vec<String>>, ) -> Result<Value, String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
@@ -3873,7 +3901,7 @@
       "visibility": "documented",
       "rustPath": "api::agentic_api::get_model_routing_status",
       "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
-      "signature": "fn get_model_routing_status( runtime: State<'_, DesktopRuntimeContext>, coordinator: State<'_, Arc<ConversationCoordinator>>, request: ModelRoutingStatusRequest, ) -> Result< openbitfun_core::agentic::execution::round_model_routing::configuration::ModelRoutingStatus, String, >",
+      "signature": "fn get_model_routing_status( runtime: State<'_, DesktopRuntimeContext>, request: ModelRoutingStatusRequest, ) -> Result< openbitfun_core::agentic::execution::round_model_routing::configuration::ModelRoutingStatus, String, >",
       "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
@@ -4835,6 +4863,22 @@
       "remoteWorkspacePolicy": "RemoteRouted"
     },
     {
+      "id": "git_get_tracked_change_count",
+      "moduleId": "git",
+      "capabilityId": "feature.git",
+      "capabilityIds": [
+        "feature.git"
+      ],
+      "documentedItemIds": [
+        "feature.git:status-diff"
+      ],
+      "visibility": "documented",
+      "rustPath": "git_get_tracked_change_count",
+      "sourceFile": "src/apps/desktop/src/api/git_api.rs",
+      "signature": "fn git_get_tracked_change_count( state: State<'_, AppState>, request: GitTrackedChangeCountRequest, ) -> Result<Option<usize>, String>",
+      "remoteWorkspacePolicy": "RemoteRouted"
+    },
+    {
       "id": "git_is_repository",
       "moduleId": "git",
       "capabilityId": "feature.git",
@@ -5763,38 +5807,6 @@
       "sourceFile": "src/apps/desktop/src/api/commands.rs",
       "signature": "fn load_agent_companion_pet_spritesheet( state: State<'_, AppState>, request: LoadAgentCompanionPetSpritesheetRequest, ) -> Result<tauri::ipc::Response, String>",
       "remoteWorkspacePolicy": "LocalOnly"
-    },
-    {
-      "id": "load_canvas_artifact",
-      "moduleId": "canvas",
-      "capabilityId": "feature.canvas",
-      "capabilityIds": [
-        "feature.canvas"
-      ],
-      "documentedItemIds": [
-        "feature.canvas:artifact-open"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::canvas_api::load_canvas_artifact",
-      "sourceFile": "src/apps/desktop/src/api/canvas_api.rs",
-      "signature": "fn load_canvas_artifact( state: State<'_, AppState>, request: CanvasStateRequest, ) -> Result<CanvasArtifactResponse, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
-      "id": "load_canvas_state",
-      "moduleId": "canvas",
-      "capabilityId": "feature.canvas",
-      "capabilityIds": [
-        "feature.canvas"
-      ],
-      "documentedItemIds": [
-        "feature.canvas:state"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::canvas_api::load_canvas_state",
-      "sourceFile": "src/apps/desktop/src/api/canvas_api.rs",
-      "signature": "fn load_canvas_state( state: State<'_, AppState>, request: CanvasStateRequest, ) -> Result<CanvasStateResponse, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "load_git_repo_history",
@@ -7361,6 +7373,22 @@
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
+      "id": "probe_magpie_gateway",
+      "moduleId": "commands",
+      "capabilityId": "setting.ai.models",
+      "capabilityIds": [
+        "setting.ai.models"
+      ],
+      "documentedItemIds": [
+        "setting.ai.models:available-models"
+      ],
+      "visibility": "documented",
+      "rustPath": "probe_magpie_gateway",
+      "sourceFile": "src/apps/desktop/src/api/commands.rs",
+      "signature": "fn probe_magpie_gateway( state: State<'_, AppState>, request: openbitfun_core_types::magpie::MagpieProbeRequest, ) -> Result<openbitfun_core_types::magpie::MagpieProbeResult, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "product_control_invoke",
       "moduleId": "openbitfun_control_host",
       "capabilityId": null,
@@ -8222,38 +8250,6 @@
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
-      "id": "report_canvas_runtime_error",
-      "moduleId": "canvas",
-      "capabilityId": "feature.canvas",
-      "capabilityIds": [
-        "feature.canvas"
-      ],
-      "documentedItemIds": [
-        "feature.canvas:runtime-errors"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::canvas_api::report_canvas_runtime_error",
-      "sourceFile": "src/apps/desktop/src/api/canvas_api.rs",
-      "signature": "fn report_canvas_runtime_error( state: State<'_, AppState>, request: ReportCanvasRuntimeErrorRequest, ) -> Result<CanvasArtifactResponse, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
-      "id": "report_canvas_runtime_ready",
-      "moduleId": "canvas",
-      "capabilityId": "feature.canvas",
-      "capabilityIds": [
-        "feature.canvas"
-      ],
-      "documentedItemIds": [
-        "feature.canvas:html-react"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::canvas_api::report_canvas_runtime_ready",
-      "sourceFile": "src/apps/desktop/src/api/canvas_api.rs",
-      "signature": "fn report_canvas_runtime_ready( state: State<'_, AppState>, request: ReportCanvasRuntimeReadyRequest, ) -> Result<CanvasArtifactResponse, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
-    },
-    {
       "id": "report_ide_control_result",
       "moduleId": "commands",
       "capabilityId": "feature.projects",
@@ -8919,22 +8915,6 @@
       "sourceFile": "src/apps/desktop/src/api/acp_client_api.rs",
       "signature": "fn save_acp_json_config( state: State<'_, AppState>, json_config: String, ) -> Result<(), String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
-    },
-    {
-      "id": "save_canvas_state",
-      "moduleId": "canvas",
-      "capabilityId": "feature.canvas",
-      "capabilityIds": [
-        "feature.canvas"
-      ],
-      "documentedItemIds": [
-        "feature.canvas:state"
-      ],
-      "visibility": "documented",
-      "rustPath": "api::canvas_api::save_canvas_state",
-      "sourceFile": "src/apps/desktop/src/api/canvas_api.rs",
-      "signature": "fn save_canvas_state( state: State<'_, AppState>, request: SaveCanvasStateRequest, ) -> Result<CanvasStateResponse, String>",
-      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "save_cloud_speech_config",

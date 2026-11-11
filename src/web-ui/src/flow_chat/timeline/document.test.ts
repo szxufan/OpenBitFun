@@ -6,6 +6,8 @@ import type { VirtualItem } from '../types/flow-chat-projection';
 import { estimateVirtualItemHeight } from '../components/modern/virtualItemHeightEstimators';
 import { buildInlineToolGroupData } from '../grouping/roundGroups';
 import { toolCapsuleStateKey } from '../tool-cards/toolCapsuleModel';
+import { localizeMarkdownMatch } from './markdownSectionSearch';
+import { getVirtualItemBookmarkKey } from '../components/modern/virtualItemIdentity';
 
 const tool = (id: string, status: FlowToolItem['status'] = 'completed'): FlowToolItem => ({
   id, type: 'tool', toolName: 'Read', timestamp: 1, status,
@@ -21,6 +23,162 @@ const agent = (id: string, toolName = 'AgentSpawn', status: FlowToolItem['status
 });
 
 describe('desktop conversation document', () => {
+  it('retains live reading rows when a single settled attempt omits item metadata and restores blank lines', () => {
+    const raw = Array.from({ length: 300 }, (_, index) => `\n\nStream paragraph ${index}: ${'Readable **text**. '.repeat(24)}`
+      + (index % 8 === 7 ? '\n\n```typescript\nexport const streamed = true;\n```\n' : '')).join('');
+    const clean = raw.replace(/\n{3,}/g, '\n\n');
+    const text = { id: 'live', type: 'text', content: clean.slice(0, clean.lastIndexOf('\n\nStream paragraph 240:')),
+      attemptId: 'first-attempt', attemptIndex: 1, isMarkdown: true, isStreaming: true, status: 'streaming' } as FlowItem;
+    const projection = new ConversationDocumentProjection(), opts = options();
+    const live = projection.project([source([text])], opts).filter(row => row.timeline?.markdownSection);
+    const durable = { ...text, id: 'journal-text', content: raw, attemptId: undefined, attemptIndex: undefined,
+      isStreaming: false, status: 'completed' } as FlowItem;
+    const incoming = source([durable]); incoming.data.attemptCount = 1;
+    const settled = projection.project([incoming], opts).filter(row => row.timeline?.markdownSection);
+    expect(settled.slice(0, live.length).map(row => row.timeline?.key)).toEqual(live.map(row => row.timeline?.key));
+    expect(settled.map(row => raw.slice(row.timeline!.markdownSection!.start, row.timeline!.markdownSection!.end)).join('')).toBe(raw);
+    expect(settled.every(row => row.type === 'model-round' && row.data.items[0] === durable)).toBe(true);
+    const reopened = new ConversationDocumentProjection().project([incoming], options()).filter(row => row.timeline?.markdownSection);
+    expect(reopened.map(getVirtualItemBookmarkKey)).toEqual(settled.map(getVirtualItemBookmarkKey));
+    expect(settled.some((row, index) => index > 0 && row.timeline?.key !== `turn:live:markdown:${row.timeline?.markdownSection?.start}`)).toBe(true);
+  });
+
+  it.each([undefined, 2])('does not guess missing attempt identity with attempt count %s', attemptCount => {
+    const text = { id: 'live', type: 'text', content: 'Answer', attemptId: 'first-attempt', attemptIndex: 1, status: 'completed' } as FlowItem;
+    const projection = new ConversationDocumentProjection(), opts = options();
+    projection.project([source([text])], opts);
+    const incoming = source([{ ...text, id: 'journal', attemptId: undefined, attemptIndex: undefined } as FlowItem]);
+    incoming.data.attemptCount = attemptCount;
+    expect(projection.project([incoming], opts)[0].timeline?.key).toBe('turn:journal');
+  });
+
+  it('keeps measured section keys while adopting durable narrative IDs and a missing suffix', () => {
+    const content = 'A paragraph with some text.\n\n'.repeat(600);
+    const thought = { id: 'thinking-live', type: 'thinking', content: 'Reasoning.\n\nMore.', status: 'completed' } as FlowItem;
+    const text = { id: 'text-live', type: 'text', content, isMarkdown: true, status: 'completed', isStreaming: false } as FlowItem;
+    const projection = new ConversationDocumentProjection(), opts = options();
+    const live = projection.project([source([thought, text])], opts).filter(row => row.timeline?.markdownSection);
+    const durable = [{ ...thought, id: 'round-thinking-0', content: 'Reasoning.\n\n\nMore.' },
+      { ...text, id: 'round-text-1', content: content + 'Recovered suffix.\n\n'.repeat(400) }] as FlowItem[];
+    const incoming = source(durable);
+    const before = JSON.stringify(incoming);
+    const settled = projection.project([incoming], opts).filter(row => row.timeline?.markdownSection);
+    expect(settled.slice(0, live.length).map(row => row.timeline?.key)).toEqual(live.map(row => row.timeline?.key));
+    expect(settled[0].timeline?.memberIds).toEqual(['round-thinking-0', 'round-text-1']);
+    expect(settled.every(row => row.type === 'model-round' && row.data.items.at(-1) === durable[1])).toBe(true);
+    expect(findTimelineBlockIndex(settled, 0, 'round-text-1', settled[1].timeline!.markdownSection!.start)).toBe(1);
+    expect(JSON.stringify(incoming)).toBe(before);
+    // A repeated host read retains the alias; another view starts from canonical IDs.
+    expect(projection.project([source(durable.map(item => ({ ...item })))], opts).map(row => row.timeline?.key))
+      .toEqual(projection.project([incoming], opts).map(row => row.timeline?.key));
+    const reopened = new ConversationDocumentProjection().project([incoming], options());
+    expect(reopened[0].timeline?.key).toBe('turn:round-thinking-0');
+    expect(reopened.filter(row => row.timeline?.markdownSection).map(getVirtualItemBookmarkKey))
+      .toEqual(settled.map(getVirtualItemBookmarkKey));
+  });
+
+  it.each(['retry', 'replacement', 'insertion', 'tool', 'round', 'turn', 'eviction'] as const)(
+    'does not alias unrelated narrative during %s', change => {
+    const text = { id: 'live', type: 'text', content: 'Original answer', status: 'completed', attemptId: 'attempt', attemptIndex: 0 } as FlowItem;
+    const projection = new ConversationDocumentProjection(), opts = options();
+    const before = source([text, tool('tool')]);
+    projection.project([before], opts);
+    const replacement = { ...text, id: 'durable', ...(change === 'retry' ? { attemptId: 'retry', attemptIndex: 1 }
+      : change === 'replacement' ? { content: 'Different answer' } : {}) } as FlowItem;
+    const after = source([replacement, tool(change === 'tool' ? 'other-tool' : 'tool'),
+      ...(change === 'insertion' ? [tool('inserted')] : [])]);
+    if (change === 'round') after.data = { ...after.data, id: 'another-round' };
+    if (change === 'turn') after.turnId = 'another-turn';
+    if (change === 'eviction') projection.project([], opts);
+    const rows = projection.project([after], opts);
+    expect(rows[findTimelineBlockIndex(rows, 0, 'durable')].timeline?.key).toBe(`${after.turnId}:durable`);
+  });
+
+  it('avoids duplicate display keys when a later canonical item uses an earlier alias', () => {
+    const projection = new ConversationDocumentProjection(), opts = options();
+    const text = { id: 'live', type: 'text', content: 'Answer', status: 'completed' } as FlowItem;
+    projection.project([source([text])], opts);
+    const durable = { ...text, id: 'durable' };
+    const settledSource = source([durable]);
+    expect(projection.project([settledSource], opts)[0].timeline?.key).toBe('turn:live');
+    const rows = projection.project([source([durable, { ...text, content: 'New text' } as FlowItem])], opts);
+    expect(new Set(rows.map(row => row.timeline?.key)).size).toBe(rows.length);
+    expect(rows[0].timeline?.key).toBe('turn:durable');
+    expect(projection.project([settledSource], opts)[0].timeline?.key).toBe('turn:durable');
+  });
+
+  it('windows large Markdown with canonical identity, bounded estimates and exact search occurrences', () => {
+    const content = Array.from({ length: 300 }, (_, i) => `Paragraph ${i}: fixture **text**.\n\n`).join('')
+      + '\n```ts\n' + 'const example = 1;\n'.repeat(100) + '```\n\n' + 'End fixture.\n\n'.repeat(400);
+    const text = { id: 'large', type: 'text', content, isMarkdown: true, status: 'completed', isStreaming: false } as FlowItem;
+    const input = source([text]), projection = new ConversationDocumentProjection(), opts = options();
+    const rows = projection.project([input], opts).filter(row => row.timeline?.markdownSection);
+    expect(rows.length).toBeGreaterThan(4);
+    expect(rows[0].timeline?.key).toBe('turn:large');
+    expect(rows.every(row => row.type === 'model-round' && row.data.items[0] === text)).toBe(true);
+    expect(rows.map(row => content.slice(row.timeline!.markdownSection!.start, row.timeline!.markdownSection!.end)).join('')).toBe(content);
+    expect(Math.max(...rows.map(row => estimateVirtualItemHeight(row).heightPx))).toBeLessThan(5000);
+    const match = { flowItemId: 'large', occurrenceIndex: 600 };
+    const hits = rows.map(row => localizeMarkdownMatch(row, 'fixture', match)).filter(Boolean);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.occurrenceIndex).toBeLessThan(match.occurrenceIndex);
+    expect(projection.project([input], opts).slice(0, rows.length)).toEqual(rows);
+    const last = rows.at(-1)!;
+    expect(findTimelineBlockIndex(rows, 0, 'large', last.timeline!.markdownSection!.start)).toBe(rows.length - 1);
+    opts.reader.set('navigation:whole-text', 'turn:large');
+    expect(projection.project([input], opts).some(row => row.timeline?.markdownSection)).toBe(false);
+    expect(input.data.items[0]).toBe(text);
+  });
+
+  it('maps repeated matches after Unicode case folding changes source length', () => {
+    const content = 'İ fixture repeated.\n\n'.repeat(1000);
+    const text = { id: 'unicode', type: 'text', content, isMarkdown: true, status: 'completed', isStreaming: false } as FlowItem;
+    const rows = new ConversationDocumentProjection().project([source([text])], options());
+    const match = { flowItemId: 'unicode', occurrenceIndex: 900 };
+    const localized = rows.filter(row => row.timeline?.markdownSection)
+      .flatMap(row => {
+        const hit = localizeMarkdownMatch(row, 'FIXTURE', match);
+        return hit ? [{ row, hit }] : [];
+      });
+    expect(localized).toHaveLength(1);
+    const section = localized[0].row.timeline!.markdownSection!;
+    const before = content.slice(0, section.start).match(/fixture/g)?.length ?? 0;
+    expect(localized[0].hit.occurrenceIndex).toBe(900 - before);
+  });
+
+  it('keeps incremental live section keys through appends and completion, including thinking handoff', () => {
+    const text = { id: 'live', type: 'text', content: 'A paragraph with some text.\n\n'.repeat(900), isMarkdown: true, status: 'streaming', isStreaming: true } as FlowItem;
+    const projection = new ConversationDocumentProjection(), opts = options();
+    const first = projection.project([source([{ ...text, content: 'A paragraph with some text.\n\n' } as FlowItem])], opts);
+    expect(first[0].timeline?.markdownSection).toEqual({ start: 0, end: 29 });
+    const streamed = projection.project([source([text])], opts).filter(row => row.timeline?.markdownSection);
+    expect(streamed.length).toBeGreaterThan(4);
+    expect(streamed[0].timeline?.key).toBe(first[0].timeline?.key);
+    const growing = { ...text, content: text.content + 'Another paragraph.\n\n'.repeat(300) } as FlowItem;
+    const appended = projection.project([source([growing])], opts).filter(row => row.timeline?.markdownSection);
+    expect(appended.slice(0, streamed.length - 1).map(row => row.timeline?.markdownSection))
+      .toEqual(streamed.slice(0, -1).map(row => row.timeline?.markdownSection));
+    const complete = { ...growing, status: 'completed', isStreaming: false } as FlowItem;
+    const settled = projection.project([source([complete])], opts).filter(row => row.timeline?.markdownSection);
+    expect(settled.map(row => row.timeline)).toEqual(appended.map(row => row.timeline));
+    expect(new ConversationDocumentProjection().project([source([complete])], opts)
+      .filter(row => row.timeline?.markdownSection).map(row => row.timeline)).toEqual(settled.map(row => row.timeline));
+    const thought = { id: 'thought', type: 'thinking', content: 'Thinking', status: 'completed' } as FlowItem;
+    const handoff = new ConversationDocumentProjection().project([source([thought, complete])], opts);
+    expect(handoff[0].timeline?.memberIds).toEqual(['thought', 'live']);
+    expect(handoff[0].timeline?.key).toBe('turn:thought');
+    expect(handoff.slice(1).filter(row => row.timeline?.markdownSection).every(row => row.timeline?.memberIds.join() === 'live')).toBe(true);
+  });
+
+  it('preserves section bookmark coordinates when a medium live reply reopens as history', () => {
+    const text = { id: 'medium', type: 'text', content: 'A medium paragraph.\n\n'.repeat(350), isMarkdown: true, status: 'streaming', isStreaming: true } as FlowItem;
+    const opts = options();
+    const live = new ConversationDocumentProjection().project([source([text])], opts);
+    const history = new ConversationDocumentProjection().project([source([{ ...text, status: 'completed', isStreaming: false } as FlowItem])], opts);
+    const ranges = (rows: VirtualItem[]) => rows.filter(row => row.timeline?.markdownSection).map(row => ({ key: row.timeline!.key, range: row.timeline!.markdownSection }));
+    expect(ranges(live).length).toBeGreaterThan(1);
+    expect(ranges(history)).toEqual(ranges(live));
+  });
   it('retains source and member navigation identities inside a quiet execution receipt', () => {
     const projection = new ConversationDocumentProjection();
     const input = { type: 'background-run', turnId: 'quiet', turn: {

@@ -1,8 +1,9 @@
 //! Relay-local account credentials and pairwise encrypted relay messages.
 
-use super::device_crypto;
+use super::{device_crypto, relay_client::PeerEncodingOffer};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
@@ -53,15 +54,42 @@ pub fn is_retired_official_relay(value: &str) -> bool {
             && url.username().is_empty()
             && url.password().is_none()
             && url.port().is_none()
-            && url.query().is_none()
             && url.fragment().is_none()
+            && version_only_query(&url)
             && is_retired_official_version_path(url.path(), current.path())
     })
+}
+
+/// Official endpoints may announce their service version as a single `v` query
+/// parameter. Any other query content disqualifies the URL from being treated
+/// as an official endpoint at all, so a crafted query can never inherit the
+/// official retirement handling.
+fn version_only_query(url: &reqwest::Url) -> bool {
+    let Some(query) = url.query() else {
+        return true;
+    };
+    let mut parameters = query.split('&');
+    let version = parameters
+        .next()
+        .and_then(|parameter| parameter.strip_prefix("v="));
+    parameters.next().is_none()
+        && version.is_some_and(|version| {
+            !version.is_empty()
+                && version.len() <= 32
+                && version
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-'))
+        })
 }
 
 fn is_retired_official_version_path(path: &str, current: &str) -> bool {
     let path = path.trim_end_matches('/');
     let current = current.trim_end_matches('/');
+    // `/v/1.0.2` and `/relay` are two live aliases of one deployment: both reach
+    // the same process and account database, so neither retires a stored token.
+    if openbitfun_product_domains::account::LIVE_RELAY_ENDPOINT_PATHS.contains(&path) {
+        return false;
+    }
     path != current
         && path
             .strip_prefix("/v/")
@@ -78,6 +106,39 @@ pub struct StreamHint {
     pub cursor: u64,
 }
 
+// Capabilities live with the peer key for this connection generation. Clearing
+// the cell on reconnect/presence change also discards any late negotiation.
+// The cell caches the peer's authenticated public key; message keys are
+// derived per message (legacy or PSK-paired) by the sender/receiver paths.
+struct PeerCipher {
+    public_key: [u8; 32],
+    host_accepts: AtomicBool,
+    // A device room can include several controllers. A legacy listener keeps
+    // events in JSON until presence invalidates this generation.
+    event_offers: AtomicU8,
+}
+
+impl PeerCipher {
+    const ACCEPTED: u8 = 1;
+    const LEGACY: u8 = 2;
+
+    fn observe(&self, offer: PeerEncodingOffer) {
+        if let PeerEncodingOffer::Host(accepted) = offer {
+            self.host_accepts.store(accepted, Ordering::Relaxed);
+        }
+        let flag = if offer.accepts_zstd() {
+            Self::ACCEPTED
+        } else {
+            Self::LEGACY
+        };
+        self.event_offers.fetch_or(flag, Ordering::Relaxed);
+    }
+
+    fn accepts_events(&self) -> bool {
+        self.event_offers.load(Ordering::Relaxed) == Self::ACCEPTED
+    }
+}
+
 /// Device-scoped relay credentials and a locally owned X25519 private key.
 #[derive(Clone)]
 pub struct AccountSession {
@@ -87,7 +148,8 @@ pub struct AccountSession {
     pub master_key: [u8; MASTER_KEY_LEN],
     pub grants: Arc<super::device_grants::HostGrantGate>,
     device_id: Arc<std::sync::RwLock<Option<String>>>,
-    peer_keys: Arc<Mutex<HashMap<String, Arc<OnceCell<[u8; 32]>>>>>,
+    peer_keys: Arc<Mutex<HashMap<String, Arc<OnceCell<Arc<PeerCipher>>>>>>,
+    peer_generation: Arc<AtomicU64>,
     transports: Arc<Mutex<HashMap<String, Arc<OnceCell<Arc<super::relay_client::RelayClient>>>>>>,
 }
 
@@ -109,6 +171,7 @@ impl AccountSession {
             grants: Arc::new(super::device_grants::HostGrantGate::new()),
             device_id: Arc::new(std::sync::RwLock::new(None)),
             peer_keys: Arc::new(Mutex::new(HashMap::new())),
+            peer_generation: Arc::new(AtomicU64::new(0)),
             transports: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -240,6 +303,15 @@ impl AccountSession {
         Ok((entry, psk, grant.grantee_user_id.clone()))
     }
 
+    // The receive loop shares the peer keys and hint channel. It must not
+    // retain the registry which owns its own socket after the account closes.
+    pub(super) fn for_peer_messages(&self) -> Self {
+        Self {
+            transports: Default::default(),
+            ..self.clone()
+        }
+    }
+
     /// Stream change hints from hosts. `None` marks a (re)connect; receiver lag
     /// means catch up every subscribed stream.
     pub fn stream_hints(&self) -> tokio::sync::broadcast::Receiver<Option<StreamHint>> {
@@ -254,6 +326,10 @@ impl AccountSession {
         event: &str,
         payload: &serde_json::Value,
     ) -> bool {
+        if event == super::message_encoding::HELLO_EVENT {
+            // The receiver learned the peer's offer while opening the envelope.
+            return true;
+        }
         if event != super::host_stream::HOST_STREAM_CHANGED_EVENT {
             return false;
         }
@@ -274,13 +350,46 @@ impl AccountSession {
     }
 
     pub async fn clear_peer_keys(&self) {
-        self.peer_keys.lock().await.clear();
+        let mut keys = self.peer_keys.lock().await;
+        self.peer_generation.fetch_add(1, Ordering::SeqCst);
+        keys.clear();
+    }
+
+    /// Capture before preparing ciphertext and check immediately before wire
+    /// submission. Reconnect/presence changes retire previously learned offers.
+    pub fn peer_message_guard(&self) -> impl Fn(bool) -> Result<()> + Send + Sync + 'static {
+        let generation = self.peer_generation.clone();
+        let expected = generation.load(Ordering::SeqCst);
+        move |uses_zstd| {
+            // JSON needs no negotiated decoder. Presence may arrive during a
+            // first key lookup, so plain requests retain their working path.
+            if uses_zstd && generation.load(Ordering::SeqCst) != expected {
+                return Err(anyhow!(
+                    "Relay capabilities changed; request was not submitted"
+                ));
+            }
+            Ok(())
+        }
     }
 
     /// The peer's authenticated X25519 public key from the relay directory.
     /// Cached per endpoint; invalidation removes the cell so an older lookup
     /// cannot refill it.
     pub async fn peer_public_key(&self, relay_url: &str, device_id: &str) -> Result<[u8; 32]> {
+        Ok(self.peer_cipher(relay_url, device_id).await?.public_key)
+    }
+
+    /// The legacy (non-PSK) message key for one peer. PSK-paired exchanges
+    /// derive per message through the sender/receiver paths instead.
+    pub async fn peer_message_key(&self, relay_url: &str, device_id: &str) -> Result<[u8; 32]> {
+        let public = self.peer_public_key(relay_url, device_id).await?;
+        Ok(device_crypto::derive_message_key(
+            &self.master_key,
+            &public,
+        )?)
+    }
+
+    async fn peer_cipher(&self, relay_url: &str, device_id: &str) -> Result<Arc<PeerCipher>> {
         let target = super::device_grants::PeerTarget::parse(device_id)?;
         if target.is_shared() {
             self.grants
@@ -320,10 +429,15 @@ impl AccountSession {
             if peer.device_id != target.device_id {
                 return Err(anyhow!("relay returned a different device identity"));
             }
-            super::encryption::parse_public_key(&peer.public_key)
+            let public_key = super::encryption::parse_public_key(&peer.public_key)?;
+            Ok(Arc::new(PeerCipher {
+                public_key,
+                host_accepts: AtomicBool::new(false),
+                event_offers: AtomicU8::new(0),
+            }))
         })
         .await
-        .copied()
+        .cloned()
     }
 
     fn peer_key_endpoint(
@@ -346,7 +460,12 @@ impl AccountSession {
             relay_url,
             &super::device_grants::PeerTarget::parse(device_id)?,
         )?;
-        self.peer_keys.lock().await.remove(endpoint.as_str());
+        let mut keys = self.peer_keys.lock().await;
+        if keys.remove(endpoint.as_str()).is_some() {
+            // A rotated key retires any encoding negotiation learned for the
+            // evicted cell, like any other generation change.
+            self.peer_generation.fetch_add(1, Ordering::SeqCst);
+        }
         Ok(())
     }
 
@@ -435,6 +554,49 @@ impl AccountSession {
         device_id: &str,
         plaintext: &str,
     ) -> Result<PeerSealedMessage> {
+        let (sealed, _) = self
+            .encrypt_for_peer_with_encoding(relay_url, device_id, plaintext)
+            .await?;
+        Ok(sealed)
+    }
+
+    /// Seal a peer event, compressed only when every listener of the device
+    /// room accepted zstd in this generation. Returns the sealed envelope and
+    /// whether the ciphertext actually uses zstd, so the caller can gate wire
+    /// submission on the connection generation.
+    pub async fn encrypt_for_peer_with_encoding(
+        &self,
+        relay_url: &str,
+        device_id: &str,
+        plaintext: &str,
+    ) -> Result<(PeerSealedMessage, bool)> {
+        let peer = self.peer_cipher(relay_url, device_id).await?;
+        let compress = peer.accepts_events();
+        self.seal_for_peer(relay_url, device_id, plaintext, compress)
+            .await
+    }
+
+    /// Seal an RPC request for one peer's host. Compression follows that
+    /// host's last accepted reply, not the device room's event audience.
+    pub async fn encrypt_peer_request(
+        &self,
+        relay_url: &str,
+        device_id: &str,
+        plaintext: &str,
+    ) -> Result<(PeerSealedMessage, bool)> {
+        let peer = self.peer_cipher(relay_url, device_id).await?;
+        let compress = peer.host_accepts.load(Ordering::Relaxed);
+        self.seal_for_peer(relay_url, device_id, plaintext, compress)
+            .await
+    }
+
+    async fn seal_for_peer(
+        &self,
+        relay_url: &str,
+        device_id: &str,
+        plaintext: &str,
+        accepts_zstd: bool,
+    ) -> Result<(PeerSealedMessage, bool)> {
         let selected = self.sender_key(relay_url, device_id).await?;
         if super::device_grants::PeerTarget::parse(device_id)?.is_shared()
             && selected.key_id.is_none()
@@ -446,12 +608,19 @@ impl AccountSession {
                 super::device_grants::PEER_GRANT_PAIRING_REQUIRED
             );
         }
-        let (data, nonce) = super::encryption::encrypt_to_base64(&selected.key, plaintext)?;
-        Ok(PeerSealedMessage {
-            data,
-            nonce,
-            key_id: selected.key_id,
-        })
+        let (data, nonce, uses_zstd) = super::encryption::encrypt_relay_message_with_encoding(
+            &selected.key,
+            plaintext,
+            accepts_zstd,
+        )?;
+        Ok((
+            PeerSealedMessage {
+                data,
+                nonce,
+                key_id: selected.key_id,
+            },
+            uses_zstd,
+        ))
     }
 
     /// The symmetric key for one peer under a specific envelope variant.
@@ -469,12 +638,15 @@ impl AccountSession {
     /// Seal a reply with the same derivation that decrypted the request. Host
     /// responses mirror the request's `key_id` (absent stays legacy) so the
     /// pairing transition and one-sided removal never break a live exchange.
+    /// Compression follows the caller's request offer: a reply belongs to one
+    /// RPC caller even when old and new controllers share a device identity.
     pub async fn encrypt_for_peer_variant(
         &self,
         relay_url: &str,
         device_id: &str,
         mirror_key_id: Option<&str>,
         plaintext: &str,
+        accepts_zstd: bool,
     ) -> Result<PeerSealedMessage> {
         let (key, key_id) = match mirror_key_id {
             Some(id) => (
@@ -489,12 +661,26 @@ impl AccountSession {
                 )
             }
         };
-        let (data, nonce) = super::encryption::encrypt_to_base64(&key, plaintext)?;
+        let (data, nonce) =
+            super::encryption::encrypt_relay_message(&key, plaintext, accepts_zstd)?;
         Ok(PeerSealedMessage {
             data,
             nonce,
             key_id,
         })
+    }
+
+    /// Seal a reply for a legacy (non-PSK) exchange. Mirrored-key replies use
+    /// [`Self::encrypt_for_peer_variant`] instead.
+    pub async fn encrypt_reply(
+        &self,
+        relay_url: &str,
+        device_id: &str,
+        plaintext: &str,
+        accepts_zstd: bool,
+    ) -> Result<(String, String)> {
+        let key = self.peer_message_key(relay_url, device_id).await?;
+        super::encryption::encrypt_relay_message(&key, plaintext, accepts_zstd)
     }
 
     pub async fn decrypt_from_peer(
@@ -538,6 +724,26 @@ impl AccountSession {
                 super::encryption::decrypt_from_base64(&key, data, nonce)
             }
         }
+    }
+
+    /// Decrypt an inbound peer message and learn its encoding offer for this
+    /// connection generation. Key selection stays pairing-aware through
+    /// [`Self::decrypt_from_peer`].
+    pub async fn decrypt_peer_message(
+        &self,
+        relay_url: &str,
+        device_id: &str,
+        data: &str,
+        nonce: &str,
+        key_id: Option<&str>,
+        offer: PeerEncodingOffer,
+    ) -> Result<String> {
+        let peer = self.peer_cipher(relay_url, device_id).await?;
+        let plaintext = self
+            .decrypt_from_peer(relay_url, device_id, data, nonce, key_id)
+            .await?;
+        peer.observe(offer);
+        Ok(plaintext)
     }
 }
 
@@ -664,20 +870,54 @@ pub fn error_indicates_expired_token(message: &str) -> bool {
 
 /// Parse a user/config supplied relay base URL at the shared transport
 /// boundary. Paths are allowed for reverse-proxy prefixes; credentials,
-/// query strings, fragments, and non-HTTP schemes are not.
+/// fragments, and non-HTTP schemes are not.
+///
+/// The endpoint may announce its service version as a single `v` query
+/// parameter (`?v=1.0.9`). That parameter is validated and removed, so every
+/// path join downstream still receives a bare base URL. Any other query
+/// parameter is rejected: the query must never become a channel for
+/// per-request data.
 pub fn validate_relay_base_url(relay_url: &str) -> Result<reqwest::Url> {
-    let url = reqwest::Url::parse(relay_url.trim())
+    let mut url = reqwest::Url::parse(relay_url.trim())
         .map_err(|error| anyhow!("invalid relay URL: {error}"))?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()
-        || url.query().is_some()
         || url.fragment().is_some()
     {
         return Err(anyhow!(
             "relay URL must be an http(s) server address without credentials, query, or fragment"
         ));
+    }
+    let has_version_parameter = match url.query() {
+        Some(query) => {
+            let mut parameters = query.split('&');
+            let version = parameters
+                .next()
+                .and_then(|parameter| parameter.strip_prefix("v="));
+            let extra = parameters.next();
+            match (version, extra) {
+                (Some(version), None)
+                    if !version.is_empty()
+                        && version.len() <= 32
+                        && version
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-')) =>
+                {
+                    true
+                }
+                _ => {
+                    return Err(anyhow!(
+                        "relay URL may only carry a single v=<version> query parameter"
+                    ))
+                }
+            }
+        }
+        None => false,
+    };
+    if has_version_parameter {
+        url.set_query(None);
     }
     Ok(url)
 }
@@ -1492,10 +1732,6 @@ impl AccountClient {
         plaintext_command: &str,
         timeout: std::time::Duration,
     ) -> Result<String> {
-        // Encrypt for the authenticated target device
-        let sealed = session
-            .encrypt_for_peer(relay_url, target_device_id, plaintext_command)
-            .await?;
         let cell = {
             let mut transports = session.transports.lock().await;
             transports.entry(relay_url.to_string()).or_default().clone()
@@ -1503,13 +1739,14 @@ impl AccountClient {
         let transport = cell
             .get_or_try_init(|| async {
                 let (transport, mut events) = super::relay_client::RelayClient::new_controller();
+                let transport = transport.with_account_session(session);
                 transport.connect(relay_url).await?;
-                transport
-                    .connect_authenticated(&session.token, "Controller")
-                    .await?;
-                let hints = session.hints.clone();
-                let peer_keys = session.peer_keys.clone();
-                let event_session = session.clone();
+                tokio::try_join!(
+                    biased;
+                    transport.connect_authenticated(&session.token, "Controller"),
+                    session.peer_cipher(relay_url, target_device_id),
+                )?;
+                let event_session = session.for_peer_messages();
                 let event_relay = relay_url.to_string();
                 tokio::spawn(async move {
                     while let Some(event) = events.recv().await {
@@ -1519,6 +1756,7 @@ impl AccountClient {
                                 source_device_id,
                                 source_account_id,
                                 correlation_id,
+                                encoding_offer,
                                 encrypted_data,
                                 nonce,
                                 key_id,
@@ -1538,12 +1776,13 @@ impl AccountClient {
                                 };
                                 let source_device_id = peer.key();
                                 let Ok(plaintext) = event_session
-                                    .decrypt_from_peer(
+                                    .decrypt_peer_message(
                                         &event_relay,
                                         &source_device_id,
                                         &encrypted_data,
                                         &nonce,
                                         key_id.as_deref(),
+                                        encoding_offer,
                                     )
                                     .await
                                 else {
@@ -1583,15 +1822,19 @@ impl AccountClient {
                             }
                             RelayEvent::AuthOk { device_id, .. } => {
                                 event_session.adopt_device_id(&device_id);
-                                peer_keys.lock().await.clear();
-                                let _ = hints.send(None);
+                                let _ = event_session.hints.send(None);
                             }
                             RelayEvent::Connected | RelayEvent::Reconnected => {
-                                peer_keys.lock().await.clear();
-                                let _ = hints.send(None);
+                                let _ = event_session.hints.send(None);
                             }
                             RelayEvent::DevicePresence { .. } => {
-                                peer_keys.lock().await.clear();
+                                // Presence is the authoritative invalidation point
+                                // on this transport. Clearing on auth or connect
+                                // would race the speculative key fetch that runs
+                                // next to authentication and force a second lookup
+                                // for every cold RPC; a rotated key still heals
+                                // through the decrypt-refresh path.
+                                event_session.clear_peer_keys().await;
                             }
                             _ => {}
                         }
@@ -1600,23 +1843,31 @@ impl AccountClient {
                 Ok::<_, anyhow::Error>(Arc::new(transport))
             })
             .await?;
-        let (encrypted_data, nonce, key_id) = transport
-            .request_device_with_timeout(
+        // Re-resolve through the cache after authentication: a presence/key
+        // invalidation during setup must win over the speculative key read.
+        let before_send = session.peer_message_guard();
+        let (sealed, uses_zstd) = session
+            .encrypt_peer_request(relay_url, target_device_id, plaintext_command)
+            .await?;
+        let (encrypted_data, nonce, accepts_zstd, reply_key_id) = transport
+            .request_device_message(
                 target_device_id,
                 &sealed.data,
                 &sealed.nonce,
                 sealed.key_id.as_deref(),
                 timeout,
+                true,
+                || before_send(uses_zstd),
             )
             .await?;
-        // Decrypt using the authenticated target device key
         session
-            .decrypt_from_peer(
+            .decrypt_peer_message(
                 relay_url,
                 target_device_id,
                 &encrypted_data,
                 &nonce,
-                key_id.as_deref(),
+                reply_key_id.as_deref(),
+                PeerEncodingOffer::Host(accepts_zstd),
             )
             .await
     }
@@ -1951,6 +2202,158 @@ mod tests {
         server.await.unwrap();
     }
 
+    #[test]
+    fn encoding_offers_are_scoped_to_the_rpc_host_and_event_recipients() {
+        let peer = PeerCipher {
+            public_key: [1; 32],
+            host_accepts: false.into(),
+            event_offers: 0.into(),
+        };
+        assert!(!peer.accepts_events());
+        peer.observe(PeerEncodingOffer::Controller(true));
+        assert!(peer.accepts_events());
+        assert!(!peer.host_accepts.load(Ordering::Relaxed));
+        peer.observe(PeerEncodingOffer::Controller(false));
+        peer.observe(PeerEncodingOffer::Host(true));
+        assert!(peer.host_accepts.load(Ordering::Relaxed));
+        assert!(
+            !peer.accepts_events(),
+            "a legacy controller shares the event room"
+        );
+        peer.observe(PeerEncodingOffer::Host(false));
+        assert!(!peer.host_accepts.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn peer_message_guard_retires_prepared_events_across_session_clones() {
+        let session = AccountSession::new("token".into(), "user".into(), [7; 32]);
+        let before_send = session.peer_message_guard();
+        before_send(true).unwrap();
+        session.for_peer_messages().clear_peer_keys().await;
+        assert!(before_send(true)
+            .unwrap_err()
+            .to_string()
+            .contains("request was not submitted"));
+        before_send(false).unwrap();
+        session.peer_message_guard()(true).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cold_rpc_authenticates_and_fetches_the_peer_key_concurrently() {
+        use futures::{SinkExt, StreamExt};
+        use serde_json::json;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio_tungstenite::{accept_async, tungstenite::Message};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let key_pair = super::super::encryption::KeyPair::generate();
+        let public_key = key_pair.public_key_base64();
+        let message_key = device_crypto::derive_message_key(
+            &[7; 32],
+            &super::super::encryption::parse_public_key(&public_key).unwrap(),
+        )
+        .unwrap();
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let completed = Arc::new(tokio::sync::Notify::new());
+        let server_completed = completed.clone();
+        let server = tokio::spawn(async move {
+            let mut handlers = tokio::task::JoinSet::new();
+            // Exactly one HTTP lookup and one socket serve both RPCs. Holding
+            // auth until the key request arrives proves the setup overlaps.
+            for _ in 0..2 {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let barrier = barrier.clone();
+                let completed = server_completed.clone();
+                let public_key = public_key.clone();
+                handlers.spawn(async move {
+                    let mut peek = [0; 4096];
+                    let length = stream.peek(&mut peek).await.unwrap();
+                    if String::from_utf8_lossy(&peek[..length]).starts_with("GET /api/devices/") {
+                        let mut request = Vec::new();
+                        while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                            let length = stream.read(&mut peek).await.unwrap();
+                            assert!(length > 0);
+                            request.extend_from_slice(&peek[..length]);
+                        }
+                        assert!(String::from_utf8_lossy(&request)
+                            .starts_with("GET /api/devices/peer/key "));
+                        barrier.wait().await;
+                        let body = json!({"device_id":"peer", "public_key":public_key}).to_string();
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(), body,
+                        );
+                        stream.write_all(response.as_bytes()).await.unwrap();
+                        return;
+                    }
+                    let mut socket = accept_async(stream).await.unwrap();
+                    let handshake = json!({
+                        "sid": "fixture",
+                        "upgrades": [],
+                        "pingInterval": 25000,
+                        "pingTimeout": 5000,
+                        "maxPayload": 1000000,
+                    });
+                    socket.send(Message::Text(format!("0{handshake}").into())).await.unwrap();
+                    let auth = socket.next().await.unwrap().unwrap().into_text().unwrap();
+                    let auth: serde_json::Value =
+                        serde_json::from_str(auth.strip_prefix("40").unwrap()).unwrap();
+                    assert_eq!(auth["token"], "fixture");
+                    barrier.wait().await;
+                    socket.send(Message::Text("40{\"sid\":\"fixture\"}".into())).await.unwrap();
+                    let authenticated = json!([
+                        "auth-ok", {"userId":"account", "deviceId":"controller"},
+                    ]);
+                    socket.send(Message::Text(format!("42{authenticated}").into())).await.unwrap();
+                    for index in 0..2 {
+                        let request = socket.next().await.unwrap().unwrap().into_text().unwrap();
+                        let request = request.strip_prefix("42").unwrap();
+                        let event_start = request.find('[').unwrap();
+                        let event: serde_json::Value = serde_json::from_str(&request[event_start..]).unwrap();
+                        assert_eq!(event[0], "rpc-call");
+                        let envelope = &event[1]["params"];
+                        let command = super::super::encryption::decrypt_from_base64(
+                            &message_key,
+                            envelope["encrypted_data"].as_str().unwrap(),
+                            envelope["nonce"].as_str().unwrap(),
+                        ).unwrap();
+                        assert_eq!(command, format!("request-{index}"));
+                        let (data, nonce) = super::super::encryption::encrypt_relay_message(
+                            &message_key,
+                            &format!("reply-{index}"),
+                            true,
+                        ).unwrap();
+                        let reply = json!([{"ok":true, "result": {
+                            "encrypted_data":data, "nonce":nonce, "accept_encoding":"zstd-1",
+                        }}]);
+                        socket.send(Message::Text(format!("43{}{reply}", &request[..event_start]).into()))
+                            .await.unwrap();
+                    }
+                    completed.notified().await;
+                });
+            }
+            while let Some(result) = handlers.join_next().await {
+                result.unwrap();
+            }
+        });
+        let session = AccountSession::new("fixture".into(), "account".into(), [7; 32]);
+        let client = AccountClient::new();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            for index in 0..2 {
+                let reply = client
+                    .device_rpc(&url, &session, "peer", &format!("request-{index}"))
+                    .await
+                    .unwrap();
+                assert_eq!(reply, format!("reply-{index}"));
+            }
+            completed.notify_one();
+            server.await.unwrap();
+        })
+        .await
+        .expect("authentication and the key lookup must progress concurrently");
+    }
+
     #[tokio::test]
     async fn slow_peer_lookup_does_not_block_another_device_or_invalidation() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -2150,7 +2553,7 @@ Connection: close
 
         // A mirrored legacy response stays decryptable while paired.
         let mirrored = session
-            .encrypt_for_peer_variant(&relay_url, "host-1", None, "legacy response")
+            .encrypt_for_peer_variant(&relay_url, "host-1", None, "legacy response", false)
             .await
             .unwrap();
         assert!(mirrored.key_id.is_none());

@@ -18,6 +18,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collect
@@ -265,7 +266,7 @@ class CloudAccountClientTest {
     fun deviceExchangeRegistersOnlyThePublicDeviceKey() = runTest {
         val bodies = mutableListOf<kotlinx.serialization.json.JsonObject>()
         val engine = MockEngine { request ->
-            assertEquals("https://remote.openbitfun.com/v/1.0.2/api/auth/login", request.url.toString())
+            assertEquals("https://remote.openbitfun.com/relay/api/auth/login", request.url.toString())
             bodies += RelayJson.parseToJsonElement(request.text()).jsonObject
             json("""{"token":"token-1","user_id":"123"}""")
         }
@@ -281,6 +282,35 @@ class CloudAccountClientTest {
         // The Relay stores this build on the device row and gates control on it.
         assertEquals(CLIENT_VERSION, bodies[0]["clientVersion"]?.jsonPrimitive?.content)
         assertEquals(CLIENT_PROTOCOL_VERSION, bodies[0]["clientProtocol"]?.jsonPrimitive?.int)
+    }
+
+    /**
+     * The service version rides along as a GET parameter, while the identity a
+     * credential is stored, compared, and joined against stays the bare base.
+     */
+    @Test
+    fun theOfficialEndpointCarriesTheVersionWithoutTakingItIntoAnIdentity() {
+        assertEquals("1.0.10", RELAY_SERVICE_VERSION)
+        assertEquals("https://remote.openbitfun.com/relay", DEFAULT_CLOUD_RELAY_URL)
+        assertEquals("https://remote.openbitfun.com/relay?v=1.0.10", OFFICIAL_CLOUD_RELAY_URL)
+        // One deployment answers on both live paths, so a token or master key
+        // saved by either build keeps working across the change.
+        assertTrue(sameRelayDeployment(DEFAULT_CLOUD_RELAY_URL, OFFICIAL_CLOUD_RELAY_URL))
+        assertTrue(sameRelayDeployment("https://remote.openbitfun.com/v/1.0.2/", DEFAULT_CLOUD_RELAY_URL))
+        assertTrue(sameRelayDeployment("https://remote.openbitfun.com/v/1.0.2", OFFICIAL_CLOUD_RELAY_URL))
+        // Any other versioned path is another deployment, and a value that is not
+        // a plain endpoint is never the same deployment as anything.
+        assertFalse(sameRelayDeployment("https://remote.openbitfun.com/v/1.0.0", DEFAULT_CLOUD_RELAY_URL))
+        assertFalse(sameRelayDeployment("https://remote.openbitfun.com/v/1.0.0", "https://remote.openbitfun.com/v/1.0.2"))
+        assertFalse(sameRelayDeployment("http://remote.openbitfun.com/relay", DEFAULT_CLOUD_RELAY_URL))
+        assertFalse(sameRelayDeployment("https://remote.openbitfun.com/relay?x=1", DEFAULT_CLOUD_RELAY_URL))
+        assertFalse(sameRelayDeployment("https://remote.openbitfun.com/relay?v=1.0.9&x=1", DEFAULT_CLOUD_RELAY_URL))
+        assertFalse(sameRelayDeployment("https://remote.openbitfun.com/relay#/pair?did=d", DEFAULT_CLOUD_RELAY_URL))
+        assertFalse(sameRelayDeployment("https://user@remote.openbitfun.com/relay", DEFAULT_CLOUD_RELAY_URL))
+        assertFalse(sameRelayDeployment(null, DEFAULT_CLOUD_RELAY_URL))
+        // A LAN relay is compared exactly, as it always was.
+        assertTrue(sameRelayDeployment("http://192.168.1.10:9700/", "http://192.168.1.10:9700"))
+        assertFalse(sameRelayDeployment("http://192.168.1.10:9700", "http://192.168.1.11:9700"))
     }
 
     @Test
@@ -382,6 +412,40 @@ class CloudAccountClientTest {
         val response = transport.send<CommandStatusResponse>(RemoteCommand(cmd = "ping"))
 
         assertEquals("ok", response.resp)
+    }
+
+    @Test
+    fun aLargeRequestUsesTheCurrentHostsOfferAndAcceptsMixedReplies() = runTest {
+        val master = ByteArray(32) { 7 }
+        val peer = ByteArray(32) { 11 }
+        val key = DeviceIdentity.messageKey(peer, DeviceIdentity.publicKey(master))
+        val session = CloudAccountSession("token-1", "user-1", master)
+        val command = RemoteCommand(cmd = "execute_on_device", content = "z".repeat(2048))
+        val compressedRequests = mutableListOf<Boolean>()
+        var keyReads = 0
+        val client = rpcClient(DeviceIdentity.publicKey(peer), onKeyRead = { keyReads++ }) { _, params ->
+            val envelope = RelayJson.decodeFromJsonElement(EncryptedPayload.serializer(), params)
+            assertEquals(RelayMessageEncoding.NAME, envelope.acceptEncoding)
+            val plain = CloudAccountCipher.decrypt(Base64.Default.decode(envelope.encryptedData), key, Base64.Default.decode(envelope.nonce))
+            compressedRequests += plain.first() == 0xff.toByte()
+            assertEquals(command, RelayJson.decodeFromString(RemoteCommand.serializer(), RelayMessageEncoding.decode(plain).decodeToString()))
+
+            // The first reply is already entitled to use the offer in this
+            // request. The second emulates a replacement host without a codec.
+            val accepted = compressedRequests.size == 1
+            val text = RelayJson.encodeToString(CommandStatusResponse.serializer(), CommandStatusResponse("ok", command.content))
+            val nonce = DeviceIdentity.randomBytes(12)
+            val sealed = CloudAccountCipher.encrypt(RelayMessageEncoding.encode(text.encodeToByteArray(), accepted), key, nonce)
+            RelayJson.encodeToJsonElement(EncryptedPayload.serializer(), EncryptedPayload(
+                Base64.Default.encode(sealed), Base64.Default.encode(nonce), if (accepted) RelayMessageEncoding.NAME else null,
+            ))
+        }
+        repeat(3) {
+            val result = client.deviceRpc("http://192.168.1.2:9700", session, "desktop", command, CommandStatusResponse.serializer(), 5_000)
+            assertEquals(command.content, result.message)
+        }
+        assertEquals(listOf(false, true, false), compressedRequests)
+        assertEquals(1, keyReads)
     }
 
     /**
@@ -586,7 +650,12 @@ class CloudAccountClientTest {
         override val notifications: Flow<JsonObject>,
         private val reply: suspend (String, JsonElement) -> JsonElement,
     ) : AccountRpcConnection {
-        override suspend fun call(target: String, params: JsonElement, timeoutMs: Long): JsonElement = reply(target, params)
+        override val peerEncodings = MutableStateFlow(emptySet<String>())
+        override suspend fun call(target: String, params: JsonElement, timeoutMs: Long,
+                expectedEncodings: MutableStateFlow<Set<String>>?): JsonElement {
+            assertTrue(expectedEncodings == null || expectedEncodings === peerEncodings)
+            return reply(target, params)
+        }
         override fun close() {}
     }
 

@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AccountPanel } from './AccountPanel';
 import { useUpdateInstallStore } from '@/infrastructure/update/updateInstallStore';
+import { useDeviceOrderPreferences } from '@/app/navigation/deviceOrderPreferences';
+import { useDeviceVisibilityPreferences } from '@/app/navigation/deviceVisibilityPreferences';
 const mocks = vi.hoisted(() => ({
   identity: { resolved: true, status: 'signed-in', me: { user: { id: '42', login: '138****0001', avatarUrl: '' } } } as { resolved: boolean; status: string; me: { user: { id: string; login: string; avatarUrl: string } } | null },
   sendSmsCode: vi.fn(), signInWithCode: vi.fn(), signInWithPassword: vi.fn(),
@@ -44,6 +46,7 @@ vi.mock('@/infrastructure/api/service-api/ApiClient', () => ({
   },
 }));
 vi.mock('@/infrastructure/i18n', () => ({ useI18n: () => ({ t: mocks.t, formatRelativeTime: () => '' }) }));
+vi.mock('@/infrastructure/i18n/hooks/useI18n', () => ({ useI18n: () => ({ t: mocks.t }) }));
 vi.mock('@/infrastructure/peer-device/peerDeviceContextState', () => ({
   usePeerDeviceMode: () => ({
     peerMode: mocks.peerMode,
@@ -70,6 +73,8 @@ let root: Root;
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.resetAllMocks();
+  useDeviceVisibilityPreferences.setState({ hidden: {} });
+  useDeviceOrderPreferences.setState({ order: [] });
   mocks.identity = { resolved: true, status: 'signed-in', me: { user: { id: '42', login: '138****0001', avatarUrl: '' } } };
   mocks.peerMode = { active: false };
   mocks.getDeviceInfo.mockResolvedValueOnce({ device_id: 'local', device_name: 'My computer' })
@@ -105,6 +110,41 @@ it('keeps initialization alive when the local device ID arrives', async () => {
   expect(container.textContent).toContain('My computer');
   expect(container.textContent).not.toContain('accountLogin.loadingDevices');
   expect(mocks.accountListDevices).toHaveBeenCalledTimes(1);
+});
+
+it('shares sidebar visibility with the preview card, including offline devices, without switching hosts', async () => {
+  mocks.accountListDevices.mockResolvedValue([
+    { device_id: 'local', device_name: 'My computer', online: true },
+    { device_id: 'peer-a', device_name: 'Offline host', online: false },
+  ]);
+  // This is the same preference written by the preview card's eye button.
+  useDeviceVisibilityPreferences.getState().setVisible('peer-a', false);
+  await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+  const row = Array.from(container.querySelectorAll('.account-panel__device-card'))
+    .find(element => element.textContent?.includes('Offline host'))!;
+  const toggle = row.querySelector<HTMLButtonElement>('[aria-label^="nav.devices.showInSidebar"]')!;
+  expect(toggle).not.toBeNull();
+  expect(toggle.disabled).toBe(false);
+  await act(async () => toggle.click());
+  expect(useDeviceVisibilityPreferences.getState().hidden['peer-a']).toBe(false);
+  expect(row.querySelector('[aria-label^="nav.devices.hideInSidebar"]')).not.toBeNull();
+  await act(async () => useDeviceVisibilityPreferences.getState().setVisible('peer-a', false));
+  expect(row.querySelector('[aria-label^="nav.devices.showInSidebar"]')).not.toBeNull();
+  expect(mocks.switchToDevice).not.toHaveBeenCalled();
+  expect(mocks.switchToLocal).not.toHaveBeenCalled();
+});
+
+it('waits for local identity before saving a visibility choice under the canonical local key', async () => {
+  let resolveIdentity!: (device: { device_id: string; device_name: string }) => void;
+  mocks.getDeviceInfo.mockReset().mockReturnValue(new Promise(resolve => { resolveIdentity = resolve; }));
+  mocks.accountListDevices.mockResolvedValue([{ device_id: 'actual-local-id', device_name: 'My computer', online: true }]);
+  await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+  const toggle = container.querySelector<HTMLButtonElement>('[aria-label^="nav.devices.hideInSidebar"]')!;
+  expect(toggle.disabled).toBe(true);
+  await act(async () => resolveIdentity({ device_id: 'actual-local-id', device_name: 'My computer' }));
+  expect(toggle.disabled).toBe(false);
+  await act(async () => toggle.click());
+  expect(useDeviceVisibilityPreferences.getState().hidden).toEqual({ local: true });
 });
 
 it('loads the device snapshot and retains it across a normal rerender', async () => {
@@ -235,9 +275,9 @@ it('adopts the account-bound local device ID without reconnecting', async () => 
   mocks.getDeviceInfo.mockReset().mockResolvedValueOnce({ device_id: 'before-auth' })
     .mockReturnValueOnce(new Promise(resolve => { finishInfo = resolve; }));
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
-  expect(container.textContent).not.toContain('accountLogin.thisDevice');
+  expect(container.querySelector('[aria-label="accountLogin.thisDevice"]')).toBeNull();
   await act(async () => { finishInfo({ device_id: 'local' }); });
-  expect(container.textContent).toContain('accountLogin.thisDevice');
+  expect(container.querySelector('[aria-label="accountLogin.thisDevice"]')).not.toBeNull();
   expect(mocks.accountConnectDevices).toHaveBeenCalledTimes(1);
   expect(mocks.accountStatus).toHaveBeenCalledTimes(1);
 });
@@ -276,9 +316,9 @@ it('ignores pre-auth device information that arrives after the adopted ID', asyn
     .mockReturnValueOnce(new Promise(resolve => { finishOldInfo = resolve; }))
     .mockResolvedValueOnce({ device_id: 'local' });
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
-  expect(container.textContent).toContain('accountLogin.thisDevice');
+  expect(container.querySelector('[aria-label="accountLogin.thisDevice"]')).not.toBeNull();
   await act(async () => { finishOldInfo({ device_id: 'before-auth' }); });
-  expect(container.textContent).toContain('accountLogin.thisDevice');
+  expect(container.querySelector('[aria-label="accountLogin.thisDevice"]')).not.toBeNull();
   expect(mocks.accountConnectDevices).toHaveBeenCalledTimes(1);
 });
 
@@ -574,19 +614,34 @@ it('keeps an incompatible device listed with a reason and never targets it', asy
   expect(container.querySelectorAll('button[aria-label="accountLogin.editDeviceAlias"]').length).toBe(2);
 });
 
-it('still allows switching to a device whose compatibility flag is absent', async () => {
+it.each([false, true])('keeps device rows non-interactive while peer mode is %s', async active => {
+  mocks.peerMode = { active };
   mocks.accountConnectDevices.mockResolvedValue([]);
   mocks.getDeviceInfo.mockReset().mockResolvedValue({ device_id: 'local' });
-  mocks.switchToDevice.mockResolvedValue('activated');
   mocks.accountListDevices.mockResolvedValue([
     { device_id: 'local', device_name: 'My computer', online: true },
     { device_id: 'peer', device_name: 'Peer build', online: true },
+    { device_id: 'offline', device_name: 'Offline host', online: false },
   ]);
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
-  const peer = container.querySelector<HTMLButtonElement>('button[aria-label^="accountLogin.openDevice"]');
-  expect(peer).not.toBeNull();
-  await act(async () => { peer!.click(); });
-  expect(mocks.switchToDevice).toHaveBeenCalledWith('peer', 'Peer build');
+  const summaries = container.querySelectorAll<HTMLElement>('.account-panel__device-summary');
+  expect(summaries).toHaveLength(3);
+  for (const summary of summaries) {
+    expect(summary.tagName).toBe('DIV');
+    expect(summary.tabIndex).toBe(-1);
+    expect(summary.getAttribute('role')).toBeNull();
+    await act(async () => {
+      summary.click();
+      summary.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      summary.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    });
+  }
+  expect(container.querySelector('button[aria-label="accountLogin.openDevice"]')).toBeNull();
+  expect(container.querySelector('.account-panel__device-chevron')).toBeNull();
+  expect(mocks.switchToDevice).not.toHaveBeenCalled();
+  expect(mocks.switchToLocal).not.toHaveBeenCalled();
+  expect(useDeviceVisibilityPreferences.getState().hidden).toEqual({});
+  expect(container.querySelectorAll('[aria-label^="nav.devices.hideInSidebar"]')).toHaveLength(3);
 });
 
 it('groups the account and its devices into titled sections with fixed row columns', async () => {
@@ -605,9 +660,9 @@ it('groups the account and its devices into titled sections with fixed row colum
   for (const row of container.querySelectorAll('[data-openbitfun-part="deviceCard"]')) {
     const children = Array.from(row.children).map(node => node.className);
     expect(children).toEqual([
-      'account-panel__device-select',
+      'account-panel__device-drag-handle',
+      'account-panel__device-summary',
       'account-panel__device-actions',
-      'account-panel__device-chevron',
     ]);
   }
 });
@@ -618,4 +673,48 @@ it('shows the sign-in action inside the account section when signed out', async 
   await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
   expect(container.querySelector('.account-panel__section-title')?.textContent).toBe('accountLogin.accountSectionTitle');
   expect(container.querySelector('[data-openbitfun-part="form"]')?.textContent).toContain('accountLogin.login');
+});
+
+function deviceOrderInPanel() {
+  return Array.from(container.querySelectorAll<HTMLElement>('[data-device-id]')).map(row => row.dataset.deviceId);
+}
+
+function dispatchDeviceDrag(element: Element, type: string, clientY = 0) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperties(event, { clientY: { value: clientY }, dataTransfer: {
+    value: { effectAllowed: '', dropEffect: '', setData: vi.fn() },
+  } });
+  element.dispatchEvent(event);
+}
+
+it('commits a drag only on drop without row activation, key bindings or helper tooltips', async () => {
+  mocks.accountListDevices.mockResolvedValue([
+    { device_id: 'local', device_name: 'My computer', online: true },
+    { device_id: 'peer', device_name: 'Peer', online: true },
+    { device_id: 'offline', device_name: 'Offline', online: false },
+  ]);
+  await act(async () => { root.render(<AccountPanel onCloseDialog={() => {}} />); });
+  const row = (id: string) => container.querySelector<HTMLElement>(`[data-device-id="${id}"]`)!;
+  vi.spyOn(row('local'), 'getBoundingClientRect').mockReturnValue({ top: 20, height: 60 } as DOMRect);
+  act(() => dispatchDeviceDrag(row('offline'), 'dragstart'));
+  act(() => dispatchDeviceDrag(row('local'), 'dragover', 21));
+  expect(row('local').dataset.dropPosition).toBe('before');
+  expect(deviceOrderInPanel()).toEqual(['local', 'peer', 'offline']);
+  expect(useDeviceOrderPreferences.getState().order).toEqual([]);
+  act(() => dispatchDeviceDrag(row('local'), 'drop', 21));
+  expect(deviceOrderInPanel()).toEqual(['offline', 'local', 'peer']);
+  expect(useDeviceOrderPreferences.getState().order).toEqual(['offline', 'local', 'peer']);
+  const handle = row('offline').querySelector<HTMLElement>('.account-panel__device-drag-handle')!;
+  expect(handle.tagName).toBe('SPAN');
+  expect(handle.hasAttribute('title')).toBe(false);
+  act(() => handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+  expect(deviceOrderInPanel()).toEqual(['offline', 'local', 'peer']);
+  act(() => dispatchDeviceDrag(row('offline'), 'dragstart'));
+  act(() => dispatchDeviceDrag(row('peer'), 'dragover', 100));
+  act(() => dispatchDeviceDrag(row('offline'), 'dragend'));
+  expect(deviceOrderInPanel()).toEqual(['offline', 'local', 'peer']);
+  expect(container.querySelector('[data-drop-position]')).toBeNull();
+  expect(mocks.switchToDevice).not.toHaveBeenCalled();
+  expect(mocks.switchToLocal).not.toHaveBeenCalled();
+  expect(mocks.accountUpdateDevice).not.toHaveBeenCalled();
 });

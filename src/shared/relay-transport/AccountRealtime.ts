@@ -3,6 +3,7 @@ import { CLIENT_PROTOCOL_VERSION, CLIENT_VERSION } from './ClientBuild';
 /** Shared account connection. Protocol reference: Happy apiSocket/RpcHandlerManager. */
 import { io, type Socket } from 'socket.io-client';
 import { RpcPayload } from './RpcPayload';
+import { relayEndpointBase } from './RelayEndpoint';
 
 /** Encrypted `DeviceEvent` forwarded by the Relay from another account device.
  * The Relay sees only ciphertext; the owner decrypts with the pairwise key.
@@ -12,6 +13,7 @@ export interface DeviceEventEnvelope {
   encrypted_data: string;
   nonce: string;
   key_id?: string;
+  accept_encoding?: string;
 }
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected' | 'closed';
 export interface RealtimeOptions {
@@ -35,10 +37,9 @@ export class AccountRealtime {
 
   constructor(options: RealtimeOptions) {
     this.payloads = new RpcPayload(options.url, options.token);
-    const url = new URL(options.url);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
-      throw new Error('Invalid Relay URL');
-    }
+    const base = relayEndpointBase(options.url);
+    if (!base) throw new Error('Invalid Relay URL');
+    const url = new URL(base);
     const path = `${url.pathname.replace(/\/$/, '')}/v1/updates`;
     this.socket = io(url.origin, {
       path, transports: ['websocket'], forceNew: true, autoConnect: false,
@@ -98,7 +99,7 @@ export class AccountRealtime {
     this.deviceEvents.add(listener);
     return () => { this.deviceEvents.delete(listener); };
   }
-  private async ready(): Promise<void> {
+  async ready(): Promise<void> {
     if (this.closed) throw new Error('Relay is closed');
     if (this.socket.connected && this.status === 'connected') return;
     await new Promise<void>((resolve, reject) => {
@@ -114,13 +115,17 @@ export class AccountRealtime {
       listener(this.status);
     });
   }
-  async call<T>(deviceId: string, encryptedParams: unknown, options: { timeoutMs?: number; beforeSend?: () => void } = {}): Promise<T> {
+  async call<T>(deviceId: string, encryptedParams: unknown, options: { timeoutMs?: number; beforeSend?: () => void; beforeSubmit?: () => void } = {}): Promise<T> {
     if (this.closed) throw new Error('Relay is closed; request was not submitted');
       await this.ready();
       options.beforeSend?.();
+      // Prepared bytes depend on the pre-encryption capability generation.
+      // This guard applies only before submission, never to a settled reply.
+      options.beforeSubmit?.();
       const epoch = this.epoch;
       const params = await this.payloads.uploadIfLarge(encryptedParams);
       options.beforeSend?.();
+      options.beforeSubmit?.();
       if (this.closed || this.epoch !== epoch || this.status !== 'connected') {
         throw new Error('Relay connection changed; request was not submitted');
       }
@@ -148,9 +153,11 @@ export class AccountRealtime {
 }
 
 function parseDeviceEvent(value: object): DeviceEventEnvelope | null {
-  const event = value as { sourceDeviceId?: unknown; params?: { encrypted_data?: unknown; nonce?: unknown; key_id?: unknown } };
+  const event = value as { sourceDeviceId?: unknown; params?: { encrypted_data?: unknown; nonce?: unknown; key_id?: unknown; accept_encoding?: unknown } };
   if (typeof event.sourceDeviceId !== 'string' || !event.params || typeof event.params !== 'object'
     || typeof event.params.encrypted_data !== 'string' || typeof event.params.nonce !== 'string') return null;
   const keyId = typeof event.params.key_id === 'string' ? event.params.key_id : undefined;
-  return { sourceDeviceId: event.sourceDeviceId, encrypted_data: event.params.encrypted_data, nonce: event.params.nonce, ...(keyId ? { key_id: keyId } : {}) };
+  return { sourceDeviceId: event.sourceDeviceId, encrypted_data: event.params.encrypted_data, nonce: event.params.nonce,
+    accept_encoding: typeof event.params.accept_encoding === 'string' ? event.params.accept_encoding : undefined,
+    ...(keyId ? { key_id: keyId } : {}) };
 }

@@ -296,19 +296,29 @@ public class AccountStore internal constructor(
                 )
                 return@launch
             }
-            if (restored.relayUrl != selectedRelayUrl) {
-                // Relay tokens belong to their issuing database. Keep the old
-                // encrypted record/cache, but require a fresh login before any
-                // byte of it is sent anywhere: the session stays expired until
-                // the user signs in against the configured relay.
+            val storedRelay = restored.relayUrl.trimEnd('/')
+            val currentRelay = selectedRelayUrl
+            // Relay tokens belong to their issuing database. Live aliases of one
+            // deployment share that database, so a credential saved against
+            // either keeps working; any other endpoint means a relay this build
+            // must sign in against again.
+            if (!com.openbitfun.mobile.core.transport.sameRelayDeployment(storedRelay, currentRelay)) {
+                // Keep the old encrypted record/cache, but require a fresh login
+                // before any byte of it is sent anywhere: the session stays
+                // expired until the user signs in against the configured relay.
                 expireSession(AccountFailureReason.AUTHENTICATION, AccountFailureStage.AUTHENTICATION)
                 return@launch
             }
-            session = restored
+            // Store today's endpoint identity: a session saved against a live
+            // alias is normalized onto the selected base, so the query can never
+            // reach a path.
+            val current = restored.copy(relayUrl = currentRelay)
+            session = current
+            selectedRelayUrl = current.relayUrl
             // Local credential restoration and remote directory availability are
             // separate facts. Publish identity before any network wait, but grant
             // no target authority until an authenticated membership snapshot arrives.
-            publishReady(restored, emptyList(), selectionConfirmed = false)
+            publishReady(current, emptyList(), selectionConfirmed = false)
             refreshDevices()
         }
     }

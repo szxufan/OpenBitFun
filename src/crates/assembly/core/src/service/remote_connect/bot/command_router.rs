@@ -336,31 +336,20 @@ fn model_selection_view(
     let mut items = Vec::new();
     let mut body = String::new();
 
-    // Option 1: configured primary model.
-    let primary_is_current = current_model_id
+    // An empty or absent selection follows the primary model.
+    let current = current_model_id
         .as_deref()
-        .map(|m| m.is_empty() || m == "primary")
-        .unwrap_or(true);
-    let primary_marker = if primary_is_current {
-        s.current_marker
-    } else {
-        ""
-    };
-    body.push_str(&format!(
-        "1. {}{}\n",
-        s.switch_model_primary, primary_marker
-    ));
-    items.push(MenuItem::default(s.switch_model_primary, "primary"));
-
-    // Remaining options: each enabled model.
-    for (i, (model_id, model_name)) in options.iter().enumerate() {
-        let is_current = current_model_id
-            .as_deref()
-            .is_some_and(|m| m == model_id.as_str());
-        let marker = if is_current { s.current_marker } else { "" };
-        body.push_str(&format!("{}. {}{}\n", i + 2, model_name, marker));
+        .filter(|m| !m.is_empty())
+        .unwrap_or("primary");
+    for (i, (model_id, label)) in options.iter().enumerate() {
+        let marker = if current == model_id.as_str() {
+            s.current_marker
+        } else {
+            ""
+        };
+        body.push_str(&format!("{}. {}{}\n", i + 1, label, marker));
         items.push(MenuItem::default(
-            truncate_label(model_name, 24),
+            truncate_label(label, 24),
             model_id.clone(),
         ));
     }
@@ -370,6 +359,62 @@ fn model_selection_view(
         .with_numbered_body(body.trim_end().to_string())
         .with_items(items)
         .with_footer(s.footer_reply_model)
+}
+
+fn model_display_name(
+    model: &crate::service::remote_connect::remote_server::RemoteModelConfig,
+) -> String {
+    format!("{} · {}", model.model_name, model.name)
+}
+
+/// Labels a `primary`/`fast` alias with the configured model it resolves to,
+/// so a chat user sees which model the alias actually runs.
+fn model_alias_label(
+    alias: &str,
+    target: Option<&crate::service::remote_connect::remote_server::RemoteModelConfig>,
+    s: &'static BotStrings,
+) -> String {
+    let model = target
+        .map(model_display_name)
+        .unwrap_or_else(|| s.switch_model_not_configured.to_string());
+    s.switch_model_alias_template
+        .replace("{alias}", alias)
+        .replace("{model}", &model)
+}
+
+/// Menu entries for a catalog: the primary alias, the fast alias when it is
+/// configured, then every enabled model.
+fn model_selection_options(
+    catalog: &crate::service::remote_connect::remote_server::RemoteModelCatalog,
+    s: &'static BotStrings,
+) -> Vec<(String, String)> {
+    let resolve = |id: &Option<String>| {
+        id.as_deref()
+            .filter(|id| !id.is_empty())
+            .and_then(|id| catalog.models.iter().find(|m| m.id == id))
+    };
+    let mut options = vec![(
+        "primary".to_string(),
+        model_alias_label(
+            s.switch_model_primary,
+            resolve(&catalog.default_models.primary),
+            s,
+        ),
+    )];
+    if let Some(fast) = resolve(&catalog.default_models.fast) {
+        options.push((
+            "fast".to_string(),
+            model_alias_label(s.switch_model_fast, Some(fast), s),
+        ));
+    }
+    options.extend(
+        catalog
+            .models
+            .iter()
+            .filter(|m| m.enabled)
+            .map(|m| (m.id.clone(), model_display_name(m))),
+    );
+    options
 }
 
 async fn start_switch_model(state: &mut BotChatState, s: &'static BotStrings) -> HandleResult {
@@ -406,15 +451,7 @@ async fn start_switch_model(state: &mut BotChatState, s: &'static BotStrings) ->
         }
     };
 
-    // Collect enabled models as (id, "name · provider") for the selection list.
-    let options: Vec<(String, String)> = catalog
-        .models
-        .iter()
-        .filter(|m| m.enabled)
-        .map(|m| (m.id.clone(), format!("{} · {}", m.model_name, m.name)))
-        .collect();
-
-    if options.is_empty() {
+    if !catalog.models.iter().any(|m| m.enabled) {
         return result_from_menu(
             state,
             MenuView::plain(s.switch_model_no_models)
@@ -422,8 +459,13 @@ async fn start_switch_model(state: &mut BotChatState, s: &'static BotStrings) ->
         );
     }
 
-    let view = model_selection_view(&catalog.session_model_id, &options, s);
-    state.set_pending(PendingAction::SelectModel { options });
+    let options = model_selection_options(&catalog, s);
+    let current_model_id = catalog.session_model_id;
+    let view = model_selection_view(&current_model_id, &options, s);
+    state.set_pending(PendingAction::SelectModel {
+        options,
+        current_model_id,
+    });
     result_from_menu(state, view)
 }
 
@@ -601,7 +643,7 @@ pub async fn complete_im_bot_pairing(state: &mut BotChatState) -> HandleResult {
 
     // If the desktop is logged into an account, inject the delegated
     // identity + relay_url so the bot can use /devices and remote RPC.
-    if state.relay_url.is_none() || state.delegated_token.is_none() {
+    if state.relay_url.is_none() || !state.has_delegated_identity() {
         if let Some((relay_url, token, master_key)) = try_get_delegated_identity().await {
             state.relay_url = Some(relay_url);
             state.set_delegated_identity(token, master_key);
@@ -876,31 +918,6 @@ fn devices_unavailable_view(s: &'static BotStrings) -> MenuView {
         .with_items(vec![MenuItem::default(s.item_back, "/menu")])
 }
 
-/// Build a temporary `AccountSession` from the delegated identity so the
-/// existing `AccountClient` methods (list_devices / device_rpc) can be reused
-/// without duplicating the relay/encryption envelope.
-fn delegated_session(
-    state: &BotChatState,
-) -> Option<crate::service::remote_connect::AccountSession> {
-    use crate::service::remote_connect::account::MASTER_KEY_LEN;
-    let token = state.delegated_token.clone()?;
-    let key_vec = state.delegated_master_key.clone()?;
-    if key_vec.len() != MASTER_KEY_LEN {
-        log::warn!(
-            "delegated master key has wrong length {} (expected {MASTER_KEY_LEN})",
-            key_vec.len()
-        );
-        return None;
-    }
-    let mut master_key = [0u8; 32];
-    master_key.copy_from_slice(&key_vec);
-    Some(crate::service::remote_connect::AccountSession::new(
-        token,
-        String::new(),
-        master_key,
-    ))
-}
-
 async fn list_devices(state: &mut BotChatState, s: &'static BotStrings) -> HandleResult {
     // Lazy-inject delegated identity if not yet set (e.g. after restart restore).
     if state.relay_url.is_none() {
@@ -912,12 +929,12 @@ async fn list_devices(state: &mut BotChatState, s: &'static BotStrings) -> Handl
     let Some(relay_url) = state.relay_url.clone() else {
         return result_from_menu(state, devices_unavailable_view(s));
     };
-    let Some(session) = delegated_session(state) else {
+    let Some(session) = state.delegated_account.as_ref() else {
         return result_from_menu(state, devices_unavailable_view(s));
     };
 
     let client = crate::service::remote_connect::AccountClient::new();
-    let devices = match client.list_devices(&relay_url, &session).await {
+    let devices = match client.list_devices(&relay_url, session).await {
         Ok(d) => d,
         Err(e) => {
             error!("Bot list_devices failed: {e}");
@@ -1022,10 +1039,13 @@ async fn exec_remote_rpc(state: &BotChatState, command_json: &str) -> Result<Str
         .as_ref()
         .ok_or("no active remote device")?;
     let relay_url = state.relay_url.as_ref().ok_or("no relay_url")?;
-    let session = delegated_session(state).ok_or("no delegated identity")?;
+    let session = state
+        .delegated_account
+        .as_ref()
+        .ok_or("no delegated identity")?;
     let client = crate::service::remote_connect::AccountClient::new();
     client
-        .device_rpc(relay_url, &session, &device.device_id, command_json)
+        .device_rpc(relay_url, session, &device.device_id, command_json)
         .await
         .map_err(|e| format!("{e}"))
 }
@@ -2917,24 +2937,26 @@ async fn route_pending(
             )
             .await
         }
-        PendingAction::SelectModel { options } => {
+        PendingAction::SelectModel {
+            options,
+            current_model_id,
+        } => {
             let parsed: Option<usize> = raw_input.parse().ok();
             match parsed {
                 Some(0) => {
                     state.clear_pending();
                     menu_or_welcome(state, s)
                 }
-                Some(1) => {
+                Some(n) if n >= 1 && n <= options.len() => {
                     state.clear_pending();
-                    select_model(state, "primary", s.switch_model_primary, s).await
-                }
-                Some(n) if n >= 2 && n <= options.len() + 1 => {
-                    state.clear_pending();
-                    let (model_id, model_name) = options[n - 2].clone();
+                    let (model_id, model_name) = options[n - 1].clone();
                     select_model(state, &model_id, &model_name, s).await
                 }
                 _ => {
-                    state.set_pending(PendingAction::SelectModel { options });
+                    state.set_pending(PendingAction::SelectModel {
+                        options,
+                        current_model_id,
+                    });
                     Box::pin(pending_invalid(state, s)).await
                 }
             }
@@ -3043,7 +3065,10 @@ async fn pending_invalid(state: &mut BotChatState, s: &'static BotStrings) -> Ha
             awaiting_custom_text,
             ..
         } => build_question_view(s, questions, *current_index, *awaiting_custom_text),
-        PendingAction::SelectModel { options } => model_selection_view(&None, options, s),
+        PendingAction::SelectModel {
+            options,
+            current_model_id,
+        } => model_selection_view(current_model_id, options, s),
         PendingAction::ConfirmModeSwitch { target_mode, .. } => {
             confirm_mode_switch_view(*target_mode, s)
         }
@@ -3436,7 +3461,7 @@ async fn handle_chat(
             Some(id) => id,
             None => return result_from_menu(state, need_session_view(state, s)),
         };
-        let Some(account) = delegated_session(state) else {
+        let Some(account) = state.delegated_account.clone() else {
             return result_from_menu(state, devices_unavailable_view(s));
         };
         let Some(relay_url) = state.relay_url.clone() else {
@@ -5352,7 +5377,7 @@ mod remote_device_flow_tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    type Responder = Arc<dyn Fn(&Value) -> Value + Send + Sync>;
+    type Responder = Arc<dyn Fn(&Value, usize) -> Value + Send + Sync>;
 
     /// Loopback relay that answers encrypted device RPCs for `device-a` with
     /// `respond`, recording every decrypted command.
@@ -5452,10 +5477,15 @@ mod remote_device_flow_tests {
                         .unwrap();
                         let command: Value = serde_json::from_str(&plaintext).unwrap();
                         observed.lock().unwrap().push(command.clone());
-                        let response = respond(&command);
-                        let (encrypted_data, nonce) =
-                            encryption::encrypt_to_base64(&key, &response.to_string()).unwrap();
-                        let response = serde_json::json!([{"ok":true,"result":{"encrypted_data":encrypted_data,"nonce":nonce}}]);
+                        let response =
+                            respond(&command, envelope["encrypted_data"].as_str().unwrap().len());
+                        let (encrypted_data, nonce) = encryption::encrypt_relay_message(
+                            &key,
+                            &response.to_string(),
+                            envelope["accept_encoding"] == "zstd-1",
+                        )
+                        .unwrap();
+                        let response = serde_json::json!([{"ok":true,"result":{"encrypted_data":encrypted_data,"nonce":nonce,"accept_encoding":"zstd-1"}}]);
                         ws.send(Message::Text(format!("43{ack_id}{response}").into()))
                             .await
                             .unwrap();
@@ -5486,8 +5516,8 @@ mod remote_device_flow_tests {
         ]})
     }
 
-    fn device_responder() -> Responder {
-        Arc::new(|command: &Value| match command["cmd"].as_str().unwrap() {
+    fn device_response(command: &Value, _: usize) -> Value {
+        match command["cmd"].as_str().unwrap() {
             "get_model_catalog" => {
                 assert_eq!(command["session_id"], "remote-session");
                 serde_json::json!({"resp":"model_catalog","catalog":{
@@ -5512,15 +5542,44 @@ mod remote_device_flow_tests {
                     {"id":"a1","role":"assistant","content":"hi there","timestamp":"0","metadata":null}
                 ]})
             }
-            "create_session" => serde_json::json!({"resp":"session_created","session_id":"s-new",
-                "workspace_id":"ws-claw","workspace_path":"/home/a/claw"}),
+            "create_session" => {
+                serde_json::json!({"resp":"session_created","session_id":"s-new",
+                "workspace_id":"ws-claw","workspace_path":"/home/a/claw"})
+            }
             other => panic!("Unexpected command: {other}"),
-        })
+        }
+    }
+
+    #[tokio::test]
+    async fn consecutive_bot_commands_reuse_the_negotiated_relay_encoding() {
+        let (url, key, _) =
+            spawn_device_fixture(Arc::new(|_, wire_bytes| serde_json::json!(wire_bytes))).await;
+        let state = remote_state(url, key, BotDisplayMode::Assistant);
+        let command =
+            serde_json::json!({"cmd":"send_message","content":"x".repeat(4096)}).to_string();
+        let first: usize = exec_remote_rpc(&state, &command)
+            .await
+            .unwrap()
+            .parse()
+            .unwrap();
+        let next: usize = exec_remote_rpc(&state, &command)
+            .await
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            first > command.len(),
+            "unknown host gets legacy JSON plus base64"
+        );
+        assert!(
+            next < command.len(),
+            "the bot should keep the host's encoding offer"
+        );
     }
 
     #[tokio::test]
     async fn remote_model_switch_reads_and_updates_the_device_session() {
-        let (relay_url, secret, calls) = spawn_device_fixture(device_responder()).await;
+        let (relay_url, secret, calls) = spawn_device_fixture(Arc::new(device_response)).await;
         let s = strings_for(BotLanguage::EnUS);
         let mut state = remote_state(relay_url, secret, BotDisplayMode::Assistant);
         state.current_session_id = Some("remote-session".into());
@@ -5529,12 +5588,19 @@ mod remote_device_flow_tests {
         let text = result.menu.render_plain_text(BotLanguage::EnUS);
         assert!(text.contains("alpha · Provider A"), "{text}");
         assert!(!text.contains("off · Provider B"), "{text}");
-        let Some(PendingAction::SelectModel { options }) = state.pending_action.clone() else {
+        assert!(
+            text.contains("1. Primary model (alpha · Provider A)"),
+            "the primary alias names the model it runs: {text}"
+        );
+        assert!(
+            !text.contains("Fast model"),
+            "unconfigured fast is hidden: {text}"
+        );
+        let Some(pending @ PendingAction::SelectModel { .. }) = state.pending_action.clone() else {
             panic!("expected a model selection");
         };
 
-        let result =
-            route_pending(&mut state, PendingAction::SelectModel { options }, "2", s).await;
+        let result = route_pending(&mut state, pending, "2", s).await;
         assert!(
             result.reply.contains(s.switch_model_applied_prefix),
             "{}",
@@ -5551,9 +5617,65 @@ mod remote_device_flow_tests {
         assert!(update.get("reasoning_preset").is_none(), "{update}");
     }
 
+    fn catalog_with_defaults(
+        primary: Option<&str>,
+        fast: Option<&str>,
+        session_model_id: Option<&str>,
+    ) -> crate::service::remote_connect::remote_server::RemoteModelCatalog {
+        serde_json::from_value(serde_json::json!({
+            "version":1,
+            "models":[
+                {"id":"m-a","name":"Provider A","provider":"openai","base_url":"https://a","model_name":"alpha","enabled":true,"capabilities":["text_chat"]},
+                {"id":"m-b","name":"Provider B","provider":"openai","base_url":"https://b","model_name":"beta","enabled":true,"capabilities":["text_chat"]}
+            ],
+            "default_models":{"primary":primary,"fast":fast,"search":null,"image_understanding":null,"image_generation":null,"speech_recognition":null},
+            "session_model_id":session_model_id
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn model_menu_names_the_models_behind_primary_and_fast() {
+        let s = strings_for(BotLanguage::ZhCN);
+        let catalog = catalog_with_defaults(Some("m-a"), Some("m-b"), Some("fast"));
+        let options = model_selection_options(&catalog, s);
+        let view = model_selection_view(&catalog.session_model_id, &options, s);
+        let text = view.render_plain_text(BotLanguage::ZhCN);
+        assert!(
+            text.contains("1. 主力模型（alpha · Provider A）\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "2. 快速模型（beta · Provider B）{}",
+                s.current_marker
+            )),
+            "{text}"
+        );
+        assert!(text.contains("3. alpha · Provider A\n"), "{text}");
+        assert_eq!(options[1].0, "fast");
+    }
+
+    #[test]
+    fn model_menu_flags_an_unconfigured_primary_model() {
+        let s = strings_for(BotLanguage::EnUS);
+        let catalog = catalog_with_defaults(None, None, None);
+        let options = model_selection_options(&catalog, s);
+        let text = model_selection_view(&catalog.session_model_id, &options, s)
+            .render_plain_text(BotLanguage::EnUS);
+        assert!(
+            text.contains(&format!(
+                "1. Primary model (not configured){}",
+                s.current_marker
+            )),
+            "{text}"
+        );
+        assert_eq!(options.len(), 3, "no fast entry without a fast model");
+    }
+
     #[tokio::test]
     async fn remote_assistant_mode_selects_resumes_and_creates_in_device_assistants() {
-        let (relay_url, secret, calls) = spawn_device_fixture(device_responder()).await;
+        let (relay_url, secret, calls) = spawn_device_fixture(Arc::new(device_response)).await;
         let s = strings_for(BotLanguage::EnUS);
         let mut state = remote_state(relay_url, secret, BotDisplayMode::Assistant);
 

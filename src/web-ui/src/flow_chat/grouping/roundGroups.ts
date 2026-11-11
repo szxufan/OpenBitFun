@@ -1,23 +1,39 @@
 import type { FlowItem, FlowTextItem, FlowToolItem, ModelRound, ModelRoundAttempt } from '../types/flow-chat';
 import type { VirtualItem } from '../types/flow-chat-projection';
-import { canvasArtifactReferenceFromToolItem } from '../utils/canvasArtifactPresentation';
 import { isFlowItemVisible } from '../utils/flowItemVisibility';
 import { canContinueFlowGroup, classifyFlowGroupItem, flowGroupPolicies, joinedFlowGroupCategory, meetsFlowGroupThreshold, type FlowGroupPolicyOptions } from './policies';
 import { isFlowGroupMemberActive } from './lifecycle';
 import { isShellActivity } from './activityClassification';
 import { parseDeepResearchContent } from '../deep-research/deepResearchProtocol';
-import type { ExploreGroupData, FlowGroupCategory, FlowGroupData, GroupedFlowItems, ModelRoundItemGroup } from './types';
+import { getFlowGroupStateIds, isFlowGroupExpanded, type ExploreGroupData, type FlowGroupCategory, type FlowGroupData, type GroupedFlowItems, type ModelRoundItemGroup } from './types';
 
 export type { ModelRoundItemGroup } from './types';
-export { getFlowGroupStateIds, isFlowGroupExpanded } from './types';
-export { getFlowGroupStateIds as getExploreGroupStateIds, isFlowGroupExpanded as isExploreGroupExpanded } from './types';
+export { getFlowGroupStateIds, isFlowGroupExpanded };
+export { getFlowGroupStateIds as getExploreGroupStateIds, isFlowGroupExpanded as isExploreGroupExpanded };
 
 /** Match the visible attempt rather than collecting failed retry history. */
 export function getModelRoundActiveItems(round: Pick<ModelRound, 'items' | 'attempts'>): FlowItem[] {
   const activeAttempt = round.attempts?.reduce<ModelRoundAttempt | undefined>((latest, attempt) => (
     !attempt.diagnostic && (!latest || attempt.index >= latest.index) ? attempt : latest
   ), undefined);
-  return activeAttempt?.items ?? (round.attempts?.length ? [] : round.items ?? []);
+  if (!activeAttempt) return round.attempts?.length ? [] : round.items ?? [];
+
+  // A provider retry may complete a tool call just before the Runtime emits
+  // the attempt diagnostic. The retry item then remains attached to the
+  // superseded attempt even though it is the only successful GenUI result.
+  // Keep successful GenUI tools in the visible projection so the generated
+  // application is not lost when the retry history is collapsed.
+  const visible = [...activeAttempt.items];
+  for (const attempt of round.attempts ?? []) {
+    if (attempt === activeAttempt) continue;
+    for (const item of attempt.items) {
+      if (item.type !== 'tool' || item.toolName !== 'GenerativeUI') continue;
+      const result = item.toolResult;
+      if (result?.success !== true || visible.some(current => current.id === item.id)) continue;
+      visible.push(item);
+    }
+  }
+  return visible;
 }
 
 export function hasModelRoundNarrative(round: Pick<ModelRound, 'items' | 'attempts'>): boolean {
@@ -76,22 +92,107 @@ export function buildInlineFlowGroupData(roundId: string, group: GroupedFlowItem
   });
 }
 
+const roundGroupsCache = new WeakMap<ModelRound, {
+  itemsRef: readonly FlowItem[];
+  attemptsRef: ModelRound['attempts'];
+  disabled: boolean;
+  groups?: ModelRoundItemGroup[];
+  retainedCandidateGroups?: ModelRoundItemGroup[];
+  inlineGroups?: WeakMap<GroupedFlowItems, Map<number, FlowGroupData>>;
+}>();
+
+function getOrCreateRoundGroupsCacheEntry(round: ModelRound, disabled: boolean) {
+  let entry = roundGroupsCache.get(round);
+  if (!entry || entry.itemsRef !== round.items || entry.attemptsRef !== round.attempts || entry.disabled !== disabled) {
+    entry = {
+      itemsRef: round.items,
+      attemptsRef: round.attempts,
+      disabled,
+    };
+    roundGroupsCache.set(round, entry);
+  }
+  return entry;
+}
+
+export function getCachedInlineFlowGroupData(
+  round: ModelRound,
+  group: GroupedFlowItems,
+  isLastGroupInTurn = group.isLast,
+  includeRoundIdAlias = false,
+): FlowGroupData {
+  if (group.projection) return group.projection;
+  const disabled = isModelRoundGroupingDisabled(round);
+  const entry = getOrCreateRoundGroupsCacheEntry(round, disabled);
+  const key = (isLastGroupInTurn ? 2 : 0) + (includeRoundIdAlias ? 1 : 0);
+  // Candidate retention and cross-round collection can change group positions.
+  // Only the actual immutable group proves which members this projection owns.
+  const groups = entry.inlineGroups ??= new WeakMap();
+  let byKey = groups.get(group);
+  if (!byKey) {
+    byKey = new Map();
+    groups.set(group, byKey);
+  }
+  let cached = byKey.get(key);
+  if (!cached) {
+    cached = buildInlineFlowGroupData(round.id, group, isLastGroupInTurn);
+    if (includeRoundIdAlias) {
+      cached = {
+        ...cached,
+        sourceGroupIds: [...new Set([...getFlowGroupStateIds(cached), round.id])],
+      };
+    }
+    byKey.set(key, cached);
+  }
+  return cached;
+}
+
 /** The category and projection are constructed together by the selected policy. */
 export function projectedFlowGroup(category: FlowGroupCategory, items: FlowItem[], isLast: boolean, projection?: FlowGroupData): GroupedFlowItems {
   return { type: category, items, isLast, ...(projection ? { projection } : {}) } as GroupedFlowItems;
 }
 
 export function getModelRoundFlowGroups(round: ModelRound, projectedGroups?: ModelRoundItemGroup[]): FlowGroupData[] {
-  return (projectedGroups ?? buildFlowItemGroups({
-    items: getModelRoundActiveItems(round), disabled: isModelRoundGroupingDisabled(round),
-  })).flatMap(group => group.type === 'critical' ? [] : [buildInlineFlowGroupData(round.id, group)]);
+  if (projectedGroups) {
+    return projectedGroups.flatMap(group => group.type === 'critical'
+      ? []
+      : [getCachedInlineFlowGroupData(round, group)]);
+  }
+  const disabled = isModelRoundGroupingDisabled(round);
+  const entry = getOrCreateRoundGroupsCacheEntry(round, disabled);
+  if (!entry.groups) {
+    entry.groups = buildFlowItemGroups({
+      items: getModelRoundActiveItems(round),
+      disabled,
+    });
+  }
+  return entry.groups.flatMap(group => group.type === 'critical'
+    ? []
+    : [getCachedInlineFlowGroupData(round, group)]);
 }
 
 export function getProjectedModelRoundGroups(item: Extract<VirtualItem, { type: 'model-round' }>, retainCandidates = false): ModelRoundItemGroup[] {
-  return item.projectedGroups ?? buildFlowItemGroups({
-    items: getModelRoundActiveItems(item.data).filter(member => !item.isTurnComplete || !canvasArtifactReferenceFromToolItem(member)),
-    disabled: isModelRoundGroupingDisabled(item.data), retainCandidates,
-  });
+  if (item.projectedGroups) return item.projectedGroups;
+  const round = item.data;
+  const disabled = isModelRoundGroupingDisabled(round);
+  const entry = getOrCreateRoundGroupsCacheEntry(round, disabled);
+  if (retainCandidates) {
+    if (!entry.retainedCandidateGroups) {
+      entry.retainedCandidateGroups = buildFlowItemGroups({
+        items: getModelRoundActiveItems(round),
+        disabled,
+        retainCandidates: true,
+      });
+    }
+    return entry.retainedCandidateGroups;
+  }
+  if (!entry.groups) {
+    entry.groups = buildFlowItemGroups({
+      items: getModelRoundActiveItems(round),
+      disabled,
+      retainCandidates: false,
+    });
+  }
+  return entry.groups;
 }
 
 interface BuildFlowItemGroupsInput extends FlowGroupPolicyOptions {

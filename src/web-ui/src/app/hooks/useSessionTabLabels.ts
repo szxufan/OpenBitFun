@@ -15,25 +15,38 @@ function readSessionTabLabels(
   tabs: readonly SceneTab[],
   translate: (key: string, options?: Record<string, unknown>) => string,
   formatNumber: (number: number, options?: Intl.NumberFormatOptions) => string,
+  previous?: Record<string, SessionTabLabel>,
 ): Record<string, SessionTabLabel> {
-  const source = flowChatStore.getState();
   const labels: Record<string, SessionTabLabel> = {};
-  const numbers = sessionTitleNumbers(source.sessions.values());
+  const numbersBySurface = new Map<string, Map<string, number>>();
+  const activeSurfaceId = getActiveSurfaceId();
+  const activeSessions = flowChatStore.getState().sessions;
   for (const tab of tabs) {
-    if (!tab.session || tab.session.surfaceId !== getActiveSurfaceId()) continue;
-    const session = source.sessions.get(tab.session.sessionId);
+    if (!tab.session) continue;
+    // A tab held for a cross-device open names its device's session.
+    const sessions = tab.session.surfaceId === activeSurfaceId
+      ? activeSessions
+      : flowChatStore.getSurfaceSessions(tab.session.surfaceId);
+    let numbers = numbersBySurface.get(tab.session.surfaceId);
+    if (!numbers) numbersBySurface.set(tab.session.surfaceId, numbers = sessionTitleNumbers(sessions.values()));
+    const session = sessions.get(tab.session.sessionId);
     if (!session) continue;
     const number = numbers.get(session.sessionId);
-    labels[tab.id] = {
-      title: resolveSessionTitle(session, translate),
-      number: number === undefined ? undefined : formatNumber(number, { minimumIntegerDigits: 2, useGrouping: false }),
-    };
+    const title = resolveSessionTitle(session, translate);
+    const formattedNumber = number === undefined ? undefined : formatNumber(number, { minimumIntegerDigits: 2, useGrouping: false });
+    // Reuse the previous label object when nothing changed so tab rows keep identity.
+    const cached = previous?.[tab.id];
+    labels[tab.id] = cached && cached.title === title && cached.number === formattedNumber
+      ? cached
+      : { title, number: formattedNumber };
   }
   return labels;
 }
 
 function subscribeToLabels(notify: () => void): () => void {
-  return flowChatStore.subscribe(notify);
+  const unsubscribe = flowChatStore.subscribe(notify);
+  const unsubscribeSurfaces = flowChatStore.subscribeSurfaceSessions(notify);
+  return () => { unsubscribe(); unsubscribeSurfaces(); };
 }
 
 /** A synchronous resource projection with stable snapshots during streaming. */
@@ -42,7 +55,7 @@ export function useSessionTabLabels(tabs: readonly SceneTab[]): Record<string, S
   const getSnapshot = useMemo(() => {
     let snapshot: Record<string, SessionTabLabel> = {};
     return () => {
-      const next = readSessionTabLabels(tabs, t, formatNumber);
+      const next = readSessionTabLabels(tabs, t, formatNumber, snapshot);
       if (Object.keys(snapshot).length !== Object.keys(next).length
         || Object.entries(next).some(([id, label]) => snapshot[id]?.title !== label.title || snapshot[id]?.number !== label.number)) {
         snapshot = next;

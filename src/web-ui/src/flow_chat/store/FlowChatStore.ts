@@ -3,6 +3,7 @@ import { forgetAgentCanvasSession, removeBtwSessionFromAgentCanvas } from '@/app
 import { resolveLegacySessionWorkspace } from '@/infrastructure/api/service-api/legacyWorkspaceCompatibility';
 import { projectUserQuestionTiming } from '../utils/userQuestionTiming';
 import { externalHistoryFromMetadata } from '../utils/externalHistory';
+import { shouldIncludeInternalSession } from '../utils/internalSession';
 import { isExternalSessionEcosystem } from '@/shared/types/external-session';
 /**
  * Flow Chat global state store
@@ -72,6 +73,8 @@ import type {
   SessionContextUsage,
   SessionActivitySummary,
   SessionKind,
+  SessionLastTurn,
+  SessionMetadata,
   SessionTurnCatalog,
 } from '@/shared/types/session-history';
 import {
@@ -346,8 +349,10 @@ function sameDispatchTargetIdentity(
 }
 
 const METADATA_LIST_RECENT_DEDUPE_TTL_MS = 1000;
-const HISTORICAL_SESSION_INITIAL_REMOTE_TAIL_TURN_COUNT = 3;
-const HISTORICAL_SESSION_INITIAL_LOCAL_TAIL_TURN_COUNT = 3;
+const HISTORICAL_SESSION_INITIAL_REMOTE_TAIL_TURN_COUNT = 1;
+const HISTORICAL_SESSION_INITIAL_LOCAL_TAIL_TURN_COUNT = 1;
+/** Turns a session keeps in memory when the history budget evicts it. */
+const RESIDENT_TAIL_TURN_COUNT = 3;
 const HISTORICAL_SESSION_FULL_HISTORY_IDLE_TIMEOUT_MS = 1500;
 const HISTORICAL_SESSION_PREVIOUS_WINDOW_TURN_COUNT = 12;
 const PEER_SESSION_REFRESH_TAIL_TURN_COUNT = 3;
@@ -869,14 +874,14 @@ const ROUND_TIMING_KEYS = [
 ] as const;
 
 /**
- * Keep live `ModelRoundCompleted` timing that a settled record lacks.
+ * Keep live metrics that an older host's settled checkpoint lacks.
  *
  * Hosts that predate journal-carried round timing rebuild the last round of a
  * Turn without it (duration persisted as 0), because their completion write
  * usually lands before this client's checkpoint of that event. Adopting such a
  * record would erase the TTFT and output rate this window already measured.
  */
-function preserveLiveRoundTiming(current: DialogTurn, persisted: DialogTurn): DialogTurn {
+function preserveLiveTurnMetrics(current: DialogTurn, persisted: DialogTurn): DialogTurn {
   let changed = false;
   const modelRounds = persisted.modelRounds.map(persistedRound => {
     const currentRound = current.modelRounds.find(round => round.id === persistedRound.id);
@@ -900,7 +905,16 @@ function preserveLiveRoundTiming(current: DialogTurn, persisted: DialogTurn): Di
     return { ...persistedRound, ...patch };
   });
 
-  return changed ? { ...persisted, modelRounds } : persisted;
+  // Usage is cumulative within one Turn. Older hosts finish its content and
+  // timing while retaining a checkpoint from an earlier model request. Keep a
+  // more complete live aggregate intact; adding the two would double-count.
+  const tokenUsage = current.tokenUsage && (
+    !persisted.tokenUsage
+    || current.tokenUsage.totalTokens > persisted.tokenUsage.totalTokens
+  ) ? current.tokenUsage : persisted.tokenUsage;
+  return changed || tokenUsage !== persisted.tokenUsage
+    ? { ...persisted, modelRounds, tokenUsage }
+    : persisted;
 }
 
 /**
@@ -2111,6 +2125,29 @@ interface SurfaceStateContainer {
   /** Sessions rebuilding from a restarted host stream until its replay is ready. */
   readonly relayResyncingSessions: Set<string>;
   readonly relaySessionHistory: Map<string, RelaySessionHistory>;
+  /**
+   * Sessions projected from a background device's catalog while this surface
+   * was not rendered. They carry no history or state machine yet; the first
+   * metadata pass after activation rebuilds them through the normal path.
+   */
+  readonly seededSessions: Map<string, SeededSessionRecord>;
+}
+
+interface SeededSessionRecord {
+  metadata: SessionMetadata;
+  workspaceId: string;
+  workspacePath: string;
+  remoteConnectionId?: string;
+  remoteSshHost?: string;
+}
+
+/** One workspace page of a background device's catalog. */
+export interface BackgroundSessionPage {
+  workspaceId: string;
+  workspacePath: string;
+  remoteConnectionId?: string;
+  remoteSshHost?: string;
+  sessions: readonly SessionMetadata[];
 }
 
 function createSurfaceStateContainer(surfaceId: DeviceSurfaceId): SurfaceStateContainer {
@@ -2134,12 +2171,105 @@ function createSurfaceStateContainer(surfaceId: DeviceSurfaceId): SurfaceStateCo
     relayPendingRecordTurns: new Map(),
     relayResyncingSessions: new Set(),
     relaySessionHistory: new Map(),
+    seededSessions: new Map(),
   };
 }
 
 const isTerminalRelayTurnStatus = (status: DialogTurn['status']): boolean => (
   status === 'completed' || status === 'cancelled' || status === 'error'
 );
+
+/**
+ * The FlowChat projection of one persisted session record, before any history
+ * is loaded. Shared by metadata pages and background-device seeding so a
+ * session looks the same whichever path put it in a surface container.
+ */
+function sessionFromPersistedMetadata(metadata: any, context: {
+  workspaceId?: string;
+  projectWorkspaceId?: string;
+  workspacePath: string;
+  remoteConnectionId?: string;
+  remoteSshHost?: string;
+  maxContextTokens: number;
+}): Session {
+  const { workspaceId, projectWorkspaceId, workspacePath, maxContextTokens } = context;
+  const relationship = deriveSessionRelationshipFromMetadata(metadata);
+  const lastFinishedAt = deriveLastFinishedAtFromMetadata(metadata);
+  const titleState = deriveSessionTitleStateFromMetadata(metadata);
+  const hasDynamicDefaultTitle = titleState.titleSource === 'i18n';
+  const remoteScope = persistedSessionRemoteScope(metadata, context.remoteConnectionId, context.remoteSshHost);
+  const persistedCurrentContextUsage = persistedCurrentContextUsageValue(metadata);
+  const restoredAgentType = resolveRestoredAgentType(metadata.agentType);
+  const restoredCurrentTokenUsage = isAcpAgentType(restoredAgentType)
+    ? undefined
+    : deriveRestoredCurrentTokenUsage(persistedCurrentContextUsage);
+
+  return {
+    sessionId: metadata.sessionId,
+    workspaceId, projectWorkspaceId,
+    title: titleState.title,
+    titleSource: titleState.titleSource,
+    titleI18nKey: titleState.titleI18nKey,
+    titleI18nParams: titleState.titleI18nParams,
+    workspaceSessionNumber: titleState.workspaceSessionNumber,
+    titleStatus: hasDynamicDefaultTitle ? undefined : 'generated',
+    dialogTurns: [],
+    status: 'idle',
+    persistedStatus: metadata.status,
+    persistedTurnCount: metadata.turnCount,
+    importedSource: metadata.customMetadata?.importedFrom,
+    externalHistory: externalHistoryFromMetadata(metadata.customMetadata),
+    externalBranchOf: metadata.customMetadata?.externalBranchOf,
+    config: {
+      agentType: restoredAgentType,
+      modelName: metadata.modelName,
+      workspaceId, projectWorkspaceId,
+      workspacePath: metadata.workspacePath || workspacePath,
+      projectWorkspacePath: metadata.projectWorkspacePath || workspacePath,
+      executionTarget: metadata.executionTarget,
+    },
+    createdAt: metadata.createdAt,
+    lastActiveAt: metadata.lastActiveAt,
+    lastFinishedAt,
+    error: null,
+    isHistorical: true,
+    historyState: 'metadata-only',
+    todos: (metadata as any).todos || [],
+    maxContextTokens,
+    currentTokenUsage: restoredCurrentTokenUsage,
+    mode: restoredAgentType,
+    lastUserDialogMode: metadata.lastUserDialogAgentType,
+    lastSubmittedMode: metadata.lastSubmittedAgentType,
+    workspacePath: (metadata as any).workspacePath || workspacePath,
+    projectWorkspacePath: metadata.projectWorkspacePath || workspacePath,
+    remoteConnectionId: remoteScope.remoteConnectionId,
+    remoteSshHost: remoteScope.remoteSshHost,
+    workspaceHostname: metadata.workspaceHostname,
+    parentSessionId: relationship.parentSessionId,
+    sessionKind: relationship.sessionKind,
+    parentToolCallId: relationship.parentToolCallId,
+    subagentType: relationship.subagentType,
+    continuationPolicy: relationship.continuationPolicy,
+    btwThreads: [],
+    btwOrigin: relationship.btwOrigin,
+    hasUnreadCompletion: metadata.unreadCompletion,
+    unreadCompletionReceipt: persistedUnreadReceipt(metadata),
+    needsUserAttention: metadata.needsUserAttention,
+    deepReviewRunManifest: metadata.deepReviewRunManifest,
+    reviewTargetEvidence: metadata.reviewTargetEvidence,
+    isTransient: false,
+  };
+}
+
+const EMPTY_SESSION_MAP: ReadonlyMap<string, Session> = new Map();
+
+/** The host's record of an unread result, as its read receipt must name it. */
+function persistedUnreadReceipt(metadata: any): SessionLastTurn | undefined {
+  if (!metadata?.unreadCompletion) return undefined;
+  return metadata.customMetadata?.unreadCompletionTarget ?? metadata.lastTurn ?? undefined;
+}
+/** Placeholder until promotion reads the device's model configuration. */
+const DEFAULT_SEEDED_CONTEXT_TOKENS = 128128;
 
 export class FlowChatStore {
   private static instance: FlowChatStore;
@@ -2174,7 +2304,7 @@ export class FlowChatStore {
   /** Requested intervals remain protected until every deduplicated caller processes the response. */
   private sessionTurnWindowProtections = new Map<string, SessionTurnWindowProtection>();
   private unsupportedRestoreCommands = new Set<string>();
-  private onPersistUnreadCompletion?: (sessionId: string, value: 'completed' | 'error' | 'interrupted' | undefined) => void;
+  private onPersistUnreadCompletion?: (sessionId: string, value: 'completed' | 'error' | 'interrupted' | undefined, receipt?: SessionLastTurn) => void;
 
   private constructor() {
     this.clearOldStorage();
@@ -2359,6 +2489,36 @@ export class FlowChatStore {
             this.historyResidency.delete(id);
             const current = surface.state.sessions.get(sessionId);
             if (!current) return;
+            // First eviction keeps the session's latest turns: reopening it
+            // then shows them at once, exactly as a fresh tail restore would,
+            // and older turns page in through its catalog. Only a session
+            // already down to that tail (or without a catalog to page from)
+            // drops to metadata.
+            const view = surface.sessionHistoryViews.get(sessionId);
+            const total = projectedSessionTurnCount(current);
+            const tail = current.dialogTurns.filter(turn => !isProvisionalUsageReportTurn(turn))
+              .slice(-RESIDENT_TAIL_TURN_COUNT);
+            const hasMoreThanTail = current.dialogTurns.length > tail.length
+              || (view?.loadedRanges.some(range => range.turns.length > 0 && range.startOrdinal < total - tail.length) ?? false);
+            const catalog = view?.catalog ?? current.turnCatalog ?? null;
+            if (view && catalog && tail.length > 0 && total >= tail.length && hasMoreThanTail) {
+              surface.sessionHistoryViews.set(sessionId, {
+                catalog,
+                loadedRanges: [{
+                  startOrdinal: total - tail.length, endOrdinalExclusive: total, turns: tail,
+                  lastAccessedAt: Date.now(), source: 'initial-tail',
+                }],
+                activeRange: null,
+                pendingTargetOrdinal: null,
+                navigationGeneration: view.navigationGeneration,
+              });
+              surface.sessionHistoryTurnAccessTimes.delete(sessionId);
+              const sessions = new Map(surface.state.sessions);
+              sessions.set(sessionId, { ...current, dialogTurns: tail, isPartial: true, loadedTurnCount: tail.length });
+              surface.state = { ...surface.state, sessions };
+              if (surface.surfaceId === getActiveSurfaceId()) this.notifyListeners();
+              return;
+            }
             surface.sessionHistoryViews.delete(sessionId);
             surface.sessionHistoryTurnAccessTimes.delete(sessionId);
             const sessions = new Map(surface.state.sessions);
@@ -3466,7 +3626,7 @@ export class FlowChatStore {
         workspaceId,
         remoteConnectionId: session.remoteConnectionId,
         remoteSshHost: session.remoteSshHost,
-        includeInternal: session.sessionKind === 'subagent',
+        includeInternal: shouldIncludeInternalSession(session),
         requireActiveSession: false,
         startImmediately: true,
         initialSessionTraceId: sessionTraceId,
@@ -3554,6 +3714,18 @@ export class FlowChatStore {
         this.sessionTurnWindowRequests.delete(key);
       }
     }
+  }
+
+  public loadPreviousSessionTurnWindow(
+    sessionId: string,
+    targetOrdinal: number,
+  ): Promise<SessionTurnWindowLoadResult> {
+    // The tail warm-up and the older boundary must share the same request.
+    return this.loadSessionTurnWindow(sessionId, targetOrdinal, {
+      source: 'prefetch',
+      before: 12,
+      after: 1,
+    });
   }
 
   public async loadSessionTurnWindow(
@@ -3690,7 +3862,7 @@ export class FlowChatStore {
       remoteSshHost: session.remoteSshHost,
       includeInternal:
         options?.includeInternal
-        ?? session.sessionKind === 'subagent',
+        ?? shouldIncludeInternalSession(session),
       targetOrdinal: normalizedTargetOrdinal,
       targetStorageTurnIndex: entry.storageTurnIndex,
       originalTargetTurnId: entry.turnId,
@@ -3757,6 +3929,8 @@ export class FlowChatStore {
       request.workspaceId ? '' : request.remoteSshHost ?? '',
       request.targetStorageTurnIndex,
       request.catalog.revision,
+      request.originalTargetTurnId ?? '',
+      request.includeInternal ? 'internal' : 'public',
       request.before,
       request.after,
     );
@@ -3933,6 +4107,22 @@ export class FlowChatStore {
     sessionId: string,
     options?: FullHistoryHydrationReleaseOptions
   ): boolean {
+    this.activeSurface.relaySessionHistory.get(sessionId)?.markPresented();
+    const session = this.state.sessions.get(sessionId);
+    // Warm one adjacent range without changing the rendered tail. The native
+    // history shell intentionally leaves blank space below a short last Turn;
+    // cached older Turns are presented only when the reader asks for them.
+    if (getActiveSurfaceId() === 'local' && session?.isPartial && resourceBudget.canPrefetch()
+      && session.turnCatalog?.sessionId === sessionId && this.state.activeSessionId === sessionId) {
+      const first = canonicalSessionTurns(session)[0];
+      const firstOrdinal = session.turnCatalog.entries.find(entry => entry.turnId === first?.id)?.ordinal;
+      if (firstOrdinal !== undefined && firstOrdinal > 0) {
+        void this.loadPreviousSessionTurnWindow(sessionId, firstOrdinal - 1)
+          .catch(error => {
+            if (!isSurfaceChangedError(error)) log.debug('Adjacent session history prefetch stopped', { sessionId, error });
+          });
+      }
+    }
     let released = false;
     for (const request of this.fullHistoryHydrationRequests.values()) {
       if (!this.ownedByActiveSurface(request) || request.sessionId !== sessionId) {
@@ -4524,7 +4714,7 @@ export class FlowChatStore {
    * Called by FlowChatManager during initialization.
    */
   public registerPersistUnreadCompletionCallback(
-    callback: (sessionId: string, value: 'completed' | 'error' | 'interrupted' | undefined) => void
+    callback: (sessionId: string, value: 'completed' | 'error' | 'interrupted' | undefined, receipt?: SessionLastTurn) => void
   ): void {
     this.onPersistUnreadCompletion = callback;
   }
@@ -5889,6 +6079,7 @@ export class FlowChatStore {
     if (surfaceId === getActiveSurfaceId()) {
       this.notifyListeners();
     }
+    this.notifySurfaceSessions(surfaceId, 'discarded');
     return removedSessionIds;
   }
 
@@ -7270,15 +7461,20 @@ export class FlowChatStore {
     // Bind it to the host summary so a later status refresh cannot restore it.
     const summary = sessionActivityStore.get(sessionId)?.summary;
     const acknowledgedSummaryTurn = summary?.unreadTurn ?? summary?.lastTurn;
+    // The receipt names the host's record of the result; capture it before the
+    // unread fields are cleared, so the persisted acknowledgement can match.
+    let receipt: SessionLastTurn | undefined;
     this.setState(prev => {
       const session = prev.sessions.get(sessionId);
       if (!session || !session.hasUnreadCompletion) return prev;
+      receipt = acknowledgedSummaryTurn ?? session.unreadCompletionReceipt;
 
       const updatedSession: Session = {
         ...session,
         hasUnreadCompletion: undefined,
         unreadCompletionTurnId: undefined,
         unreadCompletionGeneration: undefined,
+        unreadCompletionReceipt: undefined,
       };
 
       const newSessions = new Map(prev.sessions);
@@ -7293,7 +7489,7 @@ export class FlowChatStore {
         acknowledgedSummaryTurn.executionGeneration, acknowledgedSummaryTurn.recoveryPending);
       else if (turn) sessionActivityStore.acknowledge(sessionId, turn.id,
         turn.recovery?.executionGeneration ?? turn.recoveryEpoch, isTurnAwaitingRecovery(turn));
-      this.onPersistUnreadCompletion?.(sessionId, undefined);
+      this.onPersistUnreadCompletion?.(sessionId, undefined, receipt);
     }
   }
 
@@ -7325,6 +7521,7 @@ export class FlowChatStore {
       sessions.set(summary.sessionId, {
         ...session, hasUnreadCompletion: summary.unreadCompletion, unreadCompletionTurnId: turnId,
         unreadCompletionGeneration: generation,
+        unreadCompletionReceipt: summary.unreadCompletion ? unreadTurn : undefined,
       });
       return { ...prev, sessions };
     });
@@ -7751,7 +7948,8 @@ export class FlowChatStore {
       try {
         logPersistedDispatchMetadataOverlap(metadata, 'metadata-page');
         scope.assertCurrent('processPersistedSessionMetadata');
-        const existingSession = this.state.sessions.get(metadata.sessionId);
+        const seededSession = this.isRebuildableSeed(metadata.sessionId);
+        const existingSession = seededSession ? undefined : this.state.sessions.get(metadata.sessionId);
         if ((existingSession?.workspaceId || existingSession?.config.workspaceId)
           && !(existingSession?.sessionKind === 'subagent' && existingSession.continuationPolicy === undefined)
           && !existingSession?.externalHistory && !existingSession?.externalBranchOf
@@ -7793,19 +7991,17 @@ export class FlowChatStore {
           workspacePath: metadata.projectWorkspacePath || workspacePath, remoteConnectionId, remoteSshHost,
         }, legacyRecords)?.id;
         const relationship = deriveSessionRelationshipFromMetadata(metadata);
-        const lastFinishedAt = deriveLastFinishedAtFromMetadata(metadata);
         const titleState = deriveSessionTitleStateFromMetadata(metadata);
-        const hasDynamicDefaultTitle = titleState.titleSource === 'i18n';
         const remoteScope = persistedSessionRemoteScope(
           metadata,
           remoteConnectionId,
           remoteSshHost,
         );
-        const persistedCurrentContextUsage = persistedCurrentContextUsageValue(metadata);
 
         this.setState(prev => {
           if (!scope.isCurrent()) return prev;
-          const existing = prev.sessions.get(metadata.sessionId);
+          const existing = seededSession ? undefined : prev.sessions.get(metadata.sessionId);
+          this.activeSurface.seededSessions.delete(metadata.sessionId);
           if (existing) {
             const continuationPolicy = existing.continuationPolicy ?? relationship.continuationPolicy;
             const importedSource = metadata.customMetadata?.importedFrom ?? existing.importedSource;
@@ -7836,65 +8032,9 @@ export class FlowChatStore {
             return { ...prev, sessions };
           }
 
-          const restoredAgentType = resolveRestoredAgentType(metadata.agentType);
-          const restoredCurrentTokenUsage = isAcpAgentType(restoredAgentType)
-            ? undefined
-            : deriveRestoredCurrentTokenUsage(persistedCurrentContextUsage);
-
-          const session: Session = {
-            sessionId: metadata.sessionId,
-            workspaceId, projectWorkspaceId,
-            title: titleState.title,
-            titleSource: titleState.titleSource,
-            titleI18nKey: titleState.titleI18nKey,
-            titleI18nParams: titleState.titleI18nParams,
-            workspaceSessionNumber: titleState.workspaceSessionNumber,
-            titleStatus: hasDynamicDefaultTitle ? undefined : 'generated',
-            dialogTurns: [],
-            status: 'idle',
-            persistedStatus: metadata.status,
-            persistedTurnCount: metadata.turnCount,
-            importedSource: metadata.customMetadata?.importedFrom,
-            externalHistory: externalHistoryFromMetadata(metadata.customMetadata),
-            externalBranchOf: metadata.customMetadata?.externalBranchOf,
-            config: {
-              agentType: restoredAgentType,
-              modelName: metadata.modelName,
-              workspaceId, projectWorkspaceId,
-              workspacePath: metadata.workspacePath || workspacePath,
-              projectWorkspacePath: metadata.projectWorkspacePath || workspacePath,
-              executionTarget: metadata.executionTarget,
-            },
-            createdAt: metadata.createdAt,
-            lastActiveAt: metadata.lastActiveAt,
-            lastFinishedAt,
-            error: null,
-            isHistorical: true,
-            historyState: 'metadata-only',
-            todos: (metadata as any).todos || [],
-            maxContextTokens,
-            currentTokenUsage: restoredCurrentTokenUsage,
-            mode: restoredAgentType,
-            lastUserDialogMode: metadata.lastUserDialogAgentType,
-            lastSubmittedMode: metadata.lastSubmittedAgentType,
-            workspacePath: (metadata as any).workspacePath || workspacePath,
-            projectWorkspacePath: metadata.projectWorkspacePath || workspacePath,
-            remoteConnectionId: remoteScope.remoteConnectionId,
-            remoteSshHost: remoteScope.remoteSshHost,
-            workspaceHostname: metadata.workspaceHostname,
-            parentSessionId: relationship.parentSessionId,
-            sessionKind: relationship.sessionKind,
-            parentToolCallId: relationship.parentToolCallId,
-            subagentType: relationship.subagentType,
-            continuationPolicy: relationship.continuationPolicy,
-            btwThreads: [],
-            btwOrigin: relationship.btwOrigin,
-            hasUnreadCompletion: metadata.unreadCompletion,
-            needsUserAttention: metadata.needsUserAttention,
-            deepReviewRunManifest: metadata.deepReviewRunManifest,
-            reviewTargetEvidence: metadata.reviewTargetEvidence,
-            isTransient: false,
-          };
+          const session = sessionFromPersistedMetadata(metadata, {
+            workspaceId, projectWorkspaceId, workspacePath, remoteConnectionId, remoteSshHost, maxContextTokens,
+          });
 
           const newSessions = new Map(prev.sessions);
           newSessions.set(metadata.sessionId, session);
@@ -7924,6 +8064,191 @@ export class FlowChatStore {
     } finally {
       this.endStateBatch(scope);
     }
+  }
+
+  /** Whether the rendered surface still holds an unpromoted background seed. */
+  public hasUnpromotedSeed(sessionId: string): boolean {
+    return this.isRebuildableSeed(sessionId);
+  }
+
+  /** A seed may be replaced only until the session has history or runtime state. */
+  private isRebuildableSeed(sessionId: string): boolean {
+    const container = this.activeSurface;
+    if (!container.seededSessions.has(sessionId)) return false;
+    const session = container.state.sessions.get(sessionId);
+    if (session && session.dialogTurns.length === 0 && session.historyState === 'metadata-only') return true;
+    container.seededSessions.delete(sessionId);
+    return false;
+  }
+
+  private surfaceSessionListeners = new Set<(surfaceId: DeviceSurfaceId, change: 'updated' | 'discarded') => void>();
+
+  /** Sessions of any surface's container, for background-device navigation. */
+  public getSurfaceSessions(surfaceId: DeviceSurfaceId): ReadonlyMap<string, Session> {
+    return this.surfaceContainers.get(surfaceId)?.state.sessions ?? EMPTY_SESSION_MAP;
+  }
+
+  /** Directory projections also need to know when their container was disposed. */
+  public subscribeSurfaceSessions(listener: (surfaceId: DeviceSurfaceId, change: 'updated' | 'discarded') => void): () => void {
+    this.surfaceSessionListeners.add(listener);
+    return () => { this.surfaceSessionListeners.delete(listener); };
+  }
+
+  private notifySurfaceSessions(surfaceId: DeviceSurfaceId, change: 'updated' | 'discarded' = 'updated'): void {
+    for (const listener of Array.from(this.surfaceSessionListeners)) {
+      try {
+        listener(surfaceId, change);
+      } catch (error) {
+        log.warn('Surface session listener threw', { error });
+      }
+    }
+  }
+
+  /**
+   * Project a background device's catalog pages into that device's container,
+   * using the same Session projection as a metadata page. Navigation then
+   * draws the device the same way before and after it is rendered, and a
+   * switch finds its sessions already present. The rendered surface is never
+   * seeded: its live reads own it.
+   *
+   * `onlyMissing` adds sessions the container lacks and leaves every other
+   * one as it is: for pages older than what the container already holds.
+   */
+  public seedSurfaceSessions(
+    surfaceId: DeviceSurfaceId,
+    pages: readonly BackgroundSessionPage[],
+    options: { onlyMissing?: boolean } = {},
+  ): void {
+    if (surfaceId === getActiveSurfaceId()) return;
+    let container = this.surfaceContainers.get(surfaceId);
+    if (!container) {
+      container = createSurfaceStateContainer(surfaceId);
+      this.surfaceContainers.set(surfaceId, container);
+    }
+    const sessions = new Map(container.state.sessions);
+    let changed = false;
+    for (const page of pages) {
+      for (const metadata of page.sessions) {
+        if (metadata.status === 'archived') continue;
+        const existing = sessions.get(metadata.sessionId);
+        if (existing && options.onlyMissing) continue;
+        let seeded = container.seededSessions.has(metadata.sessionId);
+        if (seeded && existing && (existing.dialogTurns.length > 0 || existing.historyState !== 'metadata-only')) {
+          // Opened since it was seeded: it is a loaded session now.
+          container.seededSessions.delete(metadata.sessionId);
+          seeded = false;
+        }
+        if (existing && !seeded) {
+          // A session this window loaded keeps its state; only the catalog
+          // facts navigation shows are refreshed.
+          const titleState = deriveSessionTitleStateFromMetadata(metadata);
+          const lastFinishedAt = deriveLastFinishedAtFromMetadata(metadata);
+          if (existing.title === titleState.title && existing.lastActiveAt === metadata.lastActiveAt
+            && existing.lastFinishedAt === lastFinishedAt && existing.persistedStatus === metadata.status
+            && existing.hasUnreadCompletion === metadata.unreadCompletion
+            && existing.needsUserAttention === metadata.needsUserAttention) continue;
+          sessions.set(metadata.sessionId, {
+            ...existing, title: titleState.title, titleSource: titleState.titleSource,
+            titleI18nKey: titleState.titleI18nKey, titleI18nParams: titleState.titleI18nParams,
+            lastActiveAt: metadata.lastActiveAt, lastFinishedAt, persistedStatus: metadata.status,
+            hasUnreadCompletion: metadata.unreadCompletion, needsUserAttention: metadata.needsUserAttention,
+            unreadCompletionReceipt: persistedUnreadReceipt(metadata),
+          });
+          changed = true;
+          continue;
+        }
+        const record: SeededSessionRecord = {
+          metadata, workspaceId: metadata.workspaceId ?? page.workspaceId, workspacePath: page.workspacePath,
+          remoteConnectionId: page.remoteConnectionId, remoteSshHost: page.remoteSshHost,
+        };
+        const previous = container.seededSessions.get(metadata.sessionId);
+        if (previous && JSON.stringify(previous.metadata) === JSON.stringify(metadata)) continue;
+        container.seededSessions.set(metadata.sessionId, record);
+        sessions.set(metadata.sessionId, sessionFromPersistedMetadata(metadata, {
+          workspaceId: record.workspaceId,
+          projectWorkspaceId: metadata.projectWorkspaceId ?? record.workspaceId,
+          workspacePath: record.workspacePath,
+          remoteConnectionId: record.remoteConnectionId,
+          remoteSshHost: record.remoteSshHost,
+          maxContextTokens: DEFAULT_SEEDED_CONTEXT_TOKENS,
+        }));
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    container.state = { ...container.state, sessions };
+    this.notifySurfaceSessions(surfaceId);
+  }
+
+  /**
+   * Rebuild the rendered surface's seeded sessions through the normal
+   * metadata path (model context window, state machines) before they are
+   * opened. Untouched seeds only; a session that already has history stays.
+   */
+  public async promoteSeededSessions(targetSessionId?: string): Promise<void> {
+    const container = this.activeSurface;
+    const scope = getActiveSurfaceScope();
+    const byWorkspace = new Map<string, SeededSessionRecord[]>();
+    for (const [sessionId, record] of container.seededSessions) {
+      if (targetSessionId !== undefined && sessionId !== targetSessionId) continue;
+      if (!this.isRebuildableSeed(sessionId)) continue;
+      const group = byWorkspace.get(record.workspaceId) ?? [];
+      group.push(record);
+      byWorkspace.set(record.workspaceId, group);
+    }
+    for (const records of byWorkspace.values()) {
+      scope.assertCurrent('promote device catalog sessions');
+      const [first] = records;
+      await this.processPersistedSessionMetadataList(
+        records.map(record => record.metadata), first.workspacePath, first.remoteConnectionId, first.remoteSshHost,
+      );
+    }
+    scope.assertCurrent('finish device catalog session promotion');
+  }
+
+  /**
+   * Remove sessions a background device's host no longer lists (deleted or
+   * archived there). Never touches the rendered surface or a draft.
+   */
+  public dropSurfaceSessions(surfaceId: DeviceSurfaceId, sessionIds: readonly string[]): void {
+    if (surfaceId === getActiveSurfaceId() || sessionIds.length === 0) return;
+    const container = this.surfaceContainers.get(surfaceId);
+    if (!container) return;
+    const sessions = new Map(container.state.sessions);
+    let changed = false;
+    for (const sessionId of sessionIds) {
+      const session = sessions.get(sessionId);
+      if (!session || session.isTransient || isUnmaterializedSessionDraft(session)) continue;
+      sessions.delete(sessionId);
+      container.seededSessions.delete(sessionId);
+      changed = true;
+    }
+    if (!changed) return;
+    container.state = { ...container.state, sessions };
+    this.notifySurfaceSessions(surfaceId);
+  }
+
+  /** Drop seeds of a surface (account change); loaded sessions are untouched. */
+  public discardSeededSessions(surfaceId: DeviceSurfaceId): void {
+    const container = this.surfaceContainers.get(surfaceId);
+    if (!container || container.seededSessions.size === 0 || surfaceId === getActiveSurfaceId()) return;
+    const sessions = new Map(container.state.sessions);
+    for (const sessionId of container.seededSessions.keys()) sessions.delete(sessionId);
+    container.seededSessions.clear();
+    container.state = { ...container.state, sessions };
+    this.notifySurfaceSessions(surfaceId);
+  }
+
+  /**
+   * Adopt metadata the rendered device's host already returned (for example a
+   * device catalog page read just before this device was rendered), so a
+   * cross-device open needs no second round trip. Records are host-authored;
+   * they go through the same projection as a metadata page.
+   */
+  public async adoptHostSessionMetadata(workspaceId: string, sessions: readonly SessionMetadata[]): Promise<void> {
+    if (sessions.length === 0) return;
+    const { workspacePath, remoteConnectionId, remoteSshHost } = this.workspaceForId(workspaceId);
+    await this.processPersistedSessionMetadataList([...sessions], workspacePath, remoteConnectionId, remoteSshHost);
   }
 
   /**
@@ -8336,6 +8661,7 @@ export class FlowChatStore {
               btwThreads: [],
               btwOrigin: relationship.btwOrigin,
               hasUnreadCompletion: metadata.unreadCompletion,
+              unreadCompletionReceipt: persistedUnreadReceipt(metadata),
               needsUserAttention: metadata.needsUserAttention,
               deepReviewRunManifest: metadata.deepReviewRunManifest,
               reviewTargetEvidence: metadata.reviewTargetEvidence,
@@ -8574,7 +8900,7 @@ export class FlowChatStore {
           if (adopted === turns) {
             adopted = [...turns];
           }
-          adopted[index] = preserveLiveRoundTiming(adopted[index], snapshotTurn);
+          adopted[index] = preserveLiveTurnMetrics(adopted[index], snapshotTurn);
         }
         return adopted;
       };
@@ -8651,7 +8977,7 @@ export class FlowChatStore {
         ) {
           mergedTurns[existingIndex] = isRuntimeReplayTurn
             ? snapshotTurn
-            : preserveLiveRoundTiming(mergedTurns[existingIndex], snapshotTurn);
+            : preserveLiveTurnMetrics(mergedTurns[existingIndex], snapshotTurn);
           turnsChanged = true;
         }
       }
@@ -8797,7 +9123,7 @@ export class FlowChatStore {
       sessionId,
       this.sessionHistoryWorkspaceId(sessionId),
       `settled-turn-${turnId.slice(0, 8)}`,
-      initialSession.sessionKind === 'subagent',
+      shouldIncludeInternalSession(initialSession),
       SETTLED_TURN_RECONCILE_TAIL_TURN_COUNT,
     );
     scope.assertCurrent('reconcileSettledDialogTurn');
@@ -8837,7 +9163,7 @@ export class FlowChatStore {
         return prev;
       }
       const current = session.dialogTurns[turnIndex];
-      const reconciled = preserveLiveRoundTiming(
+      const reconciled = preserveLiveTurnMetrics(
         current,
         preserveClientDerivedDisplayItems(current, incoming),
       );
@@ -8958,12 +9284,26 @@ export class FlowChatStore {
       limit?: number;
       includeInternal?: boolean;
       deferFullHistoryUntilActive?: boolean;
+      /** Retain a speculative last-Turn read without loading older history. */
+      retainInactiveTail?: boolean;
       /** A background source refresh must not replace a view after drafting starts. */
       shouldApply?: () => boolean;
     }
   ): Promise<void> {
     const traceStartedAt = nowMs();
     const initialSession = this.state.sessions.get(sessionId);
+    const includeInternal = options?.includeInternal
+      ?? (shouldIncludeInternalSession(initialSession) || undefined);
+    const prewarmStillApplies = (): boolean => {
+      if (options?.retainInactiveTail !== true) return true;
+      const session = this.state.sessions.get(sessionId);
+      return session?.isHistorical === true
+        && session.dialogTurns === initialSession?.dialogTurns
+        && session.config === initialSession?.config
+        && session.workspaceId === initialSession?.workspaceId
+        && session.remoteConnectionId === initialSession?.remoteConnectionId
+        && session.remoteSshHost === initialSession?.remoteSshHost;
+    };
     const remoteConnectionId = initialSession?.remoteConnectionId;
     const remoteSshHost = initialSession?.remoteSshHost;
     const remote = isRemoteTraceContext(remoteConnectionId, remoteSshHost);
@@ -9038,6 +9378,11 @@ export class FlowChatStore {
       if (!open) this.setSessionHistoryState(sessionId, 'hydrating');
       await this.loadRelaySessionHistory(sessionId);
       scope.assertCurrent('load relay session history');
+      startupTrace.markPhase('historical_session_hydrate_end', {
+        remote: true, sessionId, sessionTraceId, surfaceId: scope.surfaceId,
+        turnCount: this.state.sessions.get(sessionId)?.dialogTurns.length ?? 0,
+        durationMs: elapsedMs(traceStartedAt),
+      });
       return;
     }
     const suppressInitialHydratingState =
@@ -9048,7 +9393,7 @@ export class FlowChatStore {
       initialSession.historyState === 'metadata-only';
     let hydratingStateNotified = false;
     const notifyHydratingState = (): void => {
-      if (options?.shouldApply) return;
+      if (options?.shouldApply || options?.retainInactiveTail) return;
       if (suppressInitialHydratingState) {
         return;
       }
@@ -9103,7 +9448,7 @@ export class FlowChatStore {
                   sessionId,
                   this.sessionHistoryWorkspaceId(sessionId),
                   sessionTraceId,
-                  options?.includeInternal,
+                  includeInternal,
                 );
                 notifyHydratingState();
                 const restored = await restoredPromise;
@@ -9131,7 +9476,7 @@ export class FlowChatStore {
               sessionId,
               this.sessionHistoryWorkspaceId(sessionId),
               sessionTraceId,
-              options?.includeInternal,
+              includeInternal,
             );
             notifyHydratingState();
             restoredSessionInfo = await restoredSessionPromise;
@@ -9147,7 +9492,7 @@ export class FlowChatStore {
                 sessionId,
                 this.sessionHistoryWorkspaceId(sessionId),
                 sessionTraceId,
-                options?.includeInternal,
+                includeInternal,
                 historicalSessionInitialTailTurnCount(remote),
               );
               notifyHydratingState();
@@ -9241,7 +9586,7 @@ export class FlowChatStore {
       // machine they are about to drive is shared, so a stale hydrate must stop
       // here rather than commit into whichever surface is rendered now.
       scope.assertCurrent('loadSessionHistory');
-      if (options?.shouldApply && !options.shouldApply()) return;
+      if (!prewarmStillApplies() || (options?.shouldApply && !options.shouldApply())) return;
       // A local restore may have started just before the observer bound this
       // session. Re-check ownership after every restore await and before any
       // commit or state-machine mutation so that late empty history cannot
@@ -9261,6 +9606,7 @@ export class FlowChatStore {
 
       const skipStaleLocalHydrateCommit =
         !remote &&
+        options?.retainInactiveTail !== true &&
         options?.deferFullHistoryUntilActive === true &&
         this.state.activeSessionId !== sessionId;
       if (skipStaleLocalHydrateCommit) {
@@ -9354,7 +9700,7 @@ export class FlowChatStore {
           ) {
             return existing;
           }
-          return loaded;
+          return existing ? preserveLiveTurnMetrics(existing, loaded) : loaded;
         });
 
         const updatedSession = {
@@ -9478,7 +9824,7 @@ export class FlowChatStore {
             workspaceId: this.sessionHistoryWorkspaceId(sessionId),
             remoteConnectionId,
             remoteSshHost,
-            includeInternal: options?.includeInternal,
+            includeInternal,
             requireActiveSession: options?.deferFullHistoryUntilActive === true,
             initialSessionTraceId: sessionTraceId,
             expectedDialogTurnIds: dialogTurns.map(turn => turn.id),
@@ -9495,6 +9841,8 @@ export class FlowChatStore {
         }
       }
     } catch (error) {
+      if (isSurfaceChangedError(error)) throw error;
+      if (!prewarmStillApplies()) return;
       // The same race can fail instead of resolving. Once dispatch owns the
       // session, that stale local failure must not relabel its projection as a
       // failed historical session or surface an irrelevant restore error.

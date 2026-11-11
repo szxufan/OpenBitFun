@@ -173,6 +173,7 @@ export const optionalDependencyFeatureOwnerRules = [
       },
       { depName: 'openbitfun-agent-runtime', ownerFeatures: ['agent-runtime', 'ai-adapter-runtime'] },
       { depName: 'openbitfun-agent-workflows', ownerFeatures: ['deep-research'] },
+      { depName: 'openbitfun-office-documents', ownerFeatures: ['tools-office-documents'] },
       { depName: 'openbitfun-agent-stream', ownerFeatures: ['agent-runtime'] },
       { depName: 'openbitfun-agent-tools', ownerFeatures: ['agent-runtime', 'local-storage', 'mcp-runtime'] },
       { depName: 'openbitfun-claude-code-adapter', ownerFeatures: ['external-sources'] },
@@ -189,7 +190,6 @@ export const optionalDependencyFeatureOwnerRules = [
         depName: 'openbitfun-product-domains',
         ownerFeatures: [
           'agent-runtime',
-          'canvas-runtime',
           'function-agents',
           'plugin-source',
           'product-search',
@@ -201,7 +201,6 @@ export const optionalDependencyFeatureOwnerRules = [
       {
         depName: 'openbitfun-services-integrations',
         ownerFeatures: [
-          'canvas-runtime',
           'browser-control',
           'deep-research',
           'external-sources',
@@ -230,12 +229,12 @@ export const optionalDependencyFeatureOwnerRules = [
           'tools-agent-control',
           'tools-basic',
           'tools-browser-web',
-          'tools-canvas',
           'tools-computer-use',
           'tools-creation',
           'tools-git',
           'tools-image-analysis',
           'tools-image-generation',
+          'tools-office-documents',
           'tools-mcp',
           'tools-miniapp',
           'tools-pages',
@@ -293,7 +292,7 @@ export const optionalDependencyFeatureOwnerRules = [
         depName: 'openbitfun-core-types',
         ownerFeatures: ['deep-research', 'ptc-runtime', 'remote-connect', 'remote-ssh-concrete', 'speech'],
       },
-      { depName: 'openbitfun-product-domains', ownerFeatures: ['account-identity', 'canvas-runtime', 'function-agents', 'hook-import', 'miniapp-market', 'miniapp-runtime', 'miniapp-storage', 'plugin-source', 'remote-connect'] },
+      { depName: 'openbitfun-product-domains', ownerFeatures: ['account-identity', 'function-agents', 'hook-import', 'miniapp-market', 'miniapp-runtime', 'miniapp-storage', 'plugin-source', 'remote-connect'] },
       { depName: 'openbitfun-runtime-ports', ownerFeatures: ['deep-research', 'git', 'ptc-runtime', 'remote-connect', 'remote-ssh', 'remote-ssh-concrete', 'script-tool-runtime', 'web-tools'] },
       {
         depName: 'openbitfun-services-core',
@@ -335,7 +334,6 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'mac_address', ownerFeatures: ['remote-connect'] },
       { depName: 'md5', ownerFeatures: ['remote-connect'] },
       { depName: 'notify', ownerFeatures: ['file-watch'] },
-      { depName: 'oxc', ownerFeatures: ['canvas-runtime'] },
       { depName: 'qrcode', ownerFeatures: ['remote-connect'] },
       { depName: 'rand', ownerFeatures: ['mcp', 'remote-connect', 'remote-persistence', 'remote-ssh-concrete'] },
       // remote-ssh-concrete: one-click relay deploy fetches the signed release
@@ -349,7 +347,7 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'rustls', ownerFeatures: ['remote-connect'] },
       { depName: 'rustls-native-certs', ownerFeatures: ['remote-connect'] },
       { depName: 'schannel', ownerFeatures: ['remote-connect'] },
-      { depName: 'sha2', ownerFeatures: ['canvas-runtime', 'hook-import', 'mcp', 'miniapp-market', 'models-dev', 'plugin-source', 'remote-connect', 'remote-persistence', 'remote-ssh', 'review-platform', 'speech'] },
+      { depName: 'sha2', ownerFeatures: ['hook-import', 'mcp', 'miniapp-market', 'models-dev', 'plugin-source', 'remote-connect', 'remote-persistence', 'remote-ssh', 'review-platform', 'speech'] },
       { depName: 'sherpa-onnx', ownerFeatures: ['speech'] },
       { depName: 'shellexpand', ownerFeatures: ['remote-ssh-concrete'] },
       { depName: 'sse-stream', ownerFeatures: ['mcp'] },
@@ -358,8 +356,8 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'thiserror', ownerFeatures: ['account-identity', 'browser-control', 'git', 'hook-import', 'miniapp-market', 'plugin-source', 'remote-connect', 'remote-ssh', 'remote-ssh-concrete', 'review-platform', 'speech', 'web-tools', 'workspace-search'] },
       { depName: 'tokio-tungstenite', ownerFeatures: ['remote-connect', 'speech-realtime'] },
       { depName: 'tokio-util', ownerFeatures: ['remote-ssh', 'speech'] },
-      { depName: 'urlencoding', ownerFeatures: ['canvas-runtime', 'miniapp-market', 'remote-connect', 'review-platform'] },
-      { depName: 'uuid', ownerFeatures: ['canvas-runtime', 'hook-import', 'miniapp-runtime', 'miniapp-storage', 'plugin-source', 'remote-connect', 'remote-ssh-concrete', 'speech'] },
+      { depName: 'urlencoding', ownerFeatures: ['miniapp-market', 'remote-connect', 'review-platform'] },
+      { depName: 'uuid', ownerFeatures: ['hook-import', 'miniapp-runtime', 'miniapp-storage', 'plugin-source', 'remote-connect', 'remote-ssh-concrete', 'speech'] },
       { depName: 'which', ownerFeatures: ['miniapp-runtime', 'ptc-runtime', 'remote-connect', 'script-tool-runtime', 'workspace-search'] },
       { depName: 'windows', ownerFeatures: ['models-dev', 'plugin-source', 'remote-connect', 'remote-persistence', 'remote-ssh-concrete', 'review-platform'] },
       { depName: 'x25519-dalek', ownerFeatures: ['remote-connect'] },
@@ -746,18 +744,17 @@ export const coreProductFullFeatureAssemblyRule = {
     'tools-agent-control',
     'tools-basic',
     'tools-browser-web',
-    'tools-canvas',
     'tools-computer-use',
     'tools-creation',
     'tools-git',
     'tools-image-analysis',
     'tools-image-generation',
+    'tools-office-documents',
     'tools-mcp',
     'tools-miniapp',
     'tools-pages',
     'web-tools',
     'workspace-search',
-    'canvas-runtime',
     'dispatch-store',
     'file-watch',
     'filesystem',
@@ -797,6 +794,7 @@ export const acpServerCoreFeatures = [
   'tools-computer-use',
   'tools-image-analysis',
   'tools-image-generation',
+  'tools-office-documents',
   'tools-agent-control',
 ];
 
@@ -1403,6 +1401,16 @@ export const coreClosedFeatureProfileRules = [
   },
   {
     manifestPath: 'src/crates/assembly/core/Cargo.toml',
+    featureName: 'tools-office-documents',
+    requiredFeatureRefs: [
+      'openbitfun-tool-packs/office-documents',
+      'dep:openbitfun-office-documents',
+    ],
+    exact: true,
+    reason: 'tools-office-documents owns Office file generation with only its portable OOXML engine',
+  },
+  {
+    manifestPath: 'src/crates/assembly/core/Cargo.toml',
     featureName: 'tools-pages',
     requiredFeatureRefs: ['openbitfun-tool-packs/pages'],
     exact: true,
@@ -1436,16 +1444,6 @@ export const coreClosedFeatureProfileRules = [
   },
   {
     manifestPath: 'src/crates/assembly/core/Cargo.toml',
-    featureName: 'tools-canvas',
-    requiredFeatureRefs: [
-      'openbitfun-tool-packs/canvas',
-      'canvas-runtime',
-    ],
-    exact: true,
-    reason: 'tools-canvas must compose only Canvas tools and runtime IO',
-  },
-  {
-    manifestPath: 'src/crates/assembly/core/Cargo.toml',
     featureName: 'tools-agent-control',
     requiredFeatureRefs: [
       'openbitfun-tool-packs/agent-control',
@@ -1467,17 +1465,6 @@ export const coreClosedFeatureProfileRules = [
     exact: true,
     reason:
       'openbitfun-core function-agents must own only function-agent contracts and concrete Git/AI adapters',
-  },
-  {
-    manifestPath: 'src/crates/assembly/core/Cargo.toml',
-    featureName: 'canvas-runtime',
-    requiredFeatureRefs: [
-      'dep:openbitfun-product-domains',
-      'openbitfun-services-integrations/canvas-runtime',
-    ],
-    exact: true,
-    reason:
-      'openbitfun-core canvas-runtime must extend only the product domain surface with Canvas runtime IO',
   },
   {
     manifestPath: 'src/crates/services/services-core/Cargo.toml',
@@ -1860,10 +1847,10 @@ export const ownerCrateFeatureAssemblyRules = [
       'computer-use',
       'image-analysis',
       'image-generation',
+      'office-documents',
       'miniapp',
       'pages',
       'creation',
-      'canvas',
       'agent-control',
     ],
   },
@@ -1880,7 +1867,6 @@ export const ownerCrateFeatureAssemblyRules = [
     ],
     requiredProductFullFeatures: [
       'browser-control',
-      'canvas-runtime',
       'deep-research',
       'file-watch',
       'function-agents',

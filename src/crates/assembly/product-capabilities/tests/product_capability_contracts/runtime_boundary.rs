@@ -69,8 +69,6 @@ fn code_agent_tools_are_selected_from_atomic_provider_groups() {
         "InitMiniApp",
         "FinalizeMiniApp",
         "PublishMiniApp",
-        "CreateCanvas",
-        "ReadCanvas",
     ] {
         assert!(
             !tool_names.contains(&product_tool),
@@ -88,6 +86,7 @@ fn headless_agent_hosts_keep_explore_code_agents_without_product_workflow_agents
 
         for product_agent in [
             "DeepResearch",
+            "PaperWriting",
             "ResearchSpecialist",
             "DeepReview",
             "CodeReview",
@@ -122,6 +121,12 @@ fn headless_agent_hosts_keep_explore_code_agents_without_product_workflow_agents
 }
 
 #[test]
+fn paper_writing_agent_is_available_on_desktop() {
+    let plan = product_assembly_plan_for_profile(DeliveryProfile::Desktop);
+    assert!(plan.agent_ids().contains(&"PaperWriting"));
+}
+
+#[test]
 fn cli_pages_are_independent_of_miniapp_and_acp() {
     let plan = product_assembly_plan_for_profile(DeliveryProfile::Cli);
     assert_eq!(
@@ -137,7 +142,7 @@ fn cli_pages_are_independent_of_miniapp_and_acp() {
     for tool in ["PageManage", "PagePublish", "PageDeploy"] {
         assert!(names.contains(&tool));
     }
-    for tool in ["InitMiniApp", "PublishMiniApp", "CreateCanvas"] {
+    for tool in ["InitMiniApp", "PublishMiniApp"] {
         assert!(!names.contains(&tool));
     }
     for profile in [DeliveryProfile::Acp, DeliveryProfile::Sdk] {

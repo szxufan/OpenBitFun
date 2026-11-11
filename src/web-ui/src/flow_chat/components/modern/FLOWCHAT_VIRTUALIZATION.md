@@ -2,49 +2,228 @@
 
 ## Historical scrolling and measurement
 
-Manual scrolling keeps the host's native wheel/touch behavior. Perceived
-smoothness depends on stable content coordinates as well as frame time; adding
-an easing loop to a height correction would expose the correction as motion.
-The implementation follows the read-before-write guidance in
-[rendering performance](https://web.dev/articles/rendering-performance) and
-[layout thrashing](https://web.dev/articles/avoid-large-complex-layouts-and-layout-thrashing).
-No new motion is introduced, so the existing reduced-motion policy and follow
-targets remain unchanged.
+`useFlowChatVirtualizer` supports two coordinate conventions behind one public
+API. Live output uses chronological indexes and a top-origin native scroller.
+History uses a bottom-origin scroller and newest-first internal indexes. Public
+row indexes, stable keys, DOM order, navigation and viewport snapshots remain
+chronological. `data-virtual-index` is public; `data-flowchat-measure-index` is
+private to the adapter and is refreshed for surviving rows after each commit.
+This includes live prepends and new tail rows in bottom-origin history, not only
+origin handoffs. Refresh indexes through the adapter's connected row registry;
+an index update requires no geometry read or DOM subtree scan. A later observer
+delivery must still resize the same row key.
+Rows mounted while the viewport is suspended stay in the pending attachment
+registry until a resumed commit registers them with the measurement observer.
+The viewport recovery frame explicitly requests that commit, even when the
+restored dimensions are unchanged and output has stopped. It must not rely on
+the reader's next scroll or a later resize. Prune disconnected pending rows
+even during suspension.
 
-Newly attached rows are measured as one batch in the layout phase, including
-while the reader is scrolling. The library's `measureElement` still registers
-observation, but it skips its inline size update during a gesture; the adapter
-therefore supplies the already-read height through `resizeItem` in that commit.
-In this flow layout the real row heights affect following content immediately.
-Waiting for ResizeObserver lets the old virtual padding and real rows disagree
-for a visible frame.
+For native history, internal offset is `-scrollTop`, index zero is the newest
+row, and the footer is the scroll margin. The internal window's before/after
+padding maps to physical bottom/top padding. Earlier records extend only the
+older side of the virtual range. Selecting a window does not require adding up
+unseen prefix heights to place the latest content.
 
-Explicit item/offset aims retain the library's own attachment-measurement policy.
-A smooth aim intentionally leaves distant rows estimated: forcing their sizes
-can move its target and make the library replace the animation with an `auto`
-jump. Reader intent cancels the aim before scrolling, so newly attached rows
-resume synchronous measurement in the first reader-controlled commit.
+Complete Turn data is published atomically; DOM residency is independently
+bounded by the visible content blocks and pixel overscan. Expanding a selected
+range to every block of its Turn defeated virtualization for tool-heavy sessions.
+Only the latest block/footer pins the CSS trailing-space shell. Stable Turn
+wrappers are present in live layout as well, so changing the origin does not
+reparent/remount visible blocks. An unmounted interval between Turns lives outside
+the tail reservation; an unmounted prefix of the latest Turn lives **inside** it.
+Putting that prefix above a minimum-height shell adds a second viewport of blank
+space. Pinned keys use the existing key index instead of scanning the document
+on every range extraction.
 
-Above-viewport measurement shifts pass through the viewport register and credit
-the DOM anchor with the **actual applied** displacement. Otherwise the anchor
-counts that repair as reader travel and applies it again. The anchor remains
-independent of the virtualizer; the list joins these two owners.
+Estimates still reserve space for unmounted content. Keyed measurements and
+fractional border-box sizes replace those reservations as rows mount. Preserve
+surviving reservations across width/font changes, prune retired keys, and keep
+range selection based on viewport overscan and interaction leases. An older measurement cannot
+shift the historical tail. Only a measured newer row wholly below a reader can
+shift their chosen position; that uses the viewport register and publishes its
+actual readback before another window is selected.
 
-The native scroll handler shares one `flowChatViewportGeometry` sample among
-leading-extent, anchor and session-snapshot readers. It is local to that event,
-and discarded if a follow write changes the offset. Layout commits, resize and
-navigation read fresh geometry; this is not a cross-frame cache.
+History rows stay in normal chronological DOM flow inside the bottom-origin
+extent. No CSS transform reverses text or selection. The scroller's native
+layout holds visible tail content while earlier rows arrive or reflow, before
+any ResizeObserver callback. The history layout does not run prepend snapshots,
+leading extent calculation or passive follow easing.
 
-The packaged macOS WebView fixture (80 Turns with Markdown, code, tables and
-collapsed tool groups) reproduced 17 reverse frames during 72 fast upward wheel
-actions, with a maximum 499.45px reversal. After these changes the same five
-slow/fast bidirectional phases had zero reversals over 4px and zero blank frames;
-row/scroller rectangle reads fell from 37,331 to 28,489 across those phases.
-Fast-up frame intervals still reached 26ms at p95 and 53ms at maximum in the
-final run; continuity is established here, not a constant 60fps guarantee.
-These are instrumented native-WebView samples, not physical trackpad or
-cross-platform latency measurements. See `FLOWCHAT_VERIFICATION.md` for the
-repeatable fixture and its limits.
+For insertion inside the reader's window, retain committed keys until the
+registered reading relationship and offset readback are complete. Pure older
+history append in the internal sequence requires no retained-window correction.
+The live layout keeps its prior reservation/follow behavior. Switching origins
+preserves the same visible row and refreshes mounted measurement indexes.
+
+Regression fixtures cover actual timeline projection, hydration flags, short and
+long histories, width changes, delayed measurements, native-scroll delivery,
+search/Turn navigation and existing bookmark coordinates. Native tail cases
+assert zero scroll writes as well as node and screen-position continuity.
+These supplied-geometry tests do not establish native paint or live remote
+behavior.
+
+## Projection cache lifetime
+
+Warm session projections are keyed weakly by the canonical `dialogTurns` array,
+so a history eviction or replacement can release both the body and its derived
+rows. Equal session IDs on different device sources do not share that key.
+Per-Turn streaming reconciliation drops removed Turn IDs on paging/rollback;
+each store, history projection and side panel owns its own mutable prefix state.
+Alternating views must not invalidate another view's live prefix. Immutable
+completed-Turn projections are shared weakly across views, while clearing a
+presentation store clears that store's warm projections. A completed Turn's
+normal projection does not depend on newer siblings, so appending a new message
+reuses its existing rows. Only the collapsed background presentation needs a
+separate variant. There is no shared mutable standalone projector; each caller,
+including benchmarks, creates its own. User-message reuse
+depends on the message and its presentation fields, not on its first model round.
+Normalized steering,
+retry and recovery rounds use weak source identities, including both source
+rounds for a merged retry. Inline group caches follow group objects rather than
+positions, which change when candidate groups are collected or expanded.
+
+The group index rebuilds from cached row groups when the transcript changes,
+preserving the original last-alias/first-member ownership rules even when a tail
+that shadowed an earlier alias disappears. Identical transcript arrays reuse
+their weakly cached index. The resource estimator remains a shared-reference-aware
+graph walk; the history owner already caches immutable Turn estimates and
+coalesces active-history accounting at 500 ms. A completed round does not prove
+an unchanged prefix or disjoint object graph.
+
+Search caches only match metadata for an active query in its owning view. Clearing
+search drops that cache, and unmounting drops the matcher. Lowercase transcript
+text exists only during a cache miss and is not retained beside the source body.
+
+Turn navigation summaries use a reader-owned `createFlowChatTurnSummaryProjector`.
+It retains only scalar Turn/catalog identities, ordinals and storage indexes.
+Body-only streaming updates compare those identities and reuse the summary arrays;
+structural changes rebuild one ordinal lookup shared by live and rendered
+summaries. Catalog corrections, partial-tail offsets, provisional usage reports
+and explicit history-window offsets keep their existing precedence. No Session,
+Turn body, viewport position or editor state is retained by this cache.
+
+### Settled record identity
+
+Live text/thinking items can have client-generated IDs, while the host's settled
+record uses journal-derived IDs. Replacing those IDs as React/measurement keys
+remounted unchanged output and discarded its measured height. A supplied-geometry
+regression observed a 92px downward displacement followed by an eased return.
+`TimelineItemIdentity` keeps view-local aliases across a one-to-one ordered
+narrative handoff inside the same Turn and model round. Types, attempts and
+content must agree (allowing coalesced blank lines and a recovered suffix);
+insertions, removals, unrelated prose and replaced tools do not qualify.
+Native settled records can omit the first attempt's item-level metadata. An
+explicit settled `attemptCount: 1` permits that handoff from `attemptIndex: 1`;
+missing counts, multiple attempts and conflicting explicit identities do not.
+Markdown section budgets use coalesced blank-line coordinates so that journal
+whitespace cannot move a semantic boundary. View-local section aliases retain
+the original display offsets while section ranges and bookmarks continue to
+use the unmodified host source. No viewport writer or follow policy changes.
+Unchanged source arrays skip item reconciliation, retired sources are released,
+and aliases are weakly keyed by the source item objects.
+
+Only rendered block keys use these aliases. Canonical item IDs, source references,
+search/navigation membership and persisted records remain host-owned. Bookmarks
+use `getVirtualItemBookmarkKey` and the row's canonical bookmark attribute, so a
+fresh projection can restore them after reopening. Restoration still accepts
+legacy row keys. The full-list regression checks every frame, retained DOM nodes,
+canonical bookmarks and reopening on local/simulated Peer surfaces, both while
+following and while reading. It does not establish native paint or live transport.
+
+## Large text and decoration residency
+
+Globally loaded styles also affect virtualization cost. Universal sibling rules
+in the GenUI spacing sheets and an unqualified child after the shared agent-card
+`:has()` selector invalidated unrelated shell subtrees when rows were recycled.
+Spacing keeps its element-child matching and specificity; agent-row sizing names
+the stack renderers' owned children inside `:where()`. New direct stack child
+kinds must retain that sizing contract. Native invalidation/Selector Stats traces
+identify the cause; ordinary uninstrumented runs establish the performance change.
+
+`markdownSections` uses the existing streaming parser's block tokenizer to find
+semantic boundaries. It does not perform inline parsing or replace the product
+Markdown renderer/sanitizer. Live and historical replies project roughly 3,000-character
+sections using identical source boundaries. These are work budgets,
+not truncation: an individual fence, table, list or quote remains whole. Raw HTML,
+reference/footnote dependencies and structured research protocols keep their
+whole-document path. Canonical text and export/copy payloads stay unchanged.
+
+The first section retains its previous block key; later keys initially include
+the raw source offset, retained as a display alias during settled whitespace
+handoff. Canonical bookmarks always use the current raw offset. Thinking stays
+with the first section. Search translates whole
+message occurrence counts into section-local counts, including Unicode case
+folding. Section indexes and search boundary counts each have a 2 MiB/64-entry
+budget under the shared derived-resource budget. They retain neither DOM nor
+React trees, and never evict authoritative data.
+
+Each section owns a stable renderer from its first token through completion and
+history reopening. Sealed prefixes keep their selected DOM and skip rendering
+when only the canonical source suffix changes. Only the final section types and
+reveals new characters; sealing drains its remaining backlog before a new section
+continues. The visible window bounds DOM during live output as well as history.
+A short first section already uses source offset zero, so crossing the work budget
+does not replace its renderer. Section bookmarks therefore keep the same coordinate
+system after reopening, including medium replies below 12,000 characters. Sections
+have no arrival animation on viewport remount. Historical text does not walk/copy
+every rendered text node to initialize a reveal effect that cannot animate it.
+
+Conversation code keeps exact native text at all times. Ordinary sections release
+syntax decoration with the outer virtual row. Whole semantic documents can use a
+shared intersection observer, which preserves selected nodes and disconnects after
+its last reader. Streaming never starts the Prism loader.
+An indivisible fence over 24,000 characters retains its source-only rendering in
+chat: allocating an unbounded synchronous token tree would negate the viewport
+budget. Copy still includes all code; editor rendering remains separate.
+
+New excerpt fragments may carry an optional `markdownStart` navigation hint.
+Existing fragments retain their rendered-text offsets: explicit navigation
+materializes their whole source before resolving the range. A new fragment can
+fall back to the existing text/context resolver in a whole-source renderer.
+Ambiguous or removed text remains unavailable rather than targeting another copy.
+Whole-text reading bookmarks retain their original coordinate system when a
+live reply is reopened as historical text. New section bookmarks carry an
+optional `anchorMarkdownStart`; its absence on a legacy/live first-row bookmark
+requests whole-source presentation before restoring the saved offset. This is
+view state only and does not rewrite conversation records.
+
+No history transport, persisted Turn shape, execution behavior or remote IO path
+changes. Native evidence and remaining coverage limits are in
+`FLOWCHAT_VERIFICATION.md`.
+
+### Mounted-row lifetime and opening readiness
+
+Row refs attach without a state update. Search focus and excerpt highlights
+resolve the ref in the row's layout phase, so first-mount behavior stays intact
+without rendering every newly windowed row twice. Overscan follows its pixel
+budget, with a leaf cap for dense tools; a giant block does not require a second
+extra block merely to satisfy a minimum row count.
+
+Ordinary bounded Markdown keeps syntax decoration for the mounted row's lifetime.
+An additional code intersection budget is used only for whole Markdown documents
+over 12K characters; indivisible fences above the 24K syntax budget remain exact
+plaintext. Native traces caught full `pre` replacement at the historical edge
+briefly shrinking the WebView range by 83/166px, even though final row heights
+matched. Avoid redundant inner decoration swaps in already bounded rows.
+
+Decorative brand/Spinner playback explicitly cancels and detaches its WAAPI
+effects on unmount or reduced-motion activation, while ordinary
+offscreen/hidden playback still pauses and resumes. Cancellation alone left
+effect targets/keyframes retained in native switching diagnostics. This releases
+effect ownership; it is not a claim that WebKit collects every animation wrapper
+or that all process-memory growth has been eliminated.
+
+Opening follows the viewport's settled layout signal, including bookmark
+restoration. The user-message row is absent at a long reply's end. An earlier
+check spent all 30 retries on every successful long-Turn open, adding roughly
+500ms before the loading handoff; main removed that polling in `06e3472a6`.
+Background hydration still waits for the existing presentation/paint handoff.
+
+Viewport snapshots use the latest committed callback on the scheduled frame and
+only capture synchronously on actual session unmount. A callback dependency
+change is not an unmount: reading geometry from its cleanup can force layout
+while React has removed rows but has not inserted their replacement padding.
 
 ## Accepted steering display
 
@@ -280,7 +459,7 @@ than its content's.
 
 ## What Belongs to the Virtualizer
 
-On a tail-following open, the virtualizer seeds its initial offset at the last
+On a live top-origin open, the virtualizer seeds its initial offset at the last
 item's estimated start. A desktop trace previously mounted rows 0..13 before
 moving to 22..33, with 372.3ms charged to the first head-row measurement. The
 seed selects a tail window without first mounting the head; real heights and
@@ -325,13 +504,9 @@ takeover; runtime savings and remote behavior still require separate validation.
 
 FlowChat virtualizes with **TanStack Virtual**, behind `useFlowChatVirtualizer.ts`.
 Nothing else imports it. The rest of FlowChat asks for offsets in scroller
-coordinates and gets them back; there is no index space of the virtualizer's own
-to convert at the edges, because measurements are cached against **item keys**,
-so a history prepend leaves every measured item exactly where it was.
-
-That is only half of what react-virtuoso's `firstItemIndex` did, and the other
-half has to be supplied — see *Keeping the Viewport on the Reader's Content* in
-`FLOWCHAT_HISTORY_PAGING.md`.
+coordinates and gets them back. History's reverse internal indexes and native
+negative offsets are converted only in this adapter. Measurements remain cached
+against stable item keys in either convention.
 
 The reason it is TanStack and not react-virtuoso is one line of its measurement
 pass: `size = measured ?? estimateSize(i)`. A per-item estimate for everything
@@ -344,9 +519,10 @@ directly. The estimate is owned by the data shape in
 Explore groups, and tool families each derive a bounded height from their
 content, status, width, and expansion state. This code is pure and runs before
 a row has a DOM node. Once mounted, DOM measurement remains authoritative and
-replaces the estimate. Width and volatile Explore expansion changes invalidate
-only the derived position pass; TanStack's key-based measured-size cache is
-retained.
+replaces the estimate. Estimate inputs apply when a key first reserves space. Existing reservations
+stay stable across width changes; actual mounted measurements replace them.
+Collected rows still receive their explicit known-height updates. TanStack's
+key-based measured-size cache is retained.
 
 **Items stay in normal flow inside a padded window**, not absolutely positioned.
 Everything outside the window stands in as `padding-top` and `padding-bottom`
@@ -357,8 +533,9 @@ the items have not moved yet.
 
 **The virtualizer does not use TanStack's own late-measurement adjustment.**
 `shouldAdjustScrollPositionOnItemSizeChange` reads the real scroller position
-and asks the viewport owner to apply the delta only when the whole item is above
-the viewport. A partly visible row is left alone because its changed content is
+and asks the viewport owner to apply a real measured delta only when the whole
+item precedes the viewport in its internal coordinate direction: above the
+reader for live layout, below the reader for bottom-origin history. A partly visible row is left alone because its changed content is
 inside what the reader is looking at. TanStack's adjustment is always refused:
 it applies its delta to `scrollOffset`, the library's copy refreshed only from
 scroll events. Every continuous writer here assigns `scrollTop` directly and
@@ -373,13 +550,13 @@ which is exactly when history arrives, so the cache holds reserved estimates
 until the ResizeObserver delivers a frame later.
 `virtualizer.measureRenderedItems()` does that reconciliation itself — the same
 work, a frame earlier, free for any row whose height was already right. The
-evidence and the numbers are in *A Displacement Is Not a Movement* in
-`FLOWCHAT_HISTORY_PAGING.md`.
+history layout and reading contracts are in `FLOWCHAT_HISTORY_PAGING.md`.
 
 **Alignment is asked for, not computed, wherever it fits.** `scrollItemIntoView`
 goes through the virtualizer so that its re-aim keeps chasing the item while the
 measurements under it move; an offset computed once is already stale by then.
-The gap above a top-aligned Turn is the virtualizer's `scrollPaddingStart`, for
+The gap above a top-aligned Turn is `scrollPaddingStart` in live layout and
+`scrollPaddingEnd` in native history, for
 the same reason. Only two places compute an offset by hand, and both do it
 because the target is not an item: the end of *real content*, which is above the
 resident tail spacer, and the end of a Turn.
@@ -649,7 +826,7 @@ and the empty space beside a bubble. See `RenderBlock::selectionGaps` in
 The internal model-round stack stays in block/inline flow so parallel capsules,
 Markdown margins, lists and card grids keep their existing layout. Selection
 remains native: no `user-select: none` on transcript ancestors, range replacement,
-custom selection overlay, extra selection listener or platform-specific path.
+custom selection overlay or platform-specific paint path.
 The flex boundary also contains the margins used by virtual-row measurement;
 do not restore block layout in an embedded pane. Stylesheet and DOM fixtures do
 not establish native selection paint; cross-message selection and scroll geometry

@@ -11,10 +11,15 @@ async function loadSource(relativePath, imports = {}) {
   code = code.replace(/from (['"])([^'"]+)\1/g, (_, quote, specifier) => (
     `from ${JSON.stringify(imports[specifier] ?? import.meta.resolve(specifier))}`
   ));
+  code = code.replace(/import\((['"])([^'"]+)\1\)/g, (_, quote, specifier) => (
+    `import(${JSON.stringify(imports[specifier] ?? import.meta.resolve(specifier))})`
+  ));
   return { url: `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`, source };
 }
 
 const links = await loadSource('../src/services/pairingLink.ts');
+const relayEncoding = await loadSource('../src/services/relayMessageEncoding.ts');
+const encryptionImports = { './relayMessageEncoding': relayEncoding.url };
 const selection = await loadSource('../src/services/accountDeviceSelection.ts');
 const { selectAccountDevice } = await import(selection.url);
 // The shared build module reads the workspace version from package.json; the
@@ -95,7 +100,7 @@ test('online selection preserves exact QR targeting and supports later device av
  * are restored when the returned promise settles.
  */
 async function withLocalClient(handler) {
-  const encryption = await loadSource('../src/services/E2EEncryption.ts');
+  const encryption = await loadSource('../src/services/E2EEncryption.ts', encryptionImports);
   const authModule = await loadSource('../src/services/CloudAccountClient.ts', {
     './E2EEncryption': encryption.url, './pairingLink': links.url, ...clientBuildImports,
   });
@@ -254,7 +259,7 @@ test('local answers must be complete and refresh replays are definitive', async 
 });
 
 test('phone normalization mirrors the relay contract', async () => {
-  const encryption = await loadSource('../src/services/E2EEncryption.ts');
+  const encryption = await loadSource('../src/services/E2EEncryption.ts', encryptionImports);
   const authModule = await loadSource('../src/services/CloudAccountClient.ts', {
     './E2EEncryption': encryption.url, './pairingLink': links.url, ...clientBuildImports,
   });
@@ -272,7 +277,7 @@ test('phone normalization mirrors the relay contract', async () => {
 });
 
 test('psk pairing derivation and code mirror the Rust contract', async () => {
-  const encryption = await loadSource('../src/services/E2EEncryption.ts');
+  const encryption = await loadSource('../src/services/E2EEncryption.ts', encryptionImports);
   const pairingCodec = await loadSource('../src/services/PskPairing.ts');
   const { deriveDeviceMessageKey, deriveDeviceMessageKeyPsk, pskKeyIdOf } = await import(encryption.url);
   const { encodePskPairingCode, parsePskPairingCode } = await import(pairingCodec.url);
@@ -377,6 +382,10 @@ test('official and local invitations share strict device-only targeting', async 
     'https://obf.test.linkerpi.com/relay/']) {
     assert.equal(pairingRelayUrl(base), null);
   }
+  // Versioned proxy paths of another hosted release are not our official
+  // deployment: the fork's relay serves the origin root only.
+  assert.equal(pairingRelayUrl('https://remote.openbitfun.com/relay/'), null);
+  assert.equal(pairingRelayUrl('https://remote.openbitfun.com/relay/?v=1.0.9'), null);
   assert.equal(accountDeviceIdFromHash('#/pair?did=desktop'), 'desktop');
   assert.equal(accountDeviceIdFromHash('#/chat?did=desktop'), null);
 });
@@ -443,7 +452,7 @@ function memoryStorage() {
   };
 }
 
-const encryptionModule = await loadSource('../src/services/E2EEncryption.ts');
+const encryptionModule = await loadSource('../src/services/E2EEncryption.ts', encryptionImports);
 const accountStoreModule = await loadSource('../src/services/CloudAccountSessionStore.ts', {
   './E2EEncryption': encryptionModule.url, './pairingLink': links.url,
 });
