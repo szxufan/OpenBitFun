@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { act } from 'react';
+import { act, type ComponentProps } from 'react';
+import type * as Monaco from 'monaco-editor';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import LatexEditor from './LatexEditor';
@@ -11,7 +12,16 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   supported: true,
   sourceProps: undefined as import('./CodeEditor').CodeEditorProps | undefined,
+  insertSnippet: undefined as ((value: string) => void) | undefined,
 }));
+
+vi.mock('@openbitfun/ui', async importOriginal => {
+  const actual = await importOriginal<typeof import('@openbitfun/ui')>();
+  return { ...actual, Select: (props: ComponentProps<typeof actual.Select>) => {
+    if (props['aria-label'] === 'editor.latexEditor.insert') mocks.insertSnippet = props.onValueChange;
+    return <actual.Select {...props} />;
+  } };
+});
 
 vi.mock('@/infrastructure/api/service-api/LatexAPI', () => ({
   compileWorkspaceLatex: mocks.invoke,
@@ -27,8 +37,8 @@ vi.mock('./CodeEditor', () => ({
     return <textarea aria-label="Source" />;
   },
 }));
-vi.mock('./PdfViewer', () => ({
-  default: ({ pdfBase64 }: import('./PdfViewer').PdfViewerProps) => <div data-pdf={pdfBase64} />,
+vi.mock('../pdf-review/PdfReviewEditor', () => ({
+  default: ({ pdfBase64, filePath }: import('./PdfViewer').PdfViewerProps) => <div data-pdf={pdfBase64} data-file={filePath} />,
 }));
 
 let container: HTMLDivElement;
@@ -122,4 +132,126 @@ it('coalesces edits that arrive while auto compilation is running', async () => 
   await act(async () => { finish({ pdfBase64: 'old-build' }); });
   await act(async () => { await vi.advanceTimersByTimeAsync(400); });
   expect(mocks.invoke).toHaveBeenCalledTimes(2);
+});
+
+it('independently hides either pane and restores the same source view after both are closed', async () => {
+  await act(async () => { renderEditor(); });
+  const source = container.querySelector('textarea');
+  const toggle = (key: string) => [...container.querySelectorAll('button')].find(button => button.textContent === key)!;
+  await act(async () => toggle('editor.latexEditor.source').click());
+  expect(container.querySelector('.latex-editor__split')?.getAttribute('data-mode')).toBe('secondary');
+  expect(container.querySelector('textarea')).toBe(source);
+  expect(mocks.sourceProps?.isActiveTab).toBe(false);
+  await act(async () => toggle('editor.latexEditor.preview').click());
+  expect(container.querySelector('.latex-editor__body')?.hasAttribute('hidden')).toBe(true);
+  expect(container.textContent).toContain('editor.latexEditor.panesClosed');
+  await act(async () => toggle('editor.latexEditor.restorePanes').click());
+  expect(container.querySelector('.latex-editor__split')?.getAttribute('data-mode')).toBe('split');
+  expect(container.querySelector('textarea')).toBe(source);
+  expect(mocks.sourceProps?.isActiveTab).toBe(true);
+});
+
+it('retains pane preferences when the same document moves between views', async () => {
+  const doc = new EditorDocument('layout-retained', origin, path);
+  await act(async () => { renderEditor(doc); });
+  const close = container.querySelector<HTMLButtonElement>('[aria-label="editor.latexEditor.closeSource"]')!;
+  await act(async () => close.click());
+  await act(async () => root.render(null));
+  await act(async () => { renderEditor(doc); });
+  expect(container.querySelector('.latex-editor__split')?.getAttribute('data-mode')).toBe('secondary');
+});
+
+it('compiles the declared project entry after saving an included source file', async () => {
+  const doc = new EditorDocument('root-project', origin, path);
+  doc.capture('% !TeX root = manuscript.tex\n\\section{Introduction}', false);
+  mocks.invoke.mockResolvedValueOnce({ pdfBase64: 'project-pdf', log: 'LaTeX compiler warnings' });
+  await act(async () => { renderEditor(doc); });
+  await act(async () => compileButton().click());
+  expect(mocks.invoke).toHaveBeenCalledWith(origin, '/project/manuscript.tex', 'pdflatex');
+});
+
+it.each([false, true])('inserts body snippets after the document start without replacing selected preamble: %s', async selectedPreamble => {
+  const original = '% !TeX program = pdflatex\n\\documentclass{article}\n\\begin{document}\nExisting text\n\\end{document}';
+  let source = original;
+  let start = 0;
+  let end = selectedPreamble ? original.indexOf('Existing text') : 0;
+  const positionAt = (offset: number) => {
+    const lines = source.slice(0, offset).split('\n');
+    return { lineNumber: lines.length, column: lines[lines.length - 1]!.length + 1 };
+  };
+  const offsetAt = (position: Monaco.IPosition) => source.split('\n').slice(0, position.lineNumber - 1)
+    .reduce((sum, line) => sum + line.length + 1, 0) + position.column - 1;
+  const editor = {
+    focus: vi.fn(),
+    getModel: () => ({ getValue: () => source, getEOL: () => '\n', getOffsetAt: offsetAt, getPositionAt: positionAt }),
+    getSelection: () => ({ getStartPosition: () => positionAt(start) }),
+    setSelection: (range: Monaco.IRange) => {
+      start = offsetAt({ lineNumber: range.startLineNumber, column: range.startColumn });
+      end = offsetAt({ lineNumber: range.endLineNumber, column: range.endColumn });
+    },
+    getContribution: () => ({ insert: (snippet: string) => {
+      const content = snippet.replace(/\$\{\d+:([^}]*)\}/g, '$1').replace(/\$\{\d+\}/g, '');
+      source = source.slice(0, start) + content + source.slice(end);
+    } }),
+  } as unknown as Monaco.editor.IStandaloneCodeEditor;
+  await act(async () => { renderEditor(); });
+  await act(async () => { mocks.sourceProps?.onEditorReady?.(editor); });
+  await act(async () => mocks.insertSnippet?.('section'));
+  expect(source.startsWith('% !TeX program = pdflatex\n\\documentclass{article}')).toBe(true);
+  expect(source).toContain('\\begin{document}\n\\section{Title}\n');
+  expect(source).toContain('Existing text\n\\end{document}');
+});
+
+function mainFileInput() {
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="editor.latexEditor.mainFile"]');
+  if (!input) throw new Error('Main file input is missing');
+  return input;
+}
+async function typeMainFile(value: string) {
+  const input = mainFileInput();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(1000);
+  });
+}
+async function enableAutoCompile() {
+  await act(async () => { container.querySelector<HTMLInputElement>('[role="switch"]')!.click(); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+}
+
+it('keeps the build target and review owner until the main-file entry is committed', async () => {
+  vi.useFakeTimers();
+  mocks.invoke.mockResolvedValue({ pdfBase64: 'build' });
+  await act(async () => { renderEditor(); });
+  await enableAutoCompile();
+  expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  await act(async () => mainFileInput().focus());
+  for (const partial of ['c', 'chapters/', 'chapters/paper.tex']) await typeMainFile(partial);
+  expect(mocks.invoke).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[data-pdf]')?.getAttribute('data-file')).toBe(path);
+
+  await act(async () => { mainFileInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+  expect(mocks.invoke).toHaveBeenCalledTimes(2);
+  expect(mocks.invoke).toHaveBeenLastCalledWith(origin, '/project/chapters/paper.tex', 'pdflatex');
+  expect(container.querySelector('[data-pdf]')?.getAttribute('data-file')).toBe('/project/chapters/paper.tex');
+});
+
+it('restores the committed main file on Escape and commits an edited entry on blur', async () => {
+  vi.useFakeTimers();
+  mocks.invoke.mockResolvedValue({ pdfBase64: 'build' });
+  await act(async () => { renderEditor(); });
+  await enableAutoCompile();
+  await act(async () => mainFileInput().focus());
+  await typeMainFile('draft.tex');
+  await act(async () => { mainFileInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+  expect(mainFileInput().value).toBe('');
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(mocks.invoke).toHaveBeenCalledTimes(1);
+
+  await typeMainFile('appendix.tex');
+  await act(async () => mainFileInput().blur());
+  await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+  expect(mocks.invoke).toHaveBeenLastCalledWith(origin, '/project/appendix.tex', 'pdflatex');
 });

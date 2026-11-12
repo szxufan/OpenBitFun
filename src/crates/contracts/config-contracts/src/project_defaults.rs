@@ -45,7 +45,7 @@ impl ProjectDefaultsConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AIModelConfig, AppConfig, GlobalConfig};
+    use crate::{AIModelEntry, AppConfig, GlobalConfig};
     use serde_json::json;
 
     #[test]
@@ -90,7 +90,7 @@ mod tests {
         global.migrate_model_selections().unwrap();
         global.models = ["global-main", "project-main", "project-fast"]
             .into_iter()
-            .map(|id| AIModelConfig {
+            .map(|id| AIModelEntry {
                 id: id.into(),
                 enabled: true,
                 ..Default::default()

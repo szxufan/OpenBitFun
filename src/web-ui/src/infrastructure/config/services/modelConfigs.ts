@@ -11,6 +11,13 @@ import { BUILTIN_PROVIDER_TEMPLATES } from './builtinProviderCatalog';
 const log = createLogger('ModelConfigManager');
 const t = (key: string, options?: Record<string, unknown>) => i18nService.t(key, options);
 
+/** Drop own properties whose value is `undefined`; keep `null` and `false`. */
+function omitUndefined<T extends object>(value: T): T {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, property]) => property !== undefined),
+  ) as T;
+}
+
 type ProviderConfigLike = {
   id?: string;
   name?: string;
@@ -65,7 +72,9 @@ export function resolveAIModels(
         enabled: true,
       };
     }
-    resolved.push({
+    // Absent optional fields stay absent (not `undefined`) so a resolved model
+    // remains deep-equal to the fixtures and snapshots callers compare against.
+    resolved.push(omitUndefined({
       id: entry.id,
       provider_id: provider.id,
       name: provider.name,
@@ -94,7 +103,7 @@ export function resolveAIModels(
       inline_think_in_text: entry.inline_think_in_text,
       image_dialect: entry.image_dialect,
       channel_routing: entry.channel_routing,
-    });
+    }));
   }
   return resolved;
 }

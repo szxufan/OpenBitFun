@@ -507,7 +507,7 @@ mod tests {
                     .as_str()
                     .is_some_and(|text| text.contains("never serialize this array into a string"))
             );
-            assert!(schema_text.contains("official OpenUI lang-core rules"));
+            assert!(schema_text.contains("official OpenUI Lang rules"));
             assert!(schema_text.contains("complete source document"));
             assert!(!schema_text.contains("updateComponents"));
             assert!(!schema_text.contains("updateLogic"));

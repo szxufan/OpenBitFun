@@ -4,6 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
 const official = 'https://remote.openbitfun.com/v/1.0.2';
+const accountSource = fs.readFileSync(path.join(__dirname, '../../entry/src/main/ets/services/CloudAccountClient.ets'), 'utf8');
+const accountJs = ts.transpileModule(accountSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
+const account = {};
+new Function('require', 'exports', accountJs)(name => ({
+  './AccountDeviceLink': { OFFICIAL_RELAY_URL: official },
+  './RemoteCrypto': { HarmonyRemoteCryptoCipher: class {} },
+}[name] || {}), account);
 const source = fs.readFileSync(path.join(__dirname, '../../entry/src/main/ets/pages/viewmodel/SettingsController.ets'), 'utf8');
 const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
 const exported = {};
@@ -18,10 +25,18 @@ new Function('require', 'exports', js)(name => ({
       const normalized = value.trim().replace(/\/+$/, '');
       return /^https?:\/\/\S+$/.test(normalized) ? normalized : '';
     },
+    sameRelayDeployment: (left, right) => left === right,
   },
-  '../../services/CloudAccountClient': { DEFAULT_CLOUD_RELAY_URL: official },
+  '../../services/CloudAccountClient': {
+    DEFAULT_CLOUD_RELAY_URL: official,
+    CloudAccountClient: account.CloudAccountClient,
+    accountDeviceDisplayName: account.accountDeviceDisplayName,
+  },
   '../../services/Encoding': {
     Encoding: { base64ToBytes: text => new Uint8Array(Buffer.from(text, 'base64')) },
+  },
+  '../../services/ConnectionErrorPolicy': {
+    ConnectionErrorPolicy: { errorText: () => 'remote.settings.connectionFailed' },
   },
   '../../services/RemoteLogger': { RemoteLogger: { warn() {} } },
   '../../i18n/RemoteI18n': { RemoteI18n: { t: key => key } },
@@ -93,3 +108,97 @@ test('a credential saved for another relay is never replayed there', async () =>
   assert.equal(state.status, 'remote.settings.relayReauthorizationRequired');
   assert.equal(controller.hasCloudAccountSession(), false);
 });
+
+test('device aliases are read without changing legacy device filtering or raw names', async () => {
+  const client = new account.CloudAccountClient();
+  client.request = async () => [
+    { device_id: 'desktop', device_name: 'Studio Mac', device_alias: 'HarmonyOS Phone', online: true, device_kind: 'desktop' },
+    { device_id: 'cleared', device_name: 'Office PC', device_alias: null, online: false },
+    { device_id: 'legacy', device_name: 'Legacy PC', online: true },
+    { device_id: 'unnamed', device_name: '', online: false },
+    { device_id: 'phone', device_name: 'HarmonyOS Phone', device_alias: 'Office', online: true },
+  ];
+  const devices = await client.listDevices(official, { token: 'token' });
+  assert.deepEqual(devices.map(device => device.deviceId), ['desktop', 'cleared', 'legacy', 'unnamed']);
+  assert.equal(devices[0].deviceName, 'Studio Mac');
+  assert.deepEqual(devices.map(account.accountDeviceDisplayName), ['HarmonyOS Phone', 'Office PC', 'Legacy PC', 'unnamed']);
+});
+
+test('directory refresh and presence retain aliases in the selected and preferred device names', async () => {
+  let alias = 'Office';
+  let onPresence;
+  let published;
+  const client = new account.CloudAccountClient();
+  client.request = async () => [
+    { device_id: 'desktop', device_name: 'Studio Mac', device_alias: alias, online: true, compatible: false },
+  ];
+  client.observePresence = (_relay, _session, listener) => { onPresence = listener; return () => {}; };
+  const state = {
+    controlTargetType: 'account_device', controlTargetDeviceId: 'desktop',
+    setControlTarget(type, id, name) { this.controlTargetType = type; this.controlTargetDeviceId = id; this.controlTargetDeviceName = name; },
+    setDesktopIdentity(name, id) { this.desktopName = name; this.desktopId = id; },
+  };
+  const controller = new exported.SettingsController({ client, remoteState: state, hooks: {
+    deviceId: () => 'phone', onAccountDevices: devices => { published = devices; },
+  } });
+  controller.cloudSession = { token: 'token', userId: 'user' };
+  controller.cloudRelayUrl = official;
+  controller.setPreferredCloudTarget('desktop', 'Old name');
+  await controller.listCloudAccountDevices();
+  assert.equal(state.controlTargetDeviceName, 'Office');
+  assert.equal(state.desktopName, 'Office');
+  assert.equal(controller.preferredCloudTarget().deviceName, 'Office');
+  controller.startPresencePolling(0);
+  onPresence(['desktop']);
+  assert.equal(account.accountDeviceDisplayName(published[0]), 'Office');
+  assert.equal(published[0].deviceName, 'Studio Mac');
+  assert.equal(published[0].compatible, false);
+
+  alias = 'Work PC';
+  await controller.listCloudAccountDevices();
+  assert.equal(state.controlTargetDeviceName, 'Work PC');
+  alias = null;
+  await controller.listCloudAccountDevices();
+  assert.equal(state.controlTargetDeviceName, 'Studio Mac');
+  assert.equal(controller.preferredCloudTarget().deviceName, 'Studio Mac');
+  assert.equal(state.controlTargetDeviceId, 'desktop');
+  controller.stopPresencePolling();
+});
+
+for (const online of [true, false]) {
+  test(`a delayed device list retains newer ${online ? 'online' : 'offline'} presence and refreshes metadata`, async () => {
+    const device = { deviceId: 'desktop', deviceName: 'Desktop', online: !online };
+    let onPresence;
+    let published;
+    const client = {
+      listDevices: async () => [{ ...device }],
+      observePresence: (_relay, _session, listener) => { onPresence = listener; return () => {}; },
+    };
+    const controller = new exported.SettingsController({ client, remoteState: {}, hooks: {
+      deviceId: () => 'phone', onAccountDevices: devices => { published = devices; },
+    } });
+    controller.cloudSession = { token: 'token', userId: 'user' };
+    controller.cloudRelayUrl = official;
+    await controller.listCloudAccountDevices();
+    controller.startPresencePolling(0);
+
+    let resolve;
+    client.listDevices = () => new Promise(yes => { resolve = yes; });
+    const pending = controller.listCloudAccountDevices();
+    onPresence(online ? ['desktop'] : []);
+    assert.equal(published[0].online, online);
+    resolve([{ ...device, deviceAlias: 'Office', compatible: false }]);
+    const result = await pending;
+    assert.equal(result[0].online, online);
+    assert.equal(published[0].online, online);
+    assert.equal(controller.knownAccountDevice('desktop').online, online);
+    assert.equal(published[0].deviceAlias, 'Office');
+    assert.equal(published[0].compatible, false);
+
+    // A later explicit read must still recover from a missed presence event.
+    client.listDevices = async () => [{ ...device }];
+    await controller.listCloudAccountDevices();
+    assert.equal(published[0].online, !online);
+    controller.stopPresencePolling();
+  });
+}

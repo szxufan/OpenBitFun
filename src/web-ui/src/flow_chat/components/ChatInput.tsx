@@ -3858,7 +3858,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   }, [admitComposerImages, clearPendingLargePastes, currentSessionId, derivedState, dispatchInput, expandComposerSpecialTokens, imageContexts, inputState.value, isBtwSession, removeContext, replacePendingLargePastes, sessionBoundWorkspacePath, selectTargetSession, setQueuedInput, t]);
 
-  const submitCompactFromInput = useCallback(async () => {
+  const submitManualCompaction = useCallback(async (clearComposer: boolean) => {
     if (!effectiveTargetSessionId || !effectiveTargetSession) {
       notificationService.error(
         t('chatInput.compactNoSession')
@@ -3878,8 +3878,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       return;
     }
 
-    const message = inputState.value.trim();
-    if (!/^\/compact\s*$/i.test(message)) {
+    const message = clearComposer ? inputState.value.trim() : '';
+    if (clearComposer && !/^\/compact\s*$/i.test(message)) {
       notificationService.warning(
         t('chatInput.compactUsage')
       );
@@ -3888,9 +3888,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     const requestedTurnId = manualCompactionTurnId();
     markManualCompactionPending(effectiveTargetSessionId, requestedTurnId);
-    dispatchInput({ type: 'CLEAR_VALUE' });
-    setQueuedInput(null);
-    setSlashCommandState({ isActive: false, kind: 'all', query: '', selectedIndex: 0 });
+    if (clearComposer) {
+      dispatchInput({ type: 'CLEAR_VALUE' });
+      setQueuedInput(null);
+      setSlashCommandState({ isActive: false, kind: 'all', query: '', selectedIndex: 0 });
+    }
 
     try {
       const result = await FlowChatManager.getInstance().compactSession(
@@ -3901,7 +3903,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         throw new Error(t('chatInput.compactFailed'));
       }
     } catch (error) {
-      log.error('Failed to trigger /compact', {
+      log.error('Failed to trigger manual context compaction', {
         error,
         sessionId: effectiveTargetSessionId,
       });
@@ -3910,7 +3912,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         return;
       }
       settleManualCompaction(effectiveTargetSessionId, requestedTurnId);
-      dispatchInput({ type: 'SET_VALUE', payload: message });
+      if (clearComposer) dispatchInput({ type: 'SET_VALUE', payload: message });
       notificationService.error(
         error instanceof Error ? error.message : t('error.unknown'),
         {
@@ -3928,6 +3930,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setQueuedInput,
     t,
   ]);
+
+  const submitCompactFromInput = useCallback(
+    () => submitManualCompaction(true),
+    [submitManualCompaction],
+  );
 
   const runEffectiveSessionUsageReport = useCallback(async (presentReport?: UsageReportUiParams['presentReport']) => {
     if (!effectiveTargetSessionId || !effectiveTargetSession) {
@@ -6805,6 +6812,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 workspaceId: effectiveTargetSession.workspaceId ?? effectiveTargetSession.config.workspaceId,
               },
               loadContext: loadContextUsageOverview,
+              compactDisabled: !!derivedState?.isProcessing,
+              onCompact: caps.ops.has('compact')
+                ? () => { void submitManualCompaction(false); }
+                : undefined,
               onOpen: handleToolbarUsageReport,
             }
           : undefined

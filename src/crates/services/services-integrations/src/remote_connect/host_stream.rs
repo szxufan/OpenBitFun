@@ -64,6 +64,12 @@ pub struct StreamPage {
     /// Older history was evicted from host memory; `has_more=false` then means
     /// "unavailable", not "complete".
     pub truncated: bool,
+    /// Highest live sequence the host's memory budget evicted. Sent only by
+    /// hosts that fence a forward reader behind evicted records with a fresh
+    /// epoch; older hosts omit it, and controllers then infer eviction from
+    /// `truncated` and `oldest_seq`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evicted_through: Option<u64>,
     /// Present only when the host accepted the optional single-Turn read offer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_history: Option<TurnHistoryPage>,
@@ -73,6 +79,9 @@ pub struct StreamPage {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct StreamReadRequest {
     pub stream_id: String,
+    /// Optional per-reader lease. Old hosts ignore it; capable hosts echo it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
     /// Read events after this sequence (forward catch-up).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<u64>,
@@ -152,7 +161,10 @@ struct StreamLog {
     record_index: BTreeMap<String, RecordIndexEntry>,
     bytes: usize,
     truncated: bool,
-    subscribers: HashMap<String, Instant>,
+    /// Highest live sequence dropped by the memory budget. A forward reader
+    /// whose cursor is below it missed records and must resynchronize.
+    evicted_through: u64,
+    subscribers: HashMap<String, HashMap<Option<String>, Instant>>,
     last_activity: Instant,
     turn_snapshots: HashMap<String, TurnSnapshot>,
     /// Snapshot identities participate in tombstones, but must not suppress a
@@ -161,6 +173,30 @@ struct StreamLog {
 }
 
 impl StreamLog {
+    fn prune_subscriptions(&mut self, now: Instant) {
+        self.subscribers.retain(|_, leases| {
+            leases.retain(|_, expires| *expires > now);
+            !leases.is_empty()
+        });
+    }
+
+    fn subscribe(&mut self, device: &str, subscription_id: Option<&str>) -> Result<()> {
+        if subscription_id.is_some_and(|id| id.is_empty() || id.len() > 128) {
+            bail!("Invalid stream subscription identity");
+        }
+        let now = Instant::now();
+        self.prune_subscriptions(now);
+        let leases = self.subscribers.entry(device.to_owned()).or_default();
+        let id = subscription_id.map(str::to_owned);
+        // One device may render a stream in several views. Bound those leases
+        // independently of the account's device count and expired records.
+        if !leases.contains_key(&id) && leases.len() >= 64 {
+            bail!("Too many concurrent readers for this device stream");
+        }
+        leases.insert(id, now + SUBSCRIPTION_LEASE);
+        Ok(())
+    }
+
     fn new() -> Self {
         Self {
             history: None,
@@ -171,6 +207,7 @@ impl StreamLog {
             record_index: BTreeMap::new(),
             bytes: 0,
             truncated: false,
+            evicted_through: 0,
             subscribers: HashMap::new(),
             last_activity: Instant::now(),
             turn_snapshots: HashMap::new(),
@@ -249,6 +286,7 @@ impl StreamLog {
                     self.history.as_mut().unwrap().newer_evicted = true;
                 } else {
                     self.truncated = true;
+                    self.evicted_through = self.evicted_through.max(seq);
                 }
             }
         }
@@ -260,6 +298,26 @@ impl StreamLog {
 
     fn oldest(&self) -> u64 {
         self.events.keys().next().copied().unwrap_or(self.next_seq)
+    }
+
+    /// A forward read resumes after `after`. When the memory budget already
+    /// evicted live events past that cursor, returning the remaining suffix
+    /// would silently skip them. Like a slow backward reader crossing evicted
+    /// history, the stream takes a fresh epoch so the reader announces a gap and
+    /// reloads its latest page. A reader already on another epoch resyncs anyway.
+    fn fence_skipped_forward_read(&mut self, request: &StreamReadRequest) -> bool {
+        let Some(after) = request.after else {
+            return false;
+        };
+        if after >= self.evicted_through || request.epoch.is_some_and(|e| e != self.epoch) {
+            return false;
+        }
+        let previous = self.epoch;
+        self.epoch = fresh_epoch();
+        if self.epoch == previous {
+            self.epoch = (previous + 1) & JS_MAX_SAFE_INTEGER;
+        }
+        true
     }
 
     /// Measure a history page ending just before `before`. `limit` is a budget:
@@ -375,6 +433,7 @@ impl StreamLog {
             cursor: self.latest(),
             oldest_seq: self.oldest(),
             truncated: self.truncated,
+            evicted_through: Some(self.evicted_through),
             turn_history: None,
         })
     }
@@ -463,7 +522,7 @@ impl HostStreamHub {
                         let Some(log) = state.streams.get_mut(&stream_id) else {
                             continue;
                         };
-                        log.subscribers.retain(|_, expires| *expires > now);
+                        log.prune_subscriptions(now);
                         let payload = serde_json::json!({
                             "stream_id": stream_id,
                             "epoch": log.epoch,
@@ -492,7 +551,7 @@ impl HostStreamHub {
                 let mut state = purge_state.lock().unwrap_or_else(|e| e.into_inner());
                 let now = Instant::now();
                 state.streams.retain(|_, log| {
-                    log.subscribers.retain(|_, expires| *expires > now);
+                    log.prune_subscriptions(now);
                     log.turn_snapshots.retain(|_, snapshot| {
                         now.duration_since(snapshot.last_activity) < STREAM_GRACE
                             && log.subscribers.contains_key(&snapshot.device)
@@ -778,20 +837,47 @@ impl HostStreamHub {
             .or_insert_with(StreamLog::new);
         log.last_activity = Instant::now();
         if request.subscribe {
-            log.subscribers.insert(
-                source_device_id.to_owned(),
-                Instant::now() + SUBSCRIPTION_LEASE,
+            log.subscribe(source_device_id, request.subscription_id.as_deref())?;
+        }
+        if log.fence_skipped_forward_read(request) {
+            log::warn!(
+                "Fenced host stream reader behind evicted records: stream_id={} after={} oldest_seq={}",
+                request.stream_id,
+                request.after.unwrap_or_default(),
+                log.oldest()
             );
+            let page = log.read(&request.stream_id, request);
+            // Other readers learn the new epoch from the next hint.
+            state.dirty.insert(request.stream_id.clone());
+            drop(state);
+            self.wake.notify_one();
+            return page;
         }
         log.read(&request.stream_id, request)
     }
 
     pub fn unsubscribe(&self, source_device_id: &str, stream_id: &str) {
+        self.unsubscribe_scoped(source_device_id, stream_id, None);
+    }
+
+    pub fn unsubscribe_scoped(
+        &self,
+        source_device_id: &str,
+        stream_id: &str,
+        subscription_id: Option<&str>,
+    ) {
         let mut state = self.lock();
         if let Some(log) = state.streams.get_mut(stream_id) {
-            log.subscribers.remove(source_device_id);
-            log.turn_snapshots
-                .retain(|_, snapshot| snapshot.device != source_device_id);
+            if let Some(leases) = log.subscribers.get_mut(source_device_id) {
+                leases.remove(&subscription_id.map(str::to_owned));
+                if leases.is_empty() {
+                    log.subscribers.remove(source_device_id);
+                }
+            }
+            if !log.subscribers.contains_key(source_device_id) {
+                log.turn_snapshots
+                    .retain(|_, snapshot| snapshot.device != source_device_id);
+            }
             log.last_activity = Instant::now();
         }
     }
@@ -838,7 +924,7 @@ impl HostStreamHub {
             .map(|log| {
                 log.subscribers
                     .values()
-                    .filter(|expires| **expires > now)
+                    .filter(|leases| leases.values().any(|expires| *expires > now))
                     .count()
             })
             .unwrap_or(0)
@@ -1051,6 +1137,24 @@ mod tests {
             records,
             before: (turn > 0).then_some(turn),
         })
+    }
+
+    #[test]
+    fn subscription_lease_ids_are_bounded_and_expired_leases_are_reclaimed() {
+        let mut log = StreamLog::new();
+        for index in 0..64 {
+            log.subscribe("controller", Some(&format!("reader-{index}")))
+                .unwrap();
+        }
+        log.subscribe("controller", Some("reader-0")).unwrap();
+        assert!(log.subscribe("controller", Some("overflow")).is_err());
+        assert!(log.subscribe("controller", Some("")).is_err());
+        assert!(log.subscribe("controller", Some(&"a".repeat(129))).is_err());
+        for expires in log.subscribers.get_mut("controller").unwrap().values_mut() {
+            *expires = Instant::now() - Duration::from_secs(1);
+        }
+        log.subscribe("controller", Some("fresh")).unwrap();
+        assert_eq!(log.subscribers["controller"].len(), 1);
     }
 
     #[tokio::test]
@@ -1675,6 +1779,70 @@ mod tests {
             !hub.is_active("other"),
             "synchronizing an unread session must not retain it"
         );
+    }
+
+    #[tokio::test]
+    async fn forward_reader_behind_evicted_records_is_fenced_with_a_new_epoch() {
+        let hub = HostStreamHub::start(Arc::new(Recorder(Default::default())));
+        hub.activate("s");
+        let slow = hub.read("d", &request("s")).unwrap();
+        let big = "y".repeat(4 * 1024 * 1024);
+        for index in 0..12 {
+            hub.append("s".into(), "session-record".into(), serde_json::json!({"sessionId":"s","id":format!("item/{index}"),"item":{"data":big}}))
+                .await
+                .unwrap();
+        }
+        let current = hub.read("d", &request("s")).unwrap();
+        assert!(current.truncated && current.oldest_seq > slow.cursor + 1);
+        assert_eq!(current.epoch, slow.epoch, "eviction alone keeps the epoch");
+        // The fencing host reports its eviction watermark for controllers.
+        let watermark = current
+            .evicted_through
+            .expect("fencing host reports evictions");
+        assert!(watermark > slow.cursor && watermark < current.oldest_seq);
+        // A reader already past the evicted range keeps reading normally.
+        let caught_up = hub
+            .read(
+                "d",
+                &StreamReadRequest {
+                    after: Some(current.cursor),
+                    epoch: Some(current.epoch),
+                    ..request("s")
+                },
+            )
+            .unwrap();
+        assert_eq!(caught_up.epoch, current.epoch);
+        // The slow reader would skip evicted records: fence it instead.
+        let fenced = hub
+            .read(
+                "d",
+                &StreamReadRequest {
+                    after: Some(slow.cursor),
+                    epoch: Some(slow.epoch),
+                    ..request("s")
+                },
+            )
+            .unwrap();
+        assert_ne!(fenced.epoch, slow.epoch);
+        assert!(hub.needs_full_synchronization(&StreamReadRequest {
+            after: Some(slow.cursor),
+            epoch: Some(slow.epoch),
+            ..request("s")
+        }));
+        // Its latest-page resync adopts the new epoch and is not fenced again.
+        let resync = hub.read("d", &request("s")).unwrap();
+        let next = hub
+            .read(
+                "d",
+                &StreamReadRequest {
+                    after: Some(resync.cursor),
+                    epoch: Some(resync.epoch),
+                    ..request("s")
+                },
+            )
+            .unwrap();
+        assert_eq!(next.epoch, resync.epoch);
+        assert_eq!(resync.epoch, fenced.epoch);
     }
 
     #[tokio::test]

@@ -133,6 +133,9 @@ pub enum PeerHostCapability {
     TerminalCursorReplayV1,
     /// `git_get_tracked_change_count` returns a workspace-scoped count.
     GitTrackedChangeCountV1,
+    /// `peer_mode_ping` reports `caller_attached`: whether the calling
+    /// controller is still a DeviceEvent delivery target on this host.
+    PeerAttachmentStatusV1,
 }
 
 impl PeerHostCapability {
@@ -190,6 +193,7 @@ impl PeerHostCapability {
         Self::SshNoneAuthV1,
         Self::TerminalCursorReplayV1,
         Self::GitTrackedChangeCountV1,
+        Self::PeerAttachmentStatusV1,
     ];
 
     /// The key used in the `peer_mode_ping` `capabilities` object.
@@ -247,6 +251,7 @@ impl PeerHostCapability {
             Self::SshNoneAuthV1 => "ssh_none_auth_v1",
             Self::TerminalCursorReplayV1 => "terminal_cursor_replay_v1",
             Self::GitTrackedChangeCountV1 => "git_tracked_change_count_v1",
+            Self::PeerAttachmentStatusV1 => "peer_attachment_status_v1",
         }
     }
 
@@ -310,6 +315,7 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::DeviceGrantV1,
     PeerHostCapability::SshNoneAuthV1,
     PeerHostCapability::GitTrackedChangeCountV1,
+    PeerHostCapability::PeerAttachmentStatusV1,
 ];
 
 /// The CLI peer host has no MiniApp runtime, WSL or SSH connection setup,
@@ -345,6 +351,7 @@ const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::DeviceGrantV1,
     PeerHostCapability::TerminalCursorReplayV1,
     PeerHostCapability::GitTrackedChangeCountV1,
+    PeerHostCapability::PeerAttachmentStatusV1,
 ];
 
 /// The capabilities a peer host of the given kind publishes.

@@ -36,6 +36,7 @@ import { taskDetailPanelAppearanceDescriptor } from '@/flow_chat/components/Task
 import { toolbarModeAppearanceDescriptor } from '@/flow_chat/components/toolbar-mode/ToolbarMode.appearance';
 import { mcpToolDisplayAppearanceDescriptor } from '@/flow_chat/tool-cards/MCPToolDisplay.appearance';
 import { skillsConfigAppearanceDescriptor } from '@/infrastructure/config/components/SkillsConfig.appearance';
+import { visualSkinConfigAppearanceDescriptor } from '@/infrastructure/config/components/VisualSkinConfigSection.appearance';
 import { diffEditorAppearanceDescriptor } from '@/tools/editor/components/DiffEditor.appearance';
 import { agentCompanionDesktopPetAppearanceDescriptor } from '@/app/components/AgentCompanionDesktopPet/AgentCompanionDesktopPet.appearance';
 import { desktopCardAppearanceDescriptor } from '@/app/components/DesktopCard/DesktopCardWindow.appearance';
@@ -44,11 +45,13 @@ import { inlineDiffPreviewAppearanceDescriptor } from '@/flow_chat/components/In
 import { exportImageAppearanceDescriptor } from '@/flow_chat/components/modern/ExportImageButton.appearance';
 import { userMessageItemAppearanceDescriptor } from '@/flow_chat/components/modern/UserMessageItem.appearance';
 import { externalHistoryNoticeAppearanceDescriptor } from '@/flow_chat/components/ExternalHistoryNotice.appearance';
+import { peerUpdatesPausedNoticeAppearanceDescriptor } from '@/flow_chat/components/modern/PeerUpdatesPausedNotice.appearance';
 import { sessionUsageReportCardAppearanceDescriptor } from '@/flow_chat/components/usage/SessionUsageReportCard.appearance';
 import { createPlanDisplayAppearanceDescriptor } from '@/flow_chat/tool-cards/CreatePlanDisplay.appearance';
 import { editorConfigAppearanceDescriptor } from '@/app/scenes/settings/pages/development/EditorSettingsPage.appearance';
 import { appearanceSettingsAppearanceDescriptor } from '@/app/scenes/settings/pages/application/AppearanceSettingsPage.appearance';
 import { configAppearanceDescriptor } from '@/infrastructure/config/appearance';
+import { configPageAppearanceDescriptor } from '@/infrastructure/config/components/common/ConfigPageLayout.appearance';
 import { fontPreferenceAppearanceDescriptor } from '@/infrastructure/font-preference/appearance';
 import { languageSelectorAppearanceDescriptor } from '@/infrastructure/i18n/appearance';
 import { peerDeviceAppearanceDescriptor } from '@/infrastructure/peer-device/appearance';
@@ -305,6 +308,7 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(toolbarModeAppearanceDescriptor)
     .registerComponent(mcpToolDisplayAppearanceDescriptor)
     .registerComponent(skillsConfigAppearanceDescriptor)
+    .registerComponent(visualSkinConfigAppearanceDescriptor)
     .registerComponent(diffEditorAppearanceDescriptor)
     .registerComponent(computerUseControlAppearanceDescriptor)
     .registerComponent(agentCompanionDesktopPetAppearanceDescriptor)
@@ -314,11 +318,13 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(exportImageAppearanceDescriptor)
     .registerComponent(userMessageItemAppearanceDescriptor)
     .registerComponent(externalHistoryNoticeAppearanceDescriptor)
+    .registerComponent(peerUpdatesPausedNoticeAppearanceDescriptor)
     .registerComponent(sessionUsageReportCardAppearanceDescriptor)
     .registerComponent(createPlanDisplayAppearanceDescriptor)
     .registerComponent(editorConfigAppearanceDescriptor)
     .registerComponent(appearanceSettingsAppearanceDescriptor)
     .registerComponent(configAppearanceDescriptor)
+    .registerComponent(configPageAppearanceDescriptor)
     .registerComponent(fontPreferenceAppearanceDescriptor)
     .registerComponent(languageSelectorAppearanceDescriptor)
     .registerComponent(peerDeviceAppearanceDescriptor)

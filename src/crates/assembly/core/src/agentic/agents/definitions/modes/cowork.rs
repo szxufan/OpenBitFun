@@ -62,7 +62,6 @@ impl CoworkMode {
                 // `wait` sends schedules here rather than pinning a turn open
                 // for the interval.
                 "Cron".to_string(),
-                "PublishAppearance".to_string(),
             ],
         }
     }

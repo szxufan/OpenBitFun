@@ -534,6 +534,10 @@ impl RelayClient {
             tokio::time::sleep(poll).await;
         }
     }
+    /// Forward one relay frame. Returns `false` only when the loop must stop
+    /// (a newer connection epoch or a closed event receiver). A malformed frame
+    /// from another client or relay version is dropped: ending the loop would
+    /// leave the host unreachable with no disconnect event and no reconnect.
     async fn route(
         owner: &Arc<Mutex<Owner>>,
         events: &mpsc::Sender<RelayEvent>,
@@ -546,14 +550,13 @@ impl RelayClient {
         match event {
             Incoming::RpcRequest(event) => {
                 let value = event.payload.0;
-                let Some(source) = value["sourceDeviceId"].as_str() else {
-                    return false;
-                };
-                let Some(data) = value["params"]["encrypted_data"].as_str() else {
-                    return false;
-                };
-                let Some(nonce) = value["params"]["nonce"].as_str() else {
-                    return false;
+                let (Some(source), Some(data), Some(nonce)) = (
+                    value["sourceDeviceId"].as_str(),
+                    value["params"]["encrypted_data"].as_str(),
+                    value["params"]["nonce"].as_str(),
+                ) else {
+                    log::warn!("Dropped malformed relay RPC request frame");
+                    return true;
                 };
                 let correlation = format!("rpc-{}", uuid::Uuid::new_v4());
                 {
@@ -598,7 +601,10 @@ impl RelayClient {
                             .send(RelayEvent::DevicePresence { devices })
                             .await
                             .is_ok(),
-                        Err(_) => false,
+                        Err(error) => {
+                            log::warn!("Dropped malformed relay device presence frame: {error}");
+                            true
+                        }
                     }
                 } else if value["type"] == "device-event" {
                     let (Some(source), Some(data), Some(nonce)) = (
@@ -606,7 +612,8 @@ impl RelayClient {
                         value["params"]["encrypted_data"].as_str(),
                         value["params"]["nonce"].as_str(),
                     ) else {
-                        return false;
+                        log::warn!("Dropped malformed relay device event frame");
+                        return true;
                     };
                     events
                         .send(RelayEvent::DeviceMessageReceived {
@@ -661,9 +668,15 @@ impl RelayClient {
         timeout: Duration,
     ) -> Result<(String, String, Option<String>)> {
         let (data, nonce, _, key_id) = self
-            .request_device_message(target, encrypted_data, nonce, key_id, timeout, false, || {
-                Ok(())
-            })
+            .request_device_message(
+                target,
+                encrypted_data,
+                nonce,
+                key_id,
+                timeout,
+                false,
+                || Ok(()),
+            )
             .await?;
         Ok((data, nonce, key_id))
     }
@@ -715,14 +728,9 @@ impl RelayClient {
         nonce: &str,
         key_id: Option<&str>,
     ) -> Result<()> {
-        self.send_device_message_guarded(
-            target,
-            correlation,
-            encrypted_data,
-            nonce,
-            key_id,
-            || Ok(()),
-        )
+        self.send_device_message_guarded(target, correlation, encrypted_data, nonce, key_id, || {
+            Ok(())
+        })
         .await
     }
 
@@ -1023,6 +1031,44 @@ mod tests {
             received.recv().await,
             Some(RelayEvent::DevicePresence { devices }) if devices.is_empty()
         ));
+    }
+
+    #[tokio::test]
+    async fn malformed_frames_are_dropped_without_stopping_the_relay_loop() {
+        let owner = Arc::new(Mutex::new(Owner {
+            epoch: 1,
+            state: ConnectionState::Connected,
+            url: None,
+            task: None,
+            sender: None,
+            replies: HashMap::new(),
+        }));
+        let (events, mut received) = mpsc::channel(4);
+        let ephemeral = |payload: serde_json::Value| {
+            Incoming::Ephemeral(Event {
+                payload: super::super::realtime_client::Ephemeral(payload),
+                id: (),
+                attachments: (),
+            })
+        };
+        for frame in [
+            serde_json::json!({ "type": "device-presence", "devices": "not-a-list" }),
+            serde_json::json!({ "type": "device-event", "params": {} }),
+        ] {
+            assert!(RelayClient::route(&owner, &events, 1, ephemeral(frame)).await);
+        }
+        assert!(received.try_recv().is_err());
+
+        // A stale epoch still stops the loop.
+        assert!(
+            !RelayClient::route(
+                &owner,
+                &events,
+                0,
+                ephemeral(serde_json::json!({ "type": "device-presence", "devices": [] })),
+            )
+            .await
+        );
     }
 
     #[tokio::test]

@@ -4,7 +4,7 @@ import {
   type HostStreamOptions, type SessionStreamHandle, type StreamHint, type StreamReadRequest,
 } from '../../../shared/relay-transport/HostStream';
 /** Account directory plus the shared Socket.IO encrypted RPC transport. */
-import { AccountRealtime, type DeviceEventEnvelope } from '../../../shared/relay-transport/AccountRealtime';
+import { AccountRealtime, type ConnectionStatus, type DeviceEventEnvelope } from '../../../shared/relay-transport/AccountRealtime';
 import { PSK_KEY_MISMATCH_MESSAGE } from '../../../shared/relay-transport/HostStream';
 import {
   deriveDeviceMessageKey, deriveDeviceMessageKeyPsk, encrypt, decrypt, fromB64, PSK_KEY_ID_PREFIX,
@@ -12,6 +12,7 @@ import {
 import { PeerPskStore } from './PeerPskStore';
 import { parsePskPairingCode, encodePskPairingCode, generatePsk } from './PskPairing';
 import { normalizeRelayUrl } from './pairingLink';
+import { relayPayloadBytes, uploadRelayPayload } from './RelayPayloadUpload';
 
 export interface AccountIdentity {
   token: string;
@@ -19,7 +20,11 @@ export interface AccountIdentity {
   userId: string;
   deviceId: string;
 }
-interface AccountIdentitySnapshot extends AccountIdentity { generation: number; }
+interface AccountIdentitySnapshot extends AccountIdentity {
+  generation: number;
+  /** Aborted when this identity is replaced or signed out; cancels its uploads. */
+  lifetime: AbortController;
+}
 export type AccountOwnerChange = {
   kind: 'initial' | 'replacement' | 'unavailable';
   epoch: number;
@@ -104,6 +109,42 @@ export class RelayHttpClient {
   private peerEncodings = new Set<string>();
   private deviceMessageKeys = new Map<string, { expires: number; key: Promise<Uint8Array> }>();
   private streamHintListeners = new Set<(hint: StreamHint) => void>();
+  private relayStatusValue: ConnectionStatus = 'closed';
+  private relayStatusListeners = new Set<(status: ConnectionStatus) => void>();
+  private relayReconnectListeners = new Set<() => void>();
+
+  /** Status of the account's realtime Relay connection (not of any device). */
+  get relayStatus(): ConnectionStatus { return this.relayStatusValue; }
+  onRelayStatus(listener: (status: ConnectionStatus) => void): () => void {
+    this.relayStatusListeners.add(listener);
+    return () => { this.relayStatusListeners.delete(listener); };
+  }
+  /** The Relay connection re-authenticated after a drop; host state may have moved. */
+  onRelayReconnect(listener: () => void): () => void {
+    this.relayReconnectListeners.add(listener);
+    return () => { this.relayReconnectListeners.delete(listener); };
+  }
+  private setRelayStatus(status: ConnectionStatus): void {
+    if (this.relayStatusValue === status) return;
+    this.relayStatusValue = status;
+    for (const listener of [...this.relayStatusListeners]) listener(status);
+  }
+  private payloadUploadsValue = 0;
+  private payloadUploadListeners = new Set<() => void>();
+  /** Bulk RPC payloads (image attachments) currently uploading to the Relay. */
+  get payloadUploadsInFlight(): number { return this.payloadUploadsValue; }
+  onPayloadUploadActivity(listener: () => void): () => void {
+    this.payloadUploadListeners.add(listener);
+    return () => { this.payloadUploadListeners.delete(listener); };
+  }
+  private changePayloadUploads(delta: number): void {
+    this.payloadUploadsValue = Math.max(0, this.payloadUploadsValue + delta);
+    for (const listener of [...this.payloadUploadListeners]) listener();
+  }
+  /** Last directory entry for a device, or null when the directory has not listed it. */
+  devicePresence(deviceId: string): RelayDeviceInfo | null {
+    return this.directorySnapshot.find(item => item.device_id === deviceId) ?? null;
+  }
 
   constructor(relayUrl: string, identity: AccountIdentity) {
     const endpoint = normalizeRelayUrl(relayUrl);
@@ -119,18 +160,29 @@ export class RelayHttpClient {
     const kind = this.identity ? 'replacement' : 'initial';
     this.realtime?.close();
     this.realtime = null;
+    this.identity?.lifetime.abort();
     this.identity?.masterKey.fill(0);
-    this.identity = { ...identity, masterKey: identity.masterKey.slice(), generation: ++this.identityGeneration };
+    this.identity = {
+      ...identity,
+      masterKey: identity.masterKey.slice(),
+      generation: ++this.identityGeneration,
+      lifetime: new AbortController(),
+    };
     prepareRelayEncoding();
-    this.realtime = new AccountRealtime({ url: this.relayUrl, token: identity.token });
+    const realtime = new AccountRealtime({ url: this.relayUrl, token: identity.token });
+    this.realtime = realtime;
     const notifyDirectory = () => {
       this.peerEncodings = new Set();
       for (const listener of this.directoryListeners) listener();
     };
-    this.realtime.onDeviceDirectoryChanged(notifyDirectory);
-    this.realtime.onReconnect(notifyDirectory);
-    this.realtime.onStatus(status => {
+    realtime.onDeviceDirectoryChanged(notifyDirectory);
+    realtime.onReconnect(() => {
+      notifyDirectory();
+      if (this.realtime === realtime) for (const listener of [...this.relayReconnectListeners]) listener();
+    });
+    realtime.onStatus(status => {
       if (status === 'disconnected') this.peerEncodings = new Set();
+      if (this.realtime === realtime) this.setRelayStatus(status);
     });
     this.realtime.onDeviceEvent(envelope => { void this.receiveDeviceEvent(envelope); });
     this.accountEpochValue += 1;
@@ -168,6 +220,8 @@ export class RelayHttpClient {
   resetConnectionIdentity(): void {
     this.realtime?.close();
     this.realtime = null;
+    this.setRelayStatus('closed');
+    this.identity?.lifetime.abort();
     this.identity?.masterKey.fill(0);
     this.identity = null;
     this.identityGeneration += 1;
@@ -264,11 +318,11 @@ export class RelayHttpClient {
         if (!current()) throw new AccountIdentityChangedError();
         return parseStreamPage(await this.sendDeviceRpc(deviceId, { cmd: 'read_stream', ...request }, { retryable: true, timeoutMs: 30_000 }));
       },
-      unsubscribeStream: async (id: string) => {
+      unsubscribeStream: async (id: string, subscriptionId?: string) => {
         // Best effort: the host also drops the lease when this device goes
         // offline or stops renewing.
         if (this.identity !== identity) return;
-        await this.sendDeviceRpc(deviceId, { cmd: 'unsubscribe_stream', stream_id: id }, { retryable: true, timeoutMs: 10_000 });
+        await this.sendDeviceRpc(deviceId, { cmd: 'unsubscribe_stream', stream_id: id, subscription_id: subscriptionId }, { retryable: true, timeoutMs: 10_000 });
       },
     };
     const signals = {
@@ -448,20 +502,44 @@ export class RelayHttpClient {
       };
       assertEncodingCurrent();
       const timeoutMs = options.timeoutMs ?? (options.retryable ? 20_000 : 130_000);
-      const params: Record<string, string> = { encrypted_data: encData, nonce: encNonce };
-      if (selected.keyId) params.key_id = selected.keyId;
-      if (acceptsRelayZstd()) params.accept_encoding = relayZstd;
-      const data = await connection.call<
-        { encrypted_data: string; nonce: string; key_id?: string; accept_encoding?: string }
-      >(targetDeviceId, params, {
-          timeoutMs,
-          beforeSubmit: assertEncodingCurrent,
-          beforeSend: () => {
-            if (identity.generation !== this.identityGeneration || targetEpoch !== this.controlTargetEpochValue) {
-              throw new AccountIdentityChangedError();
-            }
-          },
-        });
+      const assertOwnerCurrent = () => {
+        if (identity.generation !== this.identityGeneration || targetEpoch !== this.controlTargetEpochValue) {
+          throw new AccountIdentityChangedError();
+        }
+      };
+      const envelope: { encrypted_data: string; nonce: string; key_id?: string; accept_encoding?: string } =
+        { encrypted_data: encData, nonce: encNonce, accept_encoding: acceptsRelayZstd() ? relayZstd : undefined };
+      if (selected.keyId) envelope.key_id = selected.keyId;
+      // Bulk parameters are uploaded here with a bounded retry; the RPC then
+      // carries only the reference, which a not-submitted call may reuse.
+      const bulk = relayPayloadBytes(envelope);
+      let params: unknown = envelope;
+      if (bulk) {
+        this.changePayloadUploads(1);
+        try {
+          params = await uploadRelayPayload(this.relayUrl, identity.token, bulk, {
+            assertCurrent: () => { assertOwnerCurrent(); assertEncodingCurrent(); },
+            signal: identity.lifetime.signal,
+          });
+        } finally {
+          this.changePayloadUploads(-1);
+        }
+      }
+      const callOnce = () => connection.call<{ encrypted_data: string; nonce: string; key_id?: string; accept_encoding?: string }>(targetDeviceId,
+        params, { timeoutMs, beforeSubmit: assertEncodingCurrent, beforeSend: assertOwnerCurrent });
+      let data: { encrypted_data: string; nonce: string; key_id?: string; accept_encoding?: string };
+      try {
+        data = await callOnce();
+      } catch (error) {
+        // The uploaded payload is still on the Relay. A call that provably
+        // never left this client sends the same reference once more instead
+        // of uploading the images again.
+        if (!bulk || error instanceof AccountIdentityChangedError
+          || !(error instanceof Error && /request was not submitted/.test(error.message))
+          || /capabilities changed/.test(error.message)) throw error;
+        assertOwnerCurrent();
+        data = await callOnce();
+      }
       let decrypted: string;
       try {
         decrypted = await decrypt(

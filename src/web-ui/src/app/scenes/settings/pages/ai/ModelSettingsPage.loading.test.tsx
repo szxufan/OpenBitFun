@@ -127,7 +127,11 @@ describe('ModelSettingsPage loading and provider actions', () => {
   };
   const loadModelPool = async () => {
     await act(async () => root.render(<ModelSettingsPage />));
-    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({ primary: model.id }); });
+    await act(async () => {
+      reads.get('ai.providers')!.resolve([]);
+      reads.get('ai.models')!.resolve([model]);
+      reads.get('ai.default_models')!.resolve({ primary: model.id });
+    });
   };
   const testModel = async () => {
     await act(async () => container.querySelector<HTMLButtonElement>(`[data-config-id="${model.id}"] button[aria-label="${copy('actions.test')}"]`)!.click());
@@ -146,7 +150,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     await act(async () => root.render(<ModelSettingsPage />));
     const connect = () => container.querySelector<HTMLButtonElement>('[data-testid="settings-model-connect-magpie-btn"]')!;
     expect(connect().disabled).toBe(true);
-    await act(async () => { reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({}); });
+    await act(async () => { reads.get('ai.providers')!.resolve([]); reads.get('ai.models')!.resolve([model]); reads.get('ai.default_models')!.resolve({}); });
     await act(async () => connect().click());
     const panel = () => container.querySelector<HTMLElement>('[data-testid="settings-magpie-panel"]')!;
     const baseInput = panel().querySelector<HTMLInputElement>('[data-testid="settings-magpie-address"]')!;
@@ -163,7 +167,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(discover).toHaveBeenLastCalledWith(base, key);
     await act(async () => panel().querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
     await act(async () => panel().querySelector<HTMLButtonElement>('[data-testid="settings-magpie-import"]')!.click());
-    expect(update).toHaveBeenCalledWith('ai.models', expect.any(Function), { expectedValue: [model] });
+    expect(update).toHaveBeenCalledWith('ai.models', expect.any(Function), { expectedValue: [expect.objectContaining(model)] });
     const saved = update.mock.calls.find(([path]) => path === 'ai.models')![1]([model]) as AIModelConfig[];
     expect(saved).toHaveLength(2);
     expect(saved[0]).toEqual(model);
@@ -171,6 +175,8 @@ describe('ModelSettingsPage loading and provider actions', () => {
       base_url: base, api_key: key, provider: 'openai', capabilities: ['text_chat', 'function_calling'] });
     expect(inference).not.toHaveBeenCalled();
     expect(panel().querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
+    expect(panel().querySelector<HTMLButtonElement>('[data-testid="settings-magpie-remove-model"]')?.dataset.modelId)
+      .toBe('provider/model-with-tools');
   });
 
   it.each(['empty', 'unreachable', 'access_denied', 'unrecognized', 'catalog_error'] as const)(
@@ -276,7 +282,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     reads.set('ai.models', deferred()); reads.get('ai.models')!.resolve([changed]);
     await act(async () => emit('ai.models'));
     await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="settings-magpie-import"]')!.click());
-    expect(update).toHaveBeenCalledWith('ai.models', expect.any(Function), { expectedValue: [model] });
+    expect(update).toHaveBeenCalledWith('ai.models', expect.any(Function), { expectedValue: [expect.objectContaining(model)] });
     expect(getSettingsDraftSnapshot().resources.find(item => item.id === 'magpie-source')?.dirty).toBe(true);
   });
 
@@ -354,7 +360,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     await loadModelPool();
     expect(probe).not.toHaveBeenCalled();
     await testModel();
-    expect(probe).toHaveBeenCalledExactlyOnceWith(model);
+    expect(probe).toHaveBeenCalledExactlyOnceWith(expect.objectContaining(model));
     expect(connectionBadge()?.dataset.status).toBe('success');
   });
 

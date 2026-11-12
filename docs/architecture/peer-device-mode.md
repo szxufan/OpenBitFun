@@ -383,6 +383,20 @@ installed or usable on the importing host. Runtime-only model credentials are
 excluded. Sessions are never part of this payload: cloud session blobs are not
 a Remote data plane and must not be merged into local disk on login or pull.
 
+The opened/recent workspace catalog is host-owned in the same way. Whenever a
+host's `WorkspaceService` persists a catalog change — including one made by a
+mobile controller, an IM bot, or a Peer Mode controller through
+`set_workspace` / `create_session` — `start_workspace_catalog_publication`
+emits a `workspace-catalog-changed` hint (payload: `{ revision }`, no catalog
+data). The host's own webview re-reads `get_opened_workspaces` /
+`get_recent_workspaces` / `get_current_workspace` on that hint so a workspace
+another surface opened appears in its list without a manual open; the hint is
+also fanned out to attached controllers (Desktop through
+`should_fanout_peer_ui_event`, CLI through `PeerControllerEventEmitter`) and is
+surface-scoped on the controller, so only the rendered device's catalog is
+re-read. A surface never lets a host-side selection change steal its active
+workspace unless it had no usable selection.
+
 SSH `WorkspaceKind.Remote` remains a separate path (local session mirror + remote
 FS) and must not be mixed with Peer Device Mode.
 
@@ -530,12 +544,42 @@ enforcing host, and they keep the legacy path with every peer otherwise.
 - Desktop `PeerDeviceTransportAdapter` orders each pending dispatch burst as
   interactive, normal, then background work. It does not maintain an independent
   in-flight count limit or reserved slot. Actual admission belongs to the Relay
-  memory budget. Its read and mutation deadlines use the same 120s
-  `DEFAULT_RPC_TIMEOUT_MS` contract as `AccountRealtime`; explicit caller
-  deadlines continue to flow to the native transport and server. Retryable reads
-  retain bounded exponential-backoff recovery. Explicitly idempotent dialog
-  submissions reuse their stable session/turn identity; ordinary mutations remain
-  single-shot because a missing acknowledgement is an unknown outcome.
+  memory budget. Mutation deadlines use the same 120s `DEFAULT_RPC_TIMEOUT_MS`
+  contract as `AccountRealtime`; explicit caller deadlines continue to flow to
+  the native transport and server. Reads keep the 120s attempt by default, so
+  slow but legitimate reads (provider model lists, usage reports, statistics,
+  large file trees, remote-workspace directories) still complete. Only a named
+  hot-path set (session and workspace lists, config hydrate, the permission
+  mailbox, app state) uses a 25s attempt inside a 60s overall deadline. Reads
+  retry only a request that was never submitted or whose reply was lost; a
+  silent host ends in a typed `peer_host_not_responding` error that the read
+  owner presents with a retry.
+  Explicitly idempotent dialog submissions reuse their stable session/turn
+  identity for up to five attempts; both hosts coalesce retries of an attempt
+  still in flight and keep a settled outcome for 15 minutes only when it was
+  accepted (a CLI failure after Runtime admission also stays cached), so an
+  explicit Retry after a transient failure runs again. The Runtime's duplicate
+  Turn id refusal for the same identity is reported as accepted. Ordinary
+  mutations remain single-shot because a missing acknowledgement is an unknown
+  outcome.
+- A Desktop host executes product commands through its webview bridge, which
+  reports readiness with `peer_host_bridge_ready`. Until then the host refuses
+  product commands with `peer_host_ui_not_ready:` (definitely not executed),
+  after waiting up to 10s for a webview that is still starting, and
+  `peer_mode_ping` reports `host_ui_ready: false`; the controller shows the host
+  as starting and polls it. A main-webview reload clears readiness again. Older
+  hosts omit the field and are treated as ready.
+- Hosts advertising `peer_attachment_status_v1` answer `peer_mode_ping` with
+  `caller_attached` for the calling controller (Desktop by route and source
+  device, CLI by the `controller_device_id` argument). A controller that is no
+  longer attached re-attaches and re-reads the rendered device's permission
+  mailbox instead of reporting a link that receives no events as ready.
+- Relay route loss on a host (a blip, a routing restart, a stopped route) only
+  clears controller delivery targets. Pending permission requests stay with the
+  Runtime; a `peer_control_detach` that leaves no attached controller fails them
+  closed, including after a route loss already removed that controller. A
+  controller whose detach fails on transport still disconnects locally and
+  retries the detach in the background, and again when the host reappears.
 - Mobile delegated-auth recovery retries only a Relay HTTP 401. A decrypted host
   application error mentioning an upstream 401 must not repeat a mutation.
   Captured account and target identities fence credential refresh and delivery.
