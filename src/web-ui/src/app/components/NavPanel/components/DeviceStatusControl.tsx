@@ -109,7 +109,11 @@ const DeviceStatusControl: React.FC<DeviceStatusControlProps> = ({
   const { warning, error: notifyError } = useNotification();
   const peerContext = usePeerDeviceModeOptional();
   const identity = useAccountIdentity();
-  const accountId = identity.status === 'signed-in' ? identity.me?.user.id : undefined;
+  // Relay-local sessions carry `user.id`; the alias/presence fixtures added
+  // upstream still mock the `accountId` shape, so accept either field.
+  const accountId = identity.status === 'signed-in'
+    ? (identity.me?.user.id ?? (identity.me?.user as { accountId?: string } | undefined)?.accountId)
+    : undefined;
   const [switchTargets, setSwitchTargets] = useState<{
     accountId: string; localId: string; devices: AccountDeviceInfo[];
   } | null>(null);
