@@ -317,6 +317,9 @@ rustls = { version = "0.23", default-features = false }
 [patch.crates-io]
 # Keep Socket.IO on the product-owned ring provider; see the patch note.
 eioc = { path = "third_party/eioc" }
+# Pin the Wayland method-call return types that Rust 1.99's never-type
+# fallback tightening broke. See third_party/screenshots/OPENBITFUN-PATCH.md.
+screenshots = { path = "third_party/screenshots" }
 # Restore macOS traffic-light geometry after the queued native style reset.
 # See third_party/tao/OPENBITFUN-PATCH.md for the upstream source and removal condition.
 tao = { path = "third_party/tao" }
