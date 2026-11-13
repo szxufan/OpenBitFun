@@ -8,15 +8,18 @@ fn host_and_draft(endpoint: &str) -> (AIConfig, AIModelConfig) {
     host.model_routing.router_model_id = Some("router".into());
     host.model_routing.protocol = "openai_router_extension".into();
     host.model_routing.timeout_ms = 1_000;
-    host.models.push(AIModelConfig {
-        id: "router".into(),
-        name: "saved router".into(),
-        provider: "openai".into(),
-        base_url: "http://127.0.0.1:1/v1".into(),
-        model_name: "saved-model".into(),
-        enabled: true,
-        ..Default::default()
-    });
+    host.models.push(openbitfun_config_contracts::split_flattened_model(
+        &AIModelConfig {
+            id: "router".into(),
+            name: "saved router".into(),
+            provider: "openai".into(),
+            base_url: "http://127.0.0.1:1/v1".into(),
+            model_name: "saved-model".into(),
+            enabled: true,
+            ..Default::default()
+        },
+        &mut host.providers,
+    ));
     let draft = AIModelConfig {
         id: "router".into(),
         name: "draft router".into(),

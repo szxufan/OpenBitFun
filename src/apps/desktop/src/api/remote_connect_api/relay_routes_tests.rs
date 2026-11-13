@@ -762,6 +762,15 @@ async fn starting_a_connected_route_again_only_returns_its_invitation() {
         return;
     }
     let _test_guard = sync_state_tests::ACCOUNT_CONTEXT_TEST_LOCK.lock().await;
+    // This fixture attaches an unpaired controller client, so the fork's
+    // machine-wide PSK pairing gate (on by default) must be relaxed here;
+    // pairing itself has dedicated coverage.
+    openbitfun_core::service::remote_connect::psk_store::store_policy(
+        &openbitfun_core::service::remote_connect::psk_store::PairingPolicy {
+            require_paired_controller: false,
+        },
+    )
+    .expect("write permissive pairing policy for the route-reuse fixture");
     let attach = serde_json::json!({"cmd":"host_invoke","command":"peer_control_attach","args":{}});
     let ping = serde_json::json!({"cmd":"ping"});
     let official = FixtureHost::new("/v/1.0.2").await;
