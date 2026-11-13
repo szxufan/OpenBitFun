@@ -242,6 +242,11 @@ impl ModelReferenceReconcileResult {
 }
 
 fn provider_enabled(config: &GlobalConfig, provider_id: &str) -> bool {
+    // Legacy flattened models carry no provider_id and no provider records;
+    // they predate the provider-entity split and must remain usable.
+    if provider_id.is_empty() && config.ai.providers.is_empty() {
+        return true;
+    }
     config
         .ai
         .providers
@@ -816,6 +821,56 @@ mod tests {
                 .builtin
                 .get("ResearchSpecialist"),
             Some(&SubagentModelSelection::fixed("fast"))
+        );
+    }
+}
+
+/// Split legacy flattened model records in a raw config JSON document into
+/// slim entries plus provider records, so the provider-entity resolver can
+/// see their connection facts. Runs before `GlobalConfig` deserialization:
+/// once the document becomes typed `AIModelEntry` values the flattened
+/// connection fields (base_url, api_key, name, provider) are already lost.
+pub fn split_flattened_models_in_config_json(value: &mut serde_json::Value) {
+    let Some(ai) = value.get_mut("ai").and_then(|v| v.as_object_mut()) else {
+        return;
+    };
+    let models = match ai.get("models").and_then(|v| v.as_array()) {
+        Some(models) if !models.is_empty() => models.clone(),
+        _ => return,
+    };
+    // Only legacy documents need splitting: a doc that already has provider
+    // records was written by the provider-entity editor and is authoritative.
+    let has_providers = ai
+        .get("providers")
+        .and_then(|v| v.as_array())
+        .is_some_and(|providers| !providers.is_empty());
+    if has_providers {
+        return;
+    }
+    let mut providers: Vec<crate::types::AIProviderConfig> = Vec::new();
+    let mut entries = Vec::with_capacity(models.len());
+    for model in &models {
+        let has_provider_id = model
+            .get("provider_id")
+            .and_then(|v| v.as_str())
+            .is_some_and(|id| !id.is_empty());
+        if has_provider_id {
+            entries.push(model.clone());
+            continue;
+        }
+        let Ok(flattened) = serde_json::from_value::<crate::types::AIModelConfig>(model.clone())
+        else {
+            entries.push(model.clone());
+            continue;
+        };
+        let entry = crate::types::split_flattened_model(&flattened, &mut providers);
+        entries.push(serde_json::to_value(&entry).unwrap_or_else(|_| model.clone()));
+    }
+    ai.insert("models".into(), serde_json::Value::Array(entries));
+    if !providers.is_empty() {
+        ai.insert(
+            "providers".into(),
+            serde_json::to_value(&providers).unwrap_or(serde_json::Value::Array(vec![])),
         );
     }
 }

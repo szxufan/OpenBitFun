@@ -462,6 +462,9 @@ impl ConfigManager {
         let guard_sources = account_guard_sources(&config_value);
         let mut restored_value = config_value.clone();
         let mut diagnostics = restore_account_models(&mut restored_value);
+        openbitfun_config_contracts::normalization::split_flattened_models_in_config_json(
+            &mut restored_value,
+        );
         let mut config: GlobalConfig = serde_json::from_value(restored_value).map_err(|error| {
             OpenBitFunError::config(format!("Failed to deserialize config file: {error}"))
         })?;
@@ -583,7 +586,11 @@ impl ConfigManager {
             config.appearance.selection = selection.to_string();
         }
         if let Some(ai) = root.get("ai") {
-            let Ok(ai) = serde_json::from_value(ai.clone()) else {
+            let mut wrapper = serde_json::json!({ "ai": ai.clone() });
+            openbitfun_config_contracts::normalization::split_flattened_models_in_config_json(
+                &mut wrapper,
+            );
+            let Ok(ai) = serde_json::from_value(wrapper["ai"].clone()) else {
                 return Ok(None);
             };
             config.ai = ai;
@@ -1045,6 +1052,9 @@ impl ConfigManager {
         validate_current_config_value(&config_data, "Imported configuration")?;
         let imported_sources = account_guard_sources(&config_data);
         let diagnostics = restore_account_models(&mut config_data);
+        openbitfun_config_contracts::normalization::split_flattened_models_in_config_json(
+            &mut config_data,
+        );
         let mut imported_config: GlobalConfig =
             serde_json::from_value(config_data).map_err(|e| {
                 OpenBitFunError::config(format!("Failed to parse imported config: {}", e))
