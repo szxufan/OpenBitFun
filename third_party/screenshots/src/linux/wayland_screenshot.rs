@@ -67,7 +67,7 @@ fn org_gnome_shell_screenshot(
 
     let filename = path.to_string_lossy().to_string();
 
-    proxy.method_call::<_, _, ()>(
+    proxy.method_call::<(), _, _, _>(
         "org.gnome.Shell.Screenshot",
         "ScreenshotArea",
         (x, y, width, height, false, &filename),
@@ -123,7 +123,7 @@ fn org_freedesktop_portal_screenshot(
     options.insert(String::from("modal"), Variant(Box::new(true)));
     options.insert(String::from("interactive"), Variant(Box::new(false)));
 
-    proxy.method_call::<_, _, ()>(
+    proxy.method_call::<(), _, _, _>(
         "org.freedesktop.portal.Screenshot",
         "Screenshot",
         ("", options),
