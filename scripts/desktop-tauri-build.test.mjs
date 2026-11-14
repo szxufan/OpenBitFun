@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -13,6 +13,7 @@ import {
   shouldRetryMacDmgBuild,
 } from './desktop-tauri-build.mjs';
 import { resolveProductDefinition } from './product-customization/resolver.mjs';
+import { stageDesktopRuntime } from './windows/stage-desktop-runtime.mjs';
 import {
   APPLE_SYSTEM_FONT_PROFILE,
   HARMONY_BUNDLED_FONT_PROFILE,
@@ -22,6 +23,36 @@ import {
 const FAILED_BUILD = { status: 1 };
 const DMG_ARGS = ['--target', 'x86_64-apple-darwin', '--bundles', 'app,dmg'];
 const ROOT = join(import.meta.dirname, '..');
+
+test('Windows installer stages generated Tauri resources beside the signed executable', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'openbitfun-windows-payload-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const desktop = join(root, 'desktop');
+  const config = join(desktop, 'gen', `tauri.${'a'.repeat(64)}.generated.conf.json`);
+  const release = join(root, 'target', 'x86_64-pc-windows-msvc', 'release');
+  const executable = join(release, 'openbitfun-desktop.exe');
+  mkdirSync(join(desktop, 'gen'), { recursive: true });
+  mkdirSync(join(root, 'dist', 'assets'), { recursive: true });
+  mkdirSync(release, { recursive: true });
+  writeFileSync(executable, 'signed desktop');
+  writeFileSync(join(root, 'dist', 'index.html'), 'desktop frontend');
+  writeFileSync(join(root, 'dist', 'assets', 'entry.js'), 'desktop assets');
+  writeFileSync(join(root, 'worker.js'), 'worker');
+  writeFileSync(config, JSON.stringify({ bundle: { resources: {
+    '../dist': 'frontend/dist', '../worker.js': 'resources/worker_host.js',
+  } } }));
+
+  stageDesktopRuntime(desktop, executable);
+  assert.equal(readFileSync(executable, 'utf8'), 'signed desktop');
+  assert.equal(readFileSync(join(release, 'frontend/dist/index.html'), 'utf8'), 'desktop frontend');
+  assert.equal(readFileSync(join(release, 'frontend/dist/assets/entry.js'), 'utf8'), 'desktop assets');
+  assert.equal(readFileSync(join(release, 'resources/worker_host.js'), 'utf8'), 'worker');
+  assert.equal(existsSync(join(release, 'frontend/dist/dist')), false);
+
+  writeFileSync(config, JSON.stringify({ bundle: { resources: { '../worker.js': '../outside.js' } } }));
+  assert.throws(() => stageDesktopRuntime(desktop, executable), /escapes the installer runtime/);
+  assert.equal(existsSync(join(release, '../outside.js')), false);
+});
 
 test('Linux OCR bundle stages resources and adds RUNPATH candidates only for linux bundles', () => {
   // Non-linux target: no-op, RUSTFLAGS untouched.

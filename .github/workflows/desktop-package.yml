@@ -44,6 +44,7 @@ on:
           - all
           - macos-arm64
           - macos-x64
+          - windows-x64
       relay_image_only:
         description: "Publish only the Relay Server image and signed descriptor (no Desktop packages)."
         required: false
@@ -181,14 +182,14 @@ jobs:
               (!/^\d+(,\d+)*$/.test(process.env.ARTIFACT_RUN_IDS) || target !== 'all' || process.env.RELAY_IMAGE_ONLY === 'true')) {
             throw new Error('Artifact finalization requires run IDs, target all, and no relay_image_only');
           }
-          if (!['all', 'macos-arm64', 'macos-x64'].includes(target)) {
+          if (!['all', 'macos-arm64', 'macos-x64', 'windows-x64'].includes(target)) {
             throw new Error(`Unsupported Desktop recovery target: ${target}`);
           }
           if (target !== 'all' && process.env.RELAY_IMAGE_ONLY === 'true') {
             throw new Error('A Desktop recovery target cannot be combined with relay_image_only');
           }
           if (process.env.VERIFICATION_RECOVERY_RUN_ID &&
-              (!/^\d+$/.test(process.env.VERIFICATION_RECOVERY_RUN_ID) || target === 'all' ||
+              (!/^\d+$/.test(process.env.VERIFICATION_RECOVERY_RUN_ID) || !target.startsWith('macos-') ||
                process.env.ARTIFACT_RUN_IDS || process.env.RELAY_IMAGE_ONLY === 'true' ||
                process.env.UPLOAD_TO_RELEASE !== 'true')) {
             throw new Error('Verification recovery requires one Mac target, signing, and no other recovery mode');
@@ -523,6 +524,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           # The payload manifest must hash the already signed desktop executable.
           $env:OPENBITFUN_INSTALLER_APP_EXE = 'target/x86_64-pc-windows-msvc/release/openbitfun-desktop.exe'
+          # The pinned workflow supplies packaging tools even for an older source tag.
+          git fetch --no-tags --depth=1 origin '${{ github.workflow_sha }}'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $stagingScript = Join-Path $env:RUNNER_TEMP 'stage-desktop-runtime.mjs'
+          git show '${{ github.workflow_sha }}:scripts/windows/stage-desktop-runtime.mjs' | Set-Content -Encoding utf8 $stagingScript
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $stagingScript src/apps/desktop $env:OPENBITFUN_INSTALLER_APP_EXE
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pnpm run installer:build:only
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           if ($env:WINDOWS_CERTIFICATE_THUMBPRINT) {

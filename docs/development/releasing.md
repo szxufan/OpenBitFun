@@ -25,17 +25,18 @@ its tag automatically. Release creation and editing use GitHub CLI without
 ## Recovering one macOS package
 
 For an existing immutable tag, dispatch `Desktop Package` from the current
-`main` workflow with `target_platform=macos-arm64` or `macos-x64`. Keep
+`main` workflow with `target_platform=macos-arm64`, `macos-x64`, or `windows-x64`. Keep
 `release_channel` equal to the original build and enable `upload_to_release`
 to require release signing and produce updater signatures. This target option
 uploads only the selected platform's Actions artifact; it never publishes a
 GitHub Release, rebuilds Linux binaries, pushes the Relay image, or changes an
 update feed. `all`, the default, retains the complete release gate.
 
-Recovery runs have a separate concurrency group per Mac target, so they can
+Recovery runs have a separate concurrency group per target, so they can
 finish alongside an existing full matrix without cancelling it. Build source
-still resolves to the original tag SHA. Signature verification uses the pinned
-workflow revision, allowing a verification fix to apply without moving that tag.
+still resolves to the original tag SHA. macOS signature verification and Windows
+resource staging use the pinned workflow revision, allowing packaging fixes to
+apply without moving that tag.
 After recovery, dispatch the same workflow with `target_platform=all`, the
 original tag/channel, `upload_to_release=true`, and `artifact_run_ids` containing
 the original and recovery run IDs separated by commas. This skips all builders
@@ -218,8 +219,8 @@ Production cron must run this in-repo script from the OpenBitFun checkout. Do no
 create a detached copy. Host-specific Nginx and restore paths belong to your own
 deployment and are not published here.
 The sync resolves the exact release directory from the updater manifest once;
-Relay and Linux metadata use that same directory to avoid mixed-version reads
-when GitHub's latest-release pointer changes. Publication also compares the
+Linux metadata uses that same directory to avoid mixed-version reads when
+GitHub's latest-release pointer changes. GitHub publication compares the
 downloaded Relay descriptor and signature to the image job's signed bytes.
 
 ## Focused packaging checks

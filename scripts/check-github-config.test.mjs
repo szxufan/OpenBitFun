@@ -1692,12 +1692,15 @@ test('stable and beta publication require every producer, while artifact-only ru
 });
 
 
-test('Desktop recovery selects only one Mac target and cannot publish an incomplete release', (t) => {
+test('Desktop recovery selects one platform and cannot publish an incomplete release', (t) => {
   const workflow = yaml.parse(readFileSync(path.join(repoRoot, '.github/workflows/desktop-package.yml'), 'utf8'));
   const step = workflow.jobs.prepare.steps.find((entry) => entry.name === 'Select Desktop package platforms');
+  const windows = workflow.jobs.package.steps.find((entry) => entry.name === 'Build and sign custom Windows installer');
+  assert.match(windows.run, /git show '\$\{\{ github\.workflow_sha \}\}:scripts\/windows\/stage-desktop-runtime\.mjs'/);
+  assert.ok(windows.run.indexOf('node $stagingScript') < windows.run.indexOf('pnpm run installer:build:only'));
   const root = mkdtempSync(path.join(tmpdir(), 'openbitfun-platform-recovery-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  for (const target of ['all', 'macos-arm64', 'macos-x64', 'unknown']) {
+  for (const target of ['all', 'macos-arm64', 'macos-x64', 'windows-x64', 'unknown']) {
     for (const relay of ['true', 'false']) {
       const output = path.join(root, `${target}-${relay}`);
       const result = spawnSync('bash', ['-c', step.run], {
@@ -1721,7 +1724,8 @@ test('Desktop recovery selects only one Mac target and cannot publish an incompl
   }
   for (const [target, relay, runs, success] of [
     ['all', 'false', '123,456', true], ['all', 'false', 'not-a-run', false],
-    ['macos-arm64', 'false', '123', false], ['all', 'true', '123', false],
+    ['macos-arm64', 'false', '123', false], ['windows-x64', 'false', '123', false],
+    ['all', 'true', '123', false],
   ]) {
     const result = spawnSync('bash', ['-c', step.run], {
       cwd: repoRoot, encoding: 'utf8', windowsHide: true,
@@ -1739,7 +1743,8 @@ test('Desktop recovery selects only one Mac target and cannot publish an incompl
   assert.equal(workflow.concurrency['cancel-in-progress'], false);
   for (const [target, upload, run, artifacts, success] of [
     ['macos-x64', 'true', '123', '', true], ['macos-arm64', 'true', '123', '', true],
-    ['all', 'true', '123', '', false], ['macos-x64', 'false', '123', '', false],
+    ['all', 'true', '123', '', false], ['windows-x64', 'true', '123', '', false],
+    ['macos-x64', 'false', '123', '', false],
     ['macos-x64', 'true', 'invalid', '', false], ['macos-x64', 'true', '123', '456', false],
   ]) {
     const result = spawnSync('bash', ['-c', step.run], {
