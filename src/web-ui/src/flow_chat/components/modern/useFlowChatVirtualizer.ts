@@ -36,6 +36,7 @@ function useMeasuredVirtualizer(options: VirtualizerOptions<HTMLElement, HTMLEle
   const commits = useRef(0);
   const requested = useRef(false);
   const pending = useRef(false);
+  const rendered = useRef<{ indexes: readonly number[]; width: number; height: number } | null>(null);
   // Descendant layout effects can publish measurements before our own layout
   // effect runs. A request from the previous render cannot cover those writes.
   requested.current = false;
@@ -70,6 +71,9 @@ function useMeasuredVirtualizer(options: VirtualizerOptions<HTMLElement, HTMLEle
       // Reconcile against the updated cache before asking React to select a
       // window. Deferring this callback would replay stale scroll ownership.
       options.onChange?.(virtualizer, sync);
+      if (sync && virtualizer.getVirtualIndexes() === rendered.current?.indexes
+        && virtualizer.scrollRect?.width === rendered.current.width
+        && virtualizer.scrollRect?.height === rendered.current.height) return;
       requestRender(sync);
     },
   });
@@ -87,14 +91,26 @@ function useMeasuredVirtualizer(options: VirtualizerOptions<HTMLElement, HTMLEle
     };
   }, [instance]);
   useLayoutEffect(() => {
+    rendered.current = { indexes: instance.getVirtualIndexes(), width: instance.scrollRect?.width ?? 0,
+      height: instance.scrollRect?.height ?? 0 };
     instance._willUpdate();
   });
   return instance;
 }
 
+/** Reuse covered rows until the reader approaches an edge of their window. */
+function coveredTimelineRange(previous: readonly number[] | null, start: number, end: number, count: number): boolean {
+  if (!previous?.length) return false;
+  const first = previous[0], last = previous[previous.length - 1];
+  return first <= start && last >= end && last < count
+    && (first === 0 || start - first >= 2)
+    && (last === count - 1 || last - end >= 2)
+    && start - first <= 16 && last - end <= 16;
+}
+
 /** A nearby pixel window, bounded in leaves so dense groups mount incrementally. */
 export function timelineOverscanRange(start: number, end: number, count: number, viewportPx: number,
-  heightAt: (index: number) => number): number[] {
+  heightAt: (index: number) => number, maxSpeculativeItems = 8): number[] {
   let first = start, last = end;
   const budget = Math.max(200, viewportPx * 0.6);
   let above = 0, below = 0;
@@ -103,8 +119,8 @@ export function timelineOverscanRange(start: number, end: number, count: number,
   // Native 1,800px wheel steps otherwise mount ~40 shell/edit rows at once,
   // producing consecutive 50–80ms frames. Eight speculative leaves per edge
   // bound that work while the entire measured visible range remains resident.
-  while (first > 0 && start - first < 8 && above < budget) above += Math.max(1, heightAt(--first));
-  while (last < count - 1 && last - end < 8 && below < budget) below += Math.max(1, heightAt(++last));
+  while (first > 0 && start - first < maxSpeculativeItems && above < budget) above += Math.max(1, heightAt(--first));
+  while (last < count - 1 && last - end < maxSpeculativeItems && below < budget) below += Math.max(1, heightAt(++last));
   return Array.from({ length: Math.max(0, last - first + 1) }, (_, index) => first + index);
 }
 
@@ -225,6 +241,12 @@ export interface UseFlowChatVirtualizerOptions<T> {
   endOrigin?: boolean;
   footerRef?: RefObject<HTMLElement | null>;
   pinnedKeys?: ReadonlySet<string>;
+  /** Reader ownership survives measurement readbacks that end core isScrolling. */
+  isReaderScrolling?: () => boolean;
+  /** A prepared instant navigation selects its first window before placement. */
+  pendingNavigationKey?: string;
+  /** Low-priority tail preparation may grow the speculative margin gradually. */
+  speculativeOverscanItems?: number;
   items: readonly T[];
   scrollerRef: RefObject<HTMLElement | null>;
   /**
@@ -298,6 +320,8 @@ export interface UseFlowChatVirtualizerOptions<T> {
    * still reserve space, but no longer count as measurements.
    */
   retainedItemWidthPx?: number;
+  /** Rebuildable viewport dimensions; the native observer replaces them on mount. */
+  retainedViewportRect?: { width: number; height: number };
 }
 
 export interface FlowChatVirtualizer {
@@ -441,6 +465,9 @@ export function useFlowChatVirtualizer<T>({
   endOrigin = false,
   footerRef,
   pinnedKeys,
+  isReaderScrolling,
+  pendingNavigationKey,
+  speculativeOverscanItems = 8,
   scrollerRef,
   headerRef,
   getItemKey,
@@ -457,6 +484,7 @@ export function useFlowChatVirtualizer<T>({
   shiftViewport = () => false,
   getViewportAnchorKey,
   retainedItemSizes,
+  retainedViewportRect,
   retainedItemWidthPx,
 }: UseFlowChatVirtualizerOptions<T>): FlowChatVirtualizer {
   const items = useMemo(() => endOrigin ? [...sourceItems].reverse() : sourceItems, [sourceItems, endOrigin]);
@@ -572,16 +600,33 @@ export function useFlowChatVirtualizer<T>({
   measurementSuspendedRef.current = measurementSuspended;
 
   const [contentStartPx, setContentStartPx] = useState(0);
-  useEffect(() => {
+  const originInsetObserverRef = useRef<{ element: HTMLElement; observer: ResizeObserver } | null>(null);
+  // Initial binding and delayed observer deliveries publish through the same
+  // ownership check, so a retired node cannot replace the current inset.
+  const publishOriginInset = useCallback((element: HTMLElement | null) => {
+    if (element) {
+      if (originInsetObserverRef.current?.element !== element || !element.isConnected) return;
+      setContentStartPx(element.offsetHeight);
+    } else if (originInsetObserverRef.current === null) {
+      setContentStartPx(0);
+    }
+  }, []);
+  useLayoutEffect(() => {
     const originInset = endOrigin ? footerRef?.current : headerRef.current;
-    if (!originInset) return;
-    const observer = new ResizeObserver(() => {
-      setContentStartPx(originInset.offsetHeight);
-    });
+    const previous = originInsetObserverRef.current;
+    if (previous?.element === originInset || (!previous && !originInset)) return;
+    previous?.observer.disconnect();
+    originInsetObserverRef.current = null;
+    if (!originInset) { publishOriginInset(null); return; }
+    const observer = new ResizeObserver(() => publishOriginInset(originInset));
+    originInsetObserverRef.current = { element: originInset, observer };
     observer.observe(originInset, { box: 'border-box' });
-    setContentStartPx(originInset.offsetHeight);
-    return () => observer.disconnect();
-  }, [endOrigin, footerRef, headerRef]);
+    publishOriginInset(originInset);
+  });
+  useLayoutEffect(() => () => {
+    originInsetObserverRef.current?.observer.disconnect();
+    originInsetObserverRef.current = null;
+  }, []);
 
   /*
    * Stable across renders on purpose. The virtualizer keys its measurement pass
@@ -636,6 +681,10 @@ export function useFlowChatVirtualizer<T>({
   const [, finishWindowCommit] = useReducer((revision: number) => revision + 1, 0);
   const committedWindowRef = useRef<Array<{ key: string; index: number }>>([]);
   const previousWindow = committedWindowRef.current;
+  const overscanWindowRef = useRef<{
+    indexes: number[]; result: number[]; pins: number[];
+    firstKey: string; lastKey: string; viewport: number; speculativeItems: number;
+  } | null>(null);
   const insertedBeforeWindow = previousWindow.some(row => (keyIndexes.get(row.key) ?? -1) > row.index);
   // Insertion before the internal window changes its address. Keep painted
   // keys until the owning reading/layout transaction publishes the new offset.
@@ -657,6 +706,7 @@ export function useFlowChatVirtualizer<T>({
     // at 1540.3 -> 806.7ms. These are single-trace timings, not paint guarantees.
     // Keep an empty hydration from consuming the one-time initial offset.
     enabled: !initialTailRef.current || hasInitialItemsRef.current,
+    initialRect: retainedViewportRect,
     // Reservations rather than raw estimates: a reopened transcript seeds from
     // the sizes it retained. Without any, a reservation is that same estimate.
     initialOffset: () => !endOrigin && initialTailRef.current
@@ -723,14 +773,51 @@ export function useFlowChatVirtualizer<T>({
     indexAttribute: 'data-flowchat-measure-index',
     overscan: 0,
     rangeExtractor: range => {
-      const indexes = new Set(retainedIndexes?.length ? retainedIndexes
-        : timelineOverscanRange(range.startIndex, range.endIndex, range.count,
-          scrollerRef.current?.clientHeight ?? 0, estimateSize));
-      if (pinnedKeys?.size) for (const key of pinnedKeys) {
+      const viewport = scrollerRef.current?.clientHeight ?? 0;
+      const previous = overscanWindowRef.current;
+      const speculativeItems = (isReaderScrolling?.() ?? virtualizer.isScrolling) || aimStartedAtMsRef.current !== null
+        ? 8 : speculativeOverscanItems;
+      // keyIndexes, overscan and pins all use the adapter's internal index space.
+      const pins = [...(pinnedKeys ?? [])].flatMap(key => {
         const index = keyIndexes.get(key);
-        if (index !== undefined) indexes.add(index);
+        return index === undefined ? [] : [index];
+      });
+      const pendingIndex = pendingNavigationKey === undefined ? undefined : keyIndexes.get(pendingNavigationKey);
+      if (pendingIndex !== undefined && !isReaderScrolling?.() && !isViewportSuspendedRef.current()) {
+        // The new projection may put the old offset in an unrelated Turn.
+        // Mount the requested header and its readable content in this commit;
+        // the existing navigation effect still owns the actual placement.
+        const measurements = (virtualizer as unknown as MeasuringVirtualizer).getMeasurements();
+        const heightAt = (index: number) => Math.max(1, measurements[index]
+          ? measurements[index].end - measurements[index].start : estimateSize(index));
+        let first = pendingIndex, last = pendingIndex, covered = heightAt(pendingIndex);
+        while (covered < viewport && (endOrigin ? first > 0 : last < range.count - 1)) {
+          covered += heightAt(endOrigin ? --first : ++last);
+        }
+        const indexes = new Set(timelineOverscanRange(first, last, range.count, viewport, heightAt));
+        for (const index of pins) indexes.add(index);
+        overscanWindowRef.current = null;
+        return [...indexes].sort((a, b) => a - b);
       }
-      return [...indexes].sort((a, b) => a - b);
+      if ((isReaderScrolling?.() ?? virtualizer.isScrolling) && aimStartedAtMsRef.current === null
+        && !retainedIndexes?.length && previous && previous.viewport === viewport && previous.speculativeItems === speculativeItems
+        && pins.length === previous.pins.length && pins.every((key, index) => key === previous.pins[index])
+        && coveredTimelineRange(previous.indexes, range.startIndex, range.endIndex, range.count)
+        && previous.firstKey === String(resolveItemKey(previous.indexes[0]))
+        && previous.lastKey === String(resolveItemKey(previous.indexes[previous.indexes.length - 1]))) {
+        return previous.result;
+      }
+      const window = retainedIndexes?.length ? retainedIndexes
+        : timelineOverscanRange(range.startIndex, range.endIndex, range.count, viewport, estimateSize,
+          speculativeItems);
+      const indexes = new Set(window);
+      for (const index of pins) indexes.add(index);
+      const result = [...indexes].sort((a, b) => a - b);
+      // Structural retention may omit newly inserted indexes for one commit;
+      // it is not a reusable covered window after that transaction ends.
+      overscanWindowRef.current = !retainedIndexes?.length && window.length ? { indexes: window, result, pins, firstKey: String(resolveItemKey(window[0])),
+        lastKey: String(resolveItemKey(window[window.length - 1])), viewport, speculativeItems } : null;
+      return result;
     },
     scrollMargin: contentStartPx,
     scrollPaddingStart: endOrigin ? 0 : scrollPaddingStartPx,

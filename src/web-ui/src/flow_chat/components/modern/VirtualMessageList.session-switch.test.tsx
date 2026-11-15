@@ -11,7 +11,7 @@ import type { Session } from '../../types/flow-chat';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const state = vi.hoisted(() => ({ items: [] as VirtualItem[], session: null as Session | null, processing: false }));
-const counters = vi.hoisted(() => ({ corrections: 0, commits: 0, mounts: 0, unmounts: 0 }));
+const counters = vi.hoisted(() => ({ corrections: 0, commits: 0, firstCommitRows: 0, mounts: 0, unmounts: 0 }));
 vi.mock('../../store/modernFlowChatStore', () => {
   const store = Object.assign((select: (state: unknown) => unknown) => select({ visibleTurnInfo: null }),
     { getState: () => ({ setVisibleTurnInfo() {} }) });
@@ -74,6 +74,7 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
   let frames: Map<number, FrameRequestCallback>, frameId: number, now: number;
   let observers: Array<{ callback: ResizeObserverCallback; targets: Set<Element>; sizes: WeakMap<Element, string> }>;
   let columnWidth = 900;
+  let viewportWidth = 900;
   let viewportHeight = 600;
   let containerFirst = false;
   const heights = new Map<string, number>();
@@ -91,7 +92,7 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
   }
   function measureHeight(element: HTMLElement, measured: WeakMap<HTMLElement, number>): number {
     if (element.hasAttribute('data-flowchat-scroller')) return viewportHeight;
-    if (element.dataset.virtualItemKey) return heights.get(element.dataset.virtualItemKey) ?? 100;
+    if (element.dataset.virtualItemKey) return (heights.get(element.dataset.virtualItemKey) ?? 100) * 900 / columnWidth;
     if (element.style.height) return px(element.style.height);
     const scroller = element.closest<HTMLElement>('[data-flowchat-scroller]');
     if (scroller && reversed(scroller)) {
@@ -128,9 +129,15 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
     heights.set(getVirtualItemStableKey(items[1]), answerHeight);
     return items;
   }
+  let paneGeometry: React.MutableRefObject<{ width: number; height: number } | undefined> | undefined;
+  let contentPresented = true, viewportActive = true;
   const render = (contentWidth = 900) => act(() => root.render(
-    <React.Profiler id="flowchat" onRender={() => { counters.commits += 1; }}>
-      <VirtualMessageList latestTurnId={`${state.session?.sessionId}-latest`} contentWidth={contentWidth} />
+    <React.Profiler id="flowchat" onRender={() => {
+      counters.commits += 1;
+      if (counters.commits === 1) counters.firstCommitRows = host.querySelectorAll('[data-virtual-item-key]').length;
+    }}>
+      <VirtualMessageList latestTurnId={`${state.session?.sessionId}-latest`} contentWidth={contentWidth}
+        viewportRectRef={paneGeometry} contentPresented={contentPresented} isViewportActive={viewportActive} />
     </React.Profiler>,
   ));
   const tick = () => {
@@ -145,7 +152,7 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
       const measured = new WeakMap<HTMLElement, number>();
       const entries = [...observer.targets].filter(target => target.isConnected).flatMap(target => {
         const blockSize = height(target as HTMLElement, measured);
-        const inlineSize = target.classList.contains('virtual-item-wrapper') ? columnWidth : 900;
+        const inlineSize = target.classList.contains('virtual-item-wrapper') ? columnWidth : viewportWidth;
         const size = `${inlineSize}:${blockSize}`;
         if (observer.sizes.get(target) === size) return [];
         observer.sizes.set(target, size);
@@ -157,7 +164,9 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
   });
 
   beforeEach(() => {
-    activateSurface('local'); columnWidth = 900; viewportHeight = 600; containerFirst = false;
+    paneGeometry = undefined;
+    contentPresented = viewportActive = true;
+    activateSurface('local'); columnWidth = viewportWidth = 900; viewportHeight = 600; containerFirst = false;
     state.processing = false;
     frames = new Map(); frameId = 0; now = 0; observers = []; heights.clear();
     vi.useFakeTimers();
@@ -175,8 +184,8 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
     });
     vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(function () { return Math.round(height(this)); });
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function () { return Math.round(height(this)); });
-    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(900);
-    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function () { return this.classList.contains('virtual-item-wrapper') ? columnWidth : viewportWidth; });
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function () { return this.classList.contains('virtual-item-wrapper') ? columnWidth : viewportWidth; });
     vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function () {
       return Math.round(this.hasAttribute('data-flowchat-scroller') ? height(this.firstElementChild as HTMLElement) : height(this));
     });
@@ -192,9 +201,10 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
       const measured = new WeakMap<HTMLElement, number>();
       const scroller = this.closest<HTMLElement>('[data-flowchat-scroller]');
       const top = this === scroller ? 0 : contentTop(this, measured) - (scroller?.scrollTop ?? 0);
-      return { x: 0, y: top, left: 0, right: 900, top, bottom: top + height(this, measured), height: height(this, measured), width: this.classList.contains('virtual-item-wrapper') ? columnWidth : 900, toJSON() {} };
+      const width = this.classList.contains('virtual-item-wrapper') ? columnWidth : viewportWidth;
+      return { x: 0, y: top, left: 0, right: width, top, bottom: top + height(this, measured), height: height(this, measured), width, toJSON() {} };
     });
-    Object.assign(counters, { corrections: 0, commits: 0, mounts: 0, unmounts: 0 });
+    Object.assign(counters, { corrections: 0, commits: 0, firstCommitRows: 0, mounts: 0, unmounts: 0 });
     retainedTranscriptRowSizes.clear();
     sessions = undefined!;
     host = document.createElement('div'); document.body.append(host); root = createRoot(host);
@@ -240,6 +250,9 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
     const firstB = open('b');
     const reopenA = open('a');
     const reopenB = open('b');
+    // A new session can already reserve the pane's observed box, while only a
+    // reopened session owns measured row sizes.
+    expect(firstB.commits).toBeLessThan(firstA.commits);
     for (const [first, reopen] of [[firstA, reopenA], [firstB, reopenB]]) {
       expect(first.settled && reopen.settled).toBe(true);
       expect(first.corrections).toBeGreaterThan(0);
@@ -249,7 +262,7 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
       expect(reopen.churn).toBe(0);
       expect(first.churn).toBeGreaterThan(0);
       expect(reopen.mounts).toBeLessThan(first.mounts);
-      expect(reopen.commits).toBeLessThan(first.commits);
+      expect(reopen.commits).toBeLessThanOrEqual(first.commits);
       // The same placement the first open settled on.
       expect(reopen.latestBottom).toBeCloseTo(first.latestBottom!, 0);
     }
@@ -264,8 +277,60 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
     expect(firstA.corrections).toBeGreaterThan(0);
     expect(reopenA.corrections).toBe(0);
     expect(reopenA.mounts).toBeLessThan(firstA.mounts);
-    expect(reopenA.commits).toBeLessThanOrEqual(firstA.commits);
+    expect(reopenA.commits).toBeLessThan(firstA.commits);
     expect(reopenA.latestBottom).toBeCloseTo(firstA.latestBottom!, 0);
+  });
+
+  it.each([false, true])('reserves the pane through a loading gap without sharing row sizes (live=%s)', live => {
+    state.processing = live;
+    paneGeometry = { current: undefined };
+    const first = open('a');
+    expect(paneGeometry.current).toEqual({ width: 900, height: 600 });
+    act(() => root.render(null));
+    const next = open('b');
+    expect(next.settled).toBe(true);
+    expect(next.corrections).toBeGreaterThan(0);
+    expect(first.firstCommitRows).toBe(0);
+    expect(next.firstCommitRows).toBeGreaterThan(0);
+    expect(next.latestBottom).toBeCloseTo(first.latestBottom!, 0);
+
+    // Another pane has its own geometry owner, even in the same document.
+    const firstPane = paneGeometry;
+    act(() => root.render(null));
+    paneGeometry = { current: undefined };
+    viewportHeight = 420; viewportWidth = columnWidth = 600;
+    expect(open('c').settled).toBe(true);
+    expect(paneGeometry.current).toEqual({ width: 600, height: 420 });
+    expect(firstPane.current).toEqual({ width: 900, height: 600 });
+  });
+
+  it('prepares one history margin leaf per idle frame only after visible presentation', () => {
+    const idle = new Map<number, IdleRequestCallback>();
+    let id = 0;
+    vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => { idle.set(++id, callback); return id; });
+    vi.stubGlobal('cancelIdleCallback', (key: number) => idle.delete(key));
+    contentPresented = false;
+    const opened = open('a');
+    expect(opened.settled).toBe(true);
+    expect(idle.size).toBe(0);
+    const rows = () => host.querySelectorAll('[data-virtual-item-key]').length;
+    const before = rows();
+    contentPresented = true; render(); tick(); tick();
+    expect(idle.size).toBe(1);
+    const deliver = (remaining: number) => act(() => {
+      const [key, callback] = idle.entries().next().value!;
+      idle.delete(key); callback({ didTimeout: false, timeRemaining: () => remaining });
+    });
+    deliver(0);
+    expect(rows()).toBe(before);
+    tick(); deliver(20);
+    expect(rows()).toBeGreaterThanOrEqual(before);
+    expect(rows()).toBeLessThanOrEqual(before + 1);
+    const latest = host.querySelector<HTMLElement>('[data-virtual-item-key="model-round:a-latest:answer-a-latest"]')!;
+    expect(latest.getBoundingClientRect().bottom).toBeCloseTo(opened.latestBottom!, 0);
+    tick(); expect(idle.size).toBe(1);
+    viewportActive = false; render();
+    expect(idle.size).toBe(0);
   });
 
   it('keeps only the most recently left sessions', () => {
@@ -274,7 +339,9 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
     // a was left four sessions ago and has been evicted; d is still retained.
     expect(retainedTranscriptRowSizes.size).toBe(3);
     const evictedA = open('a');
-    expect(evictedA.corrections).toBe(firstA.corrections);
+    expect(evictedA.corrections).toBeGreaterThan(0);
+    expect(evictedA.corrections).toBeLessThanOrEqual(firstA.corrections);
+    expect(evictedA.latestBottom).toBeCloseTo(firstA.latestBottom!, 0);
     const retainedD = open('d');
     expect(retainedD.corrections).toBe(0);
   });
@@ -291,5 +358,22 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
     expect(reopenA.corrections).toBeLessThan(firstA.corrections);
     const row = host.querySelector<HTMLElement>(`[data-virtual-item-key="${latestKey}"]`)!;
     expect(row.getBoundingClientRect().height).toBe(heights.get(latestKey));
+  });
+
+  it.each([false, true])('replaces the retained viewport reservation after a hidden resize (live=%s)', live => {
+    state.processing = live;
+    open('a'); open('b');
+    viewportHeight = 420;
+    viewportWidth = columnWidth = 600;
+    const reopened = open('a');
+    const fresh = open('c');
+    expect(reopened.settled && fresh.settled).toBe(true);
+    expect(reopened.latestBottom).toBeCloseTo(fresh.latestBottom!, 0);
+    viewportHeight = 800;
+    viewportWidth = 1000; columnWidth = 900;
+    const grown = open('a');
+    const freshGrown = open('d');
+    expect(grown.settled && freshGrown.settled).toBe(true);
+    expect(grown.latestBottom).toBeCloseTo(freshGrown.latestBottom!, 0);
   });
 });
