@@ -281,7 +281,14 @@ async fn restored_base_endpoint_keeps_the_announced_version_in_the_invitation() 
         .prepare_relay(&ConnectionMethod::OpenBitFunServer)
         .await
         .unwrap();
-    assert!(prepared.contains("?v="));
+    // The fork's Relay serves at the origin root and reports its version over
+    // /health: the invitation is the configured endpoint itself, which is its
+    // own endpoint base without a `?v=` version announcement.
+    assert_eq!(prepared, service.config.openbitfun_server_url);
+    assert_eq!(
+        openbitfun_product_domains::account::relay_endpoint_base(&prepared),
+        prepared
+    );
     *service.authenticated_device_id.write().await = Some("restored-host".into());
     *service.device_relay_url.write().await =
         Some(openbitfun_product_domains::account::relay_endpoint_base(&prepared).to_string());
@@ -318,7 +325,9 @@ async fn official_invitation_adopts_device_routing_that_is_already_connected() {
             .prepare_relay(&ConnectionMethod::OpenBitFunServer)
             .await
             .unwrap();
-        assert!(prepared.contains("?v="));
+        // Origin-root fork endpoint: the invitation is the configured
+        // endpoint itself (see the restored-base test above).
+        assert_eq!(prepared, service.config.openbitfun_server_url);
         // The connection is the one that was there: nothing stopped it.
         assert_eq!(
             service.authenticated_device_id.read().await.as_deref(),
