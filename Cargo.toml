@@ -61,6 +61,7 @@ exclude = [
     "third_party/eioc",
     "third_party/tao",
     "third_party/wry",
+    "third_party/screenshots",
 ]
 
 resolver = "2"

@@ -11,6 +11,20 @@ runs:
   using: composite
   steps:
     - uses: mozilla-actions/sccache-action@v0.0.9
+    # Rust 1.100 passes one "-L dependency=<build-script out>" per dependency
+    # build script, pushing leaf-crate rustc command lines past Windows' 32K
+    # CreateProcess limit. Cargo falls back to a response file, but sccache
+    # (<= 0.19) expands it and re-spawns rustc flat, so the spawn fails with
+    # "The filename or extension is too long. (os error 206)". The upstream
+    # response-file passthrough (mozilla/sccache#3026) is not in a release
+    # yet, so clear the wrapper on Windows and let cargo keep its own
+    # response-file handling; the empty value overrides build.rustc-wrapper
+    # and explicitly disables it. Remove this step once a released sccache
+    # contains the fix.
+    - if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        echo "RUSTC_WRAPPER=" >> "$GITHUB_ENV"
     - shell: bash
       run: |
         echo "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"

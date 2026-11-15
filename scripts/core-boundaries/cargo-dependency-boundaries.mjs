@@ -54,6 +54,7 @@ const VENDORED_EXTERNAL_PACKAGES = new Map([
   ['third_party/eioc/Cargo.toml', { name: 'eioc', version: '0.5.0' }],
   ['third_party/tao/Cargo.toml', { name: 'tao', version: '0.36.0' }],
   ['third_party/wry/Cargo.toml', { name: 'wry', version: '0.56.0' }],
+  ['third_party/screenshots/Cargo.toml', { name: 'screenshots', version: '0.8.10' }],
 ]);
 
 function isVendoredExternalManifest(root, manifestPath) {
