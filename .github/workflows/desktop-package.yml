@@ -212,6 +212,19 @@ jobs:
     if: needs.prepare.outputs.relay_image_only != 'true' && !inputs.artifact_run_ids && !inputs.verification_recovery_run_id
     env:
       NODE_OPTIONS: --max-old-space-size=6144
+      # Workflow-level Windows wrapper bypass. Local composite actions resolve
+      # from the ref the job checks out, so rebuilding an existing tag loads a
+      # pre-fix setup-sccache without the bypass it carries on main. Rust 1.100
+      # emits one "-L dependency=<build-script out>" per dependency build
+      # script, pushing leaf-crate rustc command lines past Windows' 32K
+      # CreateProcess limit; cargo falls back to a response file, but sccache
+      # (<= 0.19) expands it flat before re-spawning rustc, so the spawn dies
+      # with "The filename or extension is too long. (os error 206)". The
+      # upstream fix (mozilla/sccache#3026) is not in a release yet. An empty
+      # RUSTC_WRAPPER overrides build.rustc-wrapper and explicitly disables
+      # the wrapper; non-Windows keeps sccache. Remove both this line and the
+      # setup-sccache bypass once a released sccache contains the fix.
+      RUSTC_WRAPPER: ${{ contains(matrix.platform.os, 'windows') && '' || 'sccache' }}
       # Beta artifacts trade density for wall time: dropping thin LTO and
       # restoring per-crate parallel codegen keeps every runner core busy.
       # Stable releases keep the quality profile declared in Cargo.toml.
