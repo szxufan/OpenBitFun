@@ -103,9 +103,6 @@ export class AgenticEventListener {
 
     try {
       this.callbacks = callbacks;
-      if (typeof agentAPI.onEventBatch === 'function') {
-        this.unlistenFunctions.push(agentAPI.onEventBatch());
-      }
       if (callbacks.onSessionCreated) {
         const unlisten = agentAPI.onSessionCreated((event) => {
           logger.debug('Session created:', event);

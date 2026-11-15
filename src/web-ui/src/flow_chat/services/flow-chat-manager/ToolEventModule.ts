@@ -376,13 +376,11 @@ function applyParamsPartial(
         if (typeof effectiveParams.payload === 'string') {
           effectiveParams.content = effectiveParams.payload;
         }
+        const extractedPath = extractFilePathFromJsonBuffer(newBuffer);
         const hasPath = ['file_path', 'filePath', 'filepath', 'target_file', 'targetFile', 'path', 'filename']
           .some((key) => typeof effectiveParams[key] === 'string' && effectiveParams[key].length > 0);
-        if (!hasPath) {
-          const extractedPath = extractFilePathFromJsonBuffer(newBuffer);
-          if (extractedPath) {
-            effectiveParams.file_path = extractedPath;
-          }
+        if (extractedPath && !hasPath) {
+          effectiveParams.file_path = extractedPath;
         }
       }
     }
@@ -1059,21 +1057,11 @@ export function handleToolExecutionProgress(
         );
         const nextLogs = shouldAppend ? [...existingLogs, progress_message].slice(-200) : existingLogs;
 
-        const progressUpdates = {
+        store.updateModelRoundItem(sessionId, dialogTurn.id, tool_use_id, {
           _progressMessage: progress_message,
           _progressPercentage: percentage,
           _progressLogs: nextLogs
-        } as any;
-        if (
-          store.isSessionStreamVisible?.(sessionId) === false &&
-          typeof store.runSilentWithoutNotify === 'function'
-        ) {
-          store.runSilentWithoutNotify(() => {
-            store.updateModelRoundItemSilent(sessionId, dialogTurn.id, tool_use_id, progressUpdates);
-          });
-        } else {
-          store.updateModelRoundItem(sessionId, dialogTurn.id, tool_use_id, progressUpdates);
-        }
+        } as any);
         
         found = true;
         break;

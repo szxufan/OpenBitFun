@@ -384,10 +384,6 @@ export const localSessionDriver: SessionDriver = {
     }
 
     if (settledInFinishing) {
-      context.materializeStagedSession?.(sessionId, {
-        silent: !context.flowChatStore.isSessionStreamVisible(sessionId),
-        flushBatcher: true,
-      });
       markCurrentTurnItemsAsCancelled(context, sessionId);
       cleanupSessionBuffers(context, sessionId);
     }

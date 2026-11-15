@@ -100,26 +100,14 @@ fn labels_for_language(language: &str) -> MenubarLabels {
 }
 
 #[cfg(target_os = "macos")]
-static LAST_APPLIED_MENUBAR: std::sync::Mutex<Option<(String, EditMenuMode)>> =
-    std::sync::Mutex::new(None);
-
-#[cfg(target_os = "macos")]
 pub fn set_macos_menubar_with_mode(
     app: &tauri::AppHandle,
     language: &str,
     mode: MenubarMode,
     edit_mode: EditMenuMode,
 ) -> tauri::Result<()> {
-    let _ = mode;
-    if let Ok(guard) = LAST_APPLIED_MENUBAR.lock() {
-        if let Some((ref prev_lang, prev_edit_mode)) = *guard {
-            if prev_lang == language && prev_edit_mode == edit_mode {
-                return Ok(());
-            }
-        }
-    }
-
     let labels = labels_for_language(language);
+    let _ = mode;
 
     let app_menu = SubmenuBuilder::new(app, "OpenBitFun")
         .text("openbitfun.about", labels.about_openbitfun)
@@ -181,9 +169,6 @@ pub fn set_macos_menubar_with_mode(
         .build()?;
 
     app.set_menu(menu)?;
-    if let Ok(mut guard) = LAST_APPLIED_MENUBAR.lock() {
-        *guard = Some((language.to_string(), edit_mode));
-    }
     Ok(())
 }
 

@@ -13,86 +13,9 @@ import { driverForSession, sessionDriverNavigationStatusSources } from '../sessi
 import { deriveSessionNavStatus, type SessionNavStatus } from '../utils/sessionNavStatus';
 import { SessionNavOrdering } from '../utils/sessionNavOrdering';
 import { isUnmaterializedSessionDraft } from '../utils/sessionDraft';
-import type { DialogTurn, ModelRound, Session } from '../types/flow-chat';
+import type { Session } from '../types/flow-chat';
 import { ensureActivePermissionMailbox, liveSessionInteractionStore } from './liveSessionInteractionStore';
 import { SessionActivitySync, type ActivityTarget } from './sessionActivitySync';
-
-function sameRoundToolItems(left: ModelRound, right: ModelRound): boolean {
-  if (left === right) return true;
-  let leftIndex = 0;
-  let rightIndex = 0;
-  const leftItems = left.items;
-  const rightItems = right.items;
-
-  while (true) {
-    while (leftIndex < leftItems.length && leftItems[leftIndex].type !== 'tool') {
-      leftIndex += 1;
-    }
-    while (rightIndex < rightItems.length && rightItems[rightIndex].type !== 'tool') {
-      rightIndex += 1;
-    }
-    if (leftIndex >= leftItems.length || rightIndex >= rightItems.length) {
-      return leftIndex >= leftItems.length && rightIndex >= rightItems.length;
-    }
-    if (leftItems[leftIndex] !== rightItems[rightIndex]) {
-      return false;
-    }
-    leftIndex += 1;
-    rightIndex += 1;
-  }
-}
-
-function sameTurnNavStatusInputs(left: DialogTurn | undefined, right: DialogTurn | undefined): boolean {
-  if (left === right) return true;
-  if (!left || !right) return false;
-  if (
-    left.id !== right.id
-    || left.kind !== right.kind
-    || left.status !== right.status
-    || left.recoveryEpoch !== right.recoveryEpoch
-    || left.recovery?.status !== right.recovery?.status
-    || left.recovery?.executionGeneration !== right.recovery?.executionGeneration
-    || left.modelRounds.length !== right.modelRounds.length
-  ) {
-    return false;
-  }
-  for (let index = 0; index < left.modelRounds.length; index += 1) {
-    const leftRound = left.modelRounds[index];
-    const rightRound = right.modelRounds[index];
-    if (leftRound === rightRound) continue;
-    if (leftRound.id !== rightRound.id || !sameRoundToolItems(leftRound, rightRound)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function sameSessionNavStatusInputs(prior: Session, next: Session): boolean {
-  if (
-    prior.status !== next.status
-    || prior.hasUnreadCompletion !== next.hasUnreadCompletion
-    || prior.needsUserAttention !== next.needsUserAttention
-    || prior.historyState !== next.historyState
-    || prior.isTransient !== next.isTransient
-    || prior.createdAt !== next.createdAt
-    || prior.lastFinishedAt !== next.lastFinishedAt
-    || prior.projectWorkspaceId !== next.projectWorkspaceId
-    || prior.workspaceId !== next.workspaceId
-    || prior.config.workspaceId !== next.config.workspaceId
-    || prior.config.dispatchJobId !== next.config.dispatchJobId
-    || prior.config.dispatchJobState !== next.config.dispatchJobState
-    || prior.dialogTurns.length !== next.dialogTurns.length
-  ) {
-    return false;
-  }
-
-  for (let index = 0; index < prior.dialogTurns.length; index += 1) {
-    if (!sameTurnNavStatusInputs(prior.dialogTurns[index], next.dialogTurns[index])) {
-      return false;
-    }
-  }
-  return true;
-}
 
 const log = createLogger('SessionNavStatus');
 const RECONCILE_INTERVAL_MS = 15_000;
@@ -282,10 +205,6 @@ export function installSessionNavStatusService(): () => void {
     for (const [sessionId, session] of state.sessions) {
       const prior = ordering.get(surfaceId, sessionId)?.session;
       if (prior === session) continue;
-      if (prior && !isUnmaterializedSessionDraft(prior) && sameSessionNavStatusInputs(prior, session)) {
-        ordering.updateSessionRef(surfaceId, session);
-        continue;
-      }
       publish(sessionId);
       if (prior?.needsUserAttention !== session?.needsUserAttention) {
         sessionActivityStore.invalidate(sessionId);

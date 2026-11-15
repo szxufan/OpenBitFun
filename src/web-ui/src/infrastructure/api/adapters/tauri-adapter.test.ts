@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  isExpectedTauriRequestError,
-  TAURI_EVENT_BATCH_NAME,
-  TauriTransportAdapter,
-} from './tauri-adapter';
+import { isExpectedTauriRequestError, TauriTransportAdapter } from './tauri-adapter';
 import {
   beginRuntimeSessionAttachment,
   resetRuntimeSessionEventGateForTest,
@@ -264,61 +260,5 @@ describe('Tauri adapter expected errors', () => {
     expect(isRuntimeSessionProjectionStale('local', 'session-1')).toBe(true);
 
     unlistenSecond();
-  });
-
-  it('unpacks agentic://event-batch items in FIFO cursor order across subscribers', async () => {
-    const handlers = new Map<string, (event: { payload: unknown }) => void>();
-    listenMock.mockImplementation(async (event: string, handler: (event: { payload: unknown }) => void) => {
-      handlers.set(event, handler);
-      return vi.fn();
-    });
-
-    const adapter = new TauriTransportAdapter();
-    const order: string[] = [];
-    const unlistenBatch = adapter.listen(TAURI_EVENT_BATCH_NAME, () => {});
-    const unlistenText = adapter.listen<{ sessionId: string; text: string }>('agentic://text-chunk', payload => {
-      order.push(`text:${payload.sessionId}:${payload.text}`);
-    });
-    const unlistenDone = adapter.listen<{ sessionId: string }>('agentic://dialog-turn-completed', payload => {
-      order.push(`done:${payload.sessionId}`);
-    });
-    await adapter.waitForListenerRegistrations();
-
-    handlers.get(TAURI_EVENT_BATCH_NAME)?.({
-      payload: [
-        {
-          event: 'agentic://text-chunk',
-          payload: {
-            sessionId: 's1',
-            text: 'hello',
-            [RUNTIME_EVENT_STREAM_ID_KEY]: 'rt-1',
-            [RUNTIME_EVENT_CURSOR_KEY]: 1,
-          },
-        },
-        {
-          event: 'agentic://text-chunk',
-          payload: {
-            sessionId: 's2',
-            text: 'world',
-            [RUNTIME_EVENT_STREAM_ID_KEY]: 'rt-1',
-            [RUNTIME_EVENT_CURSOR_KEY]: 2,
-          },
-        },
-        {
-          event: 'agentic://dialog-turn-completed',
-          payload: {
-            sessionId: 's1',
-            turnId: 't1',
-            [RUNTIME_EVENT_STREAM_ID_KEY]: 'rt-1',
-            [RUNTIME_EVENT_CURSOR_KEY]: 3,
-          },
-        },
-      ],
-    });
-
-    expect(order).toEqual(['text:s1:hello', 'text:s2:world', 'done:s1']);
-    unlistenBatch();
-    unlistenText();
-    unlistenDone();
   });
 });

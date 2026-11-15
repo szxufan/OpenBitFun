@@ -56,25 +56,6 @@ const MarkdownMathRenderer = lazyWithRecovery(() => import('./MarkdownMathRender
 const ThinkingMarkdown = lazyWithRecovery(() => import('./ThinkingMarkdown'));
 const InlineFragment = ({ children }: { children?: ReactNode }) => <>{children}</>;
 
-const EMPTY_UNIFIED_PLUGINS: any[] = [];
-
-function hasRawHastNode(node: any): boolean {
-  if (!node || typeof node !== 'object') return false;
-  if (node.type === 'raw') return true;
-  const children = node.children;
-  if (Array.isArray(children)) {
-    for (let i = 0; i < children.length; i += 1) {
-      if (hasRawHastNode(children[i])) return true;
-    }
-  }
-  return false;
-}
-
-function rehypeRawIfPresent() {
-  const runRehypeRaw = rehypeRaw();
-  return (tree: any, file: any) => (hasRawHastNode(tree) ? runRehypeRaw(tree, file) : tree);
-}
-
 function markdownUrlTransform(value: string, key?: string): string {
   if (/^openbitfun:\/\/(?:runtime|current-session)\//.test(value)) return value;
   // These references are resolved through the owning host, never by the browser.
@@ -194,227 +175,16 @@ function mayNeedWorkspacePathForMarkdownLinks(content: string): boolean {
     /<a\s+[^>]*href=["']\s*(?!https?:|mailto:|visualization:|tab:|#)[^"']+["']/i.test(content);
 }
 
-function parseFenceLinePrefix(
-  source: string,
-  lineStart: number,
-  lineEnd: number,
-): { char: '`' | '~'; length: number; trailingStart: number } | null {
-  let cursor = lineStart;
-  let indent = 0;
-  while (cursor < lineEnd && indent < 4) {
-    const ch = source.charCodeAt(cursor);
-    if (ch === 32) {
-      indent += 1;
-      cursor += 1;
-    } else if (ch === 9) {
-      indent += 4 - (indent % 4);
-      cursor += 1;
-    } else {
-      break;
-    }
-  }
-  if (indent >= 4 || cursor >= lineEnd) return null;
-  const first = source.charCodeAt(cursor);
-  if (first !== 96 && first !== 126) return null;
-  let runEnd = cursor + 1;
-  while (runEnd < lineEnd && source.charCodeAt(runEnd) === first) {
-    runEnd += 1;
-  }
-  const length = runEnd - cursor;
-  if (length < 3) return null;
-  return {
-    char: first === 96 ? '`' : '~',
-    length,
-    trailingStart: runEnd,
-  };
-}
-
-function findUnclosedMarkdownFence(source: string): string | null {
-  if (!source.includes('```') && !source.includes('~~~')) {
-    return null;
-  }
-  let openFence: { char: '`' | '~'; length: number } | null = null;
-  let lineStart = 0;
-  const totalLen = source.length;
-  while (lineStart <= totalLen) {
-    const nlIndex = source.indexOf('\n', lineStart);
-    const rawLineEnd = nlIndex === -1 ? totalLen : nlIndex;
-    const lineEnd = rawLineEnd > lineStart && source.charCodeAt(rawLineEnd - 1) === 13
-      ? rawLineEnd - 1
-      : rawLineEnd;
-    const fence = parseFenceLinePrefix(source, lineStart, lineEnd);
-    if (fence) {
-      if (!openFence) {
-        let validInfo = true;
-        if (fence.char === '`') {
-          for (let i = fence.trailingStart; i < lineEnd; i += 1) {
-            if (source.charCodeAt(i) === 96) {
-              validInfo = false;
-              break;
-            }
-          }
-        }
-        if (validInfo) {
-          openFence = { char: fence.char, length: fence.length };
-        }
-      } else if (fence.char === openFence.char && fence.length >= openFence.length) {
-        let onlyWhitespace = true;
-        for (let i = fence.trailingStart; i < lineEnd; i += 1) {
-          const c = source.charCodeAt(i);
-          if (c !== 32 && c !== 9) {
-            onlyWhitespace = false;
-            break;
-          }
-        }
-        if (onlyWhitespace) {
-          openFence = null;
-        }
-      }
-    }
-    if (nlIndex === -1) break;
-    lineStart = nlIndex + 1;
-  }
-  return openFence ? openFence.char.repeat(openFence.length) : null;
-}
-
-function stripMarkdownCodeForFeatureDetection(content: string): string {
-  if (!content.includes('`') && !content.includes('~')) {
-    return content;
-  }
-  let withoutFences = content;
-  if (content.includes('```') || content.includes('~~~')) {
-    let out = '';
-    let openFence: { char: '`' | '~'; length: number } | null = null;
-    let lineStart = 0;
-    const totalLen = content.length;
-    while (lineStart <= totalLen) {
-      const nlIndex = content.indexOf('\n', lineStart);
-      const rawLineEnd = nlIndex === -1 ? totalLen : nlIndex;
-      const lineEnd = rawLineEnd > lineStart && content.charCodeAt(rawLineEnd - 1) === 13
-        ? rawLineEnd - 1
-        : rawLineEnd;
-      const fence = parseFenceLinePrefix(content, lineStart, lineEnd);
-      if (!openFence) {
-        let opened = false;
-        if (fence) {
-          let validInfo = true;
-          if (fence.char === '`') {
-            for (let i = fence.trailingStart; i < lineEnd; i += 1) {
-              if (content.charCodeAt(i) === 96) {
-                validInfo = false;
-                break;
-              }
-            }
-          }
-          if (validInfo) {
-            openFence = { char: fence.char, length: fence.length };
-            opened = true;
-          }
-        }
-        if (!opened) {
-          out += content.slice(lineStart, rawLineEnd);
-        }
-      } else if (fence && fence.char === openFence.char && fence.length >= openFence.length) {
-        let onlyWhitespace = true;
-        for (let i = fence.trailingStart; i < lineEnd; i += 1) {
-          const c = content.charCodeAt(i);
-          if (c !== 32 && c !== 9) {
-            onlyWhitespace = false;
-            break;
-          }
-        }
-        if (onlyWhitespace) {
-          openFence = null;
-        }
-      }
-      if (nlIndex === -1) break;
-      out += '\n';
-      lineStart = nlIndex + 1;
-    }
-    withoutFences = out;
-  }
-
-  if (!withoutFences.includes('`')) {
-    return withoutFences;
-  }
-
-  let out = '';
-  let i = 0;
-  const len = withoutFences.length;
-  while (i < len) {
-    if (withoutFences.charCodeAt(i) !== 96) {
-      const nextTick = withoutFences.indexOf('`', i + 1);
-      if (nextTick < 0) {
-        out += withoutFences.slice(i);
-        break;
-      }
-      out += withoutFences.slice(i, nextTick);
-      i = nextTick;
-      continue;
-    }
-    let runEnd = i + 1;
-    while (runEnd < len && withoutFences.charCodeAt(runEnd) === 96) runEnd += 1;
-    const runLen = runEnd - i;
-    // CommonMark inline code spans cannot cross a blank-line paragraph break.
-    let paragraphEnd = len;
-    let nlSearch = runEnd;
-    while (nlSearch < len) {
-      const nl = withoutFences.indexOf('\n', nlSearch);
-      if (nl < 0) break;
-      let cursor = nl + 1;
-      while (cursor < len && (withoutFences.charCodeAt(cursor) === 32 || withoutFences.charCodeAt(cursor) === 9)) {
-        cursor += 1;
-      }
-      if (cursor < len && withoutFences.charCodeAt(cursor) === 13) cursor += 1;
-      if (cursor < len && withoutFences.charCodeAt(cursor) === 10) {
-        paragraphEnd = nl;
-        break;
-      }
-      nlSearch = nl + 1;
-    }
-    let search = runEnd;
-    let closedAt = -1;
-    while (search < paragraphEnd) {
-      const candidate = withoutFences.indexOf('`', search);
-      if (candidate < 0 || candidate >= paragraphEnd) break;
-      let candidateEnd = candidate + 1;
-      while (candidateEnd < paragraphEnd && withoutFences.charCodeAt(candidateEnd) === 96) candidateEnd += 1;
-      if (candidateEnd - candidate === runLen) {
-        closedAt = candidateEnd;
-        break;
-      }
-      search = candidateEnd;
-    }
-    if (closedAt >= 0) {
-      const hasNewline = withoutFences.indexOf('\n', runEnd) !== -1 && withoutFences.indexOf('\n', runEnd) < closedAt;
-      out += hasNewline ? '\n' : ' ';
-      i = closedAt;
-    } else {
-      out += withoutFences.slice(i, runEnd);
-      i = runEnd;
-    }
-  }
-  return out;
-}
-
 function mayContainMarkdownMath(content: string): boolean {
   if (!content) {
     return false;
   }
-  if (!content.includes('$') && !content.includes('\\(') && !content.includes('\\[')) {
-    return false;
-  }
 
-  const prose = stripMarkdownCodeForFeatureDetection(content);
-  if (!prose.includes('$') && !prose.includes('\\(') && !prose.includes('\\[')) {
-    return false;
-  }
-
-  if (prose.includes('$$') || prose.includes('\\(') || prose.includes('\\[')) {
+  if (content.includes('$$') || content.includes('\\(') || content.includes('\\[')) {
     return true;
   }
 
-  return /(^|[^\\$])\$[^$\n]{1,240}\$(?!\d)/.test(prose);
+  return /(^|[^\\$])\$[^$\n]{1,240}\$(?!\d)/.test(content);
 }
 
 /** Catches render errors from react-markdown/remark-gfm (e.g. RegExp in transformGfmAutolinkLiterals) and shows plain text fallback. */
@@ -1087,7 +857,7 @@ const CodeBlockFallback: React.FC<FlowCodeBlockFallbackProps> = ({
   );
 };
 
-const CopyButton = React.memo<{ code: string }>(({ code }) => {
+const CopyButton: React.FC<{ code: string }> = ({ code }) => {
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const label = copied ? translateMarkdownLabel('markdown.copySuccess') : translateMarkdownLabel('markdown.copyCode');
@@ -1122,7 +892,7 @@ const CopyButton = React.memo<{ code: string }>(({ code }) => {
       />
     </Tooltip>
   );
-});
+};
 
 export interface MarkdownRendererProps {
   content: string;
@@ -1237,10 +1007,11 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
     // tick. Append a synthetic closing fence so the AST stays a stable code
     // block from the moment the opening fence appears.
     if (isStreaming && !thinking) {
-      const unclosedFence = findUnclosedMarkdownFence(body);
-      if (unclosedFence) {
+      const fenceMatches = body.match(/^[ \t]{0,3}(`{3,}|~{3,})/gm);
+      if (fenceMatches && fenceMatches.length % 2 === 1) {
+        const lastFence = fenceMatches[fenceMatches.length - 1].trim();
         const needsLeadingNewline = !body.endsWith('\n');
-        body = `${body}${needsLeadingNewline ? '\n' : ''}${unclosedFence}`;
+        body = `${body}${needsLeadingNewline ? '\n' : ''}${lastFence}`;
       }
     }
 
@@ -1249,12 +1020,8 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
   const markdownContentRef = useLiveValueRef(markdownContent);
 
   const needsWorkspacePathForLinks = useMemo(
-    () => (
-      thinking || fileActionsViaCallbackOnly || Boolean(currentWorkspacePath || basePath)
-        ? false
-        : mayNeedWorkspacePathForMarkdownLinks(markdownContent)
-    ),
-    [basePath, currentWorkspacePath, fileActionsViaCallbackOnly, markdownContent, thinking],
+    () => mayNeedWorkspacePathForMarkdownLinks(markdownContent),
+    [markdownContent],
   );
 
   useEffect(() => {
@@ -1279,17 +1046,14 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
     };
   }, [basePath, currentWorkspacePath, fileActionsViaCallbackOnly, needsWorkspacePathForLinks, surfaceScope]);
 
-  const markdownFeatureProfile = useMemo(() => (renderTraceEnabled
-    ? {
-        contentLength: markdownContent.length,
-        hasCodeBlock: /^[ \t]{0,3}(`{3,}|~{3,})/m.test(markdownContent),
-        hasTable: /^[ \t]*\|.+\|[ \t]*$/m.test(markdownContent),
-      }
-    : { contentLength: markdownContent.length, hasCodeBlock: false, hasTable: false }),
-  [markdownContent, renderTraceEnabled]);
+  const markdownFeatureProfile = useMemo(() => ({
+    contentLength: markdownContent.length,
+    hasCodeBlock: /^[ \t]{0,3}(`{3,}|~{3,})/m.test(markdownContent),
+    hasTable: /^[ \t]*\|.+\|[ \t]*$/m.test(markdownContent),
+  }), [markdownContent]);
   const shouldUseMathRenderer = useMemo(
-    () => (thinking ? false : mayContainMarkdownMath(markdownContent)),
-    [markdownContent, thinking],
+    () => mayContainMarkdownMath(markdownContent),
+    [markdownContent],
   );
 
   // Parse line ranges like #L42 / 1-20
@@ -1606,7 +1370,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
       // clamp a reader at the historical edge (83/166px in native traces).
       // Only whole semantic documents need an additional inner code budget.
       // Indivisible huge fences remain plaintext and need no visibility swap.
-      const recycleDecoration = !streaming && deferCodeHighlightingRef.current
+      const recycleDecoration = deferCodeHighlightingRef.current
         && markdownContentRef.current.length > 12_000 && code.length <= 24_000;
       return (
         <div className={`code-block-wrapper${hasMultipleLines ? '' : ' code-block-wrapper--single-line'}`} data-openbitfun-component="markdown" data-openbitfun-part="codeBlock" data-openbitfun-state={streaming ? 'streaming' : undefined}>
@@ -2001,7 +1765,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
     const basicFragment = (
       <ReactMarkdown
         remarkPlugins={[[remarkGfm, markdownGfmOptions], remarkAutolinkBoundaries, remarkAutolinkInternalLinks]}
-        rehypePlugins={[rehypeRawIfPresent, [rehypeWindowsDrivePaths, { markdownSource: fragment }], [rehypeSanitize, sanitizeSchema]]}
+        rehypePlugins={[rehypeRaw, [rehypeWindowsDrivePaths, { markdownSource: fragment }], [rehypeSanitize, sanitizeSchema]]}
         urlTransform={markdownUrlTransform}
         components={fragmentComponents}
       >{fragment}</ReactMarkdown>
@@ -2020,30 +1784,10 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
       </React.Suspense>
     ) : basicFragment;
   }, [components, isStreaming]);
-  const basicRemarkPlugins = useMemo(
-    () => (thinking ? EMPTY_UNIFIED_PLUGINS : [
-      [remarkGfm, markdownGfmOptions],
-      ...(!isStreaming ? [remarkCachedParse] : []),
-      [remarkStreamingTableLinks, { isStreaming }],
-      remarkAutolinkBoundaries,
-      remarkAutolinkInternalLinks,
-    ] as any),
-    [isStreaming, thinking],
-  );
-  const basicRehypePlugins = useMemo(
-    () => (thinking ? EMPTY_UNIFIED_PLUGINS : [
-      rehypeRawIfPresent,
-      [rehypeWindowsDrivePaths, { markdownSource: markdownContent }],
-      [rehypeSanitize, sanitizeSchema],
-      [rehypeSourceRange, sourceRange],
-      [rehypeImageThumbnails, { enabled: imageThumbnails }],
-    ] as any),
-    [markdownContent, sourceRange, imageThumbnails, thinking],
-  );
   const basicMarkdownRenderer = (
     <ReactMarkdown
-      remarkPlugins={basicRemarkPlugins}
-      rehypePlugins={basicRehypePlugins}
+      remarkPlugins={[[remarkGfm, markdownGfmOptions], ...(!isStreaming ? [remarkCachedParse] : []), [remarkStreamingTableLinks, { isStreaming }], remarkAutolinkBoundaries, remarkAutolinkInternalLinks]}
+      rehypePlugins={[rehypeRaw, [rehypeWindowsDrivePaths, { markdownSource: markdownContent }], [rehypeSanitize, sanitizeSchema], [rehypeSourceRange, sourceRange], [rehypeImageThumbnails, { enabled: imageThumbnails }]]}
       urlTransform={markdownUrlTransform}
       components={components}
     >

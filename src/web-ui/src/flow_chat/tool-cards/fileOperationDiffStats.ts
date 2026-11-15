@@ -23,37 +23,16 @@ export function fileOperationPreview(item: FlowToolItem) {
   };
 }
 
-const MAX_STREAMING_EXACT_DIFF_LINES = 80;
-const MAX_INLINE_DIFF_CHARS = 100_000;
-
-function countContentLines(text: string): number {
-  if (!text) return 0;
-  let lines = 1;
-  for (let i = 0; i < text.length; i += 1) {
-    if (text.charCodeAt(i) === 10) {
-      lines += 1;
-    }
-  }
-  return text.charCodeAt(text.length - 1) === 10 ? lines - 1 : lines;
-}
-
 /** The same per-operation fallback used by a native card and its collection. */
 export function localFileOperationDiffStats(item: FlowToolItem): FileOperationDiffStats {
   const tool = projectEffectiveToolItem(item);
   if (getToolCardStatus(tool) === 'error') return EMPTY_FILE_DIFF_STATS;
   const { oldStringContent, newStringContent, contentPreview } = fileOperationPreview(tool);
   if (tool.toolName === 'Write' && contentPreview) {
-    return { additions: countContentLines(contentPreview), deletions: 0 };
+    const lines = contentPreview.split('\n');
+    return { additions: lines.length - (lines.at(-1) === '' ? 1 : 0), deletions: 0 };
   }
   if (tool.toolName === 'Edit' && (oldStringContent || newStringContent)) {
-    const oldLines = countContentLines(oldStringContent);
-    const newLines = countContentLines(newStringContent);
-    if (
-      (tool.isParamsStreaming && oldLines + newLines > MAX_STREAMING_EXACT_DIFF_LINES) ||
-      oldStringContent.length + newStringContent.length > MAX_INLINE_DIFF_CHARS
-    ) {
-      return { additions: newLines, deletions: oldLines };
-    }
     const stats = { additions: 0, deletions: 0 };
     for (const change of diffLines(oldStringContent, newStringContent)) {
       if (change.added) stats.additions += change.count ?? 0;

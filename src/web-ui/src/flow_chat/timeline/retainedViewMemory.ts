@@ -47,8 +47,8 @@ export class RetainedViewMemory<K, V> {
   }
 }
 
-/** Retain recently left sessions across concurrent multi-session switches. */
-export const MAX_RETAINED_SESSION_VIEWS = 8;
+/** About three: the session just left, and the one or two before it. */
+export const MAX_RETAINED_SESSION_VIEWS = 3;
 
 /**
  * Measured row sizes of recently left transcripts, by the view's reader store.

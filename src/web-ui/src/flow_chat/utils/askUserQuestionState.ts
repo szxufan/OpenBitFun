@@ -1,5 +1,5 @@
 import { stateMachineManager } from '../state-machine/SessionStateMachineManager';
-import type { DialogTurn, FlowToolItem, ModelRound, Session } from '../types/flow-chat';
+import type { DialogTurn, FlowToolItem, Session } from '../types/flow-chat';
 import { effectiveToolInvocation } from './toolInvocationIdentity';
 
 export const TRANSIENT_TURN_STATUSES = new Set<DialogTurn['status']>([
@@ -16,33 +16,6 @@ const TERMINAL_TOOL_STATUSES = new Set<FlowToolItem['status']>([
   'cancelled',
   'rejected',
 ]);
-
-function findPendingAskUserQuestionInRound(round: ModelRound): FlowToolItem | undefined {
-  for (let itemIndex = round.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
-    const item = round.items[itemIndex];
-    if (
-      item.type !== 'tool'
-      || TERMINAL_TOOL_STATUSES.has(item.status)
-      || item.isParamsStreaming
-    ) {
-      continue;
-    }
-
-    const effective = effectiveToolInvocation(item.toolName, item.toolCall?.input);
-    if (effective.toolName !== 'AskUserQuestion') {
-      continue;
-    }
-
-    const questions = effective.input && typeof effective.input === 'object'
-      ? (effective.input as Record<string, unknown>).questions
-      : undefined;
-    if (Array.isArray(questions) && questions.length > 0) {
-      return item;
-    }
-  }
-
-  return undefined;
-}
 
 /**
  * Scan a dialog turn's model rounds (newest-first) for a non-terminal
@@ -61,9 +34,28 @@ export function findPendingAskUserQuestion(
   }
 
   for (let roundIndex = turn.modelRounds.length - 1; roundIndex >= 0; roundIndex -= 1) {
-    const pending = findPendingAskUserQuestionInRound(turn.modelRounds[roundIndex]);
-    if (pending) {
-      return pending;
+    const round = turn.modelRounds[roundIndex];
+    for (let itemIndex = round.items.length - 1; itemIndex >= 0; itemIndex -= 1) {
+      const item = round.items[itemIndex];
+      if (
+        item.type !== 'tool'
+        || TERMINAL_TOOL_STATUSES.has(item.status)
+        || item.isParamsStreaming
+      ) {
+        continue;
+      }
+
+      const effective = effectiveToolInvocation(item.toolName, item.toolCall?.input);
+      if (effective.toolName !== 'AskUserQuestion') {
+        continue;
+      }
+
+      const questions = effective.input && typeof effective.input === 'object'
+        ? (effective.input as Record<string, unknown>).questions
+        : undefined;
+      if (Array.isArray(questions) && questions.length > 0) {
+        return item;
+      }
     }
   }
 

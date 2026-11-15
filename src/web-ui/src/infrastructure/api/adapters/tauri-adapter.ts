@@ -4,19 +4,10 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { elapsedMs, nowMs } from '@/shared/utils/timing';
 import { ITransportAdapter, type TransportRequestTiming } from './base';
 import { createLogger } from '@/shared/utils/logger';
-import {
-  getActiveSurfaceDeviceId,
-  isSurfaceScopedEvent,
-  PEER_EVENT_SOURCE_KEY,
-  readSourceDeviceId,
-  routeSurfaceEvent,
-  unwrapSurfacePayload,
-} from '@/infrastructure/peer-device/deviceSurfaceRouting';
+import { getActiveSurfaceDeviceId, isSurfaceScopedEvent, routeSurfaceEvent } from '@/infrastructure/peer-device/deviceSurfaceRouting';
 import { getActiveSurfaceScope, surfaceIdForDevice } from '@/infrastructure/peer-device/deviceSurface';
 import { markRuntimeSessionProjectionStale, routeRuntimeSessionEvent } from '@/infrastructure/peer-device/runtimeSessionEventGate';
 import { sanitizeErrorForLog } from '../logSanitizer';
-
-export const TAURI_EVENT_BATCH_NAME = 'agentic://event-batch';
 
 const log = createLogger('TauriAdapter');
 
@@ -61,87 +52,6 @@ function closeSharedTauriEventListener(
   }
 }
 
-function dispatchSharedTauriEvent(event: string, rawPayload: unknown): void {
-  const shared = sharedTauriEventListeners.get(event);
-
-  // Capture the logical listeners that owned the event when it arrived. A
-  // Session read may hold delivery after accepting the write; those owners
-  // may paint it if still subscribed when released; later subscribers must
-  // not receive the native event retroactively.
-  const subscriptions = shared && !shared.closed ? [...shared.subscriptions] : [];
-
-  // Peer devices stay attached while the UI renders another device, so
-  // several product event streams share this bus. Always route through surface
-  // observation first (even when unpacked from a batch with no local channel
-  // listener), while only the rendered device surface reaches product listeners.
-  const route = routeSurfaceEvent(event, rawPayload);
-  if (!route.deliver || !shared || shared.closed) {
-    return;
-  }
-
-  const sourceSurfaceId = surfaceIdForDevice(route.sourceDeviceId);
-  const scope = getActiveSurfaceScope();
-  routeRuntimeSessionEvent(
-    sourceSurfaceId,
-    event,
-    route.payload,
-    payload => {
-      // Fenced delivery can outlive a device switch or an unsubscribe. Never
-      // call an obsolete listener against the newly selected store container.
-      const currentSubscriptions = subscriptions.filter(subscription => shared.subscriptions.has(subscription));
-      if (!scope.isCurrent() ||
-          (isSurfaceScopedEvent(event) && getActiveSurfaceDeviceId() !== route.sourceDeviceId) ||
-          shared.closed || currentSubscriptions.length === 0) {
-        const sessionId = (payload as { sessionId?: unknown } | null)?.sessionId;
-        if (typeof sessionId === 'string') markRuntimeSessionProjectionStale(sourceSurfaceId, sessionId);
-        return;
-      }
-      for (const subscription of currentSubscriptions) {
-        try {
-          subscription.callback(payload);
-        } catch (error) {
-          log.error('Error in event listener callback', {
-            event,
-            error: sanitizeErrorForLog(error),
-          });
-        }
-      }
-    },
-  );
-}
-
-function dispatchTauriEventBatch(rawPayload: unknown): void {
-  const outerSourceDeviceId = readSourceDeviceId(rawPayload);
-  const unwrapped = unwrapSurfacePayload(rawPayload);
-  if (!Array.isArray(unwrapped)) {
-    return;
-  }
-
-  for (const item of unwrapped) {
-    if (!item || typeof item !== 'object') {
-      continue;
-    }
-    const record = item as { event?: unknown; payload?: unknown };
-    if (typeof record.event !== 'string' || !record.event) {
-      continue;
-    }
-    let itemPayload = record.payload;
-    if (
-      outerSourceDeviceId &&
-      itemPayload &&
-      typeof itemPayload === 'object' &&
-      !Array.isArray(itemPayload) &&
-      !(PEER_EVENT_SOURCE_KEY in (itemPayload as Record<string, unknown>))
-    ) {
-      itemPayload = {
-        ...(itemPayload as Record<string, unknown>),
-        [PEER_EVENT_SOURCE_KEY]: outerSourceDeviceId,
-      };
-    }
-    dispatchSharedTauriEvent(record.event, itemPayload);
-  }
-}
-
 function registerSharedTauriEventListener(
   event: string,
   shared: SharedTauriEventListener,
@@ -151,12 +61,49 @@ function registerSharedTauriEventListener(
       return;
     }
 
-    if (event === TAURI_EVENT_BATCH_NAME) {
-      dispatchTauriEventBatch(e.payload);
+    // Capture the logical listeners that owned the event when it arrived. A
+    // Session read may hold delivery after accepting the write; those owners
+    // may paint it if still subscribed when released; later subscribers must
+    // not receive the native event retroactively.
+    const subscriptions = [...shared.subscriptions];
+
+    // Peer devices stay attached while the UI renders another device, so
+    // several product event streams share this bus. Only the rendered device
+    // surface may reach product listeners.
+    const route = routeSurfaceEvent(event, e.payload);
+    if (!route.deliver) {
       return;
     }
 
-    dispatchSharedTauriEvent(event, e.payload);
+    const sourceSurfaceId = surfaceIdForDevice(route.sourceDeviceId);
+    const scope = getActiveSurfaceScope();
+    routeRuntimeSessionEvent(
+      sourceSurfaceId,
+      event,
+      route.payload,
+      payload => {
+        // Fenced delivery can outlive a device switch or an unsubscribe. Never
+        // call an obsolete listener against the newly selected store container.
+        const currentSubscriptions = subscriptions.filter(subscription => shared.subscriptions.has(subscription));
+        if (!scope.isCurrent() ||
+            (isSurfaceScopedEvent(event) && getActiveSurfaceDeviceId() !== route.sourceDeviceId) ||
+            shared.closed || currentSubscriptions.length === 0) {
+          const sessionId = (payload as { sessionId?: unknown } | null)?.sessionId;
+          if (typeof sessionId === 'string') markRuntimeSessionProjectionStale(sourceSurfaceId, sessionId);
+          return;
+        }
+        for (const subscription of currentSubscriptions) {
+          try {
+            subscription.callback(payload);
+          } catch (error) {
+            log.error('Error in event listener callback', {
+              event,
+              error: sanitizeErrorForLog(error),
+            });
+          }
+        }
+      },
+    );
   }).then(fn => {
     if (shared.closed || sharedTauriEventListeners.get(event) !== shared) {
       fn();

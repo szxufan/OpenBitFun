@@ -24,71 +24,6 @@ interface SettledPrefixRecord {
 
 let lastRecord: SettledPrefixRecord | undefined;
 
-const INLINE_HTML_OR_FOOTNOTE_RE = /<(?:!--|\/?[a-zA-Z][a-zA-Z0-9:-]*(?:\s|\/|>|$))|\[\^[^\s\]]+\]/;
-
-function stripInlineCodeSpans(text: string): string {
-  if (!text.includes('`')) return text;
-  let out = '';
-  let i = 0;
-  const len = text.length;
-  while (i < len) {
-    const ch = text.charCodeAt(i);
-    if (ch !== 96 /* ` */) {
-      const nextTick = text.indexOf('`', i + 1);
-      if (nextTick < 0) {
-        out += text.slice(i);
-        break;
-      }
-      out += text.slice(i, nextTick);
-      i = nextTick;
-      continue;
-    }
-    let runEnd = i + 1;
-    while (runEnd < len && text.charCodeAt(runEnd) === 96) runEnd += 1;
-    const runLen = runEnd - i;
-    let search = runEnd;
-    let closedAt = -1;
-    while (search < len) {
-      const candidate = text.indexOf('`', search);
-      if (candidate < 0) break;
-      let candidateEnd = candidate + 1;
-      while (candidateEnd < len && text.charCodeAt(candidateEnd) === 96) candidateEnd += 1;
-      if (candidateEnd - candidate === runLen) {
-        closedAt = candidateEnd;
-        break;
-      }
-      search = candidateEnd;
-    }
-    if (closedAt >= 0) {
-      out += ' ';
-      i = closedAt;
-    } else if (!text.includes('\n', runEnd)) {
-      // Mask an unclosed code span on the final streaming line so partial
-      // inline code like `` `<div `` does not trigger a false HTML bailout.
-      out += ' ';
-      break;
-    } else {
-      out += text.slice(i, runEnd);
-      i = runEnd;
-    }
-  }
-  return out;
-}
-
-function hasCrossBlockInlineSyntax(content: string): boolean {
-  if (!content.includes('<') && !content.includes('[^')) {
-    return false;
-  }
-  const withoutCode = stripInlineCodeSpans(content);
-  if (!withoutCode.includes('<') && !withoutCode.includes('[^')) {
-    return false;
-  }
-  const withoutAutolinks = withoutCode.includes('<')
-    ? withoutCode.replace(/<(?:https?:\/\/|mailto:)[^>\s]+>/gi, ' ')
-    : withoutCode;
-  return INLINE_HTML_OR_FOOTNOTE_RE.test(withoutAutolinks);
-}
-
 function computeRawBoundaries(source: string): { boundaries: number[]; extendable: boolean } {
   const normalized = source.replace(/\r\n?|\0/g, match => match === '\0' ? '\uFFFD' : '\n');
   const tokens: Parameters<typeof parser.block.parse>[3] = [];
@@ -96,8 +31,8 @@ function computeRawBoundaries(source: string): { boundaries: number[]; extendabl
   parser.block.parse(normalized, parser, environment, tokens);
   if (environment.references || environment.footnotes
     || tokens.some(token => token.type.startsWith('html') || token.type.startsWith('footnote')
-      // Inline HTML/footnote references outside code spans may bind beyond a top-level block.
-      || (token.type === 'inline' && hasCrossBlockInlineSyntax(token.content)))) {
+      // Inline HTML/reference definitions may bind beyond a top-level block.
+      || (token.type === 'inline' && /<|\]\s*\[|\[\^/.test(token.content)))) {
     return { boundaries: [0], extendable: false };
   }
   const offsets = [0];

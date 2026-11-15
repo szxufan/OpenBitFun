@@ -39,7 +39,6 @@ import { resolveSessionRelationship } from '@/flow_chat/utils/sessionMetadata';
 import {
   isWorktreeIsolatedSession,
   sessionBelongsToWorkspaceNavRow,
-  sessionOwningWorkspaceId,
 } from '@/flow_chat/utils/sessionOrdering';
 import { sessionWorktreeRootPath } from '@/flow_chat/utils/sessionWorktree';
 import {
@@ -461,65 +460,14 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
   const metadataLoadRequestIdRef = useRef(0);
   const initialMetadataLoadKeyRef = useRef<string | null>(null);
   const sessionListRef = useRef<HTMLDivElement>(null);
-  const isVisibleRef = useRef(isVisible);
-  isVisibleRef.current = isVisible;
-  const scheduledJobsSessionIdRef = useRef(scheduledJobsSessionId);
-  scheduledJobsSessionIdRef.current = scheduledJobsSessionId;
-  const pendingFlowChatSyncRef = useRef(false);
-
-  const workspaceScopesKey = useMemo(
-    () => workspaceScopes?.map(scope => scope.workspaceId).join('|') ?? '',
-    [workspaceScopes],
-  );
-  const scopedWorkspaceIdsKey = workspaceScopes?.length ? `scopes:${workspaceScopesKey}` : `ws:${workspaceId ?? ''}`;
-  const hasMountedScopeSelectorRef = useRef(false);
 
   useEffect(() => {
-    const scopedWorkspaceIds = scopedWorkspaceIdsKey.startsWith('scopes:')
-      ? scopedWorkspaceIdsKey.slice('scopes:'.length).split('|').filter(Boolean)
-      : scopedWorkspaceIdsKey.length > 'ws:'.length
-        ? [scopedWorkspaceIdsKey.slice('ws:'.length)]
-        : [];
-    const scopedWorkspaceIdSet = scopedWorkspaceIds.length > 0 ? new Set(scopedWorkspaceIds) : null;
-    const selector = createSessionsNavSelector({
-      includeSession: session => {
-        if (scheduledJobsSessionIdRef.current && session.sessionId === scheduledJobsSessionIdRef.current) {
-          return true;
-        }
-        if (session.isTransient || session.sessionKind === 'subagent') {
-          return false;
-        }
-        const ownerId = sessionOwningWorkspaceId(session);
-        return scopedWorkspaceIdSet ? (ownerId ? scopedWorkspaceIdSet.has(ownerId) : false) : !ownerId;
-      },
-    });
-    if (hasMountedScopeSelectorRef.current) {
-      if (isVisibleRef.current) {
-        pendingFlowChatSyncRef.current = false;
-        setFlowChatState(flowChatStore.getState());
-      } else {
-        pendingFlowChatSyncRef.current = true;
-      }
-    } else {
-      hasMountedScopeSelectorRef.current = true;
-    }
+    const selector = createSessionsNavSelector();
     const unsub = flowChatStore.subscribeSelector(selector, (() => {
-      if (!isVisibleRef.current) {
-        pendingFlowChatSyncRef.current = true;
-        return;
-      }
-      pendingFlowChatSyncRef.current = false;
       setFlowChatState(flowChatStore.getState());
     }));
     return () => unsub();
-  }, [scopedWorkspaceIdsKey]);
-
-  useEffect(() => {
-    if (isVisible && pendingFlowChatSyncRef.current) {
-      pendingFlowChatSyncRef.current = false;
-      setFlowChatState(flowChatStore.getState());
-    }
-  }, [isVisible]);
+  }, []);
 
   const backgroundSubagentActivityByParent = useMemo(() => {
     const itemsByParent = new Map<string, BackgroundSubagentActivityItem[]>();
@@ -562,6 +510,11 @@ const SessionsSection: React.FC<SessionsSectionProps> = ({
     });
     return () => { metadataLoadRequestIdRef.current += 1; };
   }, [initialMetadataKey]);
+
+  const workspaceScopesKey = useMemo(
+    () => workspaceScopes?.map(scope => scope.workspaceId).join('|') ?? '',
+    [workspaceScopes],
+  );
 
   useEffect(() => {
     if (!isVisible || !workspaceScopes?.length) {

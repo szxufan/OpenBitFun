@@ -1,7 +1,4 @@
 import { flowChatStore } from '@/flow_chat/store/FlowChatStore';
-import type { FlowChatState, Session } from '@/flow_chat/types/flow-chat';
-import { sessionOwningWorkspaceId } from '@/flow_chat/utils/sessionOrdering';
-import { sessionProjectWorkspacePath } from '@/flow_chat/utils/sessionWorkspace';
 import { startAutoSync } from '@/flow_chat/services/storeSync';
 import { workspaceManager, type WorkspaceEvent } from '@/infrastructure/services/business/workspaceManager';
 import { getActiveSurfaceId, isSurfaceChangedError } from '@/infrastructure/peer-device/deviceSurface';
@@ -15,48 +12,10 @@ import { selectedSessionTab, tabPane } from '../workbench/scenePaneModel';
 
 const log = createLogger('SessionSceneLifecycle');
 
-interface TrackedSessionSceneSignature {
-  present: boolean;
-  sessionRef?: Session;
-  owningWorkspaceId?: string;
-  projectWorkspacePath?: string;
-  remoteConnectionId?: string;
-  remoteSshHost?: string;
-}
-
-function sameSessionSceneIdentity(previous: TrackedSessionSceneSignature, session: Session | undefined): boolean {
-  if (!session) {
-    return !previous.present;
-  }
-  if (!previous.present) {
-    return false;
-  }
-  if (previous.sessionRef === session) {
-    return true;
-  }
-  const matches = previous.owningWorkspaceId === sessionOwningWorkspaceId(session)
-    && previous.projectWorkspacePath === sessionProjectWorkspacePath(session)
-    && previous.remoteConnectionId === (session.remoteConnectionId || session.config?.remoteConnectionId)
-    && previous.remoteSshHost === (session.remoteSshHost || session.config?.remoteSshHost);
-  if (matches) {
-    previous.sessionRef = session;
-  }
-  return matches;
-}
-
-function readSessionSceneIdentity(session: Session | undefined): TrackedSessionSceneSignature {
-  if (!session) {
-    return { present: false };
-  }
-  return {
-    present: true,
-    sessionRef: session,
-    owningWorkspaceId: sessionOwningWorkspaceId(session),
-    projectWorkspacePath: sessionProjectWorkspacePath(session),
-    remoteConnectionId: session.remoteConnectionId || session.config?.remoteConnectionId,
-    remoteSshHost: session.remoteSshHost || session.config?.remoteSshHost,
-  };
-}
+/**
+ * Tabs own one resource reference per workspace; FlowChat owns all sessions.
+ * The shell coordinates navigation with the one active-session presentation.
+ */
 export function startSessionSceneLifecycle(): () => void {
   const stopProjectionSync = startAutoSync();
   const stopPaneLayoutSync = startSessionPaneLayoutSync();
@@ -115,39 +74,6 @@ export function startSessionSceneLifecycle(): () => void {
   let previousSurface = getActiveSurfaceId();
   let previousWorkspaces = new Map(workspaceManager.getState().openedWorkspaces);
   let reconciling = false;
-  let trackedSurfaceId = previousSurface;
-  let trackedActiveSessionId: string | null = flowChatStore.getState().activeSessionId;
-  const trackedSessionSignatures = new Map<string, TrackedSessionSceneSignature>();
-
-  const syncTrackedFlowChatSignature = (state: FlowChatState, surfaceId: string) => {
-    trackedSurfaceId = surfaceId;
-    trackedActiveSessionId = state.activeSessionId;
-    trackedSessionSignatures.clear();
-    if (state.activeSessionId) {
-      trackedSessionSignatures.set(
-        state.activeSessionId,
-        readSessionSceneIdentity(state.sessions.get(state.activeSessionId)),
-      );
-    }
-    for (const tab of useSceneStore.getState().openTabs) {
-      if (!tab.session || tab.session.surfaceId !== surfaceId) continue;
-      const tabSessionId = tab.session.sessionId;
-      if (!trackedSessionSignatures.has(tabSessionId)) {
-        trackedSessionSignatures.set(tabSessionId, readSessionSceneIdentity(state.sessions.get(tabSessionId)));
-      }
-      if (tab.sessionHistory) {
-        for (const historySessionId of tab.sessionHistory) {
-          if (!trackedSessionSignatures.has(historySessionId)) {
-            trackedSessionSignatures.set(
-              historySessionId,
-              readSessionSceneIdentity(state.sessions.get(historySessionId)),
-            );
-          }
-        }
-      }
-    }
-  };
-
   const reconcile = (event?: WorkspaceEvent) => {
     if (reconciling) return;
     reconciling = true;
@@ -203,29 +129,12 @@ export function startSessionSceneLifecycle(): () => void {
         }
       }
       useSceneStore.getState().reconcileSessionScenes(targets);
-      syncTrackedFlowChatSignature(flowChatStore.getState(), surfaceId);
     } finally {
       reconciling = false;
     }
   };
 
-  const hasFlowChatSceneInputChanged = (state: FlowChatState): boolean => {
-    if (getActiveSurfaceId() !== trackedSurfaceId || state.activeSessionId !== trackedActiveSessionId) {
-      return true;
-    }
-    for (const [sessionId, previousSignature] of trackedSessionSignatures) {
-      if (!sameSessionSceneIdentity(previousSignature, state.sessions.get(sessionId))) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  const unsubscribeSessions = flowChatStore.subscribe(state => {
-    if (hasFlowChatSceneInputChanged(state)) {
-      reconcile();
-    }
-  });
+  const unsubscribeSessions = flowChatStore.subscribe(() => reconcile());
   const unsubscribeScenes = useSceneStore.subscribe(() => reconcile());
   const unsubscribeWorkspaces = workspaceManager.addEventListener(reconcile);
   // A held cross-device tab is released (or adopted) when its open settles.

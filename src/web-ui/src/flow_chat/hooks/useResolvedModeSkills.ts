@@ -6,7 +6,6 @@ import { createLogger } from '@/shared/utils/logger';
 
 const log = createLogger('useResolvedModeSkills');
 const EMPTY_SKILLS: ModeSkillInfo[] = [];
-const MAX_CACHED_SKILL_SCOPES = 8;
 
 type Snapshot = {
   key: string;
@@ -31,7 +30,7 @@ export function useResolvedModeSkills({
   workspaceId?: string | null;
 }) {
   const key = JSON.stringify([surfaceEpoch, connectionId ?? null, workspaceId || null, modeId]);
-  const entriesRef = useRef<Map<string, Snapshot>>(new Map());
+  const entryRef = useRef<Snapshot | null>(null);
   const mountedRef = useRef(false);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [revision, setRevision] = useState(0);
@@ -43,7 +42,7 @@ export function useResolvedModeSkills({
 
   useEffect(() => {
     const invalidate = () => {
-      entriesRef.current.clear();
+      entryRef.current = null;
       setSnapshot(null);
       setRevision(value => value + 1);
     };
@@ -52,25 +51,11 @@ export function useResolvedModeSkills({
   }, []);
 
   useEffect(() => {
-    const entries = entriesRef.current;
-    let entry = entries.get(key);
-    if (!entry) {
-      entry = { key, skills: null, loading: false, failed: false };
-      entries.set(key, entry);
-      while (entries.size > MAX_CACHED_SKILL_SCOPES) {
-        const oldestKey = entries.keys().next().value;
-        if (oldestKey === undefined || oldestKey === key) break;
-        entries.delete(oldestKey);
-      }
-    } else {
-      entries.delete(key);
-      entries.set(key, entry);
+    if (entryRef.current?.key !== key) {
+      entryRef.current = { key, skills: null, loading: false, failed: false };
     }
-    if (!enabled) {
-      setSnapshot({ ...entry });
-      return;
-    }
-    if (entry.loading) return;
+    const entry = entryRef.current;
+    if (!enabled || entry.loading) return;
 
     // Keep a single in-flight request when a picker closes/reopens. Each later
     // opening revalidates source files and mode policy, displaying the last result.
@@ -92,15 +77,12 @@ export function useResolvedModeSkills({
       })
       .finally(() => {
         entry.loading = false;
-        if (mountedRef.current && entriesRef.current.get(key) === entry) {
-          setSnapshot({ ...entry });
-        }
+        if (mountedRef.current && entryRef.current === entry) setSnapshot({ ...entry });
       });
   }, [enabled, key, modeId, workspaceId, revision]);
 
-  // Hide an unvisited host/workspace/mode synchronously, while immediately
-  // restoring warm cached skills for an already-visited scope.
-  const current = snapshot?.key === key ? snapshot : (entriesRef.current.get(key) ?? null);
+  // Hide a previous host/workspace/mode synchronously, before effects run.
+  const current = snapshot?.key === key ? snapshot : null;
   return {
     skills: current?.skills ?? EMPTY_SKILLS,
     diagnostics: current?.diagnostics ?? [],

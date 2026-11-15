@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 import { VirtualMessageList } from './VirtualMessageList';
-import { MAX_RETAINED_SESSION_VIEWS, retainedTranscriptRowSizes } from '../../timeline/retainedViewMemory';
+import { retainedTranscriptRowSizes } from '../../timeline/retainedViewMemory';
 import { getVirtualItemStableKey } from './virtualItemIdentity';
 import type { VirtualItem } from '../../store/modernFlowChatStore';
 import type { Session } from '../../types/flow-chat';
@@ -221,7 +221,7 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
       380.5 + ((index * 7919) % 13) * 97.25)).flat();
     return { items, session: { sessionId: id, config: {}, dialogTurns: [], isHistorical: false } as unknown as Session };
   }
-  type SessionId = string;
+  type SessionId = 'a' | 'b' | 'c' | 'd' | 'e';
   let sessions: Record<SessionId, ReturnType<typeof session>>;
   const settled = () => host.querySelector('[data-open-viewport-settled="true"]') !== null;
   /** Open a session and run frames until the opening reveal settles; return what that cost. */
@@ -335,11 +335,9 @@ describe('switching between long sessions (real controllers, supplied DOM geomet
 
   it('keeps only the most recently left sessions', () => {
     const firstA = open('a');
-    for (let index = 0; index <= MAX_RETAINED_SESSION_VIEWS; index += 1) {
-      open(index === MAX_RETAINED_SESSION_VIEWS - 1 ? 'd' : `other-${index}`);
-    }
-    // a was left MAX_RETAINED_SESSION_VIEWS + 1 sessions ago and has been evicted; d is still retained.
-    expect(retainedTranscriptRowSizes.size).toBe(MAX_RETAINED_SESSION_VIEWS);
+    for (const id of ['b', 'c', 'd', 'e'] as const) open(id);
+    // a was left four sessions ago and has been evicted; d is still retained.
+    expect(retainedTranscriptRowSizes.size).toBe(3);
     const evictedA = open('a');
     expect(evictedA.corrections).toBeGreaterThan(0);
     expect(evictedA.corrections).toBeLessThanOrEqual(firstA.corrections);

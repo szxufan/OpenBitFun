@@ -25,7 +25,7 @@
 //!   merged thinking event before the merged text event.
 
 use openbitfun_core_types::ReasoningContentKind;
-use openbitfun_events::{AgenticEvent, ToolEventData, ToolEventIdentity};
+use openbitfun_events::AgenticEvent;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -118,37 +118,15 @@ pub fn update_rate_ema(previous: f64, flushed_chars: usize, elapsed: Duration) -
 /// session behaves exactly like the previous fixed 50ms window.
 pub const INITIAL_RATE_EMA_CPS: f64 = WINDOW_REF_CPS;
 
-/// Stable merge key for one streaming text, thinking, or high-frequency tool stream.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum CoalescedStreamKey {
-    Text {
-        session_id: String,
-        turn_id: String,
-        round_id: String,
-        attempt_token: String,
-    },
-    Thinking {
-        session_id: String,
-        turn_id: String,
-        round_id: String,
-        attempt_token: String,
-        reasoning_kind: Option<ReasoningContentKind>,
-    },
-    ToolParams {
-        session_id: String,
-        turn_id: String,
-        round_id: String,
-        attempt_token: String,
-        tool_id: String,
-    },
-    ToolProgress {
-        session_id: String,
-        turn_id: String,
-        round_id: String,
-        attempt_token: String,
-        tool_id: String,
-    },
-}
+/// Stable merge key for one streaming text/thinking stream.
+type ChunkStreamKey = (
+    String,
+    String,
+    String,
+    String,
+    bool,
+    Option<ReasoningContentKind>,
+);
 
 fn resolve_attempt_token(attempt_id: &Option<String>, attempt_index: Option<u32>) -> String {
     if let Some(id) = attempt_id {
@@ -180,25 +158,6 @@ enum PendingChunk {
         content: String,
         reasoning_kind: Option<ReasoningContentKind>,
         is_end: bool,
-    },
-    ToolParams {
-        session_id: String,
-        turn_id: String,
-        round_id: String,
-        attempt_id: Option<String>,
-        attempt_index: Option<u32>,
-        identity: ToolEventIdentity,
-        params: String,
-    },
-    ToolProgress {
-        session_id: String,
-        turn_id: String,
-        round_id: String,
-        attempt_id: Option<String>,
-        attempt_index: Option<u32>,
-        identity: ToolEventIdentity,
-        message: String,
-        percentage: f32,
     },
 }
 
@@ -239,55 +198,18 @@ impl PendingChunk {
                 reasoning_kind,
                 is_end,
             },
-            PendingChunk::ToolParams {
-                session_id,
-                turn_id,
-                round_id,
-                attempt_id,
-                attempt_index,
-                identity,
-                params,
-            } => AgenticEvent::ToolEvent {
-                session_id,
-                turn_id,
-                round_id,
-                attempt_id,
-                attempt_index,
-                tool_event: ToolEventData::ParamsPartial { identity, params },
-            },
-            PendingChunk::ToolProgress {
-                session_id,
-                turn_id,
-                round_id,
-                attempt_id,
-                attempt_index,
-                identity,
-                message,
-                percentage,
-            } => AgenticEvent::ToolEvent {
-                session_id,
-                turn_id,
-                round_id,
-                attempt_id,
-                attempt_index,
-                tool_event: ToolEventData::Progress {
-                    identity,
-                    message,
-                    percentage,
-                },
-            },
         }
     }
 }
 
-/// Coalesces streamed text/thinking/tool-partial chunks within a short time window.
+/// Coalesces streamed text/thinking chunks within a short time window.
 pub struct TextChunkCoalescer {
-    pending: HashMap<CoalescedStreamKey, PendingChunk>,
+    pending: HashMap<ChunkStreamKey, PendingChunk>,
     /// First-arrival order of the buffered stream keys. Kept in sync with
     /// `pending` (a key is pushed exactly when its entry is inserted) so that
     /// `flush` reproduces the producer's FIFO sequence instead of reordering
     /// streams by key.
-    order: Vec<CoalescedStreamKey>,
+    order: Vec<ChunkStreamKey>,
     /// Total content characters buffered since the last flush. Used by the
     /// caller to measure the stream rate for the adaptive window.
     buffered_chars: usize,
@@ -334,12 +256,14 @@ impl TextChunkCoalescer {
                 attempt_index,
                 text,
             } => {
-                let key = CoalescedStreamKey::Text {
-                    session_id: session_id.clone(),
-                    turn_id: turn_id.clone(),
-                    round_id: round_id.clone(),
-                    attempt_token: resolve_attempt_token(&attempt_id, attempt_index),
-                };
+                let key = (
+                    session_id.clone(),
+                    turn_id.clone(),
+                    round_id.clone(),
+                    resolve_attempt_token(&attempt_id, attempt_index),
+                    false,
+                    None,
+                );
                 match self.pending.get_mut(&key) {
                     Some(PendingChunk::Text { text: pending, .. }) => {
                         pending.push_str(&text);
@@ -375,13 +299,14 @@ impl TextChunkCoalescer {
                 reasoning_kind,
                 is_end,
             } => {
-                let key = CoalescedStreamKey::Thinking {
-                    session_id: session_id.clone(),
-                    turn_id: turn_id.clone(),
-                    round_id: round_id.clone(),
-                    attempt_token: resolve_attempt_token(&attempt_id, attempt_index),
+                let key = (
+                    session_id.clone(),
+                    turn_id.clone(),
+                    round_id.clone(),
+                    resolve_attempt_token(&attempt_id, attempt_index),
+                    true,
                     reasoning_kind,
-                };
+                );
                 match self.pending.get_mut(&key) {
                     Some(PendingChunk::Thinking {
                         content: pending,
@@ -410,109 +335,6 @@ impl TextChunkCoalescer {
                         );
                         self.order.push(key);
                         self.buffered_chars += len;
-                        Vec::new()
-                    }
-                }
-            }
-            AgenticEvent::ToolEvent {
-                session_id,
-                turn_id,
-                round_id,
-                attempt_id,
-                attempt_index,
-                tool_event: ToolEventData::ParamsPartial { identity, params },
-            } => {
-                let key = CoalescedStreamKey::ToolParams {
-                    session_id: session_id.clone(),
-                    turn_id: turn_id.clone(),
-                    round_id: round_id.clone(),
-                    attempt_token: resolve_attempt_token(&attempt_id, attempt_index),
-                    tool_id: identity.tool_id.clone(),
-                };
-                match self.pending.get_mut(&key) {
-                    Some(PendingChunk::ToolParams {
-                        identity: pending_identity,
-                        params: pending_params,
-                        ..
-                    }) => {
-                        pending_params.push_str(&params);
-                        pending_identity.tool_name = identity.tool_name;
-                        if identity.effective_tool_name.is_some() {
-                            pending_identity.effective_tool_name = identity.effective_tool_name;
-                        }
-                        self.buffered_chars += params.chars().count();
-                        Vec::new()
-                    }
-                    _ => {
-                        let len = params.chars().count();
-                        self.pending.insert(
-                            key.clone(),
-                            PendingChunk::ToolParams {
-                                session_id,
-                                turn_id,
-                                round_id,
-                                attempt_id,
-                                attempt_index,
-                                identity,
-                                params,
-                            },
-                        );
-                        self.order.push(key);
-                        self.buffered_chars += len;
-                        Vec::new()
-                    }
-                }
-            }
-            AgenticEvent::ToolEvent {
-                session_id,
-                turn_id,
-                round_id,
-                attempt_id,
-                attempt_index,
-                tool_event:
-                    ToolEventData::Progress {
-                        identity,
-                        message,
-                        percentage,
-                    },
-            } => {
-                let key = CoalescedStreamKey::ToolProgress {
-                    session_id: session_id.clone(),
-                    turn_id: turn_id.clone(),
-                    round_id: round_id.clone(),
-                    attempt_token: resolve_attempt_token(&attempt_id, attempt_index),
-                    tool_id: identity.tool_id.clone(),
-                };
-                match self.pending.get_mut(&key) {
-                    Some(PendingChunk::ToolProgress {
-                        identity: pending_identity,
-                        message: pending_message,
-                        percentage: pending_percentage,
-                        ..
-                    }) => {
-                        pending_identity.tool_name = identity.tool_name;
-                        if identity.effective_tool_name.is_some() {
-                            pending_identity.effective_tool_name = identity.effective_tool_name;
-                        }
-                        *pending_message = message;
-                        *pending_percentage = percentage;
-                        Vec::new()
-                    }
-                    _ => {
-                        self.pending.insert(
-                            key.clone(),
-                            PendingChunk::ToolProgress {
-                                session_id,
-                                turn_id,
-                                round_id,
-                                attempt_id,
-                                attempt_index,
-                                identity,
-                                message,
-                                percentage,
-                            },
-                        );
-                        self.order.push(key);
                         Vec::new()
                     }
                 }
@@ -953,143 +775,5 @@ mod tests {
         let reset = update_rate_ema(160.0, 80, Duration::from_millis(2000));
         // 80 chars over 2000 ms -> 40 chars/sec; reset should discard the old 160.
         assert!((reset - 40.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn merges_tool_params_partial_without_flushing_concurrent_text() {
-        let mut coalescer = TextChunkCoalescer::new();
-        assert!(coalescer
-            .push(text_chunk("s1", "t1", "r1", None, None, "hello "))
-            .is_empty());
-        assert!(coalescer
-            .push(AgenticEvent::ToolEvent {
-                session_id: "s2".to_string(),
-                turn_id: "t2".to_string(),
-                round_id: "r2".to_string(),
-                attempt_id: None,
-                attempt_index: None,
-                tool_event: ToolEventData::ParamsPartial {
-                    identity: ToolEventIdentity::direct("tool-1", "CallDeferredTool"),
-                    params: "{\"path\":".to_string(),
-                },
-            })
-            .is_empty());
-        assert!(coalescer
-            .push(text_chunk("s1", "t1", "r1", None, None, "world"))
-            .is_empty());
-        assert!(coalescer
-            .push(AgenticEvent::ToolEvent {
-                session_id: "s2".to_string(),
-                turn_id: "t2".to_string(),
-                round_id: "r2".to_string(),
-                attempt_id: None,
-                attempt_index: None,
-                tool_event: ToolEventData::ParamsPartial {
-                    identity: ToolEventIdentity::resolved("tool-1", "CallDeferredTool", "Write"),
-                    params: "\"a.rs\"}".to_string(),
-                },
-            })
-            .is_empty());
-
-        let events = coalescer.flush();
-        assert_eq!(events.len(), 2);
-        assert!(
-            matches!(&events[0], AgenticEvent::TextChunk { session_id, text, .. } if session_id == "s1" && text == "hello world")
-        );
-        match &events[1] {
-            AgenticEvent::ToolEvent {
-                session_id,
-                tool_event: ToolEventData::ParamsPartial { identity, params },
-                ..
-            } => {
-                assert_eq!(session_id, "s2");
-                assert_eq!(identity.tool_id, "tool-1");
-                assert_eq!(identity.effective_tool_name.as_deref(), Some("Write"));
-                assert_eq!(params, "{\"path\":\"a.rs\"}");
-            }
-            other => panic!("expected merged ParamsPartial, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn replaces_tool_progress_and_flushes_before_tool_started() {
-        let mut coalescer = TextChunkCoalescer::new();
-        assert!(coalescer
-            .push(AgenticEvent::ToolEvent {
-                session_id: "s".to_string(),
-                turn_id: "t".to_string(),
-                round_id: "r".to_string(),
-                attempt_id: None,
-                attempt_index: None,
-                tool_event: ToolEventData::ParamsPartial {
-                    identity: ToolEventIdentity::direct("tool-1", "Bash"),
-                    params: "{\"cmd\":\"ls\"}".to_string(),
-                },
-            })
-            .is_empty());
-        assert!(coalescer
-            .push(AgenticEvent::ToolEvent {
-                session_id: "s".to_string(),
-                turn_id: "t".to_string(),
-                round_id: "r".to_string(),
-                attempt_id: None,
-                attempt_index: None,
-                tool_event: ToolEventData::Progress {
-                    identity: ToolEventIdentity::direct("tool-2", "Bash"),
-                    message: "step 1".to_string(),
-                    percentage: 25.0,
-                },
-            })
-            .is_empty());
-        assert!(coalescer
-            .push(AgenticEvent::ToolEvent {
-                session_id: "s".to_string(),
-                turn_id: "t".to_string(),
-                round_id: "r".to_string(),
-                attempt_id: None,
-                attempt_index: None,
-                tool_event: ToolEventData::Progress {
-                    identity: ToolEventIdentity::direct("tool-2", "Bash"),
-                    message: "step 2".to_string(),
-                    percentage: 75.0,
-                },
-            })
-            .is_empty());
-
-        let events = coalescer.push(AgenticEvent::ToolEvent {
-            session_id: "s".to_string(),
-            turn_id: "t".to_string(),
-            round_id: "r".to_string(),
-            attempt_id: None,
-            attempt_index: None,
-            tool_event: ToolEventData::Started {
-                identity: ToolEventIdentity::direct("tool-1", "Bash"),
-                params: serde_json::json!({ "cmd": "ls" }),
-                timeout_seconds: None,
-            },
-        });
-
-        assert_eq!(events.len(), 3);
-        assert!(matches!(
-            &events[0],
-            AgenticEvent::ToolEvent {
-                tool_event: ToolEventData::ParamsPartial { params, .. },
-                ..
-            } if params == "{\"cmd\":\"ls\"}"
-        ));
-        assert!(matches!(
-            &events[1],
-            AgenticEvent::ToolEvent {
-                tool_event: ToolEventData::Progress { message, percentage, .. },
-                ..
-            } if message == "step 2" && (*percentage - 75.0).abs() < f32::EPSILON
-        ));
-        assert!(matches!(
-            &events[2],
-            AgenticEvent::ToolEvent {
-                tool_event: ToolEventData::Started { .. },
-                ..
-            }
-        ));
     }
 }

@@ -270,15 +270,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
     return () => { unlistenFns.forEach(fn => fn()); unlistenFns = []; };
   }, [isMacOS, openWorkspace, handleNewProject, handleShowAbout, t]);
 
-  const currentWorkspaceRef = useRef(currentWorkspace);
-  currentWorkspaceRef.current = currentWorkspace;
-
   // Initialize FlowChatManager
   React.useEffect(() => {
     let cancelled = false;
     const initializeFlowChat = async () => {
-      const targetWorkspace = currentWorkspaceRef.current;
-      if (!targetWorkspace?.rootPath) return;
+      if (!currentWorkspace?.rootPath) return;
       const explicitOpen = getDeviceOpenIntent();
 
       // Remote session index and turns live under ~/.openbitfun/remote_ssh/... (local disk).
@@ -292,12 +288,12 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
         }
 
         const initializationPreferredMode =
-          targetWorkspace.workspaceKind === WorkspaceKind.Assistant
+          currentWorkspace.workspaceKind === WorkspaceKind.Assistant
             ? 'Claw'
             : explicitPreferredMode;
 
         const flowChatManager = FlowChatManager.getInstance();
-        const hasHistoricalSessions = await flowChatManager.initialize(targetWorkspace, initializationPreferredMode);
+        const hasHistoricalSessions = await flowChatManager.initialize(currentWorkspace, initializationPreferredMode);
         if (cancelled) {
           return;
         }
@@ -313,11 +309,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
         }
         if (!hasHistoricalSessions) {
           const initialSessionMode =
-            targetWorkspace.workspaceKind === WorkspaceKind.Assistant
+            currentWorkspace.workspaceKind === WorkspaceKind.Assistant
               ? 'Claw'
               : explicitPreferredMode;
           sessionId = await flowChatManager.createChatDraft(
-            flowChatSessionConfigForWorkspace(targetWorkspace),
+            flowChatSessionConfigForWorkspace(currentWorkspace),
             initialSessionMode,
           );
           if (cancelled) {
@@ -395,6 +391,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ className = '' }) => {
       cancelled = true;
     };
   }, [
+    currentWorkspace,
     currentWorkspace?.id,
     currentWorkspace?.rootPath,
     currentWorkspace?.workspaceKind,

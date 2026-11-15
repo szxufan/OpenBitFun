@@ -42,22 +42,4 @@ describe('createSessionsNavSelector', () => {
     expect(select(state([{ ...first, title: 'Renamed', needsUserAttention: 'ask_user' }, second]))).toBe(3);
     expect(select(state([second, { ...first, title: 'Renamed', needsUserAttention: 'ask_user' }]))).toBe(4);
   });
-
-  it('scopes updates and selection changes to included workspace sessions', () => {
-    const selectWorkspaceA = createSessionsNavSelector({
-      includeSession: item => item.workspaceId === 'ws-a',
-    });
-    const a1 = session({ sessionId: 'a-1', workspaceId: 'ws-a' });
-    const b1 = session({ sessionId: 'b-1', workspaceId: 'ws-b' });
-    const b2 = session({ sessionId: 'b-2', workspaceId: 'ws-b' });
-
-    expect(selectWorkspaceA(state([a1, b1, b2], 'b-1'))).toBe(1);
-    // Switching activeSessionId or mutating titles inside ws-b does not notify ws-a.
-    expect(selectWorkspaceA(state([a1, { ...b1, title: 'Updated B1' }, b2], 'b-2'))).toBe(1);
-    // Selecting a-1 inside ws-a increments ws-a's revision.
-    expect(selectWorkspaceA(state([a1, b1, b2], 'a-1'))).toBe(2);
-    // Deselecting a-1 back to ws-b increments ws-a's revision once, then stabilizes.
-    expect(selectWorkspaceA(state([a1, b1, b2], 'b-1'))).toBe(3);
-    expect(selectWorkspaceA(state([a1, b1, b2], 'b-2'))).toBe(3);
-  });
 });

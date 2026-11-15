@@ -127,10 +127,6 @@ export interface TypewriterOptions {
    * which the user sees as the conversation refreshing itself.
    */
   replayOnMount?: boolean;
-  /** Optional adaptive paint interval override (ms) during live streaming. */
-  minPaintIntervalMs?: number;
-  /** Optional adaptive per-paint character cap override during live streaming. */
-  maxCharsPerPaint?: number;
 }
 
 export interface TypewriterCharsPerSecInput {
@@ -225,10 +221,6 @@ export function useTypewriter(
   const targetRef = useRef(targetText);
   const animateRef = useRef(animate);
   const revealImmediatelyRef = useRef(revealImmediately);
-  const minPaintIntervalMsRef = useRef(options.minPaintIntervalMs);
-  const maxCharsPerPaintRef = useRef(options.maxCharsPerPaint);
-  minPaintIntervalMsRef.current = options.minPaintIntervalMs;
-  maxCharsPerPaintRef.current = options.maxCharsPerPaint;
   const rafRef = useRef<number | null>(null);
   const lastTickMsRef = useRef<number | null>(null);
   const lastPaintMsRef = useRef(0);
@@ -323,10 +315,10 @@ export function useTypewriter(
       const finishing = !animateRef.current;
       const minPaintInterval = finishing
         ? TYPEWRITER_FINISH_MIN_PAINT_INTERVAL_MS
-        : (minPaintIntervalMsRef.current ?? TYPEWRITER_MIN_PAINT_INTERVAL_MS);
+        : TYPEWRITER_MIN_PAINT_INTERVAL_MS;
       const maxCharsPerPaint = finishing
         ? TYPEWRITER_FINISH_MAX_CHARS_PER_PAINT
-        : (maxCharsPerPaintRef.current ?? TYPEWRITER_MAX_CHARS_PER_PAINT);
+        : TYPEWRITER_MAX_CHARS_PER_PAINT;
       const dtMs = lastTickMs === null
         ? minPaintInterval
         : Math.min(100, Math.max(0, nowMs - lastTickMs));

@@ -1115,11 +1115,8 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     [activeSession?.dialogTurns, renderedHistoryPresentation],
   );
   const [projectTurnSummaries] = useState(createFlowChatTurnSummaryProjector);
-  const { turnSummaries, renderedTurnSummaries, absoluteRenderedTurnSummaries } = useMemo(
-    () => projectTurnSummaries(
-      activeSession, renderedTurns, renderedHistoryPresentation?.range.startOrdinal,
-    ),
-    [projectTurnSummaries, activeSession, renderedTurns, renderedHistoryPresentation?.range.startOrdinal],
+  const { turnSummaries, renderedTurnSummaries, absoluteRenderedTurnSummaries } = projectTurnSummaries(
+    activeSession, renderedTurns, renderedHistoryPresentation?.range.startOrdinal,
   );
   const activeTurnCatalog = activeSession?.turnCatalog;
   const turnCatalog = activeTurnCatalog?.sessionId === activeSession?.sessionId
@@ -2536,12 +2533,11 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     });
   }, [backgroundCommands, stoppingBackgroundCommandIds.size]);
 
-  const activeSessionRemoteSshHost = activeSession?.remoteSshHost;
   const handleOpenSessionTreeSession = useCallback((selection: SessionTreeSelection) => {
     if (
-      !activeSessionId ||
+      !activeSession?.sessionId ||
       selection.isRoot ||
-      selection.sessionId === activeSessionId ||
+      selection.sessionId === activeSession.sessionId ||
       !selection.parentSessionId
     ) {
       return;
@@ -2550,24 +2546,18 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
     openBtwSessionInAuxPane({
       childSessionId: selection.sessionId,
       parentSessionId: selection.parentSessionId,
-      workspaceId: selection.workspaceId || activeSessionWorkspaceId,
-      workspacePath: selection.workspacePath || activeSessionWorkspacePath,
+      workspaceId: selection.workspaceId || activeSession.workspaceId || activeSession.config?.workspaceId,
+      workspacePath: selection.workspacePath || activeSession.workspacePath,
       sessionKind: 'subagent',
       sessionTitle: selection.displayTitle,
       agentType: selection.agentType,
       parentToolCallId: selection.parentToolCallId,
       subagentType: selection.subagentType,
-      remoteConnectionId: selection.remoteConnectionId || activeSessionRemoteConnectionId,
-      remoteSshHost: selection.remoteSshHost || activeSessionRemoteSshHost,
+      remoteConnectionId: selection.remoteConnectionId || activeSession.remoteConnectionId,
+      remoteSshHost: selection.remoteSshHost || activeSession.remoteSshHost,
       includeInternal: true,
     });
-  }, [
-    activeSessionId,
-    activeSessionWorkspaceId,
-    activeSessionWorkspacePath,
-    activeSessionRemoteConnectionId,
-    activeSessionRemoteSshHost,
-  ]);
+  }, [activeSession]);
 
   const handleCancelSessionTreeSession = useCallback(async (selection: SessionTreeSelection) => {
     try {

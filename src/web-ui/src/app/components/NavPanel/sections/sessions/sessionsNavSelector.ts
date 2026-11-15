@@ -1,18 +1,9 @@
 import type { FlowChatState, Session } from '../../../../../flow_chat/types/flow-chat';
-import { sessionOwningWorkspaceId } from '../../../../../flow_chat/utils/sessionOrdering';
 
 type DispatchTargetKind = 'local' | 'ssh' | 'device';
 
-export interface SessionsNavSelectorOptions {
-  includeSession?: (session: Session) => boolean;
-}
-
 interface SessionNavSignature {
-  sessionRef: Session;
-  isSelected: boolean;
   sessionId: string;
-  owningWorkspaceId: string | undefined;
-  persistedStatus: Session['persistedStatus'];
   importedSource: string | undefined;
   isTransient: boolean | undefined;
   sessionKind: Session['sessionKind'];
@@ -33,16 +24,12 @@ interface SessionNavSignature {
   dispatchJobState: Session['config']['dispatchJobState'];
 }
 
-function readSessionNavSignature(session: Session, isSelected: boolean): SessionNavSignature {
+function readSessionNavSignature(session: Session): SessionNavSignature {
   const latestTurn = session.dialogTurns[session.dialogTurns.length - 1];
   const dispatchTarget = session.config.dispatchTarget;
 
   return {
-    sessionRef: session,
-    isSelected,
     sessionId: session.sessionId,
-    owningWorkspaceId: sessionOwningWorkspaceId(session),
-    persistedStatus: session.persistedStatus,
     importedSource: session.importedSource,
     isTransient: session.isTransient,
     sessionKind: session.sessionKind,
@@ -70,8 +57,6 @@ function sameSessionNavSignature(previous: SessionNavSignature, session: Session
   const latestTurn = session.dialogTurns[session.dialogTurns.length - 1];
 
   return previous.sessionId === session.sessionId
-    && previous.owningWorkspaceId === sessionOwningWorkspaceId(session)
-    && previous.persistedStatus === session.persistedStatus
     && previous.importedSource === session.importedSource
     && previous.isTransient === session.isTransient
     && previous.sessionKind === session.sessionKind
@@ -99,48 +84,28 @@ function sameSessionNavSignature(previous: SessionNavSignature, session: Session
  * primitive revision as its result, so stream updates do not rebuild a large
  * joined string merely to discover that the navigation did not change.
  */
-export function createSessionsNavSelector(
-  options?: SessionsNavSelectorOptions,
-): (state: FlowChatState) => number {
-  const includeSession = options?.includeSession;
+export function createSessionsNavSelector(): (state: FlowChatState) => number {
+  let activeSessionId: string | null | undefined;
   let orderedSessionIds: string[] = [];
   const signatures = new Map<string, SessionNavSignature>();
   let revision = 0;
 
   return (state: FlowChatState): number => {
-    let changed = false;
-    let orderChanged = false;
+    let changed = activeSessionId !== state.activeSessionId
+      || orderedSessionIds.length !== state.sessions.size;
+    let orderChanged = orderedSessionIds.length !== state.sessions.size;
     let index = 0;
-    let nextOrderedIds: string[] | null = null;
 
     for (const session of state.sessions.values()) {
-      if (includeSession && !includeSession(session)) {
-        continue;
-      }
-
       if (orderedSessionIds[index] !== session.sessionId) {
         changed = true;
         orderChanged = true;
       }
-      if (orderChanged) {
-        if (!nextOrderedIds) {
-          nextOrderedIds = orderedSessionIds.slice(0, index);
-        }
-        nextOrderedIds.push(session.sessionId);
-      }
 
-      const isSelected = state.activeSessionId === session.sessionId;
       const previous = signatures.get(session.sessionId);
-      if (previous && previous.sessionRef === session && previous.isSelected === isSelected) {
-        index += 1;
-        continue;
-      }
-
-      if (!previous || previous.isSelected !== isSelected || !sameSessionNavSignature(previous, session)) {
-        signatures.set(session.sessionId, readSessionNavSignature(session, isSelected));
+      if (!previous || !sameSessionNavSignature(previous, session)) {
+        signatures.set(session.sessionId, readSessionNavSignature(session));
         changed = true;
-      } else {
-        previous.sessionRef = session;
       }
       index += 1;
     }
@@ -148,25 +113,16 @@ export function createSessionsNavSelector(
     if (index !== orderedSessionIds.length) {
       changed = true;
       orderChanged = true;
-      if (!nextOrderedIds) {
-        nextOrderedIds = orderedSessionIds.slice(0, index);
-      }
     }
 
-    if (changed || revision === 0) {
-      // Initial read on an empty session list still establishes revision 0 -> 0 unless non-empty;
-      // preserve exact behavior when empty vs populated.
-      if (changed) {
-        revision += 1;
-      }
-      if (orderChanged && nextOrderedIds) {
-        orderedSessionIds = nextOrderedIds;
-        if (signatures.size !== orderedSessionIds.length) {
-          const retainedIds = new Set(orderedSessionIds);
-          for (const sessionId of signatures.keys()) {
-            if (!retainedIds.has(sessionId)) {
-              signatures.delete(sessionId);
-            }
+    if (changed) {
+      revision += 1;
+      activeSessionId = state.activeSessionId;
+      if (orderChanged) {
+        orderedSessionIds = Array.from(state.sessions.keys());
+        for (const sessionId of signatures.keys()) {
+          if (!state.sessions.has(sessionId)) {
+            signatures.delete(sessionId);
           }
         }
       }

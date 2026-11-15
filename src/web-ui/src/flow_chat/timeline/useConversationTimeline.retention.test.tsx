@@ -3,7 +3,6 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { VirtualItem } from '../types/flow-chat-projection';
-import { MAX_RETAINED_SESSION_VIEWS } from './retainedViewMemory';
 import { retainedTimelineProjections, useConversationTimeline } from './useConversationTimeline';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -55,10 +54,8 @@ it('reopens a recently left session with the rows its projection already built',
 
 it('builds a fresh projection for a session left too long ago', () => {
   const first = open('a');
-  for (let index = 0; index <= MAX_RETAINED_SESSION_VIEWS; index += 1) {
-    open(`other-${index}`);
-  }
-  expect(retainedTimelineProjections.size).toBe(MAX_RETAINED_SESSION_VIEWS);
+  for (const id of ['b', 'c', 'd', 'e']) open(id);
+  expect(retainedTimelineProjections.size).toBe(3);
   const reopened = open('a');
   expect(reopened).toHaveLength(first.length);
   expect(reopened[0]).not.toBe(first[0]);

@@ -37,7 +37,8 @@ function isSameActivity(
     left.remoteSshHost === right.remoteSshHost &&
     left.parentToolCallId === right.parentToolCallId &&
     left.subagentType === right.subagentType &&
-    left.createdAt === right.createdAt;
+    left.createdAt === right.createdAt &&
+    left.updatedAt === right.updatedAt;
 }
 
 export const useBackgroundSubagentActivityStore = create<BackgroundSubagentActivityState>((set) => ({

@@ -421,8 +421,6 @@ function projectTurnItemsWithPrefixCache(
   return reconciled;
 }
 
-const MAX_CACHED_SESSION_PREFIXES = 12;
-
 /** Each mounted projection owns its mutable streaming prefix. */
 export function createSessionVirtualItemProjector(
   { reuseSnapshotsAcrossMounts = false }: { reuseSnapshotsAcrossMounts?: boolean } = {},
@@ -432,37 +430,19 @@ export function createSessionVirtualItemProjector(
   let warmProjections = reuseSnapshotsAcrossMounts
     ? retainedSessionProjections
     : new WeakMap<DialogTurn[], SessionProjectionCache>();
-  const cachedTurnPrefixesBySession = new Map<string, Map<string, CachedTurnPrefixProjection>>();
+  const cachedTurnPrefixById = new Map<string, CachedTurnPrefixProjection>();
   const emptyItems: VirtualItem[] = [];
-
-  const getSessionPrefixCache = (targetSessionId: string): Map<string, CachedTurnPrefixProjection> => {
-    let prefixMap = cachedTurnPrefixesBySession.get(targetSessionId);
-    if (prefixMap) {
-      cachedTurnPrefixesBySession.delete(targetSessionId);
-      cachedTurnPrefixesBySession.set(targetSessionId, prefixMap);
-      return prefixMap;
-    }
-    prefixMap = new Map();
-    cachedTurnPrefixesBySession.set(targetSessionId, prefixMap);
-    while (cachedTurnPrefixesBySession.size > MAX_CACHED_SESSION_PREFIXES) {
-      const oldestKey = cachedTurnPrefixesBySession.keys().next().value;
-      if (oldestKey === undefined) break;
-      cachedTurnPrefixesBySession.delete(oldestKey);
-    }
-    return prefixMap;
-  };
 
   return (session: Session | null): VirtualItem[] => {
     if (!session) {
       sessionId = null;
       previousProjection = undefined;
       if (!reuseSnapshotsAcrossMounts) warmProjections = new WeakMap();
-      cachedTurnPrefixesBySession.clear();
+      cachedTurnPrefixById.clear();
       return emptyItems;
     }
-    const previousSessionId = sessionId;
+    if (sessionId !== session.sessionId) cachedTurnPrefixById.clear();
     sessionId = session.sessionId;
-    const cachedTurnPrefixById = getSessionPrefixCache(session.sessionId);
     const restored = warmProjections.get(session.dialogTurns);
     if (restored
       && restored.sessionId === session.sessionId
@@ -470,10 +450,8 @@ export function createSessionVirtualItemProjector(
       && restored.isPartial === session.isPartial
       && restored.totalTurnCount === session.totalTurnCount
       && restored.needsUserAttention === session.needsUserAttention) {
-      // Returning to another snapshot within the same session must release the previous window's body.
-      if (restored !== previousProjection && previousSessionId === session.sessionId) {
-        cachedTurnPrefixById.clear();
-      }
+      // Returning to another snapshot must release the previous window's body.
+      if (restored !== previousProjection) cachedTurnPrefixById.clear();
       previousProjection = restored;
       return restored.virtualItems;
     }
@@ -707,30 +685,21 @@ export const createModernFlowChatStore = (initialSession?: Session | null) => {
 
       setActiveSession: (session) => {
         const items = projectSession(session);
-        set((state) => {
-          if (state.activeSession === session && state.virtualItems === items) {
-            return state;
-          }
-          return {
-            ...(state.activeSession?.sessionId !== session?.sessionId ? { visibleTurnInfo: null } : null),
-            activeSession: session,
-            virtualItems: items,
-          };
-        });
+        set((state) => ({
+          ...(state.activeSession?.sessionId !== session?.sessionId ? { visibleTurnInfo: null } : null),
+          activeSession: session,
+          virtualItems: items,
+        }));
       },
 
       updateVirtualItems: () => {
         const session = get().activeSession;
         const items = projectSession(session);
 
-        set((state) => (
-          state.virtualItems === items
-            ? state
-            : {
-                ...state,
-                virtualItems: items,
-              }
-        ));
+        set((state) => ({
+          ...state,
+          virtualItems: items,
+        }));
       },
 
       setVisibleTurnInfo: (info) => {

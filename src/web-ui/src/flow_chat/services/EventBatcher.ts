@@ -291,26 +291,6 @@ export class EventBatcher {
     if (this.buffer.size === 0) this.cancelScheduledFlush();
   }
 
-  /**
-   * Synchronously flush pending events belonging only to `sessionId`, leaving
-   * other sessions' frame cadence untouched.
-   */
-  flushSession(sessionId: string): void {
-    const sessionEvents: Array<{ key: string; payload: any }> = [];
-    for (const [key, event] of this.buffer) {
-      if ((event.payload as { sessionId?: unknown } | null)?.sessionId === sessionId) {
-        sessionEvents.push({ key, payload: event.payload });
-        this.buffer.delete(key);
-      }
-    }
-    if (this.buffer.size === 0) {
-      this.cancelScheduledFlush();
-    }
-    if (sessionEvents.length > 0) {
-      this.onFlush(sessionEvents);
-    }
-  }
-
   destroy(): void {
     this.clear();
   }

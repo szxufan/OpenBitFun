@@ -1205,30 +1205,10 @@ function extractAgentPersistableState(state: CanvasStore): CanvasStoreState {
   };
 }
 
-function shallowCloneEditorGroup(group: EditorGroupState): EditorGroupState {
-  return {
-    ...group,
-    tabs: [...group.tabs],
-  };
-}
-
-function shallowCloneCanvasSnapshot(snapshot: CanvasStoreState): CanvasStoreState {
-  return {
-    primaryGroup: shallowCloneEditorGroup(snapshot.primaryGroup),
-    secondaryGroup: shallowCloneEditorGroup(snapshot.secondaryGroup),
-    tertiaryGroup: shallowCloneEditorGroup(snapshot.tertiaryGroup),
-    activeGroupId: snapshot.activeGroupId,
-    layout: { ...snapshot.layout },
-    isMissionControlOpen: snapshot.isMissionControlOpen,
-    draggingTabId: null,
-    draggingFromGroupId: null,
-    closedTabs: [...snapshot.closedTabs],
-    maxClosedTabsHistory: snapshot.maxClosedTabsHistory,
-  };
-}
-
 function rememberAgentSnapshot(key: string, snapshot: CanvasStoreState): void {
-  const clone = shallowCloneCanvasSnapshot(snapshot);
+  const clone = structuredClone(snapshot);
+  clone.draggingTabId = null;
+  clone.draggingFromGroupId = null;
   agentScopeSnapshots.set(key, clone);
   const idx = agentSnapshotLruOrder.indexOf(key);
   if (idx >= 0) agentSnapshotLruOrder.splice(idx, 1);
@@ -1256,7 +1236,7 @@ export function openAgentCanvasTabForSession(sessionId: string, content: PanelCo
   const target = live.scopeKey === key ? useAgentCanvasStore : createCanvasStoreHook();
   if (target !== useAgentCanvasStore) {
     const snapshot = agentScopeSnapshots.get(key);
-    if (snapshot) target.setState(shallowCloneCanvasSnapshot(snapshot));
+    if (snapshot) target.setState(structuredClone(snapshot));
     target.setState({ scopeKey: key });
   }
   const state = target.getState();
@@ -1286,7 +1266,7 @@ export function updateAgentCanvasTabsForSession(
   if (target !== useAgentCanvasStore) {
     const snapshot = agentScopeSnapshots.get(key);
     if (!snapshot) return false;
-    target.setState(shallowCloneCanvasSnapshot(snapshot));
+    target.setState(structuredClone(snapshot));
   }
   const state = target.getState();
   let updated = false;
@@ -1348,8 +1328,8 @@ export function removeBtwSessionFromAgentCanvas(sessionId: string): void {
   for (const [scope, snapshot] of agentScopeSnapshots) {
     const groups = [snapshot.primaryGroup, snapshot.secondaryGroup, snapshot.tertiaryGroup];
     if (!groups.some(group => group.tabs.some(ownsSession)) && !snapshot.closedTabs.some(record => ownsSession(record.tab))) continue;
-    // Restoring a scope can freeze shared groups through Immer; revise a shallow copy.
-    const next = shallowCloneCanvasSnapshot(snapshot);
+    // Restoring a scope can freeze shared groups through Immer; revise a copy.
+    const next = structuredClone(snapshot);
     for (const group of [next.primaryGroup, next.secondaryGroup, next.tertiaryGroup]) {
       group.tabs = group.tabs.filter(tab => !ownsSession(tab));
       if (!group.tabs.some(tab => tab.id === group.activeTabId && !tab.isHidden)) {
@@ -1403,7 +1383,7 @@ export function switchAgentCanvasScope(nextScopeId: string | null | undefined): 
   if (from === to) return;
 
   const rawNext = agentScopeSnapshots.get(to);
-  const nextSnapshotClone = rawNext ? shallowCloneCanvasSnapshot(rawNext) : null;
+  const nextSnapshotClone = rawNext ? structuredClone(rawNext) : null;
 
   if (from !== undefined) {
     const current = extractAgentPersistableState(useAgentCanvasStore.getState() as CanvasStore);

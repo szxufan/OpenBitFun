@@ -12,12 +12,6 @@ import { getActiveSurfaceScope, onSurfaceActivated } from '@/infrastructure/peer
 const log = createLogger('useSnapshotState');
 const subscribeToSurfaceActivation = (listener: () => void): (() => void) =>
   onSurfaceActivated(() => listener());
-const subscribeToFlowChatStore = (callback: () => void): (() => void) =>
-  flowChatStore.subscribe(() => callback());
-
-interface UseSnapshotStateOptions {
-  trackFiles?: boolean;
-}
 
 interface UseSnapshotStateReturn {
   surfaceEpoch: number;
@@ -41,11 +35,7 @@ interface UseSnapshotStateReturn {
   clearError: () => void;
 }
 
-export const useSnapshotState = (
-  sessionId?: string,
-  options?: UseSnapshotStateOptions,
-): UseSnapshotStateReturn => {
-  const trackFiles = options?.trackFiles !== false;
+export const useSnapshotState = (sessionId?: string): UseSnapshotStateReturn => {
   const { t } = useTranslation('flow-chat');
   const surfaceScope = useSyncExternalStore(
     subscribeToSurfaceActivation, getActiveSurfaceScope, getActiveSurfaceScope,
@@ -53,7 +43,7 @@ export const useSnapshotState = (
   const identity = surfaceScope.key(surfaceScope.epoch, sessionId);
   const [boundIdentity, setBoundIdentity] = useState(identity);
   const snapshotsAvailable = useSyncExternalStore(
-    subscribeToFlowChatStore,
+    (callback) => flowChatStore.subscribe(() => callback()),
     () => hasSessionFileSnapshots(sessionId ? flowChatStore.getState().sessions.get(sessionId) : undefined, sessionId),
     () => false,
   );
@@ -263,7 +253,7 @@ export const useSnapshotState = (
     setBoundIdentity(identity);
     setLoading(false);
     setError(null);
-    if (!sessionId || !trackFiles) {
+    if (!sessionId) {
       setFiles([]);
       setSessionState(null);
       activeSessionIdRef.current = undefined;
@@ -336,7 +326,7 @@ export const useSnapshotState = (
       unsubscribeFile();
       unsubscribeFlowChat();
     };
-  }, [identity, sessionId, stateManager, refreshSession, surfaceScope, trackFiles]);
+  }, [identity, sessionId, stateManager, refreshSession, surfaceScope]);
 
   // An activation may render the same Session id before effects rebind. Never
   // paint the previous device's cached files during that render.

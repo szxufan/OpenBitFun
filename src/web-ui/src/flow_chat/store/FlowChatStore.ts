@@ -2318,13 +2318,9 @@ export class FlowChatStore {
   private listeners: Set<(state: FlowChatState) => void> = new Set();
   private selectorListeners: Set<SelectorListener> = new Set();
   private silentMode = false;
-  private silentModeDepth = 0;
-  private silentModeInitialState?: FlowChatState;
   private stateBatchDepth = 0;
   private stateBatchInitialState?: FlowChatState;
   private stateBatchRestoreSilentMode = false;
-  private beforeSessionVisibleCallbacks = new Set<(sessionId: string, options: { notify: boolean }) => void>();
-  private sessionBuffersDiscardedCallbacks = new Set<(sessionId: string) => void>();
   /**
    * Request dedup and negotiated capabilities outlive the switch that stranded
    * them, so their keys carry the surface instead of the container: an entry
@@ -2455,62 +2451,13 @@ export class FlowChatStore {
     return this.state;
   }
 
-  public isSessionStreamVisible(sessionId: string): boolean {
-    if (!sessionId) return false;
-    return this.state.activeSessionId === sessionId || this.historyLeases.has(this.surfaceKey(sessionId));
-  }
-
-  public registerBeforeSessionVisibleCallback(
-    callback: (sessionId: string, options: { notify: boolean }) => void,
-  ): () => void {
-    this.beforeSessionVisibleCallbacks.add(callback);
-    return () => {
-      this.beforeSessionVisibleCallbacks.delete(callback);
-    };
-  }
-
-  private notifyBeforeSessionVisible(sessionId: string, options: { notify: boolean }): void {
-    if (this.beforeSessionVisibleCallbacks.size === 0) return;
-    for (const callback of this.beforeSessionVisibleCallbacks) {
-      try {
-        callback(sessionId, options);
-      } catch (error) {
-        log.warn('Before-session-visible callback threw an error', { sessionId, error });
-      }
-    }
-  }
-
-  public registerSessionBuffersDiscardedCallback(
-    callback: (sessionId: string) => void,
-  ): () => void {
-    this.sessionBuffersDiscardedCallbacks.add(callback);
-    return () => {
-      this.sessionBuffersDiscardedCallbacks.delete(callback);
-    };
-  }
-
-  private notifySessionBuffersDiscarded(sessionId: string): void {
-    if (!sessionId || this.sessionBuffersDiscardedCallbacks.size === 0) return;
-    for (const callback of this.sessionBuffersDiscardedCallbacks) {
-      try {
-        callback(sessionId);
-      } catch (error) {
-        log.warn('Session-buffers-discarded callback threw an error', { sessionId, error });
-      }
-    }
-  }
-
   /** A mounted transcript owns a lease; it never owns an inactive copy of its body. */
   public retainSessionHistory(sessionId: string): () => void {
     const key = this.surfaceKey(sessionId);
-    const previousLeaseCount = this.historyLeases.get(key) ?? 0;
-    this.historyLeases.set(key, previousLeaseCount + 1);
+    this.historyLeases.set(key, (this.historyLeases.get(key) ?? 0) + 1);
     this.activeSurface.relaySessionHistory.get(sessionId)?.setVisible(true);
     const resident = this.historyResidency.get(key);
     if (resident) { resident.lastUsedAt = Date.now(); resourceBudget.touch(resident.key); }
-    if (previousLeaseCount === 0) {
-      this.notifyBeforeSessionVisible(sessionId, { notify: true });
-    }
     let released = false;
     const surface = this.activeSurface;
     return () => {
@@ -3584,7 +3531,6 @@ export class FlowChatStore {
   private clearRemovedSessionHistoryState(sessionIds: Iterable<string>, reason: string): void {
     const removedSessionIds = new Set(sessionIds);
     for (const id of removedSessionIds) {
-      this.notifySessionBuffersDiscarded(id);
       this.activeSurface.relaySessionHistory.get(id)?.close();
       this.activeSurface.relaySessionHistory.delete(id);
       this.activeSurface.relaySessionRecords.delete(id);
@@ -4760,37 +4706,12 @@ export class FlowChatStore {
   }
   
   public beginSilentMode(): void {
-    if (this.silentModeDepth === 0) {
-      this.silentModeInitialState = this.state;
-      this.silentMode = true;
-    }
-    this.silentModeDepth += 1;
+    this.silentMode = true;
   }
   
   public endSilentMode(): void {
-    if (this.silentModeDepth > 0) {
-      this.silentModeDepth -= 1;
-      if (this.silentModeDepth > 0) {
-        return;
-      }
-    }
-    const initialState = this.silentModeInitialState;
-    const hadInitialState = this.silentModeInitialState !== undefined;
     this.silentMode = false;
-    this.silentModeInitialState = undefined;
-    if (!hadInitialState || this.state !== initialState) {
-      this.notifyListeners();
-    }
-  }
-
-  public runSilentWithoutNotify<T>(fn: () => T): T {
-    const prevSilentMode = this.silentMode;
-    this.silentMode = true;
-    try {
-      return fn();
-    } finally {
-      this.silentMode = prevSilentMode;
-    }
+    this.notifyListeners();
   }
 
   private collectCascadeSessionIds(
@@ -5113,9 +5034,6 @@ export class FlowChatStore {
     if (targetSessionExists && previousSessionId && previousSessionId !== sessionId) {
       this.cancelLocalSessionHistoryCompletion(previousSessionId, 'session-switch');
     }
-    if (targetSessionExists && previousSessionId !== sessionId) {
-      this.notifyBeforeSessionVisible(sessionId, { notify: false });
-    }
 
     let sessionMode: string | undefined;
     
@@ -5140,11 +5058,9 @@ export class FlowChatStore {
       };
     });
     
-    if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('openbitfun:session-switched', {
-        detail: { sessionId, mode: sessionMode || 'Standard' }
-      }));
-    }
+    window.dispatchEvent(new CustomEvent('openbitfun:session-switched', {
+      detail: { sessionId, mode: sessionMode || 'Standard' }
+    }));
 
     if (targetSessionExists && previousSessionId !== sessionId) {
       this.scheduleActiveLegacyPartialSessionHistoryCompletion(sessionId, 'session-switch');
@@ -6069,24 +5985,6 @@ export class FlowChatStore {
     this.clearRemovedSessionHistoryState(removedSessionIds, 'session-removed');
     useBackgroundSubagentActivityStore.getState().removeSessions(removedSessionIds);
 
-    const preRemovedSet = new Set(removedSessionIds);
-    if (this.state.activeSessionId && preRemovedSet.has(this.state.activeSessionId)) {
-      let candidateNextActiveId: string | null = null;
-      if (resolvedOptions && 'nextActiveSessionId' in resolvedOptions) {
-        candidateNextActiveId = resolvedOptions.nextActiveSessionId ?? null;
-      } else {
-        for (const key of this.state.sessions.keys()) {
-          if (!preRemovedSet.has(key)) {
-            candidateNextActiveId = key;
-            break;
-          }
-        }
-      }
-      if (candidateNextActiveId) {
-        this.notifyBeforeSessionVisible(candidateNextActiveId, { notify: false });
-      }
-    }
-
     this.setState(prev => {
       const removedSessionIdSet = new Set(removedSessionIds);
       const newSessions = new Map(prev.sessions);
@@ -6153,8 +6051,6 @@ export class FlowChatStore {
   public clearSession(sessionId?: string): void {
     const targetSessionId = sessionId || this.state.activeSessionId;
     if (!targetSessionId) return;
-
-    this.notifySessionBuffersDiscarded(targetSessionId);
 
     this.setState(prev => {
       const session = prev.sessions.get(targetSessionId);
@@ -6626,7 +6522,6 @@ export class FlowChatStore {
    * Used for turn rollback: revert to before this turn and remove this turn and all subsequent history
    */
   public truncateDialogTurnsFrom(sessionId: string, turnIndex: number): void {
-    this.notifySessionBuffersDiscarded(sessionId);
 
     this.setState(prev => {
       const session = prev.sessions.get(sessionId);
@@ -7121,17 +7016,9 @@ export class FlowChatStore {
       const session = prev.sessions.get(sessionId);
       if (!session) return prev;
 
-      const turnIndex = session.dialogTurns.findIndex(turn => turn.id === dialogTurnId);
-      if (turnIndex < 0) return prev;
-
-      const currentTurn = session.dialogTurns[turnIndex];
-      const nextTurn = updater(currentTurn);
-      if (nextTurn === currentTurn && options?.touchActivity !== true) {
-        return prev;
-      }
-
-      const updatedDialogTurns = [...session.dialogTurns];
-      updatedDialogTurns[turnIndex] = nextTurn;
+      const updatedDialogTurns = session.dialogTurns.map(turn => 
+        turn.id === dialogTurnId ? updater(turn) : turn
+      );
 
       const updatedSession = {
         ...session,
@@ -7365,13 +7252,7 @@ export class FlowChatStore {
     });
   }
 
-  public addModelRoundItem(
-    sessionId: string,
-    dialogTurnId: string,
-    item: AnyFlowItem,
-    modelRoundId?: string,
-    options?: { touchActivity?: boolean },
-  ): void {
+  public addModelRoundItem(sessionId: string, dialogTurnId: string, item: AnyFlowItem, modelRoundId?: string): void {
     this.updateDialogTurn(sessionId, dialogTurnId, turn => {
       let targetModelRoundIndex = turn.modelRounds.length - 1;
         if (modelRoundId) {
@@ -7461,7 +7342,7 @@ export class FlowChatStore {
         ...turn,
         modelRounds: updatedModelRounds
       };
-    }, options);
+    });
   }
 
   /**
@@ -7472,19 +7353,13 @@ export class FlowChatStore {
     const prevSilentMode = this.silentMode;
     this.silentMode = true;
     try {
-      this.addModelRoundItem(sessionId, dialogTurnId, item, modelRoundId, { touchActivity: false });
+      this.addModelRoundItem(sessionId, dialogTurnId, item, modelRoundId);
     } finally {
       this.silentMode = prevSilentMode;
     }
   }
 
-  public updateModelRoundItem(
-    sessionId: string,
-    dialogTurnId: string,
-    itemId: string,
-    updates: Partial<FlowItem>,
-    options?: { touchActivity?: boolean },
-  ): boolean {
+  public updateModelRoundItem(sessionId: string, dialogTurnId: string, itemId: string, updates: Partial<FlowItem>): boolean {
     let updated = false;
     this.updateDialogTurn(sessionId, dialogTurnId, turn => {
       
@@ -7552,7 +7427,7 @@ export class FlowChatStore {
         ...turn,
         modelRounds: updatedModelRounds
       };
-    }, options);
+    });
     if (!updated) {
       markRuntimeSessionProjectionStale(getActiveSurfaceScope().surfaceId, sessionId);
     }
@@ -7567,7 +7442,7 @@ export class FlowChatStore {
     const prevSilentMode = this.silentMode;
     this.silentMode = true;
     try {
-      return this.updateModelRoundItem(sessionId, dialogTurnId, itemId, updates, { touchActivity: false });
+      return this.updateModelRoundItem(sessionId, dialogTurnId, itemId, updates);
     } finally {
       this.silentMode = prevSilentMode;
     }
@@ -7953,7 +7828,6 @@ export class FlowChatStore {
    * Called by SessionStateMachine side effects, updates all related states to cancelled
    */
   public cancelSessionTask(sessionId: string): void {
-    this.notifyBeforeSessionVisible(sessionId, { notify: false });
     this.setState(prev => {
       const session = prev.sessions.get(sessionId);
       if (!session) {

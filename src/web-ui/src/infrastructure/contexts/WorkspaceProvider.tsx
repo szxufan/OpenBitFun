@@ -13,53 +13,6 @@ import {
 
 const log = createLogger('WorkspaceProvider');
 
-function sameStringList(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {
-  if (left === right) return true;
-  if (!left || !right || left.length !== right.length) return false;
-  for (let i = 0; i < left.length; i += 1) {
-    if (left[i] !== right[i]) return false;
-  }
-  return true;
-}
-
-function sameWorkspaceInfoEntry(left: WorkspaceInfo | null, right: WorkspaceInfo | null): boolean {
-  if (left === right) return true;
-  if (!left || !right) return false;
-  return left.id === right.id
-    && left.name === right.name
-    && left.rootPath === right.rootPath
-    && left.workspaceType === right.workspaceType
-    && left.workspaceKind === right.workspaceKind
-    && left.assistantId === right.assistantId
-    && left.defaultNameNumber === right.defaultNameNumber
-    && left.openedAt === right.openedAt
-    && left.lastAccessed === right.lastAccessed
-    && left.description === right.description
-    && left.connectionId === right.connectionId
-    && left.connectionName === right.connectionName
-    && left.sshHost === right.sshHost
-    && left.statistics === right.statistics
-    && left.identity === right.identity
-    && left.relatedPaths === right.relatedPaths
-    && left.worktree === right.worktree
-    && sameStringList(left.languages, right.languages)
-    && sameStringList(left.tags, right.tags);
-}
-
-function sameWorkspaceList(
-  left: readonly WorkspaceInfo[] | null,
-  right: readonly WorkspaceInfo[] | null,
-): boolean {
-  if (left === right) return true;
-  if (!left || !right || left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (!sameWorkspaceInfoEntry(left[index], right[index])) {
-      return false;
-    }
-  }
-  return true;
-}
-
 interface WorkspaceProviderProps {
   children: ReactNode;
 }
@@ -197,28 +150,11 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
         const activeWorkspace = nextState.currentWorkspace;
         const openedWorkspacesList = Array.from(nextState.openedWorkspaces.values());
 
-        if (
-          prev.activeWorkspaceId === nextState.activeWorkspaceId
-          && prev.lastUsedWorkspaceId === nextState.lastUsedWorkspaceId
-          && prev.primaryAssistantWorkspaceId === nextState.primaryAssistantWorkspaceId
-          && prev.loading === nextState.loading
-          && prev.error === nextState.error
-          && sameWorkspaceInfoEntry(prev.currentWorkspace, activeWorkspace)
-          && sameWorkspaceList(prev.openedWorkspacesList, openedWorkspacesList)
-          && sameWorkspaceList(prev.recentWorkspaces, nextState.recentWorkspaces)
-          && sameWorkspaceList(prev.assistantWorkspaces, nextState.assistantWorkspaces)
-        ) {
-          return prev;
-        }
-
         return {
           ...prev,
           ...nextState,
           activeWorkspace,
           openedWorkspacesList,
-          allAssistantWorkspacesList: nextState.assistantWorkspaces ?? openedWorkspacesList.filter(
-            workspace => workspace.workspaceKind === WorkspaceKind.Assistant
-          ),
           normalWorkspacesList: openedWorkspacesList.filter(
             (workspace) => workspace.workspaceKind !== WorkspaceKind.Assistant
           ),

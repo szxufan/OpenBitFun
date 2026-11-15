@@ -2,4 +2,4 @@
 pub mod tauri;
 
 #[cfg(feature = "tauri-adapter")]
-pub use tauri::{TauriBatchedEvent, TauriTransportAdapter, TAURI_EVENT_BATCH_NAME};
+pub use tauri::TauriTransportAdapter;

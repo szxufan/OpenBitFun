@@ -163,12 +163,6 @@ function trimProtocolBoundaryWhitespace(content: string): string {
 }
 
 export function parseDeepResearchContent(content: string): ParsedDeepResearchContent {
-  if (!content.includes('[[')) {
-    return {
-      hasProtocol: false,
-      segments: content ? [{ type: 'markdown', content }] : [],
-    };
-  }
   const pending = splitPendingMarkerSuffix(content);
   const visibleContent = pending.content;
   const matches: Array<{ start: number; end: number; marker: DeepResearchProtocolMarker }> = [];

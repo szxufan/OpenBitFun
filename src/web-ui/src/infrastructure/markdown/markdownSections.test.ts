@@ -61,15 +61,4 @@ describe('Markdown presentation sections', () => {
     const source = prefix + dependent + '\n\n' + prefix;
     expect(markdownSections(source)).toEqual([{ start: 0, end: source.length }]);
   });
-
-  it('keeps multi-section splitting when prose contains < comparisons, inline code generics/HTML, or autolinks', () => {
-    const technical = [
-      'Check `Vec<String>`, `<div>`, `matrix[i][j]`, and `/[^a-z]/` when x < 10 and y < z.',
-      'See <https://example.org/docs> or <mailto:dev@example.org> for details.',
-    ].join('\n\n');
-    const source = `${prefix}${technical}\n\n${prefix}`;
-    const sections = markdownSections(source, { streaming: true });
-    expect(sections.length).toBeGreaterThan(4);
-    expect(sections.map(sec => source.slice(sec.start, sec.end)).join('')).toBe(source);
-  });
 });

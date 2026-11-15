@@ -136,7 +136,7 @@ export function handleUserQuestionWaiting(context: FlowChatContext, event: {
   questions: { responseDeadlineMs?: number | null; responseHostNowMs?: number };
 }): void {
   if (!event || typeof event.session_id !== 'string' || typeof event.tool_id !== 'string') return;
-  materializeSessionBeforeLifecycle(context, event.session_id);
+  context.eventBatcher.flushNow();
   const session = context.flowChatStore.getState().sessions.get(event.session_id);
   for (const turn of session?.dialogTurns ?? []) {
     for (const round of turn.modelRounds) {
@@ -224,185 +224,12 @@ function mergeParamsPartialEventData(
   };
 }
 
-function isSessionStreamVisible(context: FlowChatContext, sessionId: string): boolean {
-  return context.flowChatStore?.isSessionStreamVisible?.(sessionId) ?? true;
-}
-
-function flushSessionBatchedEvents(context: FlowChatContext, sessionId: string): void {
-  if (typeof context.eventBatcher?.flushSession === 'function') {
-    context.eventBatcher.flushSession(sessionId);
-    return;
-  }
-  if (typeof context.eventBatcher?.getBufferSize === 'function') {
-    if (context.eventBatcher.getBufferSize() > 0) {
-      context.eventBatcher.flushNow?.();
-    }
-    return;
-  }
-  context.eventBatcher?.flushNow?.();
-}
-
-function applySingleBatchedEvent(
-  context: FlowChatContext,
-  eventType: 'text' | 'tool:params' | 'tool:progress',
-  payload: any,
-): void {
-  if (eventType === 'text') {
-    const {
-      sessionId,
-      turnId,
-      roundId,
-      attemptId,
-      attemptIndex,
-      text,
-      contentType,
-      reasoningKind,
-      isThinkingEnd,
-    } = payload;
-    if (contentType === 'thinking') {
-      processThinkingChunkInternal(
-        context,
-        sessionId,
-        turnId,
-        roundId,
-        text,
-        isThinkingEnd,
-        attemptId,
-        attemptIndex,
-        reasoningKind,
-      );
-    } else {
-      processNormalTextChunkInternal(context, sessionId, turnId, roundId, text, attemptId, attemptIndex);
-    }
-
-    // The executing host owns turn persistence. A Peer controller receives
-    // the same chunks for rendering and must not echo a save RPC for every
-    // checkpoint, especially on a weak link.
-    if (!isPeerDeviceModeActive()) {
-      debouncedSaveDialogTurn(context, sessionId, turnId, 2000);
-    }
-  } else if (eventType === 'tool:params') {
-    const { sessionId, turnId, toolEvent } = payload;
-    processToolParamsPartialInternal(sessionId, turnId, toolEvent);
-    reconcileBackgroundSubagentFromParentTool(sessionId, turnId, toolEvent.tool_id);
-  } else if (eventType === 'tool:progress') {
-    const { sessionId, turnId, toolEvent } = payload;
-    processToolProgressInternal(sessionId, turnId, toolEvent);
-    reconcileBackgroundSubagentFromParentTool(sessionId, turnId, toolEvent.tool_id);
-  }
-}
-
-function stageHiddenSessionBatchEntry(
-  context: FlowChatContext,
-  sessionId: string,
-  eventType: 'text' | 'tool:params' | 'tool:progress',
-  key: string,
-  payload: any,
-): boolean {
-  if (!context.stagedSessionBatches) {
-    return false;
-  }
-
-  let sessionQueue = context.stagedSessionBatches.get(sessionId);
-  if (!sessionQueue) {
-    sessionQueue = new Map();
-    context.stagedSessionBatches.set(sessionId, sessionQueue);
-  }
-
-  const existing = sessionQueue.get(key);
-  if (!existing) {
-    sessionQueue.set(key, { key, payload });
-  } else if (eventType === 'text') {
-    sessionQueue.set(key, {
-      key,
-      payload: {
-        ...existing.payload,
-        ...payload,
-        text: (existing.payload.text ?? '') + (payload.text ?? ''),
-        isThinkingEnd: Boolean(existing.payload.isThinkingEnd || payload.isThinkingEnd),
-      },
-    });
-  } else if (eventType === 'tool:params') {
-    sessionQueue.set(key, {
-      key,
-      payload: mergeParamsPartialEventData(existing.payload, payload),
-    });
-  } else {
-    sessionQueue.set(key, { key, payload });
-  }
-
-  if (eventType === 'text' && !isPeerDeviceModeActive()) {
-    debouncedSaveDialogTurn(context, sessionId, payload.turnId, 4000);
-  }
-
-  return true;
-}
-
-function drainStagedSessionEntries(context: FlowChatContext, sessionId: string): boolean {
-  const sessionQueue = context.stagedSessionBatches?.get(sessionId);
-  if (!sessionQueue || sessionQueue.size === 0) {
-    return false;
-  }
-  context.stagedSessionBatches!.delete(sessionId);
-
-  for (const { key, payload } of sessionQueue.values()) {
-    const parsed = parseEventKey(key);
-    if (!parsed) continue;
-    const { eventType } = parsed;
-    if (eventType === 'text' || eventType === 'tool:params' || eventType === 'tool:progress') {
-      applySingleBatchedEvent(context, eventType, payload);
-    }
-  }
-  return true;
-}
-
-export function materializeStagedSessionBatch(
-  context: FlowChatContext,
-  sessionId: string,
-  options?: { silent?: boolean; flushBatcher?: boolean },
-): boolean {
-  if (!sessionId) {
-    return false;
-  }
-  if (options?.flushBatcher) {
-    flushSessionBatchedEvents(context, sessionId);
-  }
-  const hasStaged = (context.stagedSessionBatches?.get(sessionId)?.size ?? 0) > 0;
-  if (!hasStaged) {
-    return false;
-  }
-  const store = context.flowChatStore;
-  if (options?.silent && typeof store?.runSilentWithoutNotify === 'function') {
-    return store.runSilentWithoutNotify(() => drainStagedSessionEntries(context, sessionId));
-  }
-  store?.beginSilentMode?.();
-  try {
-    return drainStagedSessionEntries(context, sessionId);
-  } finally {
-    store?.endSilentMode?.();
-  }
-}
-
-function materializeSessionBeforeLifecycle(
-  context: FlowChatContext,
-  sessionId: string | undefined,
-): void {
-  if (!sessionId) {
-    return;
-  }
-  materializeStagedSessionBatch(context, sessionId, {
-    silent: !isSessionStreamVisible(context, sessionId),
-    flushBatcher: true,
-  });
-}
-
 export const __test_only__ = {
   relayRecordsBeforeEvent,
   handleSessionDeleted,
   handleSessionCreated,
   resolveDialogTurnDisplayContent,
   mergeParamsPartialEventData,
-  materializeStagedSessionBatch,
   findSubagentParentInfoByRound,
   handleDialogTurnStarted,
   handleImageAnalysisStarted,
@@ -1487,7 +1314,6 @@ function finalizeTurnCompletionState(
   sessionId: string,
   turnId: string
 ): void {
-  materializeSessionBeforeLifecycle(context, sessionId);
   const store = FlowChatStore.getInstance();
   const session = store.getState().sessions.get(sessionId);
 
@@ -1814,7 +1640,7 @@ export function insertSteeringItemIfAbsent(params: {
  * can see the steering message they just submitted. Idempotent — if the
  * client-side optimistic path already added the item, this is a no-op.
  */
-function handleUserSteeringInjected(context: FlowChatContext, event: any): void {
+function handleUserSteeringInjected(_context: FlowChatContext, event: any): void {
   const sessionId: string | undefined = event?.sessionId;
   const turnId: string | undefined = event?.turnId;
   const steeringId: string | undefined = event?.steeringId;
@@ -1827,7 +1653,6 @@ function handleUserSteeringInjected(context: FlowChatContext, event: any): void 
     return;
   }
 
-  materializeSessionBeforeLifecycle(context, sessionId);
   insertSteeringItemIfAbsent({
     sessionId,
     turnId,
@@ -1948,7 +1773,6 @@ export function handleSessionHistoryChanged(context: FlowChatContext, event: any
     return;
   }
 
-  materializeSessionBeforeLifecycle(context, sessionId);
   const session = context.flowChatStore.getState().sessions.get(sessionId);
   if (!session || isAcpFlowSession(session)) {
     return;
@@ -2379,7 +2203,6 @@ function handleDialogTurnStarted(context: FlowChatContext, event: any): void {
 
     context.contentBuffers.set(sessionId, new Map());
     context.activeTextItems.set(sessionId, new Map());
-    context.stagedSessionBatches?.delete(sessionId);
 
     if (!hadTempTurn && !adoptNewerAdmittedTurn(sessionId, turnId, turnIndex)) {
       stateMachineManager.transition(sessionId, SessionExecutionEvent.START, {
@@ -2529,24 +2352,50 @@ export function processBatchedEvents(
       if (!parsed) continue;
       
       const { eventType } = parsed;
-      if (eventType !== 'text' && eventType !== 'tool:params' && eventType !== 'tool:progress') {
-        continue;
+      
+      if (eventType === 'text') {
+        const {
+          sessionId,
+          turnId,
+          roundId,
+          attemptId,
+          attemptIndex,
+          text,
+          contentType,
+          reasoningKind,
+          isThinkingEnd,
+        } = payload;
+        if (contentType === 'thinking') {
+          processThinkingChunkInternal(
+            context,
+            sessionId,
+            turnId,
+            roundId,
+            text,
+            isThinkingEnd,
+            attemptId,
+            attemptIndex,
+            reasoningKind,
+          );
+        } else {
+          processNormalTextChunkInternal(context, sessionId, turnId, roundId, text, attemptId, attemptIndex);
+        }
+        
+        // The executing host owns turn persistence. A Peer controller receives
+        // the same chunks for rendering and must not echo a save RPC for every
+        // checkpoint, especially on a weak link.
+        if (!isPeerDeviceModeActive()) {
+          debouncedSaveDialogTurn(context, sessionId, turnId, 2000);
+        }
+      } else if (eventType === 'tool:params') {
+        const { sessionId, turnId, toolEvent } = payload;
+        processToolParamsPartialInternal(sessionId, turnId, toolEvent);
+        reconcileBackgroundSubagentFromParentTool(sessionId, turnId, toolEvent.tool_id);
+      } else if (eventType === 'tool:progress') {
+        const { sessionId, turnId, toolEvent } = payload;
+        processToolProgressInternal(sessionId, turnId, toolEvent);
+        reconcileBackgroundSubagentFromParentTool(sessionId, turnId, toolEvent.tool_id);
       }
-
-      const sessionId: string | undefined = payload?.sessionId;
-      if (
-        sessionId &&
-        !isSessionStreamVisible(context, sessionId) &&
-        stageHiddenSessionBatchEntry(context, sessionId, eventType, key, payload)
-      ) {
-        continue;
-      }
-
-      if (sessionId) {
-        drainStagedSessionEntries(context, sessionId);
-      }
-
-      applySingleBatchedEvent(context, eventType, payload);
     }
   } finally {
     context.flowChatStore.endSilentMode();
@@ -2617,7 +2466,6 @@ function handleToolEvent(
     return;
   }
 
-  materializeSessionBeforeLifecycle(context, sessionId);
   processToolEvent(context, sessionId, turnId, roundId, toolEvent, attemptId, attemptIndex, undefined, onTodoWriteResult);
   reconcileBackgroundSubagentFromParentTool(sessionId, turnId, toolEvent.tool_id);
 }
@@ -2658,7 +2506,6 @@ function handleModelRoundStart(context: FlowChatContext, event: ModelRoundStarte
     });
   }
 
-  materializeSessionBeforeLifecycle(context, sessionId);
   completeActiveTextItems(context, sessionId, turnId);
 
   const disableExploreGrouping =
@@ -2733,7 +2580,6 @@ function handleModelRoundAttemptSuperseded(
     return;
   }
 
-  materializeSessionBeforeLifecycle(context, sessionId);
   const round = context.flowChatStore.getState().sessions.get(sessionId)
     ?.dialogTurns.find(dialogTurn => dialogTurn.id === turnId)
     ?.modelRounds.find(modelRound => modelRound.id === roundId);
@@ -2769,7 +2615,6 @@ function handleModelRoundComplete(context: FlowChatContext, event: ModelRoundCom
     return;
   }
 
-  materializeSessionBeforeLifecycle(context, sessionId);
   const store = FlowChatStore.getInstance();
   const session = store.getState().sessions.get(sessionId);
   const dialogTurn = session?.dialogTurns.find((turn: DialogTurn) => turn.id === turnId);
@@ -2903,7 +2748,7 @@ function handleAcpContextUsageUpdate(event: AcpContextUsageUpdatedEvent): void {
 /**
  * Handle context compression started event
  */
-function handleCompressionStarted(context: FlowChatContext, event: any): void {
+function handleCompressionStarted(_context: FlowChatContext, event: any): void {
   const { sessionId, turnId, compressionId, trigger, tokensBefore, contextWindow } = event;
   
   log.info('Context compression started', {
@@ -2914,7 +2759,6 @@ function handleCompressionStarted(context: FlowChatContext, event: any): void {
     markManualCompactionPending(sessionId, typeof turnId === 'string' ? turnId : undefined);
   }
   
-  materializeSessionBeforeLifecycle(context, sessionId);
   const store = FlowChatStore.getInstance();
   const session = store.getState().sessions.get(sessionId);
   
@@ -2988,7 +2832,6 @@ function handleCompressionCompleted(context: FlowChatContext, event: any): void 
     tokensBefore, tokensAfter, compressionRatio, durationMs
   });
   
-  materializeSessionBeforeLifecycle(context, sessionId);
   const store = FlowChatStore.getInstance();
   const session = store.getState().sessions.get(sessionId);
   if (
@@ -3048,7 +2891,6 @@ function handleCompressionFailed(context: FlowChatContext, event: any): void {
   
   log.error('Context compression failed', { sessionId, turnId, compressionId, error });
   
-  materializeSessionBeforeLifecycle(context, sessionId);
   const store = FlowChatStore.getInstance();
 
   settleManualCompactionEvent(sessionId, turnId);
@@ -3169,7 +3011,6 @@ export function handleDialogTurnComplete(
     return;
   }
   settleManualCompactionEvent(sessionId, turnId);
-  materializeSessionBeforeLifecycle(context, sessionId);
   const store = FlowChatStore.getInstance();
   const session = store.getState().sessions.get(sessionId);
   const existingTurn = session?.dialogTurns.find(turn => turn.id === turnId);
@@ -3293,7 +3134,6 @@ function handleDialogTurnFailed(context: FlowChatContext, event: any): void {
   settleManualCompactionEvent(sessionId, turnId);
   clearPendingTurnCompletion(context, sessionId, turnId);
   clearRuntimeStatus(context, sessionId, turnId);
-  materializeSessionBeforeLifecycle(context, sessionId);
   
   const store = FlowChatStore.getInstance();
   const session = store.getState().sessions.get(sessionId);
@@ -3401,7 +3241,6 @@ function handleDialogTurnCancelled(
   settleManualCompactionEvent(sessionId, turnId);
   clearPendingTurnCompletion(context, sessionId, turnId);
   clearRuntimeStatus(context, sessionId, turnId);
-  materializeSessionBeforeLifecycle(context, sessionId);
   
   const store = FlowChatStore.getInstance();
   const session = store.getState().sessions.get(sessionId);
@@ -3483,7 +3322,6 @@ function handleDialogTurnInterrupted(context: FlowChatContext, event: any): void
     });
     return;
   }
-  materializeSessionBeforeLifecycle(context, sessionId);
   const currentTurn = context.flowChatStore
     .getState()
     .sessions.get(sessionId)
@@ -3573,7 +3411,6 @@ export function projectDialogTurnRecovered(
   outcome: RecoverInterruptedDialogTurnResponse,
 ): boolean {
   const { sessionId, turnId, executionGeneration } = outcome;
-  materializeSessionBeforeLifecycle(context, sessionId);
   const currentTurn = context.flowChatStore
     .getState()
     .sessions.get(sessionId)
@@ -3599,7 +3436,6 @@ export function projectDialogTurnRecovered(
   context.handledTerminalTurnEvents.delete(`${sessionId}:${turnId}`);
   context.contentBuffers.set(sessionId, new Map());
   context.activeTextItems.set(sessionId, new Map());
-  context.stagedSessionBatches?.delete(sessionId);
   context.flowChatStore.updateDialogTurn(sessionId, turnId, turn => ({
     ...turn,
     status: 'processing' as const,

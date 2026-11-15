@@ -1488,10 +1488,6 @@ export class AgentAPI {
     return api.listen<TextChunkEvent>('agentic://text-chunk', callback);
   }
 
-  onEventBatch(callback: () => void = () => {}): () => void {
-    return api.listen('agentic://event-batch', callback);
-  }
-
    
   onToolEvent(callback: (event: ToolEvent) => void): () => void {
     return api.listen<ToolEvent>('agentic://tool-event', callback);
