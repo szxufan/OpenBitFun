@@ -37,6 +37,13 @@ export interface FlowChatContext {
   contentBuffers: Map<string, Map<string, string>>;
   /** Active text items: sessionId -> (roundId -> textItemId) */
   activeTextItems: Map<string, Map<string, string>>;
+  /** Coalesced streaming chunks staged for hidden sessions until visible or checkpointed. */
+  stagedSessionBatches?: Map<string, Map<string, { key: string; payload: any }>>;
+  /** Materializes any staged streaming chunks for `sessionId` into `FlowChatStore`. */
+  materializeStagedSession?: (
+    sessionId: string,
+    options?: { silent?: boolean; flushBatcher?: boolean },
+  ) => boolean;
   /** Debounced save timers: key = "sessionId:turnId" */
   saveDebouncers: Map<string, ReturnType<typeof setTimeout>>;
   /** Last save timestamps: key = "sessionId:turnId" */

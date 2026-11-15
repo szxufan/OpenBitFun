@@ -255,6 +255,15 @@ impl WorkspaceService {
     }
 
     async fn ensure_workspace_runtime_best_effort(&self, workspace: &WorkspaceInfo, trigger: &str) {
+        Self::ensure_workspace_runtime_for_workspace(&self.runtime_service, workspace, trigger)
+            .await;
+    }
+
+    async fn ensure_workspace_runtime_for_workspace(
+        runtime_service: &WorkspaceRuntimeService,
+        workspace: &WorkspaceInfo,
+        trigger: &str,
+    ) {
         let result = match workspace.workspace_kind {
             WorkspaceKind::Remote => {
                 let Some(ssh_host) = workspace
@@ -278,7 +287,7 @@ impl WorkspaceService {
                         workspace.remote_ssh_connection_id(),
                         &workspace.root_path.to_string_lossy(),
                     );
-                self.runtime_service
+                runtime_service
                     .ensure_remote_workspace_runtime(
                         &identity_host,
                         &workspace.root_path.to_string_lossy(),
@@ -290,7 +299,7 @@ impl WorkspaceService {
                     return;
                 }
 
-                self.runtime_service
+                runtime_service
                     .ensure_local_workspace_runtime(&workspace.root_path)
                     .await
             }
@@ -1067,8 +1076,15 @@ impl WorkspaceService {
 
         if result.is_ok() {
             if let Some(workspace) = self.get_workspace(workspace_id).await {
-                self.ensure_workspace_runtime_best_effort(&workspace, "activated")
+                let runtime_service = self.runtime_service.clone();
+                tokio::spawn(async move {
+                    Self::ensure_workspace_runtime_for_workspace(
+                        &runtime_service,
+                        &workspace,
+                        "activated",
+                    )
                     .await;
+                });
             }
         }
 

@@ -12,13 +12,15 @@ type HighlightAPI = {
   Highlight?: new (...ranges: Range[]) => TextHighlight;
 };
 interface Arrival { start: number; end: number; at: number }
-interface TextRun { node: Text; start: number; end: number }
+interface TextRun { node: Text; start: number; end: number; skipHighlight?: boolean }
 interface OwnedRange {
   registry: Map<string, TextHighlight>;
   name: string;
   highlight: TextHighlight;
   range: Range;
 }
+
+const CODE_HIGHLIGHT_SKIP_CHARS = 512;
 
 function pruneEmptyBuckets(entries: OwnedRange[]): void {
   for (const { registry, name, highlight } of entries) {
@@ -27,16 +29,41 @@ function pruneEmptyBuckets(entries: OwnedRange[]): void {
 }
 
 function readRuns(root: HTMLElement): { runs: TextRun[]; text: string } {
-  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode: node => node.parentElement?.closest('button, [aria-hidden="true"], .katex-mathml')
-      ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
-  });
+  if (root.closest?.('button, [aria-hidden="true"], .katex-mathml')) {
+    return { runs: [], text: '' };
+  }
+  const walker = root.ownerDocument.createTreeWalker(
+    root,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    {
+      acceptNode: node => {
+        if (node.nodeType === 1 /* ELEMENT_NODE */) {
+          const el = node as Element;
+          if (
+            el.tagName === 'BUTTON' ||
+            el.getAttribute('aria-hidden') === 'true' ||
+            el.classList.contains('katex-mathml')
+          ) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_SKIP;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    },
+  );
   const runs: TextRun[] = [];
   let text = '';
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const start = text.length;
-    text += node.textContent ?? '';
-    runs.push({ node: node as Text, start, end: text.length });
+    const nodeText = node.textContent ?? '';
+    text += nodeText;
+    const parent = node.parentElement;
+    const skipHighlight =
+      nodeText.length > CODE_HIGHLIGHT_SKIP_CHARS &&
+      parent?.tagName === 'CODE' &&
+      parent.parentElement?.tagName === 'PRE';
+    runs.push({ node: node as Text, start, end: text.length, skipHighlight });
   }
   return { runs, text };
 }
@@ -143,6 +170,7 @@ export function useStreamingTextReveal(
       for (let index = low; index < current.runs.length; index++) {
         const run = current.runs[index];
         if (run.start >= arrival.end) break;
+        if (run.skipHighlight) continue;
         const start = Math.max(arrival.start, run.start);
         const end = Math.min(arrival.end, run.end);
         if (start >= end) continue;

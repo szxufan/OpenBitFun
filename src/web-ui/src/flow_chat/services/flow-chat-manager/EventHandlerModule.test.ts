@@ -7,9 +7,12 @@ import {
   handleSessionStateChanged,
   insertSteeringItemIfAbsent,
   isAppWindowFocused,
+  materializeStagedSessionBatch,
+  processBatchedEvents,
   projectDialogTurnRecovered,
   shouldProcessEvent,
 } from './EventHandlerModule';
+import { generateTextChunkKey, generateToolEventKey } from '../EventBatcher';
 import { stateMachineManager } from '../../state-machine';
 import { SessionExecutionEvent, SessionExecutionState } from '../../state-machine/types';
 import { FlowChatStore } from '../../store/FlowChatStore';
@@ -2552,5 +2555,206 @@ describe('model round host timing', () => {
     expect(round?.ttftMs).toBe(ttftMs);
     expect(round?.streamDurationMs).toBe(ttftMs === undefined ? undefined : 1_200);
     expect(round?.firstVisibleOutputMs).toBe(ttftMs === undefined ? undefined : 200);
+  });
+});
+
+describe('hidden session stream isolation', () => {
+  beforeEach(() => {
+    resetFlowChatStore();
+    stateMachineManager.clear();
+  });
+
+  afterEach(() => {
+    resetFlowChatStore();
+    stateMachineManager.clear();
+  });
+
+  it('stages hidden-session chunks with zero store notifications and materializes once on switchSession', () => {
+    const store = FlowChatStore.getInstance();
+    store.createSession('active-session', {});
+    store.createSession('hidden-session', {});
+    store.addDialogTurn('hidden-session', {
+      ...createFinishingTurn(),
+      id: 'hidden-turn',
+      sessionId: 'hidden-session',
+      status: 'processing',
+      modelRounds: [{
+        ...makeRound('hidden-round'),
+        items: [{
+          id: 'tool-1',
+          type: 'tool',
+          toolName: 'Edit',
+          timestamp: 1000,
+          status: 'streaming',
+          isParamsStreaming: true,
+          toolCall: { id: 'tool-1', input: {} },
+        } as FlowToolItem],
+      }],
+    });
+    store.switchSession('active-session');
+
+    const context: FlowChatContext = {
+      ...createFlowChatContext(),
+      stagedSessionBatches: new Map(),
+    };
+    context.materializeStagedSession = (sessionId, options) =>
+      materializeStagedSessionBatch(context, sessionId, options);
+    const unregisterVisible = store.registerBeforeSessionVisibleCallback((sessionId, { notify }) => {
+      materializeStagedSessionBatch(context, sessionId, {
+        silent: !notify,
+        flushBatcher: true,
+      });
+    });
+
+    let notifications = 0;
+    const initialState = store.getState();
+    const unsubscribe = store.subscribe(() => {
+      notifications += 1;
+    });
+
+    try {
+      const textPayload1 = {
+        sessionId: 'hidden-session',
+        turnId: 'hidden-turn',
+        roundId: 'hidden-round',
+        text: 'Hello ',
+        contentType: 'text' as const,
+      };
+      const textPayload2 = {
+        ...textPayload1,
+        text: 'background world!',
+      };
+      const paramsPayload1 = {
+        sessionId: 'hidden-session',
+        turnId: 'hidden-turn',
+        roundId: 'hidden-round',
+        toolEvent: {
+          event_type: 'ParamsPartial' as const,
+          tool_id: 'tool-1',
+          tool_name: 'Edit',
+          params: '{"path":"a',
+        },
+      };
+      const paramsPayload2 = {
+        ...paramsPayload1,
+        toolEvent: {
+          ...paramsPayload1.toolEvent,
+          params: '.ts"}',
+        },
+      };
+
+      processBatchedEvents(
+        context,
+        [
+          { key: generateTextChunkKey(textPayload1), payload: textPayload1 },
+          { key: generateToolEventKey(paramsPayload1)!.key, payload: paramsPayload1 },
+        ],
+        vi.fn(),
+      );
+      processBatchedEvents(
+        context,
+        [
+          { key: generateTextChunkKey(textPayload2), payload: textPayload2 },
+          { key: generateToolEventKey(paramsPayload2)!.key, payload: paramsPayload2 },
+        ],
+        vi.fn(),
+      );
+
+      expect(notifications).toBe(0);
+      expect(store.getState()).toBe(initialState);
+
+      store.switchSession('hidden-session');
+      expect(notifications).toBe(1);
+
+      const round = store.getState().sessions.get('hidden-session')?.dialogTurns[0].modelRounds[0];
+      const textItem = round?.items.find(item => item.type === 'text') as { content?: string } | undefined;
+      const toolItem = round?.items.find(item => item.id === 'tool-1') as FlowToolItem | undefined;
+      expect(textItem?.content).toBe('Hello background world!');
+      expect(toolItem?.toolCall?.input).toEqual({ path: 'a.ts' });
+    } finally {
+      unsubscribe();
+      unregisterVisible();
+      for (const timer of context.saveDebouncers.values()) {
+        clearTimeout(timer);
+      }
+    }
+  });
+
+  it('materializes staged hidden chunks when leased by a secondary split view or settled by round completion', async () => {
+    const store = FlowChatStore.getInstance();
+    store.createSession('active-session', {});
+    store.createSession('subagent-session', {});
+    store.addDialogTurn('subagent-session', {
+      ...createFinishingTurn(),
+      id: 'sub-turn',
+      sessionId: 'subagent-session',
+      status: 'processing',
+      modelRounds: [makeRound('sub-round')],
+    });
+    store.switchSession('active-session');
+    await stateMachineManager.transition('subagent-session', SessionExecutionEvent.START, {
+      taskId: 'subagent-session',
+      dialogTurnId: 'sub-turn',
+    });
+
+    const context: FlowChatContext = {
+      ...createFlowChatContext(),
+      stagedSessionBatches: new Map(),
+    };
+    const unregisterVisible = store.registerBeforeSessionVisibleCallback((sessionId, { notify }) => {
+      materializeStagedSessionBatch(context, sessionId, {
+        silent: !notify,
+        flushBatcher: true,
+      });
+    });
+
+    try {
+      const payload = {
+        sessionId: 'subagent-session',
+        turnId: 'sub-turn',
+        roundId: 'sub-round',
+        text: 'Streamed while hidden',
+        contentType: 'text' as const,
+      };
+      processBatchedEvents(
+        context,
+        [{ key: generateTextChunkKey(payload), payload }],
+        vi.fn(),
+      );
+      expect(
+        store.getState().sessions.get('subagent-session')?.dialogTurns[0].modelRounds[0].items,
+      ).toHaveLength(0);
+
+      const releaseLease = store.retainSessionHistory('subagent-session');
+      const leasedItems = store.getState().sessions.get('subagent-session')?.dialogTurns[0].modelRounds[0].items;
+      expect(leasedItems).toHaveLength(1);
+      expect((leasedItems?.[0] as { content?: string }).content).toBe('Streamed while hidden');
+      releaseLease();
+
+      // Stage another chunk after releasing the secondary split view, then complete the round.
+      const payload2 = {
+        ...payload,
+        text: ' + settled tail',
+      };
+      processBatchedEvents(
+        context,
+        [{ key: generateTextChunkKey(payload2), payload: payload2 }],
+        vi.fn(),
+      );
+      __test_only__.handleModelRoundComplete(context, {
+        sessionId: 'subagent-session',
+        turnId: 'sub-turn',
+        roundId: 'sub-round',
+        hasToolCalls: false,
+      });
+
+      const finalItems = store.getState().sessions.get('subagent-session')?.dialogTurns[0].modelRounds[0].items;
+      expect((finalItems?.[0] as { content?: string }).content).toBe('Streamed while hidden + settled tail');
+    } finally {
+      unregisterVisible();
+      for (const timer of context.saveDebouncers.values()) {
+        clearTimeout(timer);
+      }
+    }
   });
 });

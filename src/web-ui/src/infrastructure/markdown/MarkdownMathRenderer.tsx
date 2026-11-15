@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -15,6 +15,23 @@ import 'katex/dist/katex.min.css';
 import { rehypeSourceRange, type MarkdownSourceRange } from './rehypeSourceRange';
 import { rehypeWindowsDrivePaths } from './rehypeWindowsDrivePaths';
 import { rehypeImageThumbnails } from './rehypeImageThumbnails';
+
+function hasRawHastNode(node: any): boolean {
+  if (!node || typeof node !== 'object') return false;
+  if (node.type === 'raw') return true;
+  const children = node.children;
+  if (Array.isArray(children)) {
+    for (let i = 0; i < children.length; i += 1) {
+      if (hasRawHastNode(children[i])) return true;
+    }
+  }
+  return false;
+}
+
+function rehypeRawIfPresent() {
+  const runRehypeRaw = rehypeRaw();
+  return (tree: any, file: any) => (hasRawHastNode(tree) ? runRehypeRaw(tree, file) : tree);
+}
 
 interface MarkdownMathRendererProps {
   markdownContent: string;
@@ -39,10 +56,31 @@ export const MarkdownMathRenderer: React.FC<MarkdownMathRendererProps> = ({
   inline = false,
   imageThumbnails = false,
 }) => {
+  const remarkPlugins = useMemo(
+    () => [
+      [remarkGfm, markdownGfmOptions],
+      remarkMath,
+      [remarkStreamingTableLinks, { isStreaming }],
+      remarkAutolinkBoundaries,
+      remarkAutolinkComputerFileLinks,
+    ] as any,
+    [isStreaming, remarkAutolinkComputerFileLinks],
+  );
+  const rehypePlugins = useMemo(
+    () => [
+      rehypeRawIfPresent,
+      [rehypeWindowsDrivePaths, { markdownSource: markdownContent }],
+      [rehypeSanitize, sanitizeSchema],
+      [rehypeSourceRange, sourceRange],
+      rehypeKatex,
+      [rehypeImageThumbnails, { enabled: imageThumbnails }],
+    ] as any,
+    [markdownContent, sanitizeSchema, sourceRange, imageThumbnails],
+  );
   const content = (
     <ReactMarkdown
-      remarkPlugins={[[remarkGfm, markdownGfmOptions], remarkMath, [remarkStreamingTableLinks, { isStreaming }], remarkAutolinkBoundaries, remarkAutolinkComputerFileLinks]}
-      rehypePlugins={[rehypeRaw, [rehypeWindowsDrivePaths, { markdownSource: markdownContent }], [rehypeSanitize, sanitizeSchema], [rehypeSourceRange, sourceRange], rehypeKatex, [rehypeImageThumbnails, { enabled: imageThumbnails }]]}
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
       urlTransform={urlTransform}
       components={components}
     >

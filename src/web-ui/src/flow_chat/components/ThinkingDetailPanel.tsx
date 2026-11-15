@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { Button, ScrollArea } from '@openbitfun/ui';
 import { useContainedTailFollow } from '@openbitfun/flow-chat-presentation/scroll';
 import { useI18n } from '@/infrastructure/i18n';
@@ -31,6 +31,12 @@ function findThinkingItem(turns: Session['dialogTurns'], itemId: string): FlowTh
 export function ThinkingDetailPanel({ data }: { data: ThinkingDetailPanelData }) {
   const { t } = useI18n('flow-chat');
   const surface = useSyncExternalStore(onSurfaceActivated, getActiveSurfaceScope, getActiveSurfaceScope);
+  useEffect(() => {
+    if (!data.sessionId || surface.surfaceId !== data.surfaceId) {
+      return undefined;
+    }
+    return flowChatStore.retainSessionHistory?.(data.sessionId);
+  }, [data.sessionId, data.surfaceId, surface.surfaceId, surface.epoch]);
   const source = useMemo(() => {
     let snapshot = data.thinkingItem;
     let previousTurns: Session['dialogTurns'] | undefined;

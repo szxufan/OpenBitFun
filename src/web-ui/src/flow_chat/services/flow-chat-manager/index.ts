@@ -64,6 +64,7 @@ export {
   mapBackendStateToFrontend,
   initializeEventListeners,
   processBatchedEvents,
+  materializeStagedSessionBatch,
   projectDialogTurnRecovered,
 } from './EventHandlerModule';
 

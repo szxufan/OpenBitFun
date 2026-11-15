@@ -122,6 +122,8 @@ function countFoldedQueryOccurrences(foldedContent: string, foldedQuery: string)
 }
 
 const emptySearchMatches: SearchMatch[] = [];
+const EMPTY_MATCHES_BY_VIRTUAL_INDEX: ReadonlyMap<number, readonly SearchMatch[]> = new Map();
+const EMPTY_MATCH_INDICES: ReadonlySet<number> = new Set();
 type SearchMatchCache = WeakMap<VirtualItem, {
   query: string;
   virtualItemIndex: number;
@@ -173,11 +175,16 @@ export function buildFlowChatSearchMatches(
 /** Cache only match metadata while this view searches; folded text is temporary. */
 export function createFlowChatSearchMatcher() {
   let cache: SearchMatchCache = new WeakMap();
+  let hasEntries = false;
   return (items: readonly VirtualItem[], query: string): SearchMatch[] => {
     if (!query.trim()) {
-      cache = new WeakMap();
+      if (hasEntries) {
+        cache = new WeakMap();
+        hasEntries = false;
+      }
       return emptySearchMatches;
     }
+    hasEntries = true;
     return buildFlowChatSearchMatches(items, query, cache);
   };
 }
@@ -196,6 +203,7 @@ export function useFlowChatSearch(virtualItems: VirtualItem[]): UseFlowChatSearc
     : 0;
 
   const matchesByVirtualIndex = useMemo(() => {
+    if (matches.length === 0) return EMPTY_MATCHES_BY_VIRTUAL_INDEX;
     const grouped = new Map<number, SearchMatch[]>();
     for (const match of matches) {
       const row = grouped.get(match.virtualItemIndex);
@@ -206,7 +214,7 @@ export function useFlowChatSearch(virtualItems: VirtualItem[]): UseFlowChatSearc
   }, [matches]);
 
   const matchIndices = useMemo<ReadonlySet<number>>(() => (
-    new Set(matchesByVirtualIndex.keys())
+    matchesByVirtualIndex.size === 0 ? EMPTY_MATCH_INDICES : new Set(matchesByVirtualIndex.keys())
   ), [matchesByVirtualIndex]);
 
   const currentMatchVirtualIndex = matches[resolvedCurrentMatchIndex]?.virtualItemIndex ?? -1;

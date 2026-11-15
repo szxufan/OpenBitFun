@@ -852,7 +852,10 @@ export function useMiniAppBridge(
       ),
     );
 
+    const unlistenBatch = api.listen('agentic://event-batch', () => {});
+
     return () => {
+      unlistenBatch();
       unlistenSubagentLink();
       unlisteners.forEach((unlisten) => unlisten());
     };

@@ -17,10 +17,29 @@ import { parseDeepResearchContent } from '../deep-research/deepResearchProtocol'
 import { hasSessionFileProvider, readImageThroughSession, downloadFileThroughSession } from '../session-drivers/sessionFileNavigation';
 import { resolveSessionDriverId } from '../session-drivers/resolve';
 import { markdownSections } from '@/infrastructure/markdown/markdownSections';
+import { prewarmMarkdownParse } from '@/infrastructure/markdown/markdownParseCache';
 import './FlowTextBlock.scss';
 
 // Idle timeout (ms) after content stops growing.
 const CONTENT_IDLE_TIMEOUT = 500;
+
+function shallowEqualRecord(
+  a?: Record<string, unknown>,
+  b?: Record<string, unknown>,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (let i = 0; i < keysA.length; i += 1) {
+    const key = keysA[i];
+    if (!Object.prototype.hasOwnProperty.call(b, key) || a[key] !== b[key]) {
+      return false;
+    }
+  }
+  return true;
+}
 
 interface FlowTextBlockProps {
   textItem: FlowTextItem;
@@ -96,9 +115,23 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
   const isStreaming = textItem.isStreaming &&
     (textItem.status === 'streaming' || textItem.status === 'running')
     && (!markdownSection || markdownSection.end === fullContent.length);
+  const trailingSectionLenRef = useRef(0);
+  const activeTailLength = trailingSectionLenRef.current;
+  const adaptiveMinPaintIntervalMs = activeTailLength >= 10_000
+    ? 48
+    : activeTailLength >= 4_000
+      ? 32
+      : undefined;
+  const adaptiveMaxCharsPerPaint = activeTailLength >= 10_000
+    ? 96
+    : activeTailLength >= 4_000
+      ? 48
+      : undefined;
   const { displayText: displayContent, isRevealing } = useTypewriter(content, isStreaming, {
     replayOnMount: replayStreamingOnMount,
     revealImmediately: Boolean(markdownSection && markdownSection.end < fullContent.length),
+    minPaintIntervalMs: adaptiveMinPaintIntervalMs,
+    maxCharsPerPaint: adaptiveMaxCharsPerPaint,
   });
   useReportTypewriterReveal(textItem.id, isRevealing);
   // Keep streaming render mode until the typewriter finishes draining so the
@@ -162,7 +195,16 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
   // Keep streaming chrome while either the model is actively emitting or the
   // typewriter is still revealing leftover characters.
   const isActivelyStreaming = (isStreaming && isContentGrowing) || isRevealing;
-  const markdownTraceContext = isStartupRenderTraceEnabled() ? traceContext : undefined;
+  const renderTraceOn = isStartupRenderTraceEnabled();
+  const traceTurnId = traceContext?.turnId;
+  const traceRoundId = traceContext?.roundId;
+  const traceItemId = traceContext?.itemId;
+  const markdownTraceContext = useMemo<MarkdownTraceContext | undefined>(
+    () => (renderTraceOn && (traceTurnId || traceRoundId || traceItemId)
+      ? { turnId: traceTurnId, roundId: traceRoundId, itemId: traceItemId }
+      : undefined),
+    [renderTraceOn, traceTurnId, traceRoundId, traceItemId],
+  );
   const parsedContent = useMemo(
     () => parseDeepResearchContent(displayContent),
     [displayContent],
@@ -172,6 +214,40 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
   const sections = useMemo(() => markdownSection || parsedContent.hasProtocol || !textItem.isMarkdown
     ? [{ start: 0, end: displayContent.length }] : markdownSections(displayContent, { streaming: isVisuallyStreaming }),
   [displayContent, isVisuallyStreaming, markdownSection, parsedContent.hasProtocol, textItem.isMarkdown]);
+  const lastSection = sections[sections.length - 1];
+  trailingSectionLenRef.current = lastSection ? lastSection.end - lastSection.start : 0;
+
+  const prewarmedSectionCountRef = useRef(0);
+  const prewarmedItemIdRef = useRef(textItem.id);
+  const prewarmCancelsRef = useRef<Array<() => void>>([]);
+  useEffect(() => {
+    if (prewarmedItemIdRef.current !== textItem.id) {
+      prewarmedItemIdRef.current = textItem.id;
+      prewarmCancelsRef.current.forEach(cancel => cancel());
+      prewarmCancelsRef.current = [];
+      prewarmedSectionCountRef.current = 0;
+    }
+    const sealedCount = Math.max(0, sections.length - 1);
+    if (sealedCount < prewarmedSectionCountRef.current) {
+      prewarmCancelsRef.current.forEach(cancel => cancel());
+      prewarmCancelsRef.current = [];
+      prewarmedSectionCountRef.current = 0;
+    }
+    if (sealedCount <= prewarmedSectionCountRef.current) {
+      return;
+    }
+    for (let i = prewarmedSectionCountRef.current; i < sealedCount; i += 1) {
+      const sec = sections[i];
+      if (sec) {
+        prewarmCancelsRef.current.push(prewarmMarkdownParse(displayContent.slice(sec.start, sec.end)));
+      }
+    }
+    prewarmedSectionCountRef.current = sealedCount;
+  }, [displayContent, sections, textItem.id]);
+  useEffect(() => () => {
+    prewarmCancelsRef.current.forEach(cancel => cancel());
+    prewarmCancelsRef.current = [];
+  }, []);
 
   const renderMarkdown = (markdownContent: string, key?: React.Key, streaming = markdownStreaming, continuation = false) => (
     <MarkdownRenderer
@@ -265,11 +341,17 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
     prev.status === next.status &&
     prevProps.className === nextProps.className &&
     prevProps.replayStreamingOnMount === nextProps.replayStreamingOnMount &&
-    prevProps.traceContext === nextProps.traceContext &&
+    shallowEqualRecord(
+      prevProps.traceContext as Record<string, unknown> | undefined,
+      nextProps.traceContext as Record<string, unknown> | undefined,
+    ) &&
     prevProps.testId === nextProps.testId &&
     prevProps.hidden === nextProps.hidden &&
     prevProps.markdownSection?.start === nextProps.markdownSection?.start &&
     prevProps.markdownSection?.end === nextProps.markdownSection?.end &&
-    prevProps.testAttributes === nextProps.testAttributes
+    shallowEqualRecord(
+      prevProps.testAttributes as Record<string, unknown> | undefined,
+      nextProps.testAttributes as Record<string, unknown> | undefined,
+    )
   );
 });

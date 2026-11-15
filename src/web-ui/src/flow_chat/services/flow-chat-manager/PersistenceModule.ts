@@ -96,31 +96,214 @@ async function runSerialDialogTurnSave(
   await task;
 }
 
+const FNV_OFFSET_1 = 0x811c9dc5;
+const FNV_PRIME_1 = 0x01000193;
+const FNV_OFFSET_2 = 0x9e3779b9;
+const FNV_PRIME_2 = 0x85ebca6b;
+const MAX_HASH_STRING_SAMPLES = 64;
+const MAX_HASH_OBJECT_DEPTH = 5;
+
+const objectFingerprintCache = new WeakMap<object, readonly [number, number]>();
+
+function mixUint32(h1: number, h2: number, value: number): [number, number] {
+  const v = value | 0;
+  const next1 = Math.imul(h1 ^ (v & 0xffff), FNV_PRIME_1);
+  const next1Hi = Math.imul(next1 ^ ((v >>> 16) & 0xffff), FNV_PRIME_1);
+  const next2 = Math.imul(h2 ^ v, FNV_PRIME_2);
+  return [next1Hi >>> 0, (next2 ^ (next2 >>> 13)) >>> 0];
+}
+
+function mixStringSampled(h1: number, h2: number, text: string): [number, number] {
+  const len = text.length;
+  [h1, h2] = mixUint32(h1, h2, len);
+  if (len === 0) return [h1, h2];
+  if (len <= MAX_HASH_STRING_SAMPLES) {
+    for (let i = 0; i < len; i += 1) {
+      [h1, h2] = mixUint32(h1, h2, text.charCodeAt(i));
+    }
+    return [h1, h2];
+  }
+  // Sample prefix (16), suffix (16), and 32 evenly spaced interior code units
+  // with zero string slicing or heap allocation.
+  for (let i = 0; i < 16; i += 1) {
+    [h1, h2] = mixUint32(h1, h2, text.charCodeAt(i));
+  }
+  const interiorSpan = len - 32;
+  for (let s = 0; s < 32; s += 1) {
+    const idx = 16 + Math.floor(((s + 0.5) * interiorSpan) / 32);
+    [h1, h2] = mixUint32(h1, h2, text.charCodeAt(idx));
+  }
+  for (let i = len - 16; i < len; i += 1) {
+    [h1, h2] = mixUint32(h1, h2, text.charCodeAt(i));
+  }
+  return [h1, h2];
+}
+
+function fingerprintValue(value: unknown, depth: number): readonly [number, number] {
+  if (value === null) return [0x11, 0x22];
+  if (value === undefined) return [0x33, 0x44];
+  const kind = typeof value;
+  if (kind === 'string') {
+    return mixStringSampled(FNV_OFFSET_1, FNV_OFFSET_2, value as string);
+  }
+  if (kind === 'number') {
+    const n = value as number;
+    return Number.isFinite(n)
+      ? mixUint32(FNV_OFFSET_1, FNV_OFFSET_2, Math.floor(n) ^ Math.floor(n / 0x100000000))
+      : [0x55, 0x66];
+  }
+  if (kind === 'boolean') {
+    return (value as boolean) ? [0x77, 0x88] : [0x99, 0xaa];
+  }
+  if (kind !== 'object') {
+    return [0xbb, 0xcc];
+  }
+
+  const obj = value as object;
+  const canCacheObject = depth === MAX_HASH_OBJECT_DEPTH;
+  if (canCacheObject) {
+    const cached = objectFingerprintCache.get(obj);
+    if (cached) {
+      return cached;
+    }
+  }
+
+  let h1 = FNV_OFFSET_1;
+  let h2 = FNV_OFFSET_2;
+
+  if (Array.isArray(obj)) {
+    [h1, h2] = mixUint32(h1, h2, obj.length);
+    if (depth > 0) {
+      for (let i = 0; i < obj.length; i += 1) {
+        const [c1, c2] = fingerprintValue(obj[i], depth - 1);
+        [h1, h2] = mixUint32(h1, h2, c1);
+        [h1, h2] = mixUint32(h1, h2, c2);
+      }
+    }
+  } else {
+    let keyCount = 0;
+    for (const key in obj) {
+      if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+      keyCount += 1;
+      [h1, h2] = mixStringSampled(h1, h2, key);
+      if (depth > 0) {
+        const [c1, c2] = fingerprintValue((obj as Record<string, unknown>)[key], depth - 1);
+        [h1, h2] = mixUint32(h1, h2, c1);
+        [h1, h2] = mixUint32(h1, h2, c2);
+      }
+    }
+    [h1, h2] = mixUint32(h1, h2, keyCount);
+  }
+
+  const pair: readonly [number, number] = [h1, h2];
+  if (canCacheObject) {
+    objectFingerprintCache.set(obj, pair);
+  }
+  return pair;
+}
+
+type TurnModelRound = DialogTurn['modelRounds'][number];
+const settledRoundFingerprintCache = new WeakMap<TurnModelRound, readonly [number, number]>();
+
+function fingerprintModelRound(round: TurnModelRound): readonly [number, number] {
+  const isSettled = !round.isStreaming && Boolean(round.isComplete);
+  if (isSettled) {
+    const cached = settledRoundFingerprintCache.get(round);
+    if (cached) {
+      return cached;
+    }
+  }
+  let r1 = FNV_OFFSET_1;
+  let r2 = FNV_OFFSET_2;
+  [r1, r2] = mixStringSampled(r1, r2, round.id);
+  [r1, r2] = mixStringSampled(r1, r2, round.status || '');
+  [r1, r2] = mixUint32(r1, r2, (round.isStreaming ? 1 : 0) | (round.isComplete ? 2 : 0));
+  [r1, r2] = mixUint32(r1, r2, round.endTime ?? 0);
+  [r1, r2] = mixUint32(r1, r2, round.attemptCount ?? 0);
+  [r1, r2] = mixStringSampled(r1, r2, round.effectiveModelName || '');
+  [r1, r2] = mixUint32(r1, r2, round.items.length);
+  for (let i = 0; i < round.items.length; i += 1) {
+    const [i1, i2] = fingerprintValue(round.items[i], MAX_HASH_OBJECT_DEPTH);
+    [r1, r2] = mixUint32(r1, r2, i1);
+    [r1, r2] = mixUint32(r1, r2, i2);
+  }
+  if (round.attemptDiagnostics?.length) {
+    const [d1, d2] = fingerprintValue(round.attemptDiagnostics, 3);
+    [r1, r2] = mixUint32(r1, r2, d1);
+    [r1, r2] = mixUint32(r1, r2, d2);
+  }
+  const pair: readonly [number, number] = [r1, r2];
+  if (isSettled) {
+    settledRoundFingerprintCache.set(round, pair);
+  }
+  return pair;
+}
+
 /**
- * Calculate content hash for dialog turn (for deduplication)
+ * Calculate content hash for dialog turn (for deduplication).
+ * Uses zero-allocation structural fingerprinting + WeakMap memoization on
+ * immutable round items/results instead of full-turn JSON.stringify.
  */
 export function calculateTurnHash(dialogTurn: DialogTurn): string {
-  const keyData = JSON.stringify({
-    status: dialogTurn.status,
-    roundsCount: dialogTurn.modelRounds.length,
-    lastRoundData: dialogTurn.modelRounds[dialogTurn.modelRounds.length - 1]
-      ? {
-          ...dialogTurn.modelRounds[dialogTurn.modelRounds.length - 1],
-          items: dialogTurn.modelRounds[dialogTurn.modelRounds.length - 1].items,
-        }
-      : null,
-    error: dialogTurn.error,
-    endTime: dialogTurn.endTime,
-    tokenUsage: dialogTurn.tokenUsage,
-  });
-  
-  let hash = 0;
-  for (let i = 0; i < keyData.length; i++) {
-    const char = keyData.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
+  let h1 = FNV_OFFSET_1;
+  let h2 = FNV_OFFSET_2;
+
+  [h1, h2] = mixStringSampled(h1, h2, dialogTurn.status || '');
+  [h1, h2] = mixUint32(h1, h2, dialogTurn.modelRounds.length);
+  [h1, h2] = mixStringSampled(h1, h2, dialogTurn.error || '');
+  [h1, h2] = mixUint32(h1, h2, dialogTurn.endTime ?? 0);
+
+  if (dialogTurn.tokenUsage) {
+    [h1, h2] = mixUint32(h1, h2, dialogTurn.tokenUsage.inputTokens ?? -1);
+    [h1, h2] = mixUint32(h1, h2, dialogTurn.tokenUsage.outputTokens ?? -1);
+    [h1, h2] = mixUint32(h1, h2, dialogTurn.tokenUsage.totalTokens ?? -1);
+    [h1, h2] = mixUint32(h1, h2, dialogTurn.tokenUsage.cachedTokens ?? -1);
   }
-  return hash.toString(36);
+
+  for (let r = 0; r < dialogTurn.modelRounds.length; r += 1) {
+    const [r1, r2] = fingerprintModelRound(dialogTurn.modelRounds[r]);
+    [h1, h2] = mixUint32(h1, h2, r1);
+    [h1, h2] = mixUint32(h1, h2, r2);
+  }
+
+  return `${h1.toString(36)}_${h2.toString(36)}`;
+}
+
+const syncedUiSessionMetadataByContext = new WeakMap<FlowChatContext, Map<string, string>>();
+
+function getSyncedUiMetadataMap(context: FlowChatContext): Map<string, string> {
+  let map = syncedUiSessionMetadataByContext.get(context);
+  if (!map) {
+    map = new Map<string, string>();
+    syncedUiSessionMetadataByContext.set(context, map);
+  }
+  return map;
+}
+
+function isPeerProjectedNonAcpSession(session: any): boolean {
+  if (isLocalSurface(getActiveSurfaceScope().surfaceId)) {
+    return false;
+  }
+  const provider = session?.config?.customMetadata?.sessionProvider ?? session?.customMetadata?.sessionProvider;
+  return provider !== 'acp';
+}
+
+function computeUiMetadataSyncFingerprint(session: any): string {
+  const [f1, f2] = fingerprintValue(
+    {
+      title: session?.title ?? '',
+      titleSource: session?.titleSource ?? '',
+      titleKey: session?.titleKey ?? '',
+      titleParams: session?.titleParams ?? null,
+      externalPlaceholder: Boolean(session?.externalPlaceholder),
+      needsUserAttention: String(session?.needsUserAttention ?? ''),
+      hasUnreadCompletion: String(session?.hasUnreadCompletion ?? ''),
+      tags: session?.tags ?? null,
+      todos: session?.todos ?? null,
+    },
+    3,
+  );
+  return `${f1.toString(36)}_${f2.toString(36)}`;
 }
 
 /**
@@ -136,6 +319,10 @@ export function debouncedSaveDialogTurn(
   turnId: string,
   delay: number = 2000
 ): void {
+  const session = context.flowChatStore.getState().sessions.get(sessionId);
+  if (session && isPeerProjectedNonAcpSession(session)) {
+    return;
+  }
   const key = `${sessionId}:${turnId}`;
   
   const existingTimer = context.saveDebouncers.get(key);
@@ -163,11 +350,14 @@ export function immediateSaveDialogTurn(
   turnId: string,
   skipDuplicateCheck: boolean = false
 ): void {
+  const session = context.flowChatStore.getState().sessions.get(sessionId);
+  if (session && isPeerProjectedNonAcpSession(session)) {
+    return;
+  }
   const key = `${sessionId}:${turnId}`;
   const dialogTurn = getDialogTurn(context, sessionId, turnId);
   
   if (!skipDuplicateCheck) {
-    const session = context.flowChatStore.getState().sessions.get(sessionId);
     if (session) {
       if (dialogTurn) {
         const currentHash = calculateTurnHash(dialogTurn);
@@ -274,6 +464,14 @@ export function cleanupSaveState(
       context.deferredStorageIdentitySaves?.delete(key);
       context.turnSaveInFlight.delete(key);
     });
+    const syncedUiSessionMetadataKeys = syncedUiSessionMetadataByContext.get(context);
+    if (syncedUiSessionMetadataKeys) {
+      for (const metaKey of syncedUiSessionMetadataKeys.keys()) {
+        if (metaKey.endsWith(`:${sessionId}`)) {
+          syncedUiSessionMetadataKeys.delete(metaKey);
+        }
+      }
+    }
   }
 }
 
@@ -307,6 +505,7 @@ async function performSaveDialogTurnToDisk(
     const { sessionAPI } = await import('@/infrastructure/api/service-api/SessionAPI');
 
     scope.assertCurrent();
+    context.materializeStagedSession?.(sessionId, { silent: true, flushBatcher: true });
     const session = context.flowChatStore.getState().sessions.get(sessionId);
     if (!session) {
       skip('GenUI session is unavailable');
@@ -352,7 +551,23 @@ async function performSaveDialogTurnToDisk(
       requireSessionOwningWorkspaceId(session));
     
     scope.assertCurrent();
-    await updateSessionMetadata(context, sessionId);
+    // PersistenceManager::save_dialog_turn on the host already updates
+    // metadata.json activity/counts/last_turn atomically. Skip the extra
+    // load+save metadata double-IPC on mid-turn checkpoints unless UI-owned
+    // session metadata changed or the turn reached a terminal state.
+    const syncedUiSessionMetadataKeys = getSyncedUiMetadataMap(context);
+    const metaSyncKey = `${scope.surfaceId}:${sessionId}`;
+    const uiMetaFingerprint = computeUiMetadataSyncFingerprint(session);
+    const shouldSyncMetadata =
+      strict ||
+      isTerminalDialogTurnStatus(dialogTurn.status) ||
+      syncedUiSessionMetadataKeys.get(metaSyncKey) !== uiMetaFingerprint;
+    if (shouldSyncMetadata) {
+      const persistedMetadata = await performUpdateSessionMetadata(context, sessionId);
+      if (persistedMetadata && scope.isCurrent()) {
+        syncedUiSessionMetadataKeys.set(metaSyncKey, uiMetaFingerprint);
+      }
+    }
     scope.assertCurrent();
     
   } catch (error) {
@@ -367,6 +582,11 @@ async function performSaveDialogTurnToDisk(
  * app alive and settling here would clear in-memory "active" state (e.g. desktop pet bubbles).
  */
 export async function saveAllInProgressTurns(context: FlowChatContext): Promise<void> {
+  if (context.stagedSessionBatches && context.stagedSessionBatches.size > 0) {
+    for (const stagedSessionId of [...context.stagedSessionBatches.keys()]) {
+      context.materializeStagedSession?.(stagedSessionId, { silent: true, flushBatcher: true });
+    }
+  }
   const state = context.flowChatStore.getState();
   const savePromises: Promise<void>[] = [];
   
@@ -422,6 +642,126 @@ export async function saveAllInProgressTurns(context: FlowChatContext): Promise<
   await Promise.all(savePromises);
 }
 
+interface CachedBackendModelRound {
+  turnId: string;
+  roundIndex: number;
+  backendRound: any;
+}
+
+const settledBackendRoundCache = new WeakMap<DialogTurn['modelRounds'][number], CachedBackendModelRound>();
+
+function convertModelRoundToBackendFormat(
+  round: DialogTurn['modelRounds'][number],
+  turnId: string,
+  roundIndex: number,
+): any {
+  const isSettled = round.isStreaming === false && round.isComplete === true;
+  if (isSettled) {
+    const cached = settledBackendRoundCache.get(round);
+    if (cached && cached.turnId === turnId && cached.roundIndex === roundIndex) {
+      return cached.backendRound;
+    }
+  }
+
+  const textItems: any[] = [];
+  const toolItems: any[] = [];
+  const thinkingItems: any[] = [];
+
+  for (let index = 0; index < round.items.length; index += 1) {
+    const item = round.items[index];
+    if (item.type === 'text') {
+      const textItem = item as any;
+      textItems.push({
+        id: item.id,
+        content: textItem.content || '',
+        isStreaming: textItem.isStreaming || false,
+        isMarkdown: textItem.isMarkdown !== undefined ? textItem.isMarkdown : true,
+        timestamp: item.timestamp,
+        status: item.status || 'completed',
+        orderIndex: index,
+        subagentSessionId: textItem.subagentSessionId,
+        attemptId: item.attemptId,
+        attemptIndex: item.attemptIndex,
+      });
+    } else if (item.type === 'tool') {
+      const toolItem = item as any;
+      const effective = effectiveToolInvocation(toolItem.toolName, toolItem.toolCall?.input);
+      if (
+        toolItem.toolName === DEFERRED_TOOL_GATEWAY_NAME
+        && toolItem.status === 'completed'
+        && !effective.isDeferred
+      ) {
+        throw new Error(`Completed deferred tool is missing its wire invocation: ${item.id}`);
+      }
+      toolItems.push({
+        id: item.id,
+        toolName: toolItem.toolName || '',
+        interruptionReason: toolItem.interruptionReason,
+        toolCall: toolItem.toolCall || { input: {}, id: item.id },
+        toolResult: toolItem.toolResult,
+        aiIntent: toolItem.aiIntent,
+        requiresConfirmation: toolItem.requiresConfirmation,
+        userConfirmed: toolItem.userConfirmed,
+        acpPermission: toolItem.acpPermission,
+        startTime: toolItem.startTime || item.timestamp,
+        endTime: toolItem.endTime,
+        status: item.status || 'completed',
+        orderIndex: index,
+        subagentSessionId: toolItem.subagentSessionId,
+        subagentDialogTurnId: toolItem.subagentDialogTurnId,
+        subagentModelId: toolItem.subagentModelId,
+        subagentModelDisplayName: toolItem.subagentModelDisplayName,
+        attemptId: item.attemptId,
+        attemptIndex: item.attemptIndex,
+      });
+    } else if (item.type === 'thinking') {
+      const thinkingItem = item as any;
+      thinkingItems.push({
+        id: item.id,
+        content: thinkingItem.content || '',
+        isStreaming: thinkingItem.isStreaming || false,
+        isCollapsed: thinkingItem.isCollapsed || false,
+        timestamp: item.timestamp,
+        status: item.status || 'completed',
+        orderIndex: index,
+        subagentSessionId: thinkingItem.subagentSessionId,
+        attemptId: item.attemptId,
+        attemptIndex: item.attemptIndex,
+      });
+    }
+  }
+
+  const backendRound = {
+    id: round.id,
+    turnId,
+    roundIndex,
+    roundGroupId: round.roundGroupId,
+    timestamp: round.startTime,
+    renderHints: round.renderHints,
+    modelConfigId: round.modelConfigId,
+    effectiveModelName: round.effectiveModelName,
+    routing: round.routing,
+    textItems,
+    toolItems,
+    thinkingItems,
+    startTime: round.startTime,
+    endTime: round.endTime,
+    durationMs: round.durationMs,
+    firstChunkMs: round.firstChunkMs,
+    firstVisibleOutputMs: round.firstVisibleOutputMs,
+    streamDurationMs: round.streamDurationMs,
+    ttftMs: round.ttftMs,
+    attemptCount: round.attemptCount,
+    attemptDiagnostics: round.attemptDiagnostics,
+    status: round.status || 'completed',
+  };
+
+  if (isSettled) {
+    settledBackendRoundCache.set(round, { turnId, roundIndex, backendRound });
+  }
+  return backendRound;
+}
+
 /**
  * Convert FlowChat DialogTurn to backend format
  */
@@ -456,99 +796,9 @@ export function convertDialogTurnToBackendFormat(dialogTurn: DialogTurn, turnInd
       timestamp: dialogTurn.userMessage.timestamp,
       metadata: mergedUserMetadata,
     },
-    modelRounds: dialogTurn.modelRounds.map((round, roundIndex) => {
-      return {
-        id: round.id,
-        turnId: dialogTurn.id,
-        roundIndex,
-        roundGroupId: round.roundGroupId,
-        timestamp: round.startTime,
-        renderHints: round.renderHints,
-        modelConfigId: round.modelConfigId,
-        effectiveModelName: round.effectiveModelName,
-        routing: round.routing,
-        textItems: round.items
-          .map((item, index) => ({ item, index }))
-          .filter(({ item }) => item.type === 'text')
-          .map(({ item, index }) => {
-            return {
-              id: item.id,
-              content: (item as any).content || '',
-              isStreaming: (item as any).isStreaming || false,
-              isMarkdown: (item as any).isMarkdown !== undefined ? (item as any).isMarkdown : true,
-              timestamp: item.timestamp,
-              status: item.status || 'completed',
-              orderIndex: index,
-              subagentSessionId: (item as any).subagentSessionId,
-              attemptId: item.attemptId,
-              attemptIndex: item.attemptIndex,
-            };
-          }),
-        toolItems: round.items
-          .map((item, index) => ({ item, index }))
-          .filter(({ item }) => item.type === 'tool')
-          .map(({ item, index }) => {
-            const toolItem = item as any;
-            const effective = effectiveToolInvocation(toolItem.toolName, toolItem.toolCall?.input);
-            if (
-              toolItem.toolName === DEFERRED_TOOL_GATEWAY_NAME
-              && toolItem.status === 'completed'
-              && !effective.isDeferred
-            ) {
-              throw new Error(`Completed deferred tool is missing its wire invocation: ${item.id}`);
-            }
-            return {
-              id: item.id,
-              toolName: toolItem.toolName || '',
-              interruptionReason: toolItem.interruptionReason,
-              toolCall: toolItem.toolCall || { input: {}, id: item.id },
-              toolResult: toolItem.toolResult,
-              aiIntent: toolItem.aiIntent,
-              requiresConfirmation: toolItem.requiresConfirmation,
-              userConfirmed: toolItem.userConfirmed,
-              acpPermission: toolItem.acpPermission,
-              startTime: toolItem.startTime || item.timestamp,
-              endTime: toolItem.endTime,
-              status: item.status || 'completed',
-              orderIndex: index,
-              subagentSessionId: toolItem.subagentSessionId,
-              subagentDialogTurnId: toolItem.subagentDialogTurnId,
-              subagentModelId: toolItem.subagentModelId,
-              subagentModelDisplayName: toolItem.subagentModelDisplayName,
-              attemptId: item.attemptId,
-              attemptIndex: item.attemptIndex,
-            };
-          }),
-        thinkingItems: round.items
-          .map((item, index) => ({ item, index }))
-          .filter(({ item }) => item.type === 'thinking')
-          .map(({ item, index }) => {
-            const thinkingItem = item as any;
-            return {
-              id: item.id,
-              content: thinkingItem.content || '',
-              isStreaming: thinkingItem.isStreaming || false,
-              isCollapsed: thinkingItem.isCollapsed || false,
-              timestamp: item.timestamp,
-              status: item.status || 'completed',
-              orderIndex: index,
-              subagentSessionId: thinkingItem.subagentSessionId,
-              attemptId: item.attemptId,
-              attemptIndex: item.attemptIndex,
-            };
-          }),
-        startTime: round.startTime,
-        endTime: round.endTime,
-        durationMs: round.durationMs,
-        firstChunkMs: round.firstChunkMs,
-        firstVisibleOutputMs: round.firstVisibleOutputMs,
-        streamDurationMs: round.streamDurationMs,
-        ttftMs: round.ttftMs,
-        attemptCount: round.attemptCount,
-        attemptDiagnostics: round.attemptDiagnostics,
-        status: round.status || 'completed',
-      };
-    }),
+    modelRounds: dialogTurn.modelRounds.map((round, roundIndex) =>
+      convertModelRoundToBackendFormat(round, dialogTurn.id, roundIndex),
+    ),
     startTime: dialogTurn.startTime,
     endTime: dialogTurn.endTime,
     tokenUsage: dialogTurn.tokenUsage
@@ -585,17 +835,26 @@ export async function updateSessionMetadata(
   fields?: UiSessionMetadataField[],
   options?: { unreadReceipt?: SessionLastTurn },
 ): Promise<void> {
+  await performUpdateSessionMetadata(context, sessionId, fields, options);
+}
+
+async function performUpdateSessionMetadata(
+  context: FlowChatContext,
+  sessionId: string,
+  fields?: UiSessionMetadataField[],
+  options?: { unreadReceipt?: SessionLastTurn },
+): Promise<boolean> {
   const scope = getActiveSurfaceScope();
   // Runtime checkpoints already update host activity and counts. A peer
   // controller writes presentation metadata only for an explicit UI change.
-  if (!fields && !isLocalSurface(scope.surfaceId)) return;
+  if (!fields && !isLocalSurface(scope.surfaceId)) return true;
   try {
     const { sessionAPI } = await import('@/infrastructure/api/service-api/SessionAPI');
-    if (!scope.isCurrent()) return;
+    if (!scope.isCurrent()) return false;
 
     const session = context.flowChatStore.getState().sessions.get(sessionId);
-    if (!session) return;
-    if (isTransientSession(session) || isObserverOnlyDispatchSession(sessionId, session)) return;
+    if (!session) return false;
+    if (isTransientSession(session) || isObserverOnlyDispatchSession(sessionId, session)) return true;
 
 
     let existingMetadata: any = null;
@@ -610,9 +869,9 @@ export async function updateSessionMetadata(
       // unreachable remote workspace, a transient read failure) the write
       // would reset tags and title facts; the next checkpoint retries.
       log.debug('Skipped session metadata checkpoint: stored record unreadable', { sessionId, error });
-      return;
+      return false;
     }
-    if (!scope.isCurrent()) return;
+    if (!scope.isCurrent()) return false;
 
     const metadata = buildSessionMetadata(session, existingMetadata);
     if (fields?.includes('unreadCompletion')) {
@@ -638,8 +897,10 @@ export async function updateSessionMetadata(
       metadata,
       requireSessionOwningWorkspaceId(session),
       fields ?? defaultFields);
+    return true;
   } catch (error) {
     log.warn('Failed to update session metadata', { sessionId, error });
+    return false;
   }
 }
 

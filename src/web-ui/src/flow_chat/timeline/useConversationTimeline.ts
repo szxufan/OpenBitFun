@@ -20,6 +20,11 @@ export const retainedTimelineProjections = new RetainedViewMemory<FlowChatReader
   MAX_RETAINED_SESSION_VIEWS,
 );
 
+// Immutable completed text items and projected sources are tracked weakly at
+// module scope so session remounts do not re-walk and re-split already prewarmed content.
+const prewarmedTexts = new WeakSet<object>();
+const prewarmedSources = new WeakSet<object>();
+
 export function useConversationTimeline(sources: VirtualItem[], sessionId: string | undefined, viewport: string) {
   const { t } = useI18n('flow-chat');
   const transcriptSources = useHostQueueTimeline(sources, sessionId);
@@ -41,19 +46,11 @@ export function useConversationTimeline(sources: VirtualItem[], sessionId: strin
     return () => retainedTimelineProjections.put(reader, projection);
   }, [reader, projection]);
   const labels = useMemo(() => flowGroupToolLabels(t), [t]);
-  // Every streamed flush produces a new sources array; skip texts already
-  // queued or parsed instead of re-walking the whole timeline each time.
-  const prewarmedTextsRef = useRef<WeakSet<object>>(new WeakSet());
-  // A projected source is reused by identity only while its members are the
-  // same objects, so a source already walked has nothing new to queue.
-  const prewarmedSourcesRef = useRef<WeakSet<object>>(new WeakSet());
   useEffect(() => {
-    const seen = prewarmedTextsRef.current;
-    const seenSources = prewarmedSourcesRef.current;
     const texts = new Set<string>();
     for (const source of sources) {
-      if (seenSources.has(source)) continue;
-      seenSources.add(source);
+      if (prewarmedSources.has(source)) continue;
+      prewarmedSources.add(source);
       const members = source.type === 'explore-group' ? source.data.allItems
         : source.type === 'model-round' ? source.projectedGroups?.flatMap(group => group.type === 'critical' ? [group.item]
           : group.projection?.allItems ?? group.items) ?? source.data.items : [];
@@ -61,8 +58,8 @@ export function useConversationTimeline(sources: VirtualItem[], sessionId: strin
         if (member.type !== 'text' || !('content' in member) || typeof member.content !== 'string') continue;
         if ('isStreaming' in member && member.isStreaming) continue;
         if (member.content.length < 2000) continue;
-        if (seen.has(member)) continue;
-        seen.add(member);
+        if (prewarmedTexts.has(member)) continue;
+        prewarmedTexts.add(member);
         texts.add(member.content);
       }
     }

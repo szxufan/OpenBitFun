@@ -3,6 +3,7 @@ import { stateMachineManager } from '../state-machine';
 import { flowChatStore } from '../store/FlowChatStore';
 import {
   deriveSessionReviewActivity,
+  isSameSessionReviewActivity,
   type SessionReviewActivity,
 } from '../utils/sessionReviewActivity';
 
@@ -23,7 +24,8 @@ export function useSessionReviewActivity(
 
   useEffect(() => {
     const sync = () => {
-      setActivity(resolveCurrentActivity(parentSessionId));
+      const next = resolveCurrentActivity(parentSessionId);
+      setActivity(prev => (isSameSessionReviewActivity(prev, next) ? prev : next));
     };
 
     sync();

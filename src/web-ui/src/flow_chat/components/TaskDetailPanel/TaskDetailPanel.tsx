@@ -218,6 +218,27 @@ export const TaskDetailPanel: React.FC<TaskDetailPanelProps> = ({ data }) => {
   const contentRef = useRef<HTMLDivElement>(null);
   // Track auto-scroll; disable when the user scrolls up.
   const shouldAutoScrollRef = useRef(true);
+  const leasedSubagentSessionId = taskSnapshot.subagentSessionId || projectionSubagentSessionId;
+
+  useEffect(() => {
+    const store = FlowChatStore.getInstance();
+    const releases: Array<() => void> = [];
+    if (sessionId && typeof store.retainSessionHistory === 'function') {
+      releases.push(store.retainSessionHistory(sessionId));
+    }
+    if (
+      leasedSubagentSessionId &&
+      leasedSubagentSessionId !== sessionId &&
+      typeof store.retainSessionHistory === 'function'
+    ) {
+      releases.push(store.retainSessionHistory(leasedSubagentSessionId));
+    }
+    return () => {
+      for (const release of releases) {
+        release();
+      }
+    };
+  }, [leasedSubagentSessionId, sessionId]);
 
   // Collect only the state this detail panel cares about, and avoid re-rendering
   // when unrelated flow-chat updates arrive.

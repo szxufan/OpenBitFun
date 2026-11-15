@@ -109,12 +109,30 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
   const yieldToSuccessor = successorReady && (!(readerChoice ?? revealStreamingContent) || successor.immediate);
   const lastPreview = useRef('');
   const expandContainerRef = useRef<HTMLDivElement>(null);
+  const thinkingPaintIntervalMs = !isActive || isSummary
+    ? undefined
+    : content.length > 10_000
+      ? 48
+      : content.length > 4_000
+        ? 32
+        : undefined;
+  const thinkingMaxCharsPerPaint = !isActive || isSummary
+    ? undefined
+    : content.length > 10_000
+      ? 640
+      : content.length > 4_000
+        ? 400
+        : undefined;
   const { displayText: displayContent, isRevealing } = useTypewriter(
     isSummary ? '' : content,
     isActive && !isSummary,
     // Keep playback through the closing transition, then release the reveal
     // gate and track current content without animating an invisible backlog.
-    { revealImmediately: !retainClosingContent || yieldToSuccessor },
+    {
+      revealImmediately: !retainClosingContent || yieldToSuccessor,
+      minPaintIntervalMs: thinkingPaintIntervalMs,
+      maxCharsPerPaint: thinkingMaxCharsPerPaint,
+    },
   );
   // Keep footer presentation behind the handoff as well. A parent-owned fold
   // must not wait for its own retained child to close (a circular reveal gate).
@@ -199,7 +217,18 @@ export const ModelThinkingDisplay: React.FC<ModelThinkingDisplayProps> = ({
   }, [isVisuallyStreaming, streamingViewportExpanded, revealStreamingContent, streamIdentity, resume]);
 
   const contentLengthText = useMemo(() => {
-    return t('toolCards.think.thinkingCharacters', { count: Array.from(content).length });
+    let count = 0;
+    for (let i = 0; i < content.length; i += 1) {
+      const code = content.charCodeAt(i);
+      if (code >= 0xd800 && code <= 0xdbff && i + 1 < content.length) {
+        const low = content.charCodeAt(i + 1);
+        if (low >= 0xdc00 && low <= 0xdfff) {
+          i += 1;
+        }
+      }
+      count += 1;
+    }
+    return t('toolCards.think.thinkingCharacters', { count });
   }, [content, t]);
 
   const summaryPreview = useMemo(

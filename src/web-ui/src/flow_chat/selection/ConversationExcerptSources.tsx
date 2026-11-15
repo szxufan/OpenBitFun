@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import { getActiveSurfaceScope, surfaceScopedKey } from '@/infrastructure/peer-device/deviceSurface';
 import { flowChatStore } from '../store/FlowChatStore';
+import type { FlowChatState } from '../types/flow-chat';
 import { sessionComposerStore } from '../store/sessionComposerStore';
 import { pendingQueueManager } from '../services/flow-chat-manager/PendingQueueModule';
 import { createConversationExcerptInventory, EMPTY_SOURCE_INDEX } from './conversationExcerptInventory';
@@ -8,8 +9,32 @@ import { ConversationExcerptSourceContext } from './conversationExcerptSourceCon
 
 const inventory = createConversationExcerptInventory();
 
+function createSessionKeysSelector(): (state: FlowChatState) => number {
+  let previousIds: string[] = [];
+  let revision = 0;
+
+  return (state: FlowChatState): number => {
+    let changed = previousIds.length !== state.sessions.size;
+    if (!changed) {
+      let index = 0;
+      for (const id of state.sessions.keys()) {
+        if (previousIds[index] !== id) {
+          changed = true;
+          break;
+        }
+        index += 1;
+      }
+    }
+    if (changed) {
+      previousIds = Array.from(state.sessions.keys());
+      revision += 1;
+    }
+    return revision;
+  };
+}
+
 function subscribe(notify: () => void) {
-  const stopSession = flowChatStore.subscribe(notify);
+  const stopSession = flowChatStore.subscribeSelector(createSessionKeysSelector(), notify);
   const stopDraft = sessionComposerStore.subscribe(notify);
   const stopQueue = pendingQueueManager.subscribe(notify);
   return () => { stopSession(); stopDraft(); stopQueue(); };

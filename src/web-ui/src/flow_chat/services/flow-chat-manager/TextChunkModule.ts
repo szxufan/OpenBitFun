@@ -337,6 +337,7 @@ export function cleanupSessionBuffers(context: FlowChatContext, sessionId: strin
   if (context.eventBatcher.getBufferSize() > 0) {
     context.eventBatcher.clearSession(sessionId);
   }
+  context.stagedSessionBatches?.delete(sessionId);
 
   const pendingCompletion = context.pendingTurnCompletions.get(sessionId);
   if (pendingCompletion) {
@@ -387,6 +388,7 @@ export function clearAllBuffers(context: FlowChatContext): void {
 
   context.contentBuffers.clear();
   context.activeTextItems.clear();
+  context.stagedSessionBatches?.clear();
 
   for (const timer of context.runtimeStatusTimers.values()) {
     clearTimeout(timer);

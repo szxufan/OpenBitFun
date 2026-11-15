@@ -821,9 +821,10 @@ async fn clear_active_workspace_context(
     state: &State<'_, AppState>,
     app: &AppHandle,
     startup_trace: Option<&DesktopStartupTrace>,
+    reset_menubar: bool,
 ) {
     #[cfg(not(target_os = "macos"))]
-    let _ = app;
+    let _ = (app, reset_menubar);
 
     let step_started = Instant::now();
     let previous_workspace_id = state.workspace_id.write().await.take();
@@ -880,7 +881,7 @@ async fn clear_active_workspace_context(
     }
 
     #[cfg(target_os = "macos")]
-    {
+    if reset_menubar {
         let step_started = Instant::now();
         let language = state
             .config_service
@@ -914,7 +915,7 @@ async fn apply_active_workspace_context(
     let _ = app;
 
     let step_started = Instant::now();
-    clear_active_workspace_context(state, app, startup_trace).await;
+    clear_active_workspace_context(state, app, startup_trace, false).await;
     if let Some(trace) = startup_trace {
         trace.record_elapsed_step(
             "tauri_command",
@@ -1024,7 +1025,7 @@ async fn initialize_global_state_impl(
         );
     } else {
         let step_started = Instant::now();
-        clear_active_workspace_context(state, app, Some(trace)).await;
+        clear_active_workspace_context(state, app, Some(trace), true).await;
         trace.record_elapsed_step(
             "tauri_command",
             "initialize_global_state.clear_active_workspace_context",
@@ -1756,7 +1757,7 @@ pub async fn delete_assistant_workspace(
     if let Some(current_workspace) = state.workspace_service.get_current_workspace().await {
         apply_active_workspace_context(&state, &app, &current_workspace, None).await;
     } else {
-        clear_active_workspace_context(&state, &app, None).await;
+        clear_active_workspace_context(&state, &app, None, true).await;
     }
 
     if let Err(e) = state
@@ -1967,7 +1968,7 @@ pub async fn close_workspace(
             if let Some(workspace_info) = state.workspace_service.get_current_workspace().await {
                 apply_active_workspace_context(&state, &app, &workspace_info, None).await;
             } else {
-                clear_active_workspace_context(&state, &app, None).await;
+                clear_active_workspace_context(&state, &app, None, true).await;
             }
 
             info!("Workspace closed: workspace_id={}", request.workspace_id);
@@ -2297,7 +2298,7 @@ async fn cleanup_invalid_workspaces_impl(
             if let Some(workspace_info) = state.workspace_service.get_current_workspace().await {
                 apply_active_workspace_context(state, app, &workspace_info, None).await;
             } else {
-                clear_active_workspace_context(state, app, None).await;
+                clear_active_workspace_context(state, app, None, true).await;
             }
             startup_trace.record_elapsed_step(
                 "tauri_command",

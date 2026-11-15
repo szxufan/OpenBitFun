@@ -51,6 +51,7 @@ export class SnapshotStateManager {
   private eventBus: SnapshotEventBus;
   private snapshotService: SnapshotSystemService;
   private readonly surfaces = new Map<DeviceSurfaceId, SurfaceSnapshotState>();
+  private readonly inFlightSessionRefreshes = new Map<string, Promise<void>>();
 
   private get currentSurface(): SurfaceSnapshotState {
     const surfaceId = getActiveSurfaceId();
@@ -168,52 +169,67 @@ export class SnapshotStateManager {
       shouldRefreshSnapshotForSession(flowChatStore.getState().sessions.get(sessionId), sessionId);
     if (!canRefresh()) return;
 
-    try {
-      const stats = await this.snapshotService.getSessionStats(sessionId);
-      if (!canRefresh()) return;
-      
-      const sessionState: SessionState = {
-        sessionId,
-        files: new Map(),
-        totalBlocks: 0,
-        acceptedBlocks: 0,
-        rejectedBlocks: 0,
-        pendingBlocks: 0,
-        sessionStatus: stats.total_changes > 0 ? 'pending' : 'working',
-        lastActivity: Date.now()
-      };
-
-      // NOTE: `getSessionStats` does not include file lists. Fetch files separately when available.
-      try {
-        const { snapshotAPI } = await import('@/infrastructure/api');
-        if (!canRefresh()) return;
-        const files = await snapshotAPI.getSessionFiles(sessionId);
-        if (!canRefresh()) return;
-
-        for (const filePath of files) {
-          const snapshotFile: SnapshotFile = {
-            filePath,
-            sessionId,
-            originalContent: '', // loaded on demand
-            modifiedContent: '', // loaded on demand
-            fileStatus: 'pending',
-            lastModified: Date.now()
-          };
-
-          sessionState.files.set(filePath, snapshotFile);
-          this.files.set(filePath, snapshotFile);
-        }
-      } catch (fileListError) {
-        if (!canRefresh()) return;
-        log.warn('Failed to get file list, using basic stats', { sessionId, error: fileListError });
-      }
-
-      this.sessions.set(sessionId, sessionState);
-      this.eventBus.emit(SNAPSHOT_EVENTS.SESSION_STATE_CHANGED, sessionState, sessionId);
-    } catch (error) {
-      if (!canRefresh()) return;
-      log.error('Failed to refresh session state', { sessionId, error });
+    const refreshKey = scope.key(scope.epoch, sessionId);
+    const existing = this.inFlightSessionRefreshes.get(refreshKey);
+    if (existing) {
+      return existing;
     }
+
+    const promise = (async () => {
+      try {
+        const stats = await this.snapshotService.getSessionStats(sessionId);
+        if (!canRefresh()) return;
+        
+        const sessionState: SessionState = {
+          sessionId,
+          files: new Map(),
+          totalBlocks: 0,
+          acceptedBlocks: 0,
+          rejectedBlocks: 0,
+          pendingBlocks: 0,
+          sessionStatus: stats.total_changes > 0 ? 'pending' : 'working',
+          lastActivity: Date.now()
+        };
+
+        // NOTE: `getSessionStats` does not include file lists. Fetch files separately when available.
+        try {
+          const { snapshotAPI } = await import('@/infrastructure/api');
+          if (!canRefresh()) return;
+          const files = await snapshotAPI.getSessionFiles(sessionId);
+          if (!canRefresh()) return;
+
+          for (const filePath of files) {
+            const snapshotFile: SnapshotFile = {
+              filePath,
+              sessionId,
+              originalContent: '', // loaded on demand
+              modifiedContent: '', // loaded on demand
+              fileStatus: 'pending',
+              lastModified: Date.now()
+            };
+
+            sessionState.files.set(filePath, snapshotFile);
+            this.files.set(filePath, snapshotFile);
+          }
+        } catch (fileListError) {
+          if (!canRefresh()) return;
+          log.warn('Failed to get file list, using basic stats', { sessionId, error: fileListError });
+        }
+
+        this.sessions.set(sessionId, sessionState);
+        this.eventBus.emit(SNAPSHOT_EVENTS.SESSION_STATE_CHANGED, sessionState, sessionId);
+      } catch (error) {
+        if (!canRefresh()) return;
+        log.error('Failed to refresh session state', { sessionId, error });
+      }
+    })().finally(() => {
+      if (this.inFlightSessionRefreshes.get(refreshKey) === promise) {
+        this.inFlightSessionRefreshes.delete(refreshKey);
+      }
+    });
+
+    this.inFlightSessionRefreshes.set(refreshKey, promise);
+    return promise;
   }
 
   async refreshFileState(sessionId: string, filePath: string): Promise<void> {

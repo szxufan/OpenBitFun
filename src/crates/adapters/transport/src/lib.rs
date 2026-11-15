@@ -11,4 +11,4 @@ pub use json::{encode_json_with_limit, JsonCodecError};
 pub use traits::TransportAdapter;
 
 #[cfg(feature = "tauri-adapter")]
-pub use adapters::TauriTransportAdapter;
+pub use adapters::{TauriBatchedEvent, TauriTransportAdapter, TAURI_EVENT_BATCH_NAME};

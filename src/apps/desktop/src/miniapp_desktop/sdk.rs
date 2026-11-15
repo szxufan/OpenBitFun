@@ -241,7 +241,7 @@ pub(crate) fn install_events(app: &tauri::AppHandle) {
             }
         }
     });
-    for event_name in [
+    const FORWARDED_AGENTIC_EVENTS: [&str; 10] = [
         "dialog-turn-started",
         "model-round-started",
         "model-round-completed",
@@ -252,38 +252,65 @@ pub(crate) fn install_events(app: &tauri::AppHandle) {
         "dialog-turn-cancelled",
         "token-usage-updated",
         "subagent-session-linked",
-    ] {
+    ];
+
+    fn forward_miniapp_agentic_event(
+        handle: &tauri::AppHandle,
+        event_name: &str,
+        mut payload: Value,
+    ) {
+        let Some(session) = payload["sessionId"].as_str().map(str::to_owned) else {
+            return;
+        };
+        let parent = payload["parentSessionId"].as_str().map(str::to_owned);
+        payload["sourceEvent"] = json!(event_name);
+        let host = handle.state::<DesktopMiniApps>();
+        let mut owners = host.sessions.lock().unwrap_or_else(|p| p.into_inner());
+        for lease in host
+            .shells
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .values_mut()
+        {
+            let sessions = owners.entry(lease.instance_id.clone()).or_default();
+            if sessions.contains(&session)
+                || (event_name == "subagent-session-linked"
+                    && parent
+                        .as_ref()
+                        .is_some_and(|parent| sessions.contains(parent)))
+            {
+                sessions.insert(session.clone());
+                lease.push("agent:event", payload.clone());
+            }
+        }
+    }
+
+    for event_name in FORWARDED_AGENTIC_EVENTS {
         let handle = app.clone();
         app.listen(format!("agentic://{event_name}"), move |event| {
-            let Ok(mut payload) = serde_json::from_str::<Value>(event.payload()) else {
+            let Ok(payload) = serde_json::from_str::<Value>(event.payload()) else {
                 return;
             };
-            let Some(session) = payload["sessionId"].as_str().map(str::to_owned) else {
-                return;
-            };
-            let parent = payload["parentSessionId"].as_str().map(str::to_owned);
-            payload["sourceEvent"] = json!(event_name);
-            let host = handle.state::<DesktopMiniApps>();
-            let mut owners = host.sessions.lock().unwrap_or_else(|p| p.into_inner());
-            for lease in host
-                .shells
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .values_mut()
-            {
-                let sessions = owners.entry(lease.instance_id.clone()).or_default();
-                if sessions.contains(&session)
-                    || (event_name == "subagent-session-linked"
-                        && parent
-                            .as_ref()
-                            .is_some_and(|parent| sessions.contains(parent)))
-                {
-                    sessions.insert(session.clone());
-                    lease.push("agent:event", payload.clone());
-                }
-            }
+            forward_miniapp_agentic_event(&handle, event_name, payload);
         });
     }
+
+    let batch_handle = app.clone();
+    app.listen(openbitfun_transport::TAURI_EVENT_BATCH_NAME, move |event| {
+        let Ok(entries) =
+            serde_json::from_str::<Vec<openbitfun_transport::TauriBatchedEvent>>(event.payload())
+        else {
+            return;
+        };
+        for entry in entries {
+            let Some(short_name) = entry.event.strip_prefix("agentic://") else {
+                continue;
+            };
+            if FORWARDED_AGENTIC_EVENTS.contains(&short_name) {
+                forward_miniapp_agentic_event(&batch_handle, short_name, entry.payload);
+            }
+        }
+    });
 }
 
 pub(crate) fn install_worker_events(app: &tauri::AppHandle, app_id: &str) {

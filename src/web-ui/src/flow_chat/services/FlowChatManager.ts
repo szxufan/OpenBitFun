@@ -26,6 +26,7 @@ import {
 } from '@/infrastructure/peer-device/deviceSurface';
 import type { WorkspaceInfo } from '@/shared/types';
 import { getDeviceOpenIntent, selectsDeviceSession } from '@/infrastructure/peer-device/deviceOpenIntent';
+import { getPendingWorkspaceSessionActivation } from './pendingWorkspaceSessionActivation';
 import type { Session } from '../types/flow-chat';
 import {
   compareSessionsForDisplay,
@@ -73,6 +74,7 @@ import {
   updateSessionMetadata,
 } from './flow-chat-manager';
 import { ensureBackendSession } from './flow-chat-manager/SessionModule';
+import { materializeStagedSessionBatch } from './flow-chat-manager/EventHandlerModule';
 import { prepareSessionDraftForCommand, selectDraftWorkspace } from './sessionDraftService';
 import { installPeerSessionRefresh } from './flow-chat-manager/PeerSessionRefreshModule';
 import { installDispatchJobObserver } from '../session-drivers/dispatch/install';
@@ -115,6 +117,8 @@ export class FlowChatManager {
   private dispatchJobObserverCleanup: (() => void) | null = null;
   private navStatusCleanup: (() => void) | null = null;
   private surfaceActivationCleanup: (() => void) | null = null;
+  private beforeSessionVisibleCleanup: (() => void) | null = null;
+  private sessionBuffersDiscardedCleanup: (() => void) | null = null;
   private eventListenerRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
 
@@ -131,6 +135,9 @@ export class FlowChatManager {
       pendingContextRestores: new Map(),
       contentBuffers: new Map(),
       activeTextItems: new Map(),
+      stagedSessionBatches: new Map(),
+      materializeStagedSession: (sessionId, options) =>
+        materializeStagedSessionBatch(this.context, sessionId, options),
       saveDebouncers: new Map(),
       lastSaveTimestamps: new Map(),
       lastSaveHashes: new Map(),
@@ -154,6 +161,17 @@ export class FlowChatManager {
         log.warn('Failed to persist unread completion change', { sessionId, value, err });
       });
     });
+    this.beforeSessionVisibleCleanup =
+      this.context.flowChatStore.registerBeforeSessionVisibleCallback?.((sessionId, { notify }) => {
+        materializeStagedSessionBatch(this.context, sessionId, {
+          silent: !notify,
+          flushBatcher: true,
+        });
+      }) ?? null;
+    this.sessionBuffersDiscardedCleanup =
+      this.context.flowChatStore.registerSessionBuffersDiscardedCallback?.(sessionId => {
+        cleanupSessionBuffers(this.context, sessionId);
+      }) ?? null;
     installPendingQueueDrainListener(this.context);
     this.peerSessionRefreshCleanup = installPeerSessionRefresh(this.context);
     this.dispatchJobObserverCleanup = installDispatchJobObserver(this.context);
@@ -303,6 +321,14 @@ export class FlowChatManager {
           this.context.currentWorkspacePath = workspacePath;
         }
         return hasHistoricalSessions;
+      }
+      const pendingTargetSessionId = getPendingWorkspaceSessionActivation(scope.surfaceId, workspaceId);
+      if (pendingTargetSessionId) {
+        if (isCurrentInitializationRequest()) {
+          this.context.currentWorkspaceId = workspaceId;
+          this.context.currentWorkspacePath = workspacePath;
+        }
+        return hasHistoricalSessions || state.sessions.has(pendingTargetSessionId);
       }
       const activeSession = state.activeSessionId
         ? state.sessions.get(state.activeSessionId) ?? null
@@ -563,6 +589,7 @@ export class FlowChatManager {
       cleanupSaveState(this.context, sessionId);
       cleanupSessionBuffers(this.context, sessionId);
     });
+    this.context.stagedSessionBatches?.clear();
     this.context.flowChatStore.prepareForSurfaceSwitch();
     try {
       useModernFlowChatStore.getState().clear();
@@ -600,6 +627,10 @@ export class FlowChatManager {
     }
     this.surfaceActivationCleanup?.();
     this.surfaceActivationCleanup = null;
+    this.beforeSessionVisibleCleanup?.();
+    this.beforeSessionVisibleCleanup = null;
+    this.sessionBuffersDiscardedCleanup?.();
+    this.sessionBuffersDiscardedCleanup = null;
     this.peerSessionRefreshCleanup?.();
     this.peerSessionRefreshCleanup = null;
     this.dispatchJobObserverCleanup?.();

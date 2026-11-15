@@ -77,10 +77,10 @@ class WorkspaceGitInitializer {
 
   private async handleWorkspaceClosed(workspaceId: string): Promise<void> {
     try {
-      if (this.currentWorkspaceId) {
-        gitStateManager.invalidateCache({ workspaceId: this.currentWorkspaceId }, ['basic', 'status', 'detailed']);
+      gitStateManager.invalidateCache({ workspaceId }, ['basic', 'status', 'detailed']);
+      if (this.currentWorkspaceId === workspaceId) {
+        this.currentWorkspaceId = null;
       }
-      this.currentWorkspaceId = null;
     } catch (error) {
       log.error('Failed to cleanup Git state', { workspaceId, error });
     }
@@ -88,14 +88,11 @@ class WorkspaceGitInitializer {
 
   private async handleWorkspaceSwitched(workspaceId: string): Promise<void> {
     try {
-      if (this.currentWorkspaceId && this.currentWorkspaceId !== workspaceId) {
-        gitStateManager.invalidateCache({ workspaceId: this.currentWorkspaceId }, ['basic', 'status', 'detailed']);
-      }
       this.currentWorkspaceId = workspaceId;
       await gitStateManager.refresh({ workspaceId }, {
         layers: ['basic'],
         reason: 'mount',
-        force: true,
+        force: false,
         source: 'workspace_git_initializer',
       });
     } catch (error) {

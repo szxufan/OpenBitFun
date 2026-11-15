@@ -1449,8 +1449,9 @@ class WorkspaceManager {
         return currentWorkspace;
       }
 
-      this.setLoading(true);
-      this.setError(null);
+      if (this.state.error !== null) {
+        this.setError(null);
+      }
 
       const isClosedAssistant = !this.state.openedWorkspaces.has(workspaceId)
         && this.state.assistantWorkspaces?.some(workspace => workspace.id === workspaceId);
@@ -1466,11 +1467,15 @@ class WorkspaceManager {
       // user waits on (opening a session in another workspace waits on this).
       const knownOpened = this.getOpenedWorkspacesList();
       const opened = knownOpened.some(candidate => candidate.id === workspace.id)
-        ? knownOpened : [workspace, ...knownOpened];
+        ? knownOpened.map(candidate => (candidate.id === workspace.id ? workspace : candidate))
+        : [workspace, ...knownOpened];
+      const optimisticRecent = workspace.workspaceKind === WorkspaceKind.Assistant
+        ? this.state.recentWorkspaces
+        : [workspace, ...this.state.recentWorkspaces.filter(candidate => candidate.id !== workspace.id)];
       const switchSequence = ++this.activeWorkspaceSwitchSequence;
       this.updateWorkspaceState(
         workspace,
-        this.state.recentWorkspaces,
+        optimisticRecent,
         this.preserveOpenedWorkspaceOrder(opened),
         false,
         null,

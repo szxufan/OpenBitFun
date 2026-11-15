@@ -118,6 +118,27 @@ export function isReviewActivityBlocking(
   return Boolean(activity?.isBlocking);
 }
 
+export function isSameSessionReviewActivity(
+  left: SessionReviewActivity | null,
+  right: SessionReviewActivity | null,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  return (
+    left.parentSessionId === right.parentSessionId &&
+    left.childSessionId === right.childSessionId &&
+    left.kind === right.kind &&
+    left.lifecycle === right.lifecycle &&
+    left.isBlocking === right.isBlocking &&
+    left.startedAt === right.startedAt &&
+    left.updatedAt === right.updatedAt
+  );
+}
+
 export function deriveSessionReviewActivity(
   state: FlowChatState,
   parentSessionId?: string | null,
@@ -127,15 +148,28 @@ export function deriveSessionReviewActivity(
     return null;
   }
 
-  const activities = Array.from(state.sessions.values())
-    .map(session => toReviewActivity(session, parentSessionId, resolveExecutionState))
-    .filter((activity): activity is SessionReviewActivity => Boolean(activity));
+  let bestBlocking: SessionReviewActivity | null = null;
+  let bestAny: SessionReviewActivity | null = null;
 
-  const blockingActivities = activities.filter(activity => activity.isBlocking);
-  const candidates = blockingActivities.length > 0 ? blockingActivities : activities;
+  const isNewer = (candidate: SessionReviewActivity, current: SessionReviewActivity | null): boolean => {
+    if (!current) return true;
+    const updatedDelta = candidate.updatedAt - current.updatedAt;
+    return updatedDelta !== 0 ? updatedDelta > 0 : candidate.startedAt > current.startedAt;
+  };
 
-  return candidates.sort((left, right) => {
-    const updatedDelta = right.updatedAt - left.updatedAt;
-    return updatedDelta !== 0 ? updatedDelta : right.startedAt - left.startedAt;
-  })[0] ?? null;
+  for (const session of state.sessions.values()) {
+    const activity = toReviewActivity(session, parentSessionId, resolveExecutionState);
+    if (!activity) {
+      continue;
+    }
+    if (activity.isBlocking) {
+      if (isNewer(activity, bestBlocking)) {
+        bestBlocking = activity;
+      }
+    } else if (!bestBlocking && isNewer(activity, bestAny)) {
+      bestAny = activity;
+    }
+  }
+
+  return bestBlocking ?? bestAny;
 }

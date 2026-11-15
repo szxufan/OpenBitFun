@@ -22,6 +22,13 @@ export class SessionNavOrdering {
     return this.surfaces.get(surfaceId)?.keys() ?? [];
   }
 
+  updateSessionRef(surfaceId: DeviceSurfaceId, session: Session): void {
+    const entry = this.surfaces.get(surfaceId)?.get(session.sessionId);
+    if (entry) {
+      entry.session = session;
+    }
+  }
+
   observe(surfaceId: DeviceSurfaceId, session: Session, status: SessionNavStatus, now = Date.now()): boolean {
     let entries = this.surfaces.get(surfaceId);
     if (!entries) this.surfaces.set(surfaceId, entries = new Map());

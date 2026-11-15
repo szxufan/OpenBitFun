@@ -8,6 +8,10 @@ import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurfac
 import { resolveSessionSceneWorkspace } from '@/app/services/sessionSceneTarget';
 import { sessionProjectWorkspacePath } from '../utils/sessionWorkspace';
 import { i18nService } from '@/infrastructure/i18n';
+import {
+  clearPendingWorkspaceSessionActivation,
+  setPendingWorkspaceSessionActivation,
+} from './pendingWorkspaceSessionActivation';
 
 interface SessionActivationOptions {
   workspaceId?: string;
@@ -50,51 +54,79 @@ export async function activateMainSession(sessionId: string, options?: SessionAc
     && workspaceManager.getState().currentWorkspace) {
     throw new Error(i18nService.t('common:sceneBar.workspaceUnavailable'));
   }
-  if (workspaceId && workspaceManager.getState().activeWorkspaceId !== workspaceId) {
+  const needsWorkspaceSwitch = Boolean(
+    workspaceId && workspaceManager.getState().activeWorkspaceId !== workspaceId,
+  );
+  if (needsWorkspaceSwitch && workspaceId) {
+    setPendingWorkspaceSessionActivation({
+      surfaceId: scope.surfaceId,
+      workspaceId,
+      sessionId,
+      request,
+    });
     // Read the session's history while its workspace is being activated
     // instead of after: the read addresses the session's own workspace, and
     // the switch below adopts the read already in flight.
     flowChatManager.prewarmHistoricalSession(sessionId);
   }
-  if (workspaceId) {
-    // Workspace activation mutates the host as well as the frontend. Serialize
-    // it so a slow A request cannot finish after a newer B request on the host.
-    const activation = workspaceActivation.then(async () => {
-      if (!isCurrent() || workspaceManager.getState().activeWorkspaceId === workspaceId) return;
-      await (options?.activateWorkspace ?? (id => workspaceManager.setActiveWorkspace(id)))(workspaceId);
-    });
-    workspaceActivation = activation.catch(() => undefined);
-    await activation;
-    if (!isCurrent()) return false;
-  }
-  const isTargetActive = () => {
-    const state = flowChatStore.getState();
-    return isCurrent() && state.activeSessionId === sessionId && state.sessions.has(sessionId);
-  };
-  const targetSession = flowChatStore.getState().sessions.get(sessionId) ?? null;
-  if (!targetSession) {
-    return false;
-  }
+  let activatedTarget = false;
+  try {
+    if (workspaceId) {
+      // Workspace activation mutates the host as well as the frontend. Serialize
+      // it so a slow A request cannot finish after a newer B request on the host.
+      const activation = workspaceActivation.then(async () => {
+        if (!isCurrent() || workspaceManager.getState().activeWorkspaceId === workspaceId) return;
+        await (options?.activateWorkspace ?? (id => workspaceManager.setActiveWorkspace(id)))(workspaceId);
+      });
+      workspaceActivation = activation.catch(() => undefined);
+      await activation;
+      if (!isCurrent()) return false;
+    }
+    const isTargetActive = () => {
+      const state = flowChatStore.getState();
+      return isCurrent() && state.activeSessionId === sessionId && state.sessions.has(sessionId);
+    };
+    const targetSession = flowChatStore.getState().sessions.get(sessionId) ?? null;
+    if (!targetSession) {
+      return false;
+    }
 
-  if (isTargetActive()) {
-    const activeSession = flowChatStore.getState().sessions.get(sessionId) ?? null;
-    if (
-      activeSession?.externalHistory?.mode === 'follow' || (activeSession?.isHistorical &&
-      (activeSession.historyState === 'metadata-only' || activeSession.historyState === 'failed'))
-    ) {
+    if (isTargetActive()) {
+      const activeSession = flowChatStore.getState().sessions.get(sessionId) ?? null;
+      if (
+        activeSession?.externalHistory?.mode === 'follow' || (activeSession?.isHistorical &&
+        (activeSession.historyState === 'metadata-only' || activeSession.historyState === 'failed'))
+      ) {
+        await flowChatManager.switchChatSession(sessionId, isCurrent);
+        if (!isTargetActive()) {
+          return false;
+        }
+      }
+      syncSessionToModernStore(sessionId);
+    } else {
       await flowChatManager.switchChatSession(sessionId, isCurrent);
       if (!isTargetActive()) {
         return false;
       }
+      syncSessionToModernStore(sessionId);
     }
-    syncSessionToModernStore(sessionId);
-  } else {
-    await flowChatManager.switchChatSession(sessionId, isCurrent);
-    if (!isTargetActive()) {
-      return false;
-    }
-    syncSessionToModernStore(sessionId);
-  }
 
-  return true;
+    activatedTarget = true;
+    return true;
+  } finally {
+    if (needsWorkspaceSwitch) {
+      clearPendingWorkspaceSessionActivation(request);
+      if (
+        !activatedTarget
+        && workspaceId
+        && isCurrent()
+        && workspaceManager.getState().activeWorkspaceId === workspaceId
+      ) {
+        const ws = workspaceManager.getState().currentWorkspace;
+        if (ws && ws.id === workspaceId) {
+          void flowChatManager.initialize?.(ws);
+        }
+      }
+    }
+  }
 }

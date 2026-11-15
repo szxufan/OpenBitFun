@@ -67,7 +67,7 @@ use openbitfun_core::service::session_projection_store::{
 };
 use openbitfun_core::util::{elapsed_ms, TimingCollector};
 use openbitfun_events::AgenticEvent;
-use openbitfun_transport::{TauriTransportAdapter, TransportAdapter};
+use openbitfun_transport::TauriTransportAdapter;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::{
@@ -2485,83 +2485,93 @@ fn configure_workspace_search_daemon_env() -> Option<std::path::PathBuf> {
     path
 }
 
-/// Deliver one event to the WebView and, when peer controllers are attached,
-/// fan it out to paired devices. Text chunks arrive here already coalesced by
-/// `TextChunkCoalescer`.
-async fn deliver_event_to_webview(
+/// Deliver an ordered batch of events to the WebView and, when peer controllers
+/// are attached, fan each projected event out to paired devices in FIFO order.
+/// Streamed chunks arrive here already coalesced by `TextChunkCoalescer`.
+async fn deliver_events_to_webview(
     transport: &TauriTransportAdapter,
-    event: AgenticEvent,
+    events: Vec<AgenticEvent>,
     session_event_journal: &SessionEventJournal,
 ) {
-    openbitfun_core::service::remote_connect::notify_session_catalog_event(&event);
-    let cursor = session_event_journal.record(&event);
-    let Some(mut projected) = openbitfun_events::project_agentic_frontend_event(event) else {
-        log::warn!("Unhandled AgenticEvent type in desktop delivery");
+    if events.is_empty() {
         return;
-    };
-    if let Some(cursor) = cursor {
-        attach_session_event_cursor(&mut projected.payload, cursor);
     }
 
-    for hub in api::remote_connect_api::host_stream_hubs().await {
-        if let Some(session_id) = projected
-            .payload
-            .get("sessionId")
-            .or_else(|| projected.payload.get("session_id"))
-            .and_then(serde_json::Value::as_str)
-        {
-            let name = projected.event_name.as_str();
-            let policy =
-            openbitfun_core::service::remote_connect::session_records::session_event_publication(
-                name,
-                &projected.payload,
-            );
-            if policy.synchronize_records {
-                if let Err(error) = async {
-                    if let Some(turn) = projected
-                        .payload
-                        .get("turnId")
-                        .or_else(|| projected.payload.get("settledTurnId"))
-                        .and_then(serde_json::Value::as_str)
+    let hubs = api::remote_connect_api::host_stream_hubs().await;
+    let mut out_batch = Vec::with_capacity(events.len());
+
+    for event in events {
+        openbitfun_core::service::remote_connect::notify_session_catalog_event(&event);
+        let cursor = session_event_journal.record(&event);
+        let Some(mut projected) = openbitfun_events::project_agentic_frontend_event(event) else {
+            log::warn!("Unhandled AgenticEvent type in desktop delivery");
+            continue;
+        };
+        if let Some(cursor) = cursor {
+            attach_session_event_cursor(&mut projected.payload, cursor);
+        }
+
+        for hub in &hubs {
+            if let Some(session_id) = projected
+                .payload
+                .get("sessionId")
+                .or_else(|| projected.payload.get("session_id"))
+                .and_then(serde_json::Value::as_str)
+            {
+                let name = projected.event_name.as_str();
+                let policy = openbitfun_core::service::remote_connect::session_records::session_event_publication(
+                    name,
+                    &projected.payload,
+                );
+                if policy.synchronize_records {
+                    if let Err(error) = async {
+                        if let Some(turn) = projected
+                            .payload
+                            .get("turnId")
+                            .or_else(|| projected.payload.get("settledTurnId"))
+                            .and_then(serde_json::Value::as_str)
+                        {
+                            openbitfun_core::service::remote_connect::synchronize_session_record_turn(
+                                hub, session_id, turn,
+                            )
+                            .await
+                        } else if name == "agentic://session-history-changed" {
+                            openbitfun_core::service::remote_connect::synchronize_session_records(
+                                hub, session_id,
+                            )
+                            .await
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    .await
                     {
-                        openbitfun_core::service::remote_connect::synchronize_session_record_turn(
-                            &hub, session_id, turn,
-                        )
-                        .await
-                    } else if name == "agentic://session-history-changed" {
-                        openbitfun_core::service::remote_connect::synchronize_session_records(
-                            &hub, session_id,
-                        )
-                        .await
-                    } else {
-                        Ok(())
+                        log::error!("Unable to synchronize host session records: {error}");
                     }
                 }
-                .await
-                {
-                    log::error!("Unable to synchronize host session records: {error}");
-                }
-            }
-            if policy.persist_control {
-                if let Err(error) = hub
-                    .append(
-                        session_id.to_owned(),
-                        projected.event_name.clone(),
-                        projected.payload.clone(),
-                    )
-                    .await
-                {
-                    log::error!("Unable to publish session control event: {error}");
+                if policy.persist_control {
+                    if let Err(error) = hub
+                        .append(
+                            session_id.to_owned(),
+                            projected.event_name.clone(),
+                            projected.payload.clone(),
+                        )
+                        .await
+                    {
+                        log::error!("Unable to publish session control event: {error}");
+                    }
                 }
             }
         }
+
+        out_batch.push(openbitfun_transport::TauriBatchedEvent {
+            event: projected.event_name,
+            payload: projected.payload,
+        });
     }
 
-    if let Err(e) = transport
-        .emit_generic(&projected.event_name, projected.payload.clone())
-        .await
-    {
-        log::error!("Failed to emit event: {:?}", e);
+    if let Err(e) = transport.emit_batch(out_batch) {
+        log::error!("Failed to emit event batch: {:?}", e);
     }
 
     // Session events reach controllers through host streams they read on
@@ -2591,24 +2601,25 @@ fn update_rate_after_flush(
 /// Flush all buffered chunks as merged events and feed the flushed content
 /// volume back into the rate estimate that sizes the next window.
 async fn flush_coalesced<D, F>(
-    deliver: &mut D,
+    deliver_batch: &mut D,
     coalescer: &mut crate::api::event_coalescer::TextChunkCoalescer,
     rate_ema: &mut f64,
     arm_time: tokio::time::Instant,
     last_flush_time: &mut Option<tokio::time::Instant>,
 ) where
-    D: FnMut(AgenticEvent) -> F,
+    D: FnMut(Vec<AgenticEvent>) -> F,
     F: std::future::Future<Output = ()>,
 {
     let flushed_chars = coalescer.buffered_chars();
     update_rate_after_flush(rate_ema, flushed_chars, arm_time, last_flush_time);
-    for event in coalescer.flush() {
-        deliver(event).await;
+    let flushed = coalescer.flush();
+    if !flushed.is_empty() {
+        deliver_batch(flushed).await;
     }
 }
 
 /// Drive the agentic event queue: route raw events to internal subscribers,
-/// coalesce streamed text chunks, and deliver merged events through `deliver`.
+/// coalesce streamed chunks, and deliver ordered event batches through `deliver_batch`.
 ///
 /// Scheduling contract:
 /// - The coalescing window is armed as soon as the first chunk is buffered
@@ -2619,12 +2630,12 @@ async fn flush_coalesced<D, F>(
 ///   expired deadline is also honored inside the drain: the buffered text is
 ///   flushed in place before processing continues. Text therefore waits at
 ///   most one window regardless of queue pressure.
-async fn event_loop_driver<D, F>(
+async fn event_loop_batch_driver<D, F>(
     event_queue: Arc<openbitfun_core::agentic::events::EventQueue>,
     event_router: Arc<openbitfun_core::agentic::events::EventRouter>,
-    mut deliver: D,
+    mut deliver_batch: D,
 ) where
-    D: FnMut(AgenticEvent) -> F,
+    D: FnMut(Vec<AgenticEvent>) -> F,
     F: std::future::Future<Output = ()>,
 {
     use crate::api::event_coalescer::{
@@ -2663,6 +2674,8 @@ async fn event_loop_driver<D, F>(
                         break;
                     }
 
+                    let mut ready_events: Vec<AgenticEvent> = Vec::new();
+
                     for envelope in batch {
                         // Route to internal subscribers (e.g. RemoteSessionStateTracker)
                         // sequentially so that text chunks are appended in order.
@@ -2681,9 +2694,7 @@ async fn event_loop_driver<D, F>(
                         let pushed = coalescer.push(envelope.event);
                         let did_flush = !pushed.is_empty();
 
-                        for event in pushed {
-                            deliver(event).await;
-                        }
+                        ready_events.extend(pushed);
 
                         if did_flush && pre_flush_chars > 0 {
                             if let Some(arm) = arm_time {
@@ -2730,14 +2741,18 @@ async fn event_loop_driver<D, F>(
                             .expect("arm_time must be set when a deadline is armed");
                         flush_deadline = None;
                         flush_arm_time = None;
-                        flush_coalesced(
-                            &mut deliver,
-                            &mut coalescer,
+                        let flushed_chars = coalescer.buffered_chars();
+                        update_rate_after_flush(
                             &mut rate_ema,
+                            flushed_chars,
                             arm_time,
                             &mut last_flush_time,
-                        )
-                        .await;
+                        );
+                        ready_events.extend(coalescer.flush());
+                    }
+
+                    if !ready_events.is_empty() {
+                        deliver_batch(ready_events).await;
                     }
                 }
             }
@@ -2747,7 +2762,7 @@ async fn event_loop_driver<D, F>(
                 flush_deadline = None;
                 flush_arm_time = None;
                 flush_coalesced(
-                    &mut deliver,
+                    &mut deliver_batch,
                     &mut coalescer,
                     &mut rate_ema,
                     arm_time,
@@ -2759,6 +2774,31 @@ async fn event_loop_driver<D, F>(
     }
 }
 
+#[cfg(test)]
+async fn event_loop_driver<D, F>(
+    event_queue: Arc<openbitfun_core::agentic::events::EventQueue>,
+    event_router: Arc<openbitfun_core::agentic::events::EventRouter>,
+    deliver: D,
+) where
+    D: FnMut(AgenticEvent) -> F,
+    F: std::future::Future<Output = ()>,
+{
+    let deliver = Arc::new(tokio::sync::Mutex::new(deliver));
+    event_loop_batch_driver(event_queue, event_router, move |events| {
+        let deliver = deliver.clone();
+        async move {
+            for event in events {
+                let fut = {
+                    let mut guard = deliver.lock().await;
+                    (*guard)(event)
+                };
+                fut.await;
+            }
+        }
+    })
+    .await;
+}
+
 fn start_event_loop_with_transport(
     event_queue: Arc<openbitfun_core::agentic::events::EventQueue>,
     event_router: Arc<openbitfun_core::agentic::events::EventRouter>,
@@ -2766,11 +2806,11 @@ fn start_event_loop_with_transport(
     session_event_journal: Arc<SessionEventJournal>,
 ) {
     tokio::spawn(async move {
-        event_loop_driver(event_queue, event_router, |event| {
+        event_loop_batch_driver(event_queue, event_router, |events| {
             let transport = transport.clone();
             let session_event_journal = session_event_journal.clone();
             async move {
-                deliver_event_to_webview(&transport, event, &session_event_journal).await;
+                deliver_events_to_webview(&transport, events, &session_event_journal).await;
             }
         })
         .await;
@@ -3169,6 +3209,69 @@ mod event_loop_driver_tests {
 
         driver.abort();
         producer.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn batch_driver_delivers_concurrent_sessions_in_one_ordered_batch() {
+        let queue = Arc::new(EventQueue::new(EventQueueConfig {
+            max_queue_size: 100,
+            batch_size: 16,
+        }));
+        let router = Arc::new(EventRouter::new());
+        let batches: Arc<tokio::sync::Mutex<Vec<Vec<AgenticEvent>>>> =
+            Arc::new(tokio::sync::Mutex::new(Vec::new()));
+
+        for (session_id, text) in [
+            ("s1", "alpha "),
+            ("s2", "beta "),
+            ("s1", "one"),
+            ("s2", "two"),
+        ] {
+            queue
+                .enqueue(
+                    AgenticEvent::TextChunk {
+                        session_id: session_id.to_string(),
+                        turn_id: "t".to_string(),
+                        round_id: "r".to_string(),
+                        attempt_id: None,
+                        attempt_index: None,
+                        text: text.to_string(),
+                    },
+                    None,
+                )
+                .await
+                .expect("enqueue should succeed");
+        }
+
+        let driver_queue = queue.clone();
+        let driver_batches = batches.clone();
+        let driver = tokio::spawn(async move {
+            event_loop_batch_driver(driver_queue, router, |events| {
+                let batches = driver_batches.clone();
+                async move {
+                    batches.lock().await.push(events);
+                }
+            })
+            .await;
+        });
+
+        for _ in 0..80 {
+            tokio::time::advance(Duration::from_millis(1)).await;
+            tokio::task::yield_now().await;
+            tokio::task::yield_now().await;
+        }
+
+        let recorded = batches.lock().await;
+        assert_eq!(recorded.len(), 1, "expected a single batched flush");
+        assert_eq!(recorded[0].len(), 2, "expected 2 merged session streams");
+        assert!(
+            matches!(&recorded[0][0], AgenticEvent::TextChunk { session_id, text, .. } if session_id == "s1" && text == "alpha one")
+        );
+        assert!(
+            matches!(&recorded[0][1], AgenticEvent::TextChunk { session_id, text, .. } if session_id == "s2" && text == "beta two")
+        );
+
+        driver.abort();
     }
 }
 

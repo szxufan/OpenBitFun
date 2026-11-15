@@ -51,6 +51,9 @@ export default function AskUserAnnouncer() {
     const update = () => {
       const current = collectWaitingTitles();
       const prev = prevWaitingRef.current;
+      if (prev.size === 0 && current.size === 0) {
+        return;
+      }
       const message = computeAnnouncementMessage(prev, current, tRef.current);
 
       if (message && liveRef.current) {

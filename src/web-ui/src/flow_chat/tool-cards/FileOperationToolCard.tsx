@@ -166,7 +166,7 @@ const GenericFileOperationToolCard: React.FC<FileOperationToolCardProps> = ({
     snapshotsAvailable: nativeSnapshotsAvailable,
     error,
     clearError
-  } = useSnapshotState(imported ? undefined : sessionId);
+  } = useSnapshotState(imported ? undefined : sessionId, { trackFiles: false });
   const snapshotsAvailable = !imported && nativeSnapshotsAvailable;
   // A recorded operation is viewable even when older Session history has no
   // complete snapshot coverage. Absence preserves compatibility with old hosts.

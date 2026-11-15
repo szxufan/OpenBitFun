@@ -48,6 +48,7 @@ vi.mock('./storeSync', () => ({
 }));
 
 import { openMainSession } from './sessionActivation';
+import { getPendingWorkspaceSessionActivation } from './pendingWorkspaceSessionActivation';
 import { syncSessionToModernStore } from './storeSync';
 
 describe('openMainSession resource activation', () => {
@@ -173,6 +174,7 @@ describe('openMainSession resource activation', () => {
       config: { executionTarget: { kind: 'local', rootPath: worktree.rootPath } },
     });
     mocks.setActiveWorkspace.mockImplementation(async (id: string) => {
+      expect(getPendingWorkspaceSessionActivation('local', id)).toBe('in-tree-session');
       mocks.workspaceState.activeWorkspaceId = id;
     });
     mocks.switchChatSession.mockImplementation(async (id: string) => {
@@ -181,6 +183,7 @@ describe('openMainSession resource activation', () => {
 
     await openMainSession('in-tree-session');
 
+    expect(getPendingWorkspaceSessionActivation('local', worktree.id)).toBeNull();
     expect(mocks.setActiveWorkspace.mock.calls.map(([id]) => id)).toEqual([worktree.id]);
     expect(mocks.switchChatSession.mock.calls.map(([id]) => id)).toEqual(['in-tree-session']);
     expect(mocks.workspaceState.activeWorkspaceId).toBe(worktree.id);

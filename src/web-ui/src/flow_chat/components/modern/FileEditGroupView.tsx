@@ -13,7 +13,7 @@ export const FileEditGroupView = React.forwardRef<HTMLDivElement, FlowGroupProps
   sessionId?: string;
 }>(function FileEditGroupView({ items, sessionId, fileRevision, ...props }, ref) {
   const { t, formatNumber } = useI18n('flow-chat');
-  const { surfaceEpoch, snapshotsAvailable } = useSnapshotState(sessionId);
+  const { surfaceEpoch, snapshotsAvailable } = useSnapshotState(sessionId, { trackFiles: false });
   const tools = useMemo(() => items.filter((item): item is FlowToolItem => item.type === 'tool'), [items]);
   const diffStats = useFileOperationDiffStats(tools, { sessionId, surfaceEpoch, snapshotsAvailable });
   const total = sumFileOperationDiffStats(diffStats.values());
