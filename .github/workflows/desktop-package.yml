@@ -224,7 +224,10 @@ jobs:
       # RUSTC_WRAPPER overrides build.rustc-wrapper and explicitly disables
       # the wrapper; non-Windows keeps sccache. Remove both this line and the
       # setup-sccache bypass once a released sccache contains the fix.
-      RUSTC_WRAPPER: ${{ contains(matrix.platform.os, 'windows') && '' || 'sccache' }}
+      # NOTE: the condition is inverted on purpose — GHA expressions treat ''
+      # as falsy, so `windows && '' || 'sccache'` would yield 'sccache' on
+      # Windows too and silently keep the broken wrapper.
+      RUSTC_WRAPPER: ${{ !contains(matrix.platform.os, 'windows') && 'sccache' || '' }}
       # Beta artifacts trade density for wall time: dropping thin LTO and
       # restoring per-crate parallel codegen keeps every runner core busy.
       # Stable releases keep the quality profile declared in Cargo.toml.
