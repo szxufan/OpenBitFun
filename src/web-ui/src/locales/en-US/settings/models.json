@@ -798,7 +798,17 @@
       "validJson": "JSON format is valid",
       "mergeHint": "Custom fields will override corresponding fields in the default request body"
     },
-    "description": "Adapt requests and responses to service-specific requirements; keep the defaults if unsure"
+    "description": "Adapt requests and responses to service-specific requirements; keep the defaults if unsure",
+    "responses": {
+      "transportLabel": "Responses transport",
+      "transportHint": "Applies to Responses requests. Models can override provider defaults. WebSocket errors are reported without switching to HTTP.",
+      "contextLabel": "Context sending",
+      "contextHint": "HTTP sends full context. WebSocket incremental mode reuses a completed response and sends full context when recovery is required. Response storage stays disabled.",
+      "full": "Full context",
+      "incremental": "Incremental context",
+      "unsupported": "This host does not support Responses WebSocket settings. Update the host to configure them.",
+      "reset": "Use provider settings"
+    }
   },
   "providersDescription": "Manage endpoints, authentication, and the models sharing each connection",
   "editSettingsTitle": "Model parameters",

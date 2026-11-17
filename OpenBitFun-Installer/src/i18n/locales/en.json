@@ -42,12 +42,11 @@
     "back": "Back",
     "install": "Install",
     "installing": "Preparing…",
-    "existingInstallTitle": "OpenBitFun is installed. You can update or repair it in place.",
+    "existingInstallTitle": "OpenBitFun is installed. Update this copy or choose another directory to install an additional copy.",
     "existingInstallVersion": "Installed version: {{version}}",
     "existingInstallLocation": "Install location: {{path}}",
     "existingInstallBinaryMissing": "The installed app is missing. Reinstall to repair it.",
-    "existingInstallRunUninstaller": "Run uninstaller",
-    "allUsers": "Install for all users (administrator authorization required)"
+    "existingInstallRunUninstaller": "Run uninstaller"
   },
   "model": {
     "title": "Connect a model",

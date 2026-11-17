@@ -46,7 +46,6 @@ import { AcpSessionNotifications } from './AcpSessionNotifications';
 import { api } from '@/infrastructure/api/service-api/ApiClient';
 import { AppearanceBackgroundMediaLayer, appearanceRuntime, useAppearance } from '@/infrastructure/appearance';
 import { PeerConnectionStatus } from '@/infrastructure/peer-device/PeerConnectionStatus';
-import './AppLayout.scss';
 
 type TransitionDirection = 'entering' | 'returning' | null;
 

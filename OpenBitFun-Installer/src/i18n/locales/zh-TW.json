@@ -42,12 +42,11 @@
     "back": "返回",
     "install": "安裝",
     "installing": "準備中…",
-    "existingInstallTitle": "已安裝 OpenBitFun，可在原位置更新或修復。",
+    "existingInstallTitle": "已安裝 OpenBitFun，可在原目錄更新，或選擇其他目錄另行安裝。",
     "existingInstallVersion": "已安裝版本：{{version}}",
     "existingInstallLocation": "安裝位置：{{path}}",
     "existingInstallBinaryMissing": "偵測到安裝記錄，主程式缺失，可重新安裝修復。",
-    "existingInstallRunUninstaller": "運行解除安裝程式",
-    "allUsers": "為所有使用者安裝（需要系統管理員授權）"
+    "existingInstallRunUninstaller": "運行解除安裝程式"
   },
   "model": {
     "title": "連接模型",

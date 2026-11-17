@@ -50,7 +50,7 @@ export interface UsageReportCommandResult {
 export async function runUsageReportCommand(
   params: UsageReportCommandParams
 ): Promise<UsageReportCommandResult> {
-  // An inline overview only reads the latest recorded request and can be viewed during a turn.
+  // An inline overview inspects current context without starting a turn.
   if (params.isProcessing && !params.presentReport) {
     notificationService.warning(params.busyMessage);
     return { shown: false, reason: 'busy' };
@@ -82,6 +82,7 @@ export async function runUsageReportCommand(
         sessionId: params.session.sessionId,
         workspaceId: requireSessionOwningWorkspaceId(params.session),
         includeHiddenSubagents: true,
+        contextEstimate: { includeContents: !!params.presentReport, contextOnly: !!params.presentReport },
       });
     const report = enrichUsageReportModelIdentity(rawReport, params.session);
     if (!surface.isCurrent()) return { shown: false };

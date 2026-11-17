@@ -55,17 +55,42 @@ pub async fn dispatch(
         // ── Workspace ────────────────────────────────────────
         "open_workspace" => {
             let request = extract_request(&params)?;
-            let path: String = serde_json::from_value(
-                request
-                    .get("path")
-                    .cloned()
-                    .ok_or_else(|| anyhow!("Missing path"))?,
-            )?;
-            let info = state
-                .workspace_service
-                .open_workspace(path.into())
-                .await
-                .map_err(|e| anyhow!("{}", e))?;
+            let create_local = request
+                .get("createLocal")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let info = if let Some(workspace_id) = request
+                .get("workspaceId")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                state
+                    .workspace_service
+                    .open_workspace_by_id(workspace_id)
+                    .await
+                    .map_err(|e| anyhow!("{}", e))?
+            } else {
+                let path: String = serde_json::from_value(
+                    request
+                        .get("path")
+                        .cloned()
+                        .ok_or_else(|| anyhow!("Missing path"))?,
+                )?;
+                if create_local {
+                    state
+                        .workspace_service
+                        .open_workspace(path.into())
+                        .await
+                        .map_err(|e| anyhow!("{}", e))?
+                } else {
+                    state
+                        .workspace_service
+                        .upgrade_legacy_workspace_open(path.into(), None, None)
+                        .await
+                        .map_err(|e| anyhow!("{}", e))?
+                }
+            };
             *state.workspace_path.write().await = Some(info.root_path.clone());
             Ok(serde_json::to_value(&info).unwrap_or_default())
         }

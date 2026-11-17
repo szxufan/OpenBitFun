@@ -146,6 +146,56 @@ describe('visual skin IndexedDB storage', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it('persists deactivation across runtime restarts while keeping imported skins usable', async () => {
+    const fixture = createIndexedDbFixture();
+    vi.stubGlobal('indexedDB', fixture.indexedDB);
+    const skin = await parsedSkin();
+    const storage = createVisualSkinStorage();
+    await storage.put(skin);
+    const runtime = new VisualSkinRuntime(storage);
+    const reopened = new VisualSkinRuntime(createVisualSkinStorage());
+    try {
+      await runtime.activate(skin.manifest.id);
+      await runtime.deactivate();
+      expect(fixture.stores.get('selection')!.has('active')).toBe(false);
+      runtime.dispose();
+      await reopened.initialize();
+      expect(reopened.getSnapshot()).toMatchObject({ activeSkinId: null, previewSkinId: null, status: 'ready' });
+      expect(reopened.getSnapshot().catalog.map(entry => entry.id)).toEqual([skin.manifest.id]);
+      expect(document.documentElement.hasAttribute('data-openbitfun-skin-id')).toBe(false);
+      await reopened.activate(skin.manifest.id);
+      expect(await storage.getSelection()).toBe(skin.manifest.id);
+    } finally { runtime.dispose(); reopened.dispose(); }
+  });
+
+  it.each([false, true])('preserves the saved skin and visible preview on failed deactivation (preview: %s)', async preview => {
+    const fixture = createIndexedDbFixture();
+    vi.stubGlobal('indexedDB', fixture.indexedDB);
+    const storage = createVisualSkinStorage();
+    const skin = await parsedSkin();
+    const other = { ...skin, manifest: { ...skin.manifest, id: 'other' } };
+    await storage.put(skin);
+    await storage.put(other);
+    const runtime = new VisualSkinRuntime(storage);
+    try {
+      await runtime.activate(skin.manifest.id);
+      if (preview) await runtime.preview(other.manifest.id);
+      const before = runtime.getSnapshot();
+      const style = document.querySelector('style[data-openbitfun-skin-runtime]');
+      fixture.failures.deleteStore = 'selection';
+      await expect(runtime.deactivate()).rejects.toThrow('Injected selection delete failure');
+      expect(runtime.getSnapshot()).toEqual({ ...before, error: 'Injected selection delete failure' });
+      expect(await storage.getSelection()).toBe(skin.manifest.id);
+      expect(document.querySelector('style[data-openbitfun-skin-runtime]')).toBe(style);
+      expect(document.documentElement.getAttribute('data-openbitfun-skin-id')).toBe(preview ? other.manifest.id : skin.manifest.id);
+      fixture.failures.deleteStore = null;
+      await runtime.deactivate();
+      expect(runtime.getSnapshot()).toMatchObject({ activeSkinId: null, previewSkinId: null, status: 'ready', error: undefined });
+      expect(document.querySelector('style[data-openbitfun-skin-runtime]')).toBeNull();
+      expect(await storage.list()).toEqual({ skins: [skin, other], invalidRecords: [] });
+    } finally { runtime.dispose(); }
+  });
+
   it('rejects tampered stored CSS and preserves the invalid record for explicit removal', async () => {
     const fixture = createIndexedDbFixture();
     vi.stubGlobal('indexedDB', fixture.indexedDB);

@@ -63,6 +63,7 @@ pub(crate) fn dispatch<'a>(
             Box::pin(workspace::get_current_workspace(state))
         }
         "set_active_workspace" => Box::pin(workspace::set_active_workspace(state, args)),
+        "reorder_opened_workspaces" => Box::pin(workspace::reorder_opened_workspaces(state, args)),
         "open_workspace" => Box::pin(workspace::open_workspace(state, args)),
         "ssh_list_saved_connections" => Box::pin(workspace::ssh_list_saved_connections()),
         "open_remote_workspace" => Box::pin(workspace::open_remote_workspace(state, args)),
@@ -407,6 +408,7 @@ pub(crate) const HANDLED_COMMANDS: &[&str] = &[
     "reload_config",
     "remove_project_permission_grant",
     "rename_session",
+    "reorder_opened_workspaces",
     "respond_permission",
     "respond_permission_batch",
     "restore_session",

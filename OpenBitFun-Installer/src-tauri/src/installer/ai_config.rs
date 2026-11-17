@@ -54,6 +54,7 @@ pub(super) fn ai_config_from_installer_model(m: &ModelConfig) -> Result<AIConfig
         skip_ssl_verify: m.skip_ssl_verify.unwrap_or(false),
         custom_request_body,
         custom_request_body_mode: None,
+        responses: None,
     })
 }
 

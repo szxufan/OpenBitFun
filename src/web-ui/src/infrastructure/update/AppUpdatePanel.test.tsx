@@ -38,7 +38,7 @@ beforeEach(async () => {
   });
   localStorage.clear();
   useUpdateInstallStore.setState({
-    status: 'idle', progress: { downloaded: 0, total: null }, error: null,
+    status: 'idle', progress: { downloaded: 0, total: null }, error: null, rebootRequired: false,
     startedAt: null, version: null, promptOpen: false, initialized: false,
     downloadVersion: null, availableUpdate: null, currentVersion: null,
     checkStatus: 'idle', checkError: null, lastCheckedAt: null, lastCheckAttemptAt: null,
@@ -77,6 +77,15 @@ it('shows explicit release details without the general manual-check action', asy
   expect(container.textContent).toContain(common.update.errors.network);
   expect(container.textContent).toContain('2.0.0');
   expect(selectHasUpdateAttention(state())).toBe(true);
+});
+
+it('shows successful installation awaiting a system reboot and disables repeat installation', async () => {
+  await act(async () => useUpdateInstallStore.setState({ status: 'ready', version: '2.0.0', rebootRequired: true, error: null }));
+  expect(container.textContent).toContain(common.update.systemRestartMessage);
+  const button = [...container.querySelectorAll('button')].find(button => button.textContent?.includes(common.update.systemRestartRequired));
+  expect(button).toBeDefined();
+  expect(button!.disabled).toBe(true);
+  expect(container.textContent).not.toContain(common.update.retryDownload);
 });
 
 it('enables normal download controls and installation confirmation in explicit release details', async () => {

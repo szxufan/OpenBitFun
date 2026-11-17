@@ -27,6 +27,7 @@ export function partAssetDeclarations(skin: StoredVisualSkin, urls: ReadonlyMap<
   const style = typeof document === 'undefined' ? null : document.createElement('div').style;
   const declarations: string[] = [];
   for (const [id, url] of urls) {
+    if (skin.assets[id]?.mimeType === 'video/mp4') continue;
     const index = Object.keys(skin.assets).indexOf(id);
     if (style) style.setProperty(`--openbitfun-skin-asset-${index}`, `url("${url}")`, 'important');
     else declarations.push(css(partAssetVariable(skin, id), `url("${url}")`));

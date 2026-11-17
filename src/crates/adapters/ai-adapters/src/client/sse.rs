@@ -101,7 +101,7 @@ fn format_transport_error(label: &str, error: &reqwest::Error) -> String {
     message
 }
 
-fn transport_provider_error(label: &str, error: &reqwest::Error) -> AiProviderError {
+pub(super) fn transport_provider_error(label: &str, error: &reqwest::Error) -> AiProviderError {
     // send() has not yielded a response or any model output. Preserve reqwest's
     // typed cause: OS-localized messages and URL text cannot classify transport.
     let category = if error.is_timeout() {
@@ -129,7 +129,7 @@ fn provider_error_code(body: &str) -> Option<String> {
     })
 }
 
-fn http_provider_error(
+pub(crate) fn http_provider_error(
     label: &str,
     status: StatusCode,
     error_text: &str,
@@ -152,7 +152,7 @@ fn http_provider_error(
     error
 }
 
-fn is_provider_concurrency_limit(status: StatusCode, body: &str) -> bool {
+pub(super) fn is_provider_concurrency_limit(status: StatusCode, body: &str) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(body) else {
         return false;
     };
@@ -239,7 +239,7 @@ fn body_recovery_hint_ms(body: &str, now: i64) -> Option<u64> {
         })
 }
 
-fn provider_recovery_hint_ms(headers: &HeaderMap, body: &str) -> Option<u64> {
+pub(crate) fn provider_recovery_hint_ms(headers: &HeaderMap, body: &str) -> Option<u64> {
     let header = retry_after_hint_ms(headers);
     let body = body_recovery_hint_ms(body, Utc::now().timestamp());
     header.max(body)
@@ -267,7 +267,7 @@ fn retry_delay_ms(attempt: usize, headers: &HeaderMap, status: StatusCode) -> u6
     }
 }
 
-struct ManagedResponseStream {
+pub(super) struct ManagedResponseStream {
     inner: UnboundedReceiverStream<Result<UnifiedResponse>>,
     handler_cancel: CancellationToken,
     handler_task: Option<JoinHandle<()>>,
@@ -276,7 +276,7 @@ struct ManagedResponseStream {
 }
 
 impl ManagedResponseStream {
-    fn new(
+    pub(super) fn new(
         rx: mpsc::UnboundedReceiver<Result<UnifiedResponse>>,
         handler_cancel: CancellationToken,
         handler_task: JoinHandle<()>,
@@ -1501,6 +1501,7 @@ mod tests {
                 skip_ssl_verify: false,
                 custom_request_body: None,
                 custom_request_body_mode: None,
+                responses: None,
             })
             .with_request_authorization(authorization.clone());
             let scope =

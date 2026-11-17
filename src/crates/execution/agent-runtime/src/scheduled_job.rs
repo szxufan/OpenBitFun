@@ -57,7 +57,7 @@ pub enum ScheduledJobTriggerAction {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScheduledJobEnqueueFailureAction {
-    Retry,
+    SkipTrigger,
     DisableMissingSession,
 }
 
@@ -126,27 +126,22 @@ impl ScheduledJobRuntimeState {
         }
     }
 
+    /// Finish this trigger even when submission failed before a turn started.
+    /// Model/runtime failures must not create extra runs between scheduled times.
     pub fn mark_enqueue_failed(
         &mut self,
         failed_at_ms: i64,
         error: String,
-        retry_delay_ms: i64,
         missing_session: bool,
     ) -> ScheduledJobEnqueueFailureAction {
-        self.last_run_status = Some(ScheduledJobRunStatus::Error);
-        self.last_error = Some(error);
-        self.last_run_finished_at_ms = Some(failed_at_ms);
-        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        self.clear_pending_trigger();
+        self.mark_turn_failed(failed_at_ms, error);
 
         if missing_session {
-            self.active_turn_id = None;
             self.next_run_at_ms = None;
-            self.pending_trigger_at_ms = None;
-            self.retry_at_ms = None;
             ScheduledJobEnqueueFailureAction::DisableMissingSession
         } else {
-            self.retry_at_ms = Some(failed_at_ms + retry_delay_ms);
-            ScheduledJobEnqueueFailureAction::Retry
+            ScheduledJobEnqueueFailureAction::SkipTrigger
         }
     }
 

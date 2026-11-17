@@ -224,6 +224,7 @@ describe('runUsageReportCommand', () => {
       sessionId: 'session-1',
       workspaceId: 'workspace-1',
       includeHiddenSubagents: true,
+      contextEstimate: { includeContents: false, contextOnly: false },
     });
   });
 

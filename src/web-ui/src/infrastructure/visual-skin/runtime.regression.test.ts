@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VisualSkinRuntime } from './runtime';
 import { VisualSkinPackageParser } from './parser';
+import { MAX_SKIN_ASSET_BYTES } from './archive';
 import type { VisualSkinStorage } from './storage';
 import type { StoredVisualSkin, VisualSkinPackage } from './types';
 
@@ -155,7 +156,7 @@ describe('rejected imports', () => {
     const css = document.querySelector('style[data-openbitfun-skin-runtime]')!.textContent;
     const zip = new JSZip();
     zip.file('skin.json', JSON.stringify(source('rejected')));
-    zip.file('huge.png', new Uint8Array(16 * 1024 * 1024 + 1));
+    zip.file('huge.png', new Uint8Array(MAX_SKIN_ASSET_BYTES + 1));
     await expect(runtime.importPackage(await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' }))).rejects.toThrow('size limit');
     expect([...storage.values.keys()]).toEqual(['a']);
     expect(storage.selection).toBe('a');

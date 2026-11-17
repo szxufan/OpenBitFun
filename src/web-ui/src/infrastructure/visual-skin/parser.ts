@@ -1,4 +1,4 @@
-import { SkinArchive, MAX_SKIN_MANIFEST_BYTES as MAX_MANIFEST_BYTES, MAX_SKIN_EXPANDED_BYTES as MAX_EXPANDED_BYTES, MAX_SKIN_ASSET_BYTES as MAX_ASSET_BYTES, skinAssetDataUrl } from './archive';
+import { SkinArchive, MAX_SKIN_ASSET_BYTES as MAX_ASSET_BYTES, skinAssetDataUrl } from './archive';
 import { isVisualSkinTokenName } from './contract';
 import { assertValidVisualSkinPackage } from './validator';
 import type {
@@ -12,7 +12,6 @@ import type {
   VisualSkinSurfaceProfile,
 } from './types';
 
-const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024;
 const MANIFEST_PATH = 'skin.json';
 const SKILL_FORMAT = 'openbitfun-visual-skin';
 const SAFE_BACKGROUND_POSITION = /^(?:center|top|bottom|left|right|[-+]?\d{1,3}(?:\.\d+)?%)(?:\s+(?:center|top|bottom|left|right|[-+]?\d{1,3}(?:\.\d+)?%))?$/;
@@ -21,6 +20,13 @@ function isZip(source: ArrayBuffer): boolean {
   return source.byteLength >= 4
     && new Uint8Array(source, 0, 4)[0] === 0x50
     && new Uint8Array(source, 0, 4)[1] === 0x4b;
+}
+
+/** An MP4 starts with an `ftyp` box; reject mislabeled bytes before they are stored. */
+function assertAssetSignature(mime: string, bytes: Uint8Array, label: string): void {
+  if (mime !== 'video/mp4') return;
+  const isFtyp = bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
+  if (!isFtyp) throw new Error(`Visual skin asset is not a valid MP4 file: ${label}`);
 }
 
 function decodeJson(bytes: Uint8Array): unknown {
@@ -107,7 +113,7 @@ function skillAssetDefinitions(raw: unknown): Record<string, VisualSkinAssetDefi
     const value = entry as { id?: unknown; path?: unknown; mimeType?: unknown; alt?: unknown };
     if (typeof value.id !== 'string' || typeof value.path !== 'string') continue;
     const mime = value.mimeType;
-    if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp' && mime !== 'image/svg+xml') continue;
+    if (mime !== 'image/png' && mime !== 'image/jpeg' && mime !== 'image/webp' && mime !== 'image/svg+xml' && mime !== 'video/mp4') continue;
     result[value.id] = {
       mimeType: mime,
       source: { kind: 'path', path: value.path },
@@ -227,9 +233,7 @@ function skillRecipes(raw: unknown, slotAssets: Map<string, string>): { componen
 
 export class VisualSkinPackageParser {
   async parse(source: ArrayBuffer): Promise<StoredVisualSkin> {
-    if (source.byteLength === 0 || source.byteLength > MAX_ARCHIVE_BYTES) {
-      throw new Error(`Visual skin package must be between 1 byte and ${MAX_ARCHIVE_BYTES} bytes`);
-    }
+    if (source.byteLength === 0) throw new Error('Visual skin package is empty');
     const parsed = isZip(source)
       ? await this.parseZip(source)
       : this.parseJson(new TextDecoder().decode(new Uint8Array(source)));
@@ -253,16 +257,11 @@ export class VisualSkinPackageParser {
   }
 
   private parseJson(raw: string): VisualSkinPackage {
-    if (raw.length > MAX_MANIFEST_BYTES) throw new Error('Visual skin JSON is too large');
     const value = decodeJson(new TextEncoder().encode(raw));
     const packageValue = assertValidVisualSkinPackage(value);
-    const assetEntries = Object.entries(packageValue.assets ?? {});
-    const assetBytes = assetEntries.reduce((total, [, asset]) => {
+    for (const asset of Object.values(packageValue.assets ?? {})) {
       if (asset.source.kind === 'path') throw new Error('JSON visual skin assets must use data URLs');
-      if (asset.source.kind === 'data') return total + asset.source.data.length;
-      return total;
-    }, 0);
-    if (assetBytes > MAX_EXPANDED_BYTES) throw new Error('Visual skin assets exceed the allowed size');
+    }
     return packageValue;
   }
 
@@ -273,7 +272,7 @@ export class VisualSkinPackageParser {
 
   private async readZip(zip: SkinArchive): Promise<VisualSkinPackage> {
     const files = [...zip.files.keys()];
-    const manifestBytes = await zip.read(MANIFEST_PATH, MAX_MANIFEST_BYTES);
+    const manifestBytes = await zip.read(MANIFEST_PATH);
     const root = decodeJson(manifestBytes);
     if (root && typeof root === 'object' && !Array.isArray(root) && 'format' in root && (root as { format?: unknown }).format === SKILL_FORMAT) {
       return this.parseSkillZip(zip, files, root as Record<string, unknown>);
@@ -290,6 +289,7 @@ export class VisualSkinPackageParser {
       if (!file) throw new Error(`Visual skin asset is missing: ${asset.source.path}`);
       const bytes = await zip.read(asset.source.path, MAX_ASSET_BYTES);
       if (bytes.byteLength === 0 || bytes.byteLength > MAX_ASSET_BYTES) throw new Error(`Visual skin asset has an invalid size: ${assetId}`);
+      assertAssetSignature(asset.mimeType, bytes, assetId);
 
       assets[assetId] = {
         ...asset,
@@ -325,7 +325,7 @@ export class VisualSkinPackageParser {
       declared.add(value);
       const file = zip.files.get(value);
       if (!file) throw new Error(`Visual skin skill entrypoint is missing: ${value}`);
-      const bytes = await zip.read(value, MAX_MANIFEST_BYTES);
+      const bytes = await zip.read(value);
       if (name === 'reference_analysis') return null;
       return decodeJson(bytes);
     };
@@ -361,6 +361,7 @@ export class VisualSkinPackageParser {
       if (!file) throw new Error(`Visual skin asset is missing: ${asset.source.path}`);
       const bytes = await zip.read(assetPath, MAX_ASSET_BYTES);
       if (bytes.byteLength === 0 || bytes.byteLength > MAX_ASSET_BYTES) throw new Error('Visual skin asset has an invalid size');
+      assertAssetSignature(asset.mimeType, bytes, assetPath);
       asset.source = { kind: 'data', data: skinAssetDataUrl(asset.mimeType, bytes) };
     }
     const recipes = skillRecipes(recipeDocument, slotAssets);

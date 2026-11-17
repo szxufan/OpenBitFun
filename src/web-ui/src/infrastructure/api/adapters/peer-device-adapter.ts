@@ -468,6 +468,7 @@ export interface PeerDeviceTransportHooks {
   supportsSshPortScopedIdentityV1?: boolean;
   supportsWholeSessionCopyV1?: boolean;
   supportsGenUiLibrariesV1?: boolean;
+  supportsResponsesWebsocketV1?: boolean;
   supportsModelRoutingV1?: boolean;
   supportsModelPoolSelectionV1?: boolean;
   supportsMagpieDiscoveryV1?: boolean;
@@ -658,6 +659,7 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
       | 'supportsSshPortScopedIdentityV1'
       | 'supportsWholeSessionCopyV1'
       | 'supportsGenUiLibrariesV1'
+      | 'supportsResponsesWebsocketV1'
       | 'supportsModelRoutingV1'
       | 'supportsModelPoolSelectionV1'
       | 'supportsMagpieDiscoveryV1'
@@ -757,6 +759,24 @@ export class PeerDeviceTransportAdapter implements ITransportAdapter {
     if (action === 'product_control_invoke' && productRequest?.capabilityId === 'setting.tools.execution'
       && productRequest?.optionId === 'genui-library' && this.hooks.supportsGenUiLibrariesV1 !== true) {
       throw new Error('This peer does not advertise gen_ui_libraries_v1; component library settings are unsupported');
+    }
+    if (this.hooks.supportsResponsesWebsocketV1 !== true) {
+      const request = params?.request;
+      const hasPreferences = (model: any) => model?.responses != null || model?.responses_defaults != null;
+      const value = request?.value;
+      const models = request?.path === 'ai.models' ? value
+        : request?.path === 'ai' ? value?.models
+          : !request?.path ? value?.ai?.models : undefined;
+      const writesPreferences = action === 'set_config' && (
+        (Array.isArray(models) && models.some(hasPreferences))
+        || (/^ai\.models\./.test(request?.path ?? '') && value != null
+          && (hasPreferences(value) || /\.responses(_defaults)?(\.|$)/.test(request.path)))
+      );
+      const testsPreferences = ['test_ai_config_connection', 'test_ai_connection'].includes(action)
+        && hasPreferences(request?.config ?? request);
+      if (writesPreferences || testsPreferences) {
+        throw new PeerProductCommandError('responses_websocket_v1_unsupported: The connected Peer host does not support Responses transport settings');
+      }
     }
     const configRequest = (params as { request?: { path?: string; paths?: string[] } } | undefined)?.request;
     if (['get_config', 'get_configs', 'set_config', 'reset_config'].includes(action)

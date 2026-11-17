@@ -5173,3 +5173,21 @@ test('workspace icon image codecs remain an exact feature-owned slice', () => {
   pkg.features['workspace-icons'].push('image/gif');
   assert.match(findThirdPartyCapabilityFeatureViolations([pkg]).map(v => v.message).join('\n'), /workspace-icons.*unexpected.*gif/);
 });
+
+
+test('Responses WebSocket adapter uses framing over the existing Reqwest upgrade', () => {
+  const pkg = packageAt('openbitfun-ai-adapters', 'src/crates/adapters/ai-adapters/Cargo.toml', [{
+    name: 'tokio-tungstenite', kind: null, optional: false, uses_default_features: false,
+    features: ['handshake'],
+  }]);
+  assert.deepEqual(findThirdPartyCapabilityFeatureViolations([pkg]), []);
+  for (const change of [
+    { features: ['handshake', 'connect'] },
+    { features: ['handshake', 'rustls-tls-native-roots'] },
+    { uses_default_features: true },
+  ]) {
+    const mutated = structuredClone(pkg);
+    Object.assign(mutated.dependencies[0], change);
+    assert.ok(findThirdPartyCapabilityFeatureViolations([mutated]).length > 0);
+  }
+});

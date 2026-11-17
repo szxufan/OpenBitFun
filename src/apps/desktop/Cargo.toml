@@ -20,7 +20,7 @@ serde_json = { workspace = true }
 [dependencies]
 openbitfun-computer-use = { path = "../../crates/services/computer-use" }
 openbitfun-miniapp-ipc = { path = "../../crates/adapters/miniapp-ipc" }
-openbitfun-services-core = { path = "../../crates/services/services-core", features = ["pet-packages", "local-storage"] }
+openbitfun-services-core = { path = "../../crates/services/services-core", features = ["pet-packages", "local-storage", "installed-apps"] }
 # Internal crates
 openbitfun-core = { path = "../../crates/assembly/core", features = ["product-full"] }
 openbitfun-relay-service = { path = "../../crates/services/relay-service" }

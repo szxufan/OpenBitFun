@@ -110,7 +110,9 @@ pub(super) fn install(
         Err(error) if error.kind() == io::ErrorKind::PermissionDenied => true,
         Err(error) => return Err(error),
     };
-    let machine = crate::api::update_api::windows_machine_install(target);
+    let scope =
+        crate::api::update_api::windows_installation_scope(target).map_err(io::Error::other)?;
+    let machine = scope.machine_install;
     let event_name = format!("Local\\OpenBitFunUpdate-{}", uuid::Uuid::new_v4());
     let file = if package.msi {
         system_directory()?.join("msiexec.exe")
@@ -176,7 +178,7 @@ function Read-NativeFailure($code) {{
   }}
   return $null
 }}
-$result=@{{version={version};success=$false;exitCode=$null;error=$null}}
+$result=@{{version={version};success=$false;exitCode=$null;error=$null;rebootRequired=$false}}
 $announced=$false
 try {{
   $parameters=@{{FilePath={file};ArgumentList={parameters};PassThru=$true}}
@@ -210,9 +212,12 @@ try {{
   $installer.WaitForExit()
   $result.exitCode=$installer.ExitCode
   $detail=Read-NativeFailure $installer.ExitCode
-  if ($installer.ExitCode -ne 0 -and $installer.ExitCode -ne 2) {{ if($detail) {{ throw $detail }}; throw "Installer exited with code $($installer.ExitCode)" }}
+  $accepted=if({transactional}){{@(0,2)}}elseif({msi}){{@(0,1641,3010)}}else{{@(0)}}
+  if ($installer.ExitCode -notin $accepted) {{ if($detail) {{ throw $detail }}; throw "Installer exited with code $($installer.ExitCode)" }}
   $result.success=$true
-  if ($installer.ExitCode -eq 2) {{ $result.error=if($detail){{$detail}}else{{'The update was installed, but some maintenance files require cleanup.'}} }}
+  $result.rebootRequired={msi} -and ($installer.ExitCode -in @(1641,3010))
+  if ($result.rebootRequired) {{ $result.error='Restart Windows to finish installing the OpenBitFun update.' }}
+  elseif ({transactional} -and $installer.ExitCode -eq 2) {{ $result.error=if($detail){{$detail}}else{{'The update was installed, but some maintenance files require cleanup.'}} }}
 }} catch {{
   $result.error=$_.Exception.Message
   if (!$announced) {{ [Console]::Out.WriteLine('ERROR: '+$result.error); [Console]::Out.Flush() }}
@@ -225,13 +230,13 @@ try {{
 }} catch {{}}
 if ($result.error -and $announced) {{
   Add-Type -AssemblyName System.Windows.Forms
-  $message=if($result.success){{'OpenBitFun update completed with a cleanup warning. '}}else{{'OpenBitFun update failed. The downloaded package is retained. '}}
+  $message=if($result.rebootRequired){{'OpenBitFun update requires a Windows restart. '}}elseif($result.success){{'OpenBitFun update completed with a cleanup warning. '}}else{{'OpenBitFun update failed. The downloaded package is retained. '}}
   [Windows.Forms.MessageBox]::Show($message+$result.error,'OpenBitFun',[Windows.Forms.MessageBoxButtons]::OK,[Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
 }}
 if ({cleanup} -ne '') {{
   try {{ Remove-Item -LiteralPath {cleanup} -Force; [IO.Directory]::Delete([IO.Path]::GetDirectoryName({cleanup}),$false) }} catch {{}}
 }}
-if ($announced -and (Test-Path -LiteralPath {current})) {{
+if ($announced -and !$result.rebootRequired -and (Test-Path -LiteralPath {current})) {{
   $restart=@{{FilePath={current}}}
   if ({restart} -ne '') {{ $restart.ArgumentList={restart} }}
   Start-Process @restart
@@ -242,8 +247,9 @@ if ($announced -and (Test-Path -LiteralPath {current})) {{
         file = quote(&file.to_string_lossy()),
         parameters = quote(&parameters),
         transactional = if package.native { "$true" } else { "$false" },
+        msi = if package.msi { "$true" } else { "$false" },
         event = quote(&event_name),
-        elevate = if protected || machine {
+        elevate = if protected || scope.requires_machine_access() {
             "$true"
         } else {
             "$false"

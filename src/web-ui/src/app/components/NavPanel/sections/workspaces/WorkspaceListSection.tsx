@@ -1,6 +1,13 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useI18n } from '@/infrastructure/i18n';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
+import {
+  consumeWorkspaceReveal,
+  getPendingWorkspaceReveal,
+  getWorkspaceRevealRevision,
+  subscribeWorkspacePromotionSnapshot,
+  subscribeWorkspaceRevealState,
+} from '@/infrastructure/services/business/workspaceDisplayOrder';
 import { useSceneStore } from '@/app/stores/sceneStore';
 import { useContentResourceStore } from '@/app/workbench/contentResourceStore';
 import { getActiveSurfaceId, onSurfaceActivated } from '@/infrastructure/peer-device/deviceSurface';
@@ -34,9 +41,48 @@ interface WorkspaceDragPayload {
   variant: SessionNavigationScope;
 }
 
+interface PendingDropSnapshot {
+  surfaceId: string;
+  scrollTop: number;
+  rects: Map<string, DOMRect>;
+}
+
 const WORKSPACE_DRAG_MIME_TYPE = 'application/x-openbitfun-workspace';
 const WORKSPACE_DROP_SETTLE_MS = 160;
 const WORKSPACE_DROP_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
+const WORKSPACE_FLIP_VIEWPORT_MARGIN_PX = 40;
+const WORKSPACE_FLIP_MAX_DELTA_PX = 240;
+
+/**
+ * Scroll `row`'s header card into the visible portion of `scrollRoot`, clearing
+ * any sticky section header (which also clips covered content via `clip-path`).
+ * Falls back to native `scrollIntoView` when no measured scroll container exists.
+ */
+function revealWorkspaceRow(row: HTMLElement, scrollRoot?: HTMLElement | null): void {
+  const header = row.querySelector<HTMLElement>('.openbitfun-nav-panel__workspace-item-card') ?? row;
+  if (scrollRoot) {
+    const scrollRect = scrollRoot.getBoundingClientRect();
+    const stickyHeader = row.closest('[data-openbitfun-section="sessions"]')
+      ?.querySelector<HTMLElement>('[data-openbitfun-part="stickySectionHeader"]');
+    const visibleTop = Math.max(scrollRect.top, stickyHeader?.getBoundingClientRect().bottom ?? scrollRect.top);
+    const visibleBottom = scrollRect.bottom;
+    if (visibleBottom > visibleTop) {
+      const rowRect = row.getBoundingClientRect();
+      const headerRect = header.getBoundingClientRect();
+      if (headerRect.top < visibleTop) {
+        scrollRoot.scrollTop = Math.max(0, scrollRoot.scrollTop + (rowRect.top - visibleTop));
+        return;
+      }
+      if (headerRect.bottom > visibleBottom) {
+        const delta = Math.min(headerRect.bottom - visibleBottom, rowRect.top - visibleTop);
+        if (delta > 0) scrollRoot.scrollTop += delta;
+        return;
+      }
+      return;
+    }
+  }
+  header.scrollIntoView?.({ block: 'nearest' });
+}
 
 /**
  * WorkspaceListSection — the session section's group list.
@@ -85,13 +131,18 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant, sc
     activeTab?.contentId ? state.resources[activeTab.contentId]?.scope : undefined
   ));
   const surfaceId = useSyncExternalStore(onSurfaceActivated, getActiveSurfaceId, getActiveSurfaceId);
+  const revealRevision = useSyncExternalStore(
+    subscribeWorkspaceRevealState,
+    getWorkspaceRevealRevision,
+    getWorkspaceRevealRevision,
+  );
 
   // Refs for values that must be read inside event handlers without stale closures
   const draggedWorkspaceIdRef = useRef<string | null>(null);
   const dropTargetRef = useRef<{ workspaceId: string; position: WorkspaceDragPosition } | null>(null);
   const pendingDragEndRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const workspaceRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const pendingDropRectsRef = useRef<Map<string, DOMRect> | null>(null);
+  const pendingDropSnapshotRef = useRef<PendingDropSnapshot | null>(null);
   const dropAnimationsRef = useRef<Map<string, Animation>>(new Map());
 
   const sectionWorkspaces = variant === 'all'
@@ -162,10 +213,30 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant, sc
 
   // A retained list can lose its native source without receiving dragend.
   // Device identity matters even when the new surface has identical workspace IDs.
+  // Pending reveal requests live in `workspaceDisplayOrder` so switching from
+  // flat (`all`) to grouped still reveals the row once it mounts.
   useLayoutEffect(() => {
     resetDragState();
-    pendingDropRectsRef.current = null;
+    pendingDropSnapshotRef.current = null;
   }, [grouping, surfaceId, variant, resetDragState]);
+
+  const captureWorkspaceRowsSnapshot = useCallback((): PendingDropSnapshot => ({
+    surfaceId,
+    scrollTop: scrollRootRef?.current?.scrollTop ?? 0,
+    rects: new Map(
+      Array.from(workspaceRowRefs.current, ([id, element]) => (
+        [id, element.getBoundingClientRect()] as const
+      )),
+    ),
+  }), [scrollRootRef, surfaceId]);
+
+  // Re-adding an opened workspace moves it to the top of this device's list.
+  // Snapshot pre-reorder geometry before the new order commits so rows can slide.
+  useEffect(() => subscribeWorkspacePromotionSnapshot((promotedSurfaceId, workspaceId) => {
+    if (promotedSurfaceId !== surfaceId) return;
+    if (!workspaceRowRefs.current.has(workspaceId)) return;
+    pendingDropSnapshotRef.current = captureWorkspaceRowsSnapshot();
+  }), [captureWorkspaceRowsSnapshot, surfaceId]);
 
   useLayoutEffect(() => {
     if (draggedWorkspaceId && !canContinueDrag) {
@@ -221,18 +292,49 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant, sc
     dropAnimationsRef.current.clear();
   }, []);
 
+  const firstVisibleWorkspaceId = visibleReorderableGroups[0]?.workspace.id ?? null;
+
   useLayoutEffect(() => {
-    const previousRects = pendingDropRectsRef.current;
-    if (!previousRects) return;
-    pendingDropRectsRef.current = null;
+    const pendingReveal = getPendingWorkspaceReveal(surfaceId);
+    if (pendingReveal && (!pendingReveal.promoted || firstVisibleWorkspaceId === pendingReveal.workspaceId)) {
+      const row = workspaceRowRefs.current.get(pendingReveal.workspaceId);
+      if (row) {
+        consumeWorkspaceReveal(surfaceId, pendingReveal.token);
+        revealWorkspaceRow(row, scrollRootRef?.current);
+      }
+    }
+
+    const snapshot = pendingDropSnapshotRef.current;
+    if (!snapshot) return;
+    pendingDropSnapshotRef.current = null;
+    if (snapshot.surfaceId !== surfaceId) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
 
+    const scrollRoot = scrollRootRef?.current;
+    const scrollDelta = (scrollRoot?.scrollTop ?? 0) - snapshot.scrollTop;
+    const scrollRect = scrollRoot?.getBoundingClientRect();
+    const viewportHeight = scrollRect && scrollRect.height > 0 ? scrollRect.height : 0;
+    const maxDelta = viewportHeight > 0
+      ? Math.max(96, Math.min(WORKSPACE_FLIP_MAX_DELTA_PX, viewportHeight * 0.65))
+      : WORKSPACE_FLIP_MAX_DELTA_PX;
+
     for (const [workspaceId, element] of workspaceRowRefs.current) {
-      const previousRect = previousRects.get(workspaceId);
+      const previousRect = snapshot.rects.get(workspaceId);
       if (!previousRect) continue;
       const currentRect = element.getBoundingClientRect();
-      const deltaY = previousRect.top - currentRect.top;
-      if (Math.abs(deltaY) < 0.5) continue;
+      if (
+        scrollRect
+        && viewportHeight > 0
+        && (
+          currentRect.bottom < scrollRect.top - WORKSPACE_FLIP_VIEWPORT_MARGIN_PX
+          || currentRect.top > scrollRect.bottom + WORKSPACE_FLIP_VIEWPORT_MARGIN_PX
+        )
+      ) {
+        continue;
+      }
+      const rawDeltaY = (previousRect.top - currentRect.top) - scrollDelta;
+      if (Math.abs(rawDeltaY) < 0.5) continue;
+      const deltaY = Math.sign(rawDeltaY) * Math.min(Math.abs(rawDeltaY), maxDelta);
 
       dropAnimationsRef.current.get(workspaceId)?.cancel();
       const animation = element.animate(
@@ -249,7 +351,7 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant, sc
         }
       }, { once: true });
     }
-  }, [workspaceSignature]);
+  }, [firstVisibleWorkspaceId, grouping, revealRevision, scrollRootRef, surfaceId, workspaceSignature]);
 
   const handleDragStart = useCallback((workspaceId: string) => (event: React.DragEvent<HTMLDivElement>) => {
     const payload: WorkspaceDragPayload = { workspaceId, variant };
@@ -339,22 +441,18 @@ const WorkspaceListSection: React.FC<WorkspaceListSectionProps> = ({ variant, sc
     event.stopPropagation();
 
     // Keep the slot measured by dragover, before the drop line changed layout.
-    pendingDropRectsRef.current = new Map(
-      Array.from(workspaceRowRefs.current, ([id, element]) => (
-        [id, element.getBoundingClientRect()] as const
-      )),
-    );
+    pendingDropSnapshotRef.current = captureWorkspaceRowsSnapshot();
 
     try {
       await reorderOpenedWorkspacesInSection(reorderSection, payload.workspaceId, workspaceId, position);
     } catch (error) {
-      pendingDropRectsRef.current = null;
+      pendingDropSnapshotRef.current = null;
       notificationService.error(
         error instanceof Error ? error.message : t('nav.workspaces.reorderFailed'),
         { duration: 4000 }
       );
     }
-  }, [reorderOpenedWorkspacesInSection, reorderSection, resetDragState, t, variant]);
+  }, [captureWorkspaceRowsSnapshot, reorderOpenedWorkspacesInSection, reorderSection, resetDragState, t, variant]);
 
   /**
    * One session-group row. Pinned assistants and project workspaces share the

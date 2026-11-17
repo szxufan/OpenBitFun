@@ -466,3 +466,7 @@ Use `-- --include-ignored` with `latexmk`, pdfLaTeX, and XeLaTeX on PATH to
 exercise a multi-file paper build, error diagnostics, and temporary output.
 The POSIX build test checks the remote command in a local shell. Verify live
 SSH, container, and peer routing separately.
+
+For additive on-demand context-estimate requests and legacy payload defaults:
+`cargo test --locked -p openbitfun-desktop --no-default-features --lib context_estimate_request_tests`.
+This verifies the Desktop boundary, not a live Peer or remote workspace.

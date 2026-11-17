@@ -84,6 +84,7 @@ import MainNav from './MainNav';
 import { useWorkspaceSessionViewStore } from './workspaceSessionView';
 import { useMiniAppNavigationStore } from '@/app/scenes/miniapps/miniAppNavigationStore';
 import { sidebarPreferences } from '@/app/navigation/sidebarPreferences';
+import { requestWorkspaceReveal, resetWorkspaceDisplayOrdersForTest } from '@/infrastructure/services/business/workspaceDisplayOrder';
 
 describe('project creation entry points', () => {
   let root: Root;
@@ -179,6 +180,16 @@ describe('project creation entry points', () => {
     await click('actions.add');
     await click('newProject.create');
     expect(useWorkspaceSessionViewStore.getState().grouping).toBe(succeeded ? 'grouped' : 'all');
+  });
+
+  it('switches flat session view to grouped when an explicit open requests revealing a project on the active device', () => {
+    resetWorkspaceDisplayOrdersForTest();
+    useWorkspaceSessionViewStore.getState().setGrouping('all');
+    act(() => { requestWorkspaceReveal('peer-b', 'ws-other', true); });
+    expect(useWorkspaceSessionViewStore.getState().grouping).toBe('all');
+
+    act(() => { requestWorkspaceReveal('local', 'ws-local', true); });
+    expect(useWorkspaceSessionViewStore.getState().grouping).toBe('grouped');
   });
 
   it.each(['sidebar', 'global'] as const)('%s opens the full source picker and adds a WSL folder', async entry => {

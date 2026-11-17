@@ -7,6 +7,7 @@ use crate::stream::types::responses::{
 use crate::stream::types::unified::UnifiedResponse;
 use anyhow::{anyhow, Result};
 use eventsource_stream::Eventsource;
+use futures::{Stream, StreamExt};
 use log::{debug, error, trace};
 use openbitfun_agent_stream::ToolCallCompletion;
 use openbitfun_core_types::errors::AiProviderError;
@@ -377,6 +378,19 @@ fn stream_recovery_hint_ms(error: &Value) -> Option<u64> {
     (seconds > 0).then(|| seconds.min(MAX_HINT_SECONDS).saturating_mul(1000))
 }
 
+fn interruption(message: impl Into<String>, ambiguous: bool) -> anyhow::Error {
+    let message = message.into();
+    if !ambiguous {
+        return anyhow::anyhow!(message);
+    }
+    let mut error = AiProviderError::classified(
+        message,
+        openbitfun_core_types::errors::ErrorCategory::Network,
+    );
+    error.delivery_uncertain = ambiguous;
+    error.into()
+}
+
 pub async fn handle_responses_stream(
     response: Response,
     tx_event: mpsc::UnboundedSender<Result<UnifiedResponse>>,
@@ -385,7 +399,32 @@ pub async fn handle_responses_stream(
     idle_timeout: Option<Duration>,
     expected_prompt_cache_key_hash: Option<String>,
 ) {
-    let mut stream = response.bytes_stream().eventsource();
+    let stream = response
+        .bytes_stream()
+        .eventsource()
+        .map(|event| event.map(|event| event.data).map_err(anyhow::Error::from));
+    handle_responses_events(
+        Box::pin(stream),
+        tx_event,
+        tx_raw_sse,
+        ttft_timeout,
+        idle_timeout,
+        expected_prompt_cache_key_hash,
+        false,
+    )
+    .await;
+}
+
+/// Both SSE and WebSocket feed the same Responses event semantics.
+pub(crate) async fn handle_responses_events<'a>(
+    mut stream: std::pin::Pin<Box<dyn Stream<Item = Result<String>> + Send + 'a>>,
+    tx_event: mpsc::UnboundedSender<Result<UnifiedResponse>>,
+    tx_raw_sse: Option<mpsc::UnboundedSender<String>>,
+    ttft_timeout: Option<Duration>,
+    idle_timeout: Option<Duration>,
+    expected_prompt_cache_key_hash: Option<String>,
+    ambiguous_interrupt: bool,
+) -> bool {
     // Some providers close the stream after emitting the terminal event and may not send `[DONE]`.
     let mut received_finish_reason = false;
     let mut received_text_delta = false;
@@ -406,20 +445,24 @@ pub async fn handle_responses_stream(
             TimedStreamItem::End => {
                 if received_finish_reason {
                     stats.log_summary("stream_closed_after_finish_reason");
-                    return;
+                    return true;
                 }
                 let error_msg = "Responses SSE stream closed before response completed";
                 stats.log_summary("stream_closed_before_completion");
                 error!("{}", error_msg);
-                let _ = tx_event.send(Err(anyhow!(error_msg)));
-                return;
+                let _ = tx_event.send(Err(interruption(error_msg, ambiguous_interrupt)));
+                return false;
             }
             TimedStreamItem::Item(Err(e)) => {
                 let error_msg = format!("Responses SSE stream error: {}", e);
                 stats.log_summary("sse_stream_error");
                 error!("{}", error_msg);
-                let _ = tx_event.send(Err(anyhow!(error_msg)));
-                return;
+                let _ = tx_event.send(Err(if ambiguous_interrupt {
+                    e
+                } else {
+                    anyhow!(error_msg)
+                }));
+                return false;
             }
             TimedStreamItem::TimedOut(StreamTimeoutStage::Ttft) => {
                 let timeout_secs = ttft_timeout.map(|timeout| timeout.as_secs()).unwrap_or(0);
@@ -429,20 +472,20 @@ pub async fn handle_responses_stream(
                 );
                 stats.log_summary("ttft_timeout");
                 error!("{}", error_msg);
-                let _ = tx_event.send(Err(anyhow!(error_msg)));
-                return;
+                let _ = tx_event.send(Err(interruption(error_msg, ambiguous_interrupt)));
+                return false;
             }
             TimedStreamItem::TimedOut(StreamTimeoutStage::Idle) => {
                 let timeout_secs = idle_timeout.map(|timeout| timeout.as_secs()).unwrap_or(0);
                 let error_msg = format!("Responses SSE stream timeout after {}s", timeout_secs);
                 stats.log_summary("sse_stream_timeout");
                 error!("{}", error_msg);
-                let _ = tx_event.send(Err(anyhow!(error_msg)));
-                return;
+                let _ = tx_event.send(Err(interruption(error_msg, ambiguous_interrupt)));
+                return false;
             }
         };
 
-        let raw = sse.data;
+        let raw = sse;
         stats.record_sse_event("data");
         trace!(target: AI_STREAM_RESPONSE_TARGET, "Responses SSE: {:?}", raw);
         if let Some(ref tx) = tx_raw_sse {
@@ -451,7 +494,7 @@ pub async fn handle_responses_stream(
         if raw == "[DONE]" {
             stats.increment("marker:done");
             stats.log_summary("done_marker_received");
-            return;
+            return received_finish_reason;
         }
 
         let event_json: Value = match serde_json::from_str(&raw) {
@@ -461,8 +504,8 @@ pub async fn handle_responses_stream(
                 stats.increment("error:sse_parsing");
                 stats.log_summary("sse_parsing_error");
                 error!("{}", error_msg);
-                let _ = tx_event.send(Err(anyhow!(error_msg)));
-                return;
+                let _ = tx_event.send(Err(interruption(error_msg, ambiguous_interrupt)));
+                return false;
             }
         };
 
@@ -489,7 +532,7 @@ pub async fn handle_responses_stream(
             stats.log_summary("sse_api_error");
             error!("{}", provider_error);
             let _ = tx_event.send(Err(anyhow!(provider_error)));
-            return;
+            return false;
         }
 
         let event: ResponsesStreamEvent = match serde_json::from_value(event_json) {
@@ -499,8 +542,8 @@ pub async fn handle_responses_stream(
                 stats.increment("error:schema");
                 stats.log_summary("sse_schema_error");
                 error!("{}", error_msg);
-                let _ = tx_event.send(Err(anyhow!(error_msg)));
-                return;
+                let _ = tx_event.send(Err(interruption(error_msg, ambiguous_interrupt)));
+                return false;
             }
         };
         stats.increment(format!("event:{}", event.kind));
@@ -534,8 +577,9 @@ pub async fn handle_responses_stream(
                             stats.increment("error:missing_output_index");
                             stats.log_summary("responses_tool_call_missing_output_index");
                             error!("{}", error_msg);
-                            let _ = tx_event.send(Err(anyhow!(error_msg)));
-                            return;
+                            let _ =
+                                tx_event.send(Err(interruption(error_msg, ambiguous_interrupt)));
+                            return false;
                         };
                         if let Some(ref call_id) = tc.call_id {
                             tool_call_index_by_id.insert(call_id.clone(), output_index);
@@ -609,8 +653,8 @@ pub async fn handle_responses_stream(
                     stats.increment("error:function_call_arguments_delta");
                     stats.log_summary("responses_function_call_arguments_delta_error");
                     error!("{}", error_msg);
-                    let _ = tx_event.send(Err(anyhow!(error_msg)));
-                    return;
+                    let _ = tx_event.send(Err(interruption(error_msg, ambiguous_interrupt)));
+                    return false;
                 }
             }
             "response.output_item.done" => {
@@ -753,8 +797,8 @@ pub async fn handle_responses_stream(
                         stats.increment("error:completed_payload");
                         stats.log_summary("response_completed_parse_error");
                         error!("{}", error_msg);
-                        let _ = tx_event.send(Err(anyhow!(error_msg)));
-                        return;
+                        let _ = tx_event.send(Err(interruption(error_msg, ambiguous_interrupt)));
+                        return false;
                     }
                     None => {
                         received_finish_reason = true;
@@ -821,8 +865,8 @@ pub async fn handle_responses_stream(
                         stats.increment("error:done_payload");
                         stats.log_summary("response_done_parse_error");
                         error!("{}", error_msg);
-                        let _ = tx_event.send(Err(anyhow!(error_msg)));
-                        return;
+                        let _ = tx_event.send(Err(interruption(error_msg, ambiguous_interrupt)));
+                        return false;
                     }
                     None => {
                         received_finish_reason = true;
@@ -857,7 +901,7 @@ pub async fn handle_responses_stream(
                 stats.log_summary("response_failed");
                 error!("{}", error_msg);
                 let _ = tx_event.send(Err(anyhow!(error_msg)));
-                return;
+                return false;
             }
             "response.incomplete" => {
                 // Prefer returning partial output (rust-genai behavior) instead of hard-failing the round.
@@ -1206,7 +1250,7 @@ mod tests {
         )]);
         let response = json!({
             "output": [
-                { "type": "reasoning", "encrypted_content": "final", "summary": [] },
+                { "type": "reasoning", "encrypted_content": "final", "summary": [], "content": [{"type":"reasoning_text", "text":"terminal content"}] },
                 { "type": "message", "role": "assistant", "content": [] }
             ]
         });
@@ -1216,8 +1260,8 @@ mod tests {
         assert_eq!(capture.items.len(), 2);
         assert!(matches!(
             &capture.items[0],
-            openbitfun_core_types::ModelResponseReplayItem::OpaqueReasoning { opaque_state, .. }
-                if opaque_state == "final"
+            openbitfun_core_types::ModelResponseReplayItem::OpaqueReasoning { opaque_state, content: Some(content), .. }
+                if opaque_state == "final" && content.len() == 1 && content[0].text == "terminal content"
         ));
     }
 
@@ -1226,7 +1270,7 @@ mod tests {
         let done_items = BTreeMap::from([
             (
                 0,
-                json!({ "type": "reasoning", "encrypted_content": "opaque", "summary": [] }),
+                json!({ "type": "reasoning", "encrypted_content": "opaque", "summary": [], "content": [] }),
             ),
             (1, json!({ "type": "function_call", "call_id": "call_1" })),
         ]);
@@ -1235,6 +1279,11 @@ mod tests {
         let capture = completed_replay_capture(Some(&response), &done_items, true)
             .expect("done-item fallback");
         assert_eq!(capture.items.len(), 2);
+        assert!(matches!(
+            &capture.items[0],
+            openbitfun_core_types::ModelResponseReplayItem::OpaqueReasoning { content: Some(content), .. }
+                if content.is_empty()
+        ));
     }
 
     #[test]

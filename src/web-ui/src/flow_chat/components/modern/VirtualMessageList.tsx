@@ -490,9 +490,6 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, SessionListP
   // Reopening need not first render a zero-height window and zero-width estimates.
   const [viewportHeightPx, setViewportHeightPx] = useState(initialViewportRect?.height ?? 0);
   const [viewportWidthPx, setViewportWidthPx] = useState(initialViewportRect?.width ?? 0);
-  useLayoutEffect(() => {
-    if (scrollerElement && extentElementRef.current) centerFlowChatExtent(scrollerElement, extentElementRef.current);
-  }, [scrollerElement, viewportWidthPx, endOrigin]);
   /** Native minimization withdraws the scroller without unmounting the session. */
   const isViewportSuspendedRef = useRef(false);
   const [, commitResumedViewport] = useReducer(revision => revision + 1, 0);
@@ -673,6 +670,12 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, SessionListP
     speculativeOverscanItems: endOrigin && !shouldRestoreInitialSnapshot ? speculativeOverscanItems : 8,
   });
   const { snapshotItemSizes, syncViewportOffset } = virtualizer;
+  // Run after `useFlowChatVirtualizer` layout effects so writing `extent.style.left`
+  // does not dirty `extent` right before `publishOriginInset` / row height reads,
+  // avoiding a second synchronous full-transcript layout pass on session switch.
+  useLayoutEffect(() => {
+    if (scrollerElement && extentElementRef.current) centerFlowChatExtent(scrollerElement, extentElementRef.current);
+  }, [scrollerElement, viewportWidthPx, endOrigin]);
   const measuredWidthRef = useRef(availableWidthPx);
   measuredWidthRef.current = availableWidthPx;
   const retainedViewportRectRef = useRef(initialViewportRect);
@@ -2745,6 +2748,7 @@ const VirtualMessageListSession = forwardRef<VirtualMessageListRef, SessionListP
     >
       <div
         ref={handleScrollerRef}
+        tabIndex={-1}
         className="virtual-message-list__scroller"
         data-flowchat-scroller="true"
         data-flowchat-scroll-origin={endOrigin ? 'end' : 'start'}

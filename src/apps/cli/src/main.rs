@@ -1809,6 +1809,15 @@ async fn run_interactive_with_session(
 mod computer_use;
 
 fn main() {
+    if let Some(result) =
+        self_update::run_install_lock_helper(&std::env::args_os().skip(1).collect::<Vec<_>>())
+    {
+        if let Err(error) = result {
+            eprintln!("Installation lock failed: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     // Install the workspace-owned ring CryptoProvider before any TLS-capable
     // work (relay WS, reqwest rustls paths, Feishu wss) so every client uses
     // the same explicit process-level provider.

@@ -635,6 +635,7 @@ mod tests {
                 for context in [
                     None,
                     Some(ModelRequestContext {
+                        conversation_scope: None,
                         prompt_cache_route_key: Some("runtime-lineage".into()),
                         output_schema: Some(serde_json::json!({"type": "object"})),
                     }),
@@ -660,6 +661,7 @@ mod tests {
                     client.client.post(url),
                     url,
                     Some(&ModelRequestContext {
+                        conversation_scope: None,
                         prompt_cache_route_key: Some("runtime-lineage".into()),
                         ..Default::default()
                     }),
@@ -691,14 +693,17 @@ mod tests {
                         None,
                         Some(ModelRequestContext::default()),
                         Some(ModelRequestContext {
+                            conversation_scope: None,
                             prompt_cache_route_key: Some(" ".into()),
                             output_schema: Some(serde_json::json!({"type":"object"})),
                         }),
                         Some(ModelRequestContext {
+                            conversation_scope: None,
                             prompt_cache_route_key: Some("conversation-a".into()),
                             ..Default::default()
                         }),
                         Some(ModelRequestContext {
+                            conversation_scope: None,
                             prompt_cache_route_key: Some("conversation-b".into()),
                             ..Default::default()
                         }),
@@ -768,6 +773,7 @@ mod tests {
                 "{url}"
             );
             let context = crate::types::ModelRequestContext {
+                conversation_scope: None,
                 prompt_cache_route_key: Some("private-scope".into()),
                 ..Default::default()
             };
@@ -855,6 +861,7 @@ mod tests {
                         None,
                         Some(ModelRequestContext::default()),
                         Some(ModelRequestContext {
+                            conversation_scope: None,
                             prompt_cache_route_key: Some("  ".into()),
                             output_schema: Some(serde_json::json!({"type": "object"})),
                         }),
@@ -891,6 +898,7 @@ mod tests {
                         }
                     }
                     let context = ModelRequestContext {
+                        conversation_scope: None,
                         prompt_cache_route_key: Some("runtime-lineage".into()),
                         ..Default::default()
                     };
@@ -936,6 +944,7 @@ mod tests {
                     .with_max_tokens(Some(2048));
                 for scope in ["lineage-a", "lineage-b", "lineage-a"] {
                     let context = ModelRequestContext {
+                        conversation_scope: None,
                         prompt_cache_route_key: Some(scope.into()),
                         ..Default::default()
                     };
@@ -956,6 +965,7 @@ mod tests {
                     request_client(url).with_subscription_provider(SubscriptionProvider::Hermes);
                 assert!(prepare_request_context(&mismatch, None).is_none());
                 let context = ModelRequestContext {
+                    conversation_scope: None,
                     prompt_cache_route_key: Some("scope".into()),
                     ..Default::default()
                 };
@@ -975,6 +985,7 @@ mod tests {
         #[test]
         fn affinity_never_leaks_to_other_origins_or_lookalike_paths() {
             let context = ModelRequestContext {
+                conversation_scope: None,
                 prompt_cache_route_key: Some("opaque-scope".into()),
                 ..Default::default()
             };

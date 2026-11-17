@@ -616,6 +616,7 @@ mod tests {
             skip_ssl_verify: true,
             custom_request_body: None,
             custom_request_body_mode: None,
+            responses: None,
         });
 
         let models = client.list_models().await.unwrap();
@@ -629,7 +630,11 @@ mod tests {
         assert_eq!(model.support_video_input, Some(true));
         assert_eq!(
             model.reasoning_options,
-            Some(vec!["low".to_string(), "high".to_string(), "max".to_string()])
+            Some(vec![
+                "low".to_string(),
+                "high".to_string(),
+                "max".to_string()
+            ])
         );
         assert_eq!(
             model.supported_endpoint_types,

@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Latest prepared request only. Kept separately from numeric usage records and exports.
+/// Legacy prepared-request preview. Read for older report consumers only.
+/// Current context inspection is computed on demand and never writes this file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SessionUsageContextSnapshot {
@@ -19,6 +20,7 @@ pub(crate) struct SessionUsageContextSnapshot {
 }
 
 impl PersistenceManager {
+    #[cfg(test)]
     pub(crate) async fn save_usage_context_snapshot(
         &self,
         storage_path: &Path,

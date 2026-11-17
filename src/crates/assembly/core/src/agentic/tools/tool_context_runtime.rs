@@ -1929,6 +1929,7 @@ mod task_context_tests {
                 skip_ssl_verify: false,
                 custom_request_body: None,
                 custom_request_body_mode: None,
+                responses: None,
             },
         ));
         task.context.model_client = Some(client.clone());

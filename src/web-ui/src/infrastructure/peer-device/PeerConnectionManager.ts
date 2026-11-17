@@ -79,6 +79,7 @@ export interface PeerHostCapabilities {
   readonly subscriptionModelQuotaV1?: boolean;
   /** Host routes a model to its configured backup channels. */
   readonly modelChannelRoutingV1?: boolean;
+  readonly responsesWebsocketV1?: boolean;
   readonly wholeSessionCopyV1?: boolean;
   readonly sessionTrajectoryV1?: boolean;
   readonly modelRoutingV1?: boolean;
@@ -258,6 +259,7 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   grokQuotaV1: false,
   subscriptionModelQuotaV1: false,
   modelChannelRoutingV1: false,
+  responsesWebsocketV1: false,
   wholeSessionCopyV1: false,
   sessionTrajectoryV1: false,
   modelRoutingV1: false,
@@ -611,6 +613,7 @@ export class PeerConnectionManager {
       supportsSshPortScopedIdentityV1: entry.capabilities.sshPortScopedIdentityV1,
       supportsWholeSessionCopyV1: entry.capabilities.wholeSessionCopyV1,
       supportsGenUiLibrariesV1: entry.capabilities.genUiLibrariesV1,
+      supportsResponsesWebsocketV1: entry.capabilities.responsesWebsocketV1,
       supportsModelRoutingV1: entry.capabilities.modelRoutingV1,
       supportsModelPoolSelectionV1: entry.capabilities.modelPoolSelectionV1,
       supportsMagpieDiscoveryV1: entry.capabilities.magpieDiscoveryV1,
@@ -731,6 +734,7 @@ export class PeerConnectionManager {
       grokQuotaV1: caps?.grok_quota_v1 === true,
       subscriptionModelQuotaV1: caps?.subscription_model_quota_v1 === true,
       modelChannelRoutingV1: caps?.model_channel_routing_v1 === true,
+      responsesWebsocketV1: caps?.responses_websocket_v1 === true,
       wholeSessionCopyV1: caps?.whole_session_copy_v1 === true,
       sessionTrajectoryV1: caps?.session_trajectory_v1 === true,
       genUiLibrariesV1: caps?.gen_ui_libraries_v1 === true,
@@ -970,6 +974,7 @@ export class PeerConnectionManager {
         supportsSshPortScopedIdentityV1: capabilities.sshPortScopedIdentityV1,
         supportsWholeSessionCopyV1: capabilities.wholeSessionCopyV1,
         supportsGenUiLibrariesV1: capabilities.genUiLibrariesV1,
+        supportsResponsesWebsocketV1: capabilities.responsesWebsocketV1,
         supportsModelRoutingV1: capabilities.modelRoutingV1,
         supportsModelPoolSelectionV1: capabilities.modelPoolSelectionV1,
         supportsMagpieDiscoveryV1: capabilities.magpieDiscoveryV1,

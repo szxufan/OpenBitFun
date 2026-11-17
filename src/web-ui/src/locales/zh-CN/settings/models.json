@@ -798,7 +798,17 @@
       "validJson": "JSON格式有效",
       "mergeHint": "自定义字段将覆盖默认请求体中的对应字段"
     },
-    "description": "用于适配服务的特殊请求与响应要求；不确定时保留默认值"
+    "description": "用于适配服务的特殊请求与响应要求；不确定时保留默认值",
+    "responses": {
+      "transportLabel": "Responses 传输方式",
+      "transportHint": "仅影响 Responses 请求，模型可覆盖供应商默认值。WebSocket 失败时报告错误，不切换到 HTTP。",
+      "contextLabel": "上下文发送",
+      "contextHint": "HTTP 发送全量上下文。WebSocket 增量模式复用已完成的响应，需要恢复时重新发送全量上下文。始终不启用响应存储。",
+      "full": "全量",
+      "incremental": "增量",
+      "unsupported": "此宿主不支持 Responses WebSocket 设置，请更新宿主后配置。",
+      "reset": "恢复供应商设置"
+    }
   },
   "providersDescription": "统一管理 API 地址、认证方式和同一服务下的模型",
   "editSettingsTitle": "模型参数",

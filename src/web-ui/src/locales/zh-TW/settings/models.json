@@ -798,7 +798,17 @@
       "validJson": "JSON格式有效",
       "mergeHint": "自定義字段將覆蓋默認請求體中的對應字段"
     },
-    "description": "用於配合服務的特殊請求與回應要求；不確定時保留預設值"
+    "description": "用於配合服務的特殊請求與回應要求；不確定時保留預設值",
+    "responses": {
+      "transportLabel": "Responses 傳輸方式",
+      "transportHint": "僅影響 Responses 請求，模型可覆寫供應商預設值。WebSocket 失敗時回報錯誤，不切換到 HTTP。",
+      "contextLabel": "上下文傳送",
+      "contextHint": "HTTP 傳送完整上下文。WebSocket 增量模式重用已完成的回應，需要復原時重新傳送完整上下文。始終不啟用回應儲存。",
+      "full": "完整",
+      "incremental": "增量",
+      "unsupported": "此主機不支援 Responses WebSocket 設定，請更新主機後設定。",
+      "reset": "恢復供應商設定"
+    }
   },
   "providersDescription": "統一管理 API 位址、驗證方式與同一服務下的模型",
   "editSettingsTitle": "模型參數",

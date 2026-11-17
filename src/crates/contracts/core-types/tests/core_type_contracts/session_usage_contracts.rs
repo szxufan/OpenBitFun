@@ -37,6 +37,7 @@ fn context_composition_keeps_legacy_reports_readable() {
     assert!(legacy.get("contextPreview").is_none());
     let mut restored: SessionUsageReport = serde_json::from_value(legacy.clone()).unwrap();
     assert!(restored.context.is_none());
+    assert!(restored.context_estimate.is_none());
     assert!(restored.system_prompt_preview.is_none());
     assert!(restored.context_preview.is_none());
     assert_eq!(serde_json::to_value(&restored).unwrap(), legacy);
@@ -84,6 +85,31 @@ fn context_preview_round_trips_with_explicit_category_and_capture_time() {
     assert_eq!(encoded["contextPreview"]["capturedAt"], 123);
     assert_eq!(
         serde_json::from_value::<SessionUsageReport>(encoded).unwrap(),
+        report
+    );
+}
+
+#[test]
+fn current_context_estimate_is_additive_and_preview_is_optional() {
+    let mut report = SessionUsageReport::partial_unavailable("session-1", 42);
+    assert!(serde_json::to_value(&report)
+        .unwrap()
+        .get("contextEstimate")
+        .is_none());
+    report.context_estimate = Some(openbitfun_core_types::UsageContextEstimate {
+        captured_at: 42,
+        composition: Some(openbitfun_core_types::UsageContextBreakdown {
+            conversation: 900,
+            ..Default::default()
+        }),
+        contents: Default::default(),
+        unavailable_reason: None,
+    });
+    let value = serde_json::to_value(&report).unwrap();
+    assert_eq!(value["contextEstimate"]["composition"]["conversation"], 900);
+    assert!(value["contextEstimate"].get("contents").is_none());
+    assert_eq!(
+        serde_json::from_value::<SessionUsageReport>(value).unwrap(),
         report
     );
 }

@@ -113,19 +113,25 @@ impl OpenAIMessageConverter {
         let mut output = Vec::with_capacity(replay.items.len());
         let mut assistant_message_used = false;
         let mut used_tool_calls = HashSet::with_capacity(tool_calls.len());
-        let mut saw_opaque_reasoning = false;
+        let mut replay_text = String::new();
+        let has_text_snapshots = replay.items.iter().any(|item| {
+            matches!(
+                item,
+                ModelResponseReplayItem::AssistantMessage { text: Some(_), .. }
+            )
+        });
 
         for replay_item in &replay.items {
             match replay_item {
                 ModelResponseReplayItem::OpaqueReasoning {
                     item_id,
                     summary,
+                    content,
                     opaque_state,
                 } => {
                     if opaque_state.is_empty() {
                         return None;
                     }
-                    saw_opaque_reasoning = true;
                     let mut item = json!({
                         "type": "reasoning",
                         "summary": summary
@@ -140,13 +146,28 @@ impl OpenAIMessageConverter {
                     if let Some(item_id) = item_id.as_ref().filter(|value| !value.is_empty()) {
                         item["id"] = Value::String(item_id.clone());
                     }
+                    if let Some(content) = content {
+                        item["content"] = json!(content
+                            .iter()
+                            .map(|part| json!({"type": "reasoning_text", "text": part.text}))
+                            .collect::<Vec<_>>());
+                    }
                     output.push(item);
                 }
-                ModelResponseReplayItem::AssistantMessage => {
-                    if assistant_message_used {
-                        return None;
+                ModelResponseReplayItem::AssistantMessage { phase, text } => {
+                    let mut item = if let Some(text) = text {
+                        replay_text.push_str(text);
+                        json!({"type":"message","role":"assistant","content":[{"type":"output_text","text":text}]})
+                    } else {
+                        if assistant_message_used || has_text_snapshots {
+                            return None;
+                        }
+                        assistant_message.clone()?
+                    };
+                    if let Some(phase) = phase {
+                        item["phase"] = json!(phase);
                     }
-                    output.push(assistant_message.clone()?);
+                    output.push(item);
                     assistant_message_used = true;
                 }
                 ModelResponseReplayItem::FunctionCall { call_id } => {
@@ -164,7 +185,7 @@ impl OpenAIMessageConverter {
             }
         }
 
-        if !saw_opaque_reasoning
+        if (has_text_snapshots && replay_text != msg.content.as_deref().unwrap_or_default())
             || assistant_message_used != assistant_message.is_some()
             || used_tool_calls.len() != tool_calls.len()
         {
@@ -569,8 +590,39 @@ mod tests {
             summary: vec![ModelReasoningSummaryPart {
                 text: format!("summary {id}"),
             }],
+            content: None,
             opaque_state: state.to_string(),
         }
+    }
+
+    #[test]
+    fn preserves_message_phases_and_falls_back_after_history_edits() {
+        let message = assistant_with_replay(
+            Some("Checking.Done."),
+            vec![],
+            vec![
+                ModelResponseReplayItem::AssistantMessage {
+                    phase: Some("commentary".into()),
+                    text: Some("Checking.".into()),
+                },
+                ModelResponseReplayItem::AssistantMessage {
+                    phase: Some("final_answer".into()),
+                    text: Some("Done.".into()),
+                },
+            ],
+        );
+        let (_, input) =
+            OpenAIMessageConverter::convert_messages_to_responses_input(vec![message.clone()]);
+        assert_eq!(input.len(), 2);
+        assert_eq!(input[0]["phase"], "commentary");
+        assert_eq!(input[0]["content"][0]["text"], "Checking.");
+        assert_eq!(input[1]["phase"], "final_answer");
+        let mut edited = message;
+        edited.content = Some("Edited by user".into());
+        let (_, input) = OpenAIMessageConverter::convert_messages_to_responses_input(vec![edited]);
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["content"][0]["text"], "Edited by user");
+        assert!(input[0].get("phase").is_none());
     }
 
     #[test]
@@ -580,7 +632,10 @@ mod tests {
             vec![],
             vec![
                 opaque_reasoning("rs_1", "opaque_1"),
-                ModelResponseReplayItem::AssistantMessage,
+                ModelResponseReplayItem::AssistantMessage {
+                    phase: None,
+                    text: None,
+                },
             ],
         );
 

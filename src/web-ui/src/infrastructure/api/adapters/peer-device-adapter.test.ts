@@ -1382,3 +1382,31 @@ describe('peer mutation outcomes', () => {
     expect(rpc).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe('Responses transport capability negotiation', () => {
+  const preferences = { transport: 'websocket', context: 'incremental' };
+  it('rejects unsupported settings and connection probes before sending RPC', async () => {
+    const rpc = vi.fn();
+    const adapter = new PeerDeviceTransportAdapter('peer-1', rpc);
+    for (const value of [
+      { action: 'set_config', request: { path: 'ai.models', value: [{ responses: preferences }] } },
+      { action: 'set_config', request: { path: 'ai', value: { models: [{ responses_defaults: preferences }] } } },
+      { action: 'test_ai_config_connection', request: { config: { responses: preferences } } },
+    ]) {
+      await expect(adapter.request(value.action, { request: value.request })).rejects.toThrow('responses_websocket_v1_unsupported');
+    }
+    expect(rpc).not.toHaveBeenCalled();
+  });
+  it('forwards preferences to a capable host and renegotiates after reconnect', async () => {
+    const rpc = vi.fn().mockResolvedValue(JSON.stringify({ resp: 'host_invoke_result', ok: true, value: null }));
+    const adapter = new PeerDeviceTransportAdapter('peer-1', rpc, { supportsResponsesWebsocketV1: true });
+    const args = { request: { path: 'ai.models', value: [{ responses: preferences }] } };
+    await adapter.request('set_config', args);
+    expect(JSON.parse(rpc.mock.calls[0][1])).toMatchObject({ command: 'set_config', args });
+    adapter.setHostCapabilities({ supportsResponsesWebsocketV1: false });
+    await expect(adapter.request('set_config', args)).rejects.toThrow('responses_websocket_v1_unsupported');
+    await adapter.request('set_config', { request: { path: 'ai.models', value: [{ id: 'legacy' }] } });
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+});

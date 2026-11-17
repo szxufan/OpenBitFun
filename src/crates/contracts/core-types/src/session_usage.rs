@@ -30,6 +30,9 @@ pub struct SessionUsageReport {
     /// Estimated composition of the latest recorded model request, not cumulative usage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<UsageContextBreakdown>,
+    /// Opt-in current-context estimate. Absence identifies older hosts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_estimate: Option<UsageContextEstimate>,
     /// Latest cached system message, returned only for an explicit preview request.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt_preview: Option<UsageSystemPromptPreview>,
@@ -77,8 +80,32 @@ pub struct UsageContextPreview {
     pub captured_at: u64,
 }
 
-/// Numeric-only prompt estimates captured by the executing runtime.
-/// Missing snapshots (including legacy hosts) stay absent.
+/// Read-only inspection options; preview text requires explicit opt-in.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageContextEstimateRequest {
+    #[serde(default)]
+    pub include_contents: bool,
+    /// Skip cumulative accounting when opening the composer overview.
+    #[serde(default)]
+    pub context_only: bool,
+}
+
+/// A single query's view of the current effective context, never persisted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageContextEstimate {
+    pub captured_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition: Option<UsageContextBreakdown>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub contents: std::collections::BTreeMap<UsageContextCategory, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
+}
+
+/// Numeric-only prompt estimates produced by the executing runtime.
+/// Shared by current inspection and legacy request snapshots.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageContextBreakdown {
@@ -474,6 +501,7 @@ impl SessionUsageReport {
                 cache_hit_rate: None,
             },
             context: None,
+            context_estimate: None,
             system_prompt_preview: None,
             context_preview: None,
             models: vec![],

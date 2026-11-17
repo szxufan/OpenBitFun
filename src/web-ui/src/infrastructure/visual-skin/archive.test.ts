@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SkinArchive, MAX_SKIN_ASSET_BYTES, MAX_SKIN_EXPANDED_BYTES } from './archive';
+import { SkinArchive, MAX_SKIN_ASSET_BYTES } from './archive';
 import { VisualSkinPackageParser } from './parser';
 
 const manifest = { manifest: { schema: 'openbitfun.visual-skin', schemaVersion: 1, id: 'bounded', name: 'Bounded', version: '1' }, modes: { light: {} } };
@@ -24,43 +24,29 @@ describe('bounded skin archive', () => {
     }
     finally { await archive.close(); }
   });
+  it('has a single limit: one file, 128 MiB', () => {
+    expect(MAX_SKIN_ASSET_BYTES).toBe(128 * 1024 * 1024);
+  });
   it('rejects a highly compressed oversized file before any decompression read', async () => {
     const source = await archiveWith({ 'huge.png': new Uint8Array(MAX_SKIN_ASSET_BYTES + 1) });
-    expect(source.byteLength).toBeLessThan(32768);
+    expect(source.byteLength).toBeLessThan(262144);
     const read = vi.spyOn(SkinArchive.prototype, 'read');
     await expect(new VisualSkinPackageParser().parse(source)).rejects.toThrow('size limit');
     expect(read).not.toHaveBeenCalled();
   });
 
-  it('rejects too many entries, including directories, before decompression', async () => {
+  it('no longer limits the number of entries, the manifest size or the aggregate size', async () => {
+    const entries = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`file-${i}.txt`, 'x']));
+    entries['dir/deep.txt'] = 'y';
+    const archive = await SkinArchive.open(await archiveWith(entries));
+    expect(archive.files.size).toBe(202);
+    await archive.close();
+
+    // The former 512 KiB manifest cap: a 1 MiB manifest is read, then judged as JSON only.
     const zip = new JSZip();
-    for (let i = 0; i < 97; i++) zip.folder(`folder-${i}`);
-    const read = vi.spyOn(SkinArchive.prototype, 'read');
-    await expect(new VisualSkinPackageParser().parse(await zip.generateAsync({ type: 'arraybuffer' }))).rejects.toThrow('too many entries');
-    expect(read).not.toHaveBeenCalled();
-  });
-
-  it('rejects too many ordinary files before decompression', async () => {
-    const source = await archiveWith(Object.fromEntries(Array.from({ length: 96 }, (_, i) => [`file-${i}.txt`, 'x'])));
-    const read = vi.spyOn(SkinArchive.prototype, 'read');
-    await expect(new VisualSkinPackageParser().parse(source)).rejects.toThrow('too many entries');
-    expect(read).not.toHaveBeenCalled();
-  });
-
-  it('checks the tighter manifest limit before extracting the manifest', async () => {
-    const zip = new JSZip();
-    zip.file('skin.json', new Uint8Array(512 * 1024 + 1));
-    await expect(new VisualSkinPackageParser().parse(await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' }))).rejects.toThrow('size limit');
-  });
-
-  it('rejects the aggregate expanded size before reading any file', async () => {
-    const bytes = new Uint8Array(MAX_SKIN_ASSET_BYTES);
-    const count = Math.ceil(MAX_SKIN_EXPANDED_BYTES / bytes.length) + 1;
-    const source = await archiveWith(Object.fromEntries(Array.from({ length: count }, (_, i) => [`asset-${i}.png`, bytes])));
-    expect(source.byteLength).toBeLessThan(100000);
-    const read = vi.spyOn(SkinArchive.prototype, 'read');
-    await expect(new VisualSkinPackageParser().parse(source)).rejects.toThrow('total expanded size limit');
-    expect(read).not.toHaveBeenCalled();
+    zip.file('skin.json', JSON.stringify({ ...manifest, manifest: { ...manifest.manifest, description: 'x'.repeat(1024 * 1024) } }));
+    const parsed = await new VisualSkinPackageParser().parse(await zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE' }));
+    expect(parsed.manifest.id).toBe('bounded');
   });
 
   it('stops the output sink as soon as a stream exceeds its per-file budget', async () => {
@@ -81,19 +67,17 @@ describe('bounded skin archive', () => {
     await archive.close();
   });
 
-  it('enforces the total budget against streamed output as well as directory metadata', async () => {
+  it('does not cap cumulative streamed output across files', async () => {
     const archive = await SkinArchive.open(await archiveWith({}));
-    const block = new Uint8Array(MAX_SKIN_ASSET_BYTES);
-    let writes = 0;
+    const block = new Uint8Array(20 * 1024 * 1024);
     archive.files.set('stream.bin', {
       uncompressedSize: block.length,
       getData: async (output: WritableStream<Uint8Array>) => {
-        const writer = output.getWriter(); writes++; await writer.write(block); await writer.close();
+        const writer = output.getWriter(); await writer.write(block); await writer.close();
       },
     } as unknown as import('@zip.js/zip.js').FileEntry);
-    for (let i = 0; i < MAX_SKIN_EXPANDED_BYTES / block.length; i++) await archive.read('stream.bin', block.length);
-    await expect(archive.read('stream.bin', block.length)).rejects.toThrow('decompression size limit');
-    expect(writes).toBe(MAX_SKIN_EXPANDED_BYTES / block.length + 1);
+    // 3 x 20 MiB = 60 MiB, above the former 48 MiB aggregate cap.
+    for (let i = 0; i < 3; i++) expect((await archive.read('stream.bin', block.length)).byteLength).toBe(block.length);
     await archive.close();
   });
 

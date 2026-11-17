@@ -167,7 +167,16 @@ impl WorkspaceService {
                 self.open_workspace_by_id(&known.id).await
             };
         }
-        match self.open_workspace(path).await {
+        match self
+            .open_workspace_with_options(
+                path,
+                super::service::WorkspaceCreateOptions {
+                    promote_if_opened: false,
+                    ..Default::default()
+                },
+            )
+            .await
+        {
             Ok(info) => Ok(info),
             Err(error) => {
                 let message = error.to_string();

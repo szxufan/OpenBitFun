@@ -172,7 +172,6 @@ pub(super) const UNAUDITED_BASELINE: &[&str] = &[
     "reload_config",
     "reload_custom_agents",
     "reload_subagents",
-    "reorder_opened_workspaces",
     "replace_mode_skill_selection",
     "report_ide_control_result",
     "reset_agent_profile_config",

@@ -20,6 +20,7 @@ import WorkspaceListSection from '../workspaces/WorkspaceListSection';
 import DeviceCatalogSection from './DeviceCatalogSection';
 import { useDeviceOpenIntent } from '@/infrastructure/peer-device/deviceOpenIntent';
 import { useWorkspaceContext } from '@/infrastructure/contexts/WorkspaceContext';
+import { subscribeWorkspaceReveal } from '@/infrastructure/services/business/workspaceDisplayOrder';
 import { workspaceManager } from '@/infrastructure/services/business/workspaceManager';
 import { installBackgroundSurfaceSeeding } from '@/flow_chat/services/backgroundSurfaceSeeding';
 import { useDeviceVisibilityPreferences } from '@/app/navigation/deviceVisibilityPreferences';
@@ -209,6 +210,12 @@ const DeviceWorkspaceSections: React.FC<DeviceWorkspaceSectionsProps> = ({ scrol
       setExpanded(activeSurfaceId, true);
     }
   }, [activeSurfaceId, setExpanded]);
+  useEffect(() => subscribeWorkspaceReveal(request => {
+    if (request.surfaceId !== getActiveSurfaceId()) return;
+    if (useDeviceSectionDisclosure.getState().expanded[request.surfaceId] === false) {
+      setExpanded(request.surfaceId, true);
+    }
+  }), [setExpanded]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   useSwitchLayoutHold(containerRef, scrollRootRef);

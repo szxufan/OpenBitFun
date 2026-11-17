@@ -29,6 +29,7 @@ export interface CheckForUpdatesResponse {
 export interface PendingUpdateResponse {
   version: string;
   installError?: string;
+  rebootRequired?: boolean;
 }
 
 /** Matches `toggle_main_window_fullscreen` / desktop `ToggleMainWindowFullscreenResponse`. */

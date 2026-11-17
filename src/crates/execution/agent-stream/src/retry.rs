@@ -4,6 +4,10 @@ use openbitfun_core_types::errors::{AiProviderError, ErrorCategory};
 
 pub const MAX_MODEL_ATTEMPTS: usize = 10;
 
+pub fn should_retry_error(error: &AiProviderError) -> bool {
+    !error.delivery_uncertain && should_retry(&error.category)
+}
+
 pub fn should_retry(category: &ErrorCategory) -> bool {
     match category {
         ErrorCategory::Auth
@@ -44,6 +48,15 @@ pub fn delay_ms(attempt_index: usize, message: &str, error: Option<&AiProviderEr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uncertain_delivery_blocks_retry_even_for_network_errors() {
+        let mut error = AiProviderError::classified("interrupted".into(), ErrorCategory::Network);
+        assert!(should_retry_error(&error));
+        error.delivery_uncertain = true;
+        assert!(!should_retry_error(&error));
+        assert_eq!(error.detail().retryable, Some(false));
+    }
 
     #[test]
     fn deterministic_rejections_and_overflow_never_enter_retry() {

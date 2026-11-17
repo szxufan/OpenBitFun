@@ -511,6 +511,27 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it.each(['api_key', 'subscription'] as const)('exposes Responses preferences for %s without exposing subscription header overrides', async authType => {
+    const configured: AIModelConfig = { ...model, provider: 'responses',
+      auth: authType === 'subscription' ? { type: 'subscription', provider: 'codex' } : { type: 'api_key' } };
+    await act(async () => root.render(<ModelSettingsPage />));
+    await act(async () => {
+      reads.get('ai.providers')!.resolve([]);
+      reads.get('ai.models')!.resolve([configured]);
+      reads.get('ai.default_models')!.resolve({});
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>('.openbitfun-model-settings__source-pill')!.click());
+    await act(async () => editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-advanced-toggle"] button')!.click());
+    const transport = editor()!.querySelector<HTMLButtonElement>(`[role="combobox"][aria-label="${copy('advancedSettings.responses.transportLabel')}"]`)!;
+    expect(transport.textContent).toContain('HTTP');
+    expect(transport.disabled).toBe(false);
+    await act(async () => transport.click());
+    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find(option => option.textContent === 'WebSocket')!.click());
+    expect(editorDraft().dirty).toBe(true);
+    expect(editor()!.querySelector('.openbitfun-model-settings__custom-request-body-row') === null).toBe(authType === 'subscription');
+  });
+
   it('returns an existing provider editor to the model overview', async () => {
     await act(async () => root.render(<ModelSettingsPage />));
     await act(async () => {
@@ -565,6 +586,8 @@ describe('ModelSettingsPage loading and provider actions', () => {
     await inputValue(manualName, 'custom-model');
     await act(async () => manualName.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
     await act(async () => editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-capsule-edit"]')!.click());
+    const contextWindow = editor()!.querySelector<HTMLInputElement>(`input[aria-label="${copy('form.contextWindow')}"]`)!;
+    expect(contextWindow.value).toBe(i18nService.formatNumber(200_000, { useGrouping: true }));
     await inputValue(editor()!.querySelector<HTMLInputElement>('[data-testid="settings-model-name-input"]')!, 'renamed-model');
     const save = editor()!.querySelector<HTMLButtonElement>('[data-testid="settings-model-save-btn"]')!;
     expect(save.textContent).toBe(copy('actions.save'));

@@ -8285,6 +8285,47 @@ describe('FlowChatStore reconcile snapshot content safety', () => {
     expect(apiMocks.restoreSessionView).not.toHaveBeenCalled();
   });
 
+  it('resynchronizes an obsolete complete catalog from a fresh windowed host catalog', async () => {
+    await hydrateSessionWithContent();
+    const obsolete = createTurnCatalog(1, 'obsolete');
+    flowChatStore.setState(previous => ({
+      ...previous,
+      sessions: new Map(previous.sessions).set('history-1', {
+        ...previous.sessions.get('history-1')!, turnCatalog: obsolete,
+      }),
+    }));
+    const fresh = { ...createTurnCatalog(80, 'restored'), complete: false };
+    const snapshot = {
+      session: { ...hostSession(), turnCount: 80 },
+      turns: [createPersistedTurn(79)], turnCatalog: fresh, contextRestoreState: 'ready',
+    };
+    apiMocks.restoreSessionView.mockResolvedValueOnce(snapshot);
+    await flowChatStore.refreshPeerSessionSnapshot('history-1');
+    expect(flowChatStore.getState().sessions.get('history-1')?.turnCatalog).toBe(obsolete);
+    apiMocks.restoreSessionView.mockResolvedValueOnce(snapshot);
+    const synchronized = await flowChatStore.synchronizeSessionHistory('history-1');
+    expect(synchronized.applied).toBe(true);
+    expect(flowChatStore.getState().sessions.get('history-1')?.turnCatalog).toBe(fresh);
+    expect(flowChatStore.getSessionHistoryViewState('history-1')?.catalog).toBe(fresh);
+  });
+
+  it('retains complete previews when history synchronization confirms the same catalog revision', async () => {
+    await hydrateSessionWithContent();
+    const complete = createTurnCatalog(1, 'unchanged');
+    flowChatStore.setState(previous => ({
+      ...previous,
+      sessions: new Map(previous.sessions).set('history-1', {
+        ...previous.sessions.get('history-1')!, turnCatalog: complete,
+      }),
+    }));
+    apiMocks.restoreSessionView.mockResolvedValueOnce({
+      session: hostSession(), turns: [createPersistedTurn(0)],
+      turnCatalog: { ...complete, complete: false }, contextRestoreState: 'ready',
+    });
+    await flowChatStore.synchronizeSessionHistory('history-1');
+    expect(flowChatStore.getState().sessions.get('history-1')?.turnCatalog).toBe(complete);
+  });
+
   it('keeps a hydrated turn when a wholesale replace snapshot carries none of its work', async () => {
     // The reported failure: after switching device away and back, the rebuilt
     // projection has no state machines, so every turn reads as idle and every

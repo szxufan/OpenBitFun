@@ -452,6 +452,7 @@ function usageReport(overrides: Partial<SessionUsageReport> = {}): SessionUsageR
       redactedFields: ['tools', 'files', 'errors'],
     },
     ...overrides,
+    contextEstimate: overrides.contextEstimate ?? (overrides.context ? { capturedAt: 123, composition: overrides.context } : undefined),
   };
 }
 
@@ -1134,7 +1135,7 @@ describe('Session usage report UI components', () => {
     act(() => { button.focus(); button.click(); });
     expect(button.disabled).toBe(true);
     expect(promptPreviewMocks.open).toHaveBeenCalledExactlyOnceWith({
-      sessionId: 'session-1', reportSessionId: 'session-1', workspaceId: 'workspace-1', title: `usage.context.categories.${category}${category === 'toolDefinitions' ? '' : '.md'}`, category, emptyContent: 'usage.context.previewEmpty',
+      sessionId: 'session-1', reportSessionId: 'session-1', workspaceId: 'workspace-1', title: `usage.context.categories.${category}${category === 'toolDefinitions' ? '' : '.md'}`, category, emptyContent: 'usage.context.previewEmpty', estimate: undefined, onEstimate: expect.any(Function),
     });
     expect(container.querySelector('.session-usage-panel__donut-segment[data-usage-category="conversation"]')?.hasAttribute('data-usage-muted')).toBe(true);
     await act(async () => finish('unavailable'));
@@ -1520,6 +1521,11 @@ describe('Session usage report UI components', () => {
       systemPrompt: 0, toolDefinitions: 0, rules: 0, skills: 0,
       mcpTools: 0, subagentDefinitions: 0, summarizedConversation: 0, conversation: 0,
     };
+    const legacyReport = usageReport({ context: emptyContext });
+    delete legacyReport.contextEstimate;
+    render(<SessionUsagePanel report={legacyReport} />);
+    expect(factValues()).toEqual(['openbitfun', '1.5K', 'Unavailable']);
+
     render(<SessionUsagePanel report={usageReport({ context: emptyContext })} />);
     expect(factValues()).toEqual(['openbitfun', '1.5K', '~0 / Unavailable']);
 

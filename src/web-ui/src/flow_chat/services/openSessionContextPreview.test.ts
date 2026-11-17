@@ -8,8 +8,8 @@ import { openSessionContextPreview } from './openSessionContextPreview';
 const apiMocks = vi.hoisted(() => ({ getSessionUsageReport: vi.fn() }));
 vi.mock('@/infrastructure/api/service-api/SessionAPI', () => ({ sessionAPI: apiMocks }));
 
-const params = { sessionId: 'preview-session', reportSessionId: 'preview-session', workspaceId: 'workspace-1', title: 'System prompt.md', category: 'systemPrompt' as const, emptyContent: 'No content in the latest request.' };
-const response = () => ({ sessionId: params.sessionId, systemPromptPreview: { content: '# System\n\nExact prompt.\n', cachedAt: 123 } });
+const params = { sessionId: 'preview-session', reportSessionId: 'preview-session', workspaceId: 'workspace-1', title: 'System prompt.md', category: 'systemPrompt' as const, emptyContent: 'No content in the current context.' };
+const response = () => ({ sessionId: params.sessionId, contextEstimate: { contents: { systemPrompt: '# System\n\nExact prompt.\n' }, capturedAt: 123 } });
 const tabs = () => useAgentCanvasStore.getState().primaryGroup.tabs;
 
 describe('system prompt preview tabs', () => {
@@ -28,13 +28,13 @@ describe('system prompt preview tabs', () => {
     const workspaceId = surface === 'ssh-workspace' ? 'ssh-workspace-id' : params.workspaceId;
     await expect(openSessionContextPreview({ ...params, workspaceId })).resolves.toBe('opened');
     expect(apiMocks.getSessionUsageReport).toHaveBeenCalledExactlyOnceWith({
-      sessionId: params.sessionId, workspaceId, includeHiddenSubagents: false, includeSystemPromptPreview: true, contextPreviewCategory: params.category,
+      sessionId: params.sessionId, workspaceId, includeHiddenSubagents: false, contextEstimate: { includeContents: true, contextOnly: true },
     });
     expect(tabs()).toHaveLength(1);
     expect(tabs()[0].content).toMatchObject({
       type: 'markdown-editor', title: params.title,
-      data: { initialContent: response().systemPromptPreview.content, readOnly: true, fileName: 'system-prompt.md' },
-      metadata: { sessionId: params.sessionId, cachedAt: 123, resourceScope: { workspaceId } },
+      data: { initialContent: response().contextEstimate.contents.systemPrompt, readOnly: true, fileName: 'system-prompt.md' },
+      metadata: { sessionId: params.sessionId, capturedAt: 123, resourceScope: { workspaceId } },
     });
     expect(tabs()[0].content.data.filePath).toBeUndefined();
     await openSessionContextPreview({ ...params, workspaceId });
@@ -54,12 +54,12 @@ describe('system prompt preview tabs', () => {
   });
 
   it.each(['rules', 'skills', 'mcpTools', 'subagentDefinitions'] as const)(
-    'opens %s in its own read-only tab without fetching system prompt content', async category => {
+    'opens the requested %s from a current-context inspection', async category => {
       apiMocks.getSessionUsageReport.mockResolvedValue({ sessionId: params.sessionId,
-        contextPreview: { category, content: `# ${category}\n\nRecorded content.`, capturedAt: 456 } });
+        contextEstimate: { contents: { [category]: `# ${category}\n\nRecorded content.` }, capturedAt: 456 } });
       await expect(openSessionContextPreview({ ...params, category })).resolves.toBe('opened');
       expect(apiMocks.getSessionUsageReport).toHaveBeenLastCalledWith({
-        sessionId: params.sessionId, workspaceId: params.workspaceId, includeHiddenSubagents: false, contextPreviewCategory: category,
+        sessionId: params.sessionId, workspaceId: params.workspaceId, includeHiddenSubagents: false, contextEstimate: { includeContents: true, contextOnly: true },
       });
       expect(tabs()[0].content.data).toMatchObject({ initialContent: `# ${category}\n\nRecorded content.`, readOnly: true });
       expect(tabs()[0].content.data.filePath).toBeUndefined();
@@ -71,9 +71,9 @@ describe('system prompt preview tabs', () => {
     },
   );
 
-  it('prefers the recorded system category over the legacy cache', async () => {
+  it('uses the current estimate returned by the host', async () => {
     apiMocks.getSessionUsageReport.mockResolvedValue({ ...response(),
-      contextPreview: { category: params.category, content: '# Request system content', capturedAt: 456 } });
+      contextEstimate: { contents: { systemPrompt: '# Request system content' }, capturedAt: 456 } });
     await openSessionContextPreview(params);
     expect(tabs()[0].content.data.initialContent).toBe('# Request system content');
   });
@@ -86,7 +86,7 @@ describe('system prompt preview tabs', () => {
     }, 'active');
     const content = '```json\n[{"name":"Read","description":"Read files","parameters":{"type":"object"}}]\n```';
     apiMocks.getSessionUsageReport.mockResolvedValue({ sessionId: params.sessionId,
-      contextPreview: { category: 'toolDefinitions', content, capturedAt: 456 } });
+      contextEstimate: { contents: { toolDefinitions: content }, capturedAt: 456 } });
     await expect(openSessionContextPreview({ ...params, title: 'Tool definitions', category: 'toolDefinitions' })).resolves.toBe('opened');
     expect(tabs()).toHaveLength(1);
     expect(tabs()[0].content).toMatchObject({ type: 'tool-definitions', title: 'Tool definitions', data: { content, readOnly: true } });
@@ -96,7 +96,7 @@ describe('system prompt preview tabs', () => {
 
   it('distinguishes an empty recorded category from a missing or mismatched preview', async () => {
     apiMocks.getSessionUsageReport.mockResolvedValue({ sessionId: params.sessionId,
-      contextPreview: { category: 'rules', content: '', capturedAt: 456 } });
+      contextEstimate: { contents: { rules: '' }, capturedAt: 456 } });
     await expect(openSessionContextPreview({ ...params, category: 'rules' })).resolves.toBe('opened');
     expect(tabs()[0].content.data.initialContent).toBe(params.emptyContent);
     await expect(openSessionContextPreview({ ...params, category: 'skills' })).resolves.toBe('unavailable');
@@ -143,4 +143,20 @@ describe('system prompt preview tabs', () => {
     await expect(openSessionContextPreview(params)).rejects.toThrow('Host offline');
     expect(tabs()).toHaveLength(0);
   });
+  it('reuses the overview contents without another query after context changes', async () => {
+    const estimate = response().contextEstimate;
+    apiMocks.getSessionUsageReport.mockRejectedValue(new Error('must not query again'));
+    await expect(openSessionContextPreview({ ...params, estimate })).resolves.toBe('opened');
+    expect(apiMocks.getSessionUsageReport).not.toHaveBeenCalled();
+    expect(tabs()[0].content.data.initialContent).toBe(estimate.contents.systemPrompt);
+  });
+
+  it('does not substitute old request snapshots for a current estimate', async () => {
+    apiMocks.getSessionUsageReport.mockResolvedValue({ sessionId: params.sessionId,
+      systemPromptPreview: { content: 'old system', cachedAt: 1 },
+      contextPreview: { category: 'systemPrompt', content: 'old request', capturedAt: 1 } });
+    await expect(openSessionContextPreview(params)).resolves.toBe('unavailable');
+    expect(tabs()).toHaveLength(0);
+  });
+
 });

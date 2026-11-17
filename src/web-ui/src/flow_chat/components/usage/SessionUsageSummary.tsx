@@ -65,7 +65,7 @@ export function SessionUsageSummary({ report, workspaceName, onPreviewContext, p
   previewLoading: UsageContextCategory | null;
 }) {
   const { t } = useI18n('flow-chat');
-  const context = report.context;
+  const context = report.contextEstimate?.composition;
   const hasContext = !!context && CONTEXT_CATEGORIES.every(key => isCount(context[key]));
   const contextTotal = hasContext ? CONTEXT_CATEGORIES.reduce((sum, key) => sum + context[key], 0) : 0;
   const hasContextTotal = hasContext && Number.isSafeInteger(contextTotal);

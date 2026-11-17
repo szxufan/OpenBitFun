@@ -51,6 +51,7 @@ pub(super) struct PromptSuggestionRequest {
 fn suggestion_request_context(context: &ModelRequestContext) -> ModelRequestContext {
     ModelRequestContext {
         output_schema: None,
+        conversation_scope: None,
         ..context.clone()
     }
 }
@@ -576,6 +577,7 @@ mod tests {
                 parameters: serde_json::json!({"type": "object", "properties": {}}),
             }]),
             model_request_context: ModelRequestContext {
+                conversation_scope: None,
                 prompt_cache_route_key: Some("same-conversation".into()),
                 ..Default::default()
             },
@@ -689,6 +691,7 @@ mod tests {
     #[test]
     fn suggestion_context_clears_turn_schema_but_preserves_cache_routing() {
         let context = ModelRequestContext {
+            conversation_scope: None,
             prompt_cache_route_key: Some("lineage-1".to_string()),
             output_schema: Some(
                 serde_json::json!({"type": "object", "properties": {"report": {"type": "string"}}}),
@@ -722,6 +725,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            responses: None,
         }))
     }
 

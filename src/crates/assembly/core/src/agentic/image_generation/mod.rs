@@ -132,6 +132,7 @@ fn transient_ai_config(service: &ImageServiceConfig) -> AIConfig {
         skip_ssl_verify: service.skip_ssl_verify,
         custom_request_body: None,
         custom_request_body_mode: None,
+        responses: None,
     }
 }
 

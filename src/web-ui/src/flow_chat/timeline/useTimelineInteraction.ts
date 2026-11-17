@@ -74,11 +74,18 @@ export function useTimelineInteraction(
       setPinnedKeys(previous => previous.size === pinned.size && [...pinned].every(key => previous.has(key)) ? previous : pinned);
       reader.setPinnedRows(pinned);
       const groups = new Set<string>();
-      const bounds = scroller.getBoundingClientRect();
+      const following = followingRef.current();
+      const bounds = following ? null : scroller.getBoundingClientRect();
       scroller.querySelectorAll<HTMLElement>('.virtual-item-wrapper[data-timeline-kind="group-members"]').forEach(row => {
-        const rect = row.getBoundingClientRect();
-        if (pinned.has(row.dataset.virtualItemKey!) || (!followingRef.current() && rect.bottom > bounds.top && rect.top < bounds.bottom)) {
+        if (pinned.has(row.dataset.virtualItemKey!)) {
           groups.add(row.dataset.timelineGroupId!);
+          return;
+        }
+        if (bounds) {
+          const rect = row.getBoundingClientRect();
+          if (rect.bottom > bounds.top && rect.top < bounds.bottom) {
+            groups.add(row.dataset.timelineGroupId!);
+          }
         }
       });
       for (const [group, release] of holds) if (!groups.has(group)) { release(); holds.delete(group); }

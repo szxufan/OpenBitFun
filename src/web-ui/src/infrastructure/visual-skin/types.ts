@@ -64,7 +64,8 @@ export interface VisualSkinManifest {
 }
 
 export interface VisualSkinAssetDefinition {
-  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/svg+xml';
+  /** `video/mp4` is only valid as a surface backdrop (muted, looping, no audio). */
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/svg+xml' | 'video/mp4';
   /** Package-relative path for ZIP packages or a data URL for JSON packages. */
   source: { kind: 'path'; path: string } | { kind: 'data'; data: string };
   alt?: string;

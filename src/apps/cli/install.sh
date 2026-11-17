@@ -158,6 +158,49 @@ assert_plugin_host_resources() {
 }
 
 install_bundle() (
+  local primary_source="$1" plugin_host_source="$2" destination="$3"
+  mkdir -p "$destination"
+  destination="$(cd "$destination" && pwd -P)"
+  local lock="$destination/.openbitfun-cli-install.lock"
+  if command -v flock >/dev/null 2>&1; then
+    exec 9<>"$lock"
+    flock -n 9 || { echo "Error: another CLI installation or update is running." >&2; return 1; }
+    install_bundle_locked "$primary_source" "$plugin_host_source" "$destination"
+  elif command -v perl >/dev/null 2>&1; then
+    # Perl uses the same native flock as Rust, including on macOS. Preserve the
+    # locked descriptor across exec; never unlink a held kernel-lock file.
+    perl -MFcntl=:DEFAULT,:flock -e '
+      sysopen(my $lock, shift @ARGV, O_RDWR|O_CREAT, 0666) or die "Cannot open installation lock: $!\n";
+      flock($lock, LOCK_EX|LOCK_NB) or die "Another CLI installation or update is running\n";
+      fcntl($lock, F_SETFD, 0) or die "Cannot retain installation lock: $!\n";
+      exec @ARGV; die "Cannot start installer: $!\n";
+    ' "$lock" bash -euo pipefail -c "$(declare -f); install_bundle_locked \"\$@\"" installer "$primary_source" "$plugin_host_source" "$destination"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c '
+import fcntl, os, sys
+lock = os.open(sys.argv[1], os.O_RDWR | os.O_CREAT, 0o666)
+fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+os.set_inheritable(lock, True)
+os.execvp(sys.argv[2], sys.argv[2:])
+' "$lock" bash -euo pipefail -c "$(declare -f); install_bundle_locked \"\$@\"" installer "$primary_source" "$plugin_host_source" "$destination"
+  else
+    local pipes helper marker
+    pipes="$(mktemp -d "$destination/.openbitfun-lock.XXXXXX")"
+    mkfifo "$pipes/hold" "$pipes/ready"
+    "$primary_source" --internal-hold-installation-lock "$lock" <"$pipes/hold" >"$pipes/ready" 2>"$pipes/error" &
+    helper=$!
+    exec 9>"$pipes/hold"
+    trap 'exec 9>&-; wait "$helper" || true; rm -f "$pipes/hold" "$pipes/ready" "$pipes/error"; rmdir "$pipes"' EXIT
+    if ! IFS= read -r marker <"$pipes/ready" || [ "$marker" != OPENBITFUN_INSTALL_LOCK_V1 ]; then
+      cat "$pipes/error" >&2
+      echo "Error: a compatible native installation lock helper, flock, Perl, or Python is required." >&2
+      return 1
+    fi
+    install_bundle_locked "$primary_source" "$plugin_host_source" "$destination"
+  fi
+)
+
+install_bundle_locked() (
   local primary_source="$1"
   local plugin_host_source="$2"
   local destination="$3"
@@ -168,18 +211,7 @@ install_bundle() (
   local primary_committed=0 plugin_host_committed=0
   local failed=0
 
-  mkdir -p "$destination"
-  if command -v flock >/dev/null 2>&1; then
-    exec 9>"$destination/.openbitfun-cli-install.lock"
-    flock -n 9 || { echo "Error: another CLI installation or update is running." >&2; return 1; }
-  elif command -v shlock >/dev/null 2>&1; then
-    shlock -p "$$" -f "$destination/.openbitfun-cli-install.lock" || { echo "Error: another CLI installation is running." >&2; return 1; }
-    trap 'rm -f "$destination/.openbitfun-cli-install.lock"' EXIT
-  else
-    echo "Error: a native installation lock (flock or shlock) is required." >&2
-    return 1
-  fi
-  stage_dir="$(mktemp -d "${destination}/.openbitfun-install.XXXXXX")"
+  stage_dir="$(mktemp -d "${destination}/.openbitfun-install.XXXXXX")" || return 1
   staged_primary="${stage_dir}/openbitfun"
   staged_plugin_host="${stage_dir}/ext-host"
   primary_target="${destination}/openbitfun"

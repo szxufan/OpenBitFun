@@ -8145,7 +8145,7 @@
       "rustPath": "reorder_opened_workspaces",
       "sourceFile": "src/apps/desktop/src/api/commands.rs",
       "signature": "fn reorder_opened_workspaces( state: State<'_, AppState>, request: ReorderOpenedWorkspacesRequest, ) -> Result<(), String>",
-      "remoteWorkspacePolicy": "LegacyUnaudited"
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "replace_mode_skill_selection",

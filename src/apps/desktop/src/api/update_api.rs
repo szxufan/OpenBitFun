@@ -77,6 +77,8 @@ pub struct PendingUpdateResponse {
     pub version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub install_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reboot_required: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -95,6 +97,7 @@ impl PendingUpdateRecord {
         PendingUpdateResponse {
             version: self.version.clone(),
             install_error: None,
+            reboot_required: None,
         }
     }
 
@@ -135,6 +138,8 @@ struct InstallationReceipt {
     success: bool,
     #[serde(default)]
     error: Option<String>,
+    #[serde(default)]
+    reboot_required: bool,
 }
 
 fn pending_response(
@@ -150,8 +155,12 @@ fn pending_response(
             // A matching pending record is offered only while the running
             // version is older. Even exit code zero must not hide that fact.
             if receipt.version == record.version {
+                response.reboot_required =
+                    (receipt.success && receipt.reboot_required).then_some(true);
                 response.install_error = Some(receipt.error.unwrap_or_else(|| {
-                    if receipt.success {
+                    if receipt.reboot_required {
+                        "Restart Windows to finish installing the OpenBitFun update.".into()
+                    } else if receipt.success {
                         "The installer finished, but the running version is still older; restart or repair the installation".into()
                     } else {
                         "The previous update installation failed; retry or reinstall manually".into()
@@ -193,14 +202,38 @@ fn read_record(
     if !record.applies_to(current, platform)? {
         return Ok(None);
     }
-    if record.package_kind.as_deref() != Some(package_kind()) {
-        return Err("Update package belongs to another installation format or has legacy metadata; download it again".into());
+    if record
+        .package_kind
+        .as_deref()
+        .is_some_and(|kind| kind != package_kind())
+    {
+        return Err(
+            "Update package belongs to another installation format; download it again".into(),
+        );
     }
     let package = dir.join(record.package_name()?);
     if !package.is_file() {
         return Err("Pending update package is missing; download the update again".into());
     }
     Ok(Some(record))
+}
+
+fn migrate_verified_legacy_record(
+    dir: &Path,
+    record: &mut PendingUpdateRecord,
+    bytes: &[u8],
+    kind: &str,
+) -> Result<(), String> {
+    if record.package_kind.is_some() {
+        return Ok(());
+    }
+    crate::update_maintenance::validate_cached_package(bytes, kind)?;
+    record.package_kind = Some(kind.to_string());
+    atomic_write(
+        dir,
+        RECORD_NAME,
+        &serde_json::to_vec(record).map_err(|error| error.to_string())?,
+    )
 }
 
 fn atomic_write(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
@@ -254,21 +287,15 @@ pub(super) fn configure_updater(builder: UpdaterBuilder) -> UpdaterBuilder {
     })
 }
 
-#[cfg(any(windows, test))]
-pub(crate) fn windows_machine_install(directory: &Path) -> bool {
-    let read = |path: &Path| {
-        std::fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-    };
-    read(&directory.join(".openbitfun-installed.json")).is_some_and(|value| {
-        value.get("allUsers").and_then(serde_json::Value::as_bool) == Some(true)
-    }) || read(&directory.join(".openbitfun-maintenance/journal.json")).is_some_and(|value| {
-        value
-            .pointer("/integrations/registry/machine")
-            .and_then(serde_json::Value::as_bool)
-            == Some(true)
-    })
+#[cfg(windows)]
+pub(crate) fn windows_installation_scope(
+    directory: &Path,
+) -> Result<openbitfun_services_core::installation_scope::InstallationScope, String> {
+    openbitfun_services_core::installation_scope::windows_installation_scope(
+        directory,
+        "OpenBitFun",
+        None,
+    )
 }
 
 #[tauri::command]
@@ -370,7 +397,7 @@ pub async fn install_pending_update(
         .ok_or_else(|| "Update signature public key is unavailable".to_string())?
         .to_owned();
     let (record, bytes) = tokio::task::spawn_blocking(move || {
-        let record = read_record(&dir, &current, &platform())?
+        let mut record = read_record(&dir, &current, &platform())?
             .ok_or_else(|| "No downloaded update is available".to_string())?;
         if record.version != request.version {
             return Err(
@@ -379,6 +406,7 @@ pub async fn install_pending_update(
         }
         let bytes = std::fs::read(dir.join(record.package_name()?)).map_err(|e| e.to_string())?;
         verify_package(&bytes, &record, &pubkey)?;
+        migrate_verified_legacy_record(&dir, &mut record, &bytes, package_kind())?;
         Ok::<_, String>((record, bytes))
     })
     .await
@@ -390,7 +418,10 @@ pub async fn install_pending_update(
             &maintenance_app,
             &bytes,
             &record.version,
-            record.package_kind.as_deref().unwrap_or("unbundled"),
+            record
+                .package_kind
+                .as_deref()
+                .ok_or("Verified update format was not retained")?,
             &receipt,
         )
     })
@@ -414,16 +445,21 @@ pub async fn install_pending_update(
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
     #[test]
     fn machine_installs_request_elevation_even_in_writable_custom_directories() {
         let root = tempfile::tempdir().unwrap();
-        assert!(!windows_machine_install(root.path()));
+        assert!(!windows_installation_scope(root.path())
+            .unwrap()
+            .requires_machine_access());
         std::fs::write(
             root.path().join(".openbitfun-installed.json"),
             br#"{"allUsers":true}"#,
         )
         .unwrap();
-        assert!(windows_machine_install(root.path()));
+        assert!(windows_installation_scope(root.path())
+            .unwrap()
+            .requires_machine_access());
         std::fs::remove_file(root.path().join(".openbitfun-installed.json")).unwrap();
         std::fs::create_dir(root.path().join(".openbitfun-maintenance")).unwrap();
         std::fs::write(
@@ -431,7 +467,9 @@ mod tests {
             br#"{"integrations":{"registry":{"machine":true}}}"#,
         )
         .unwrap();
-        assert!(windows_machine_install(root.path()));
+        assert!(windows_installation_scope(root.path())
+            .unwrap()
+            .requires_machine_access());
     }
 
     #[test]
@@ -549,21 +587,83 @@ mod tests {
     }
 
     #[test]
-    fn legacy_and_other_package_formats_are_preserved_for_explicit_redownload() {
+    fn legacy_cache_is_readable_and_only_verified_matching_packages_are_migrated() {
         let dir = tempfile::tempdir().unwrap();
         let mut record = record(b"package");
-        for kind in [None, Some("other-format".into())] {
-            record.package_kind = kind;
-            save_package(dir.path(), &record, b"package").unwrap();
-            assert!(read_record(dir.path(), &"1.0.0".parse().unwrap(), "test")
-                .unwrap_err()
-                .contains("installation format"));
-            assert!(dir.path().join(record.package_name().unwrap()).is_file());
-        }
+        record.package_kind = None;
+        save_package(dir.path(), &record, b"package").unwrap();
+        let mut old = serde_json::to_value(&record).unwrap();
+        old.as_object_mut().unwrap().remove("packageKind");
+        std::fs::write(
+            dir.path().join(RECORD_NAME),
+            serde_json::to_vec(&old).unwrap(),
+        )
+        .unwrap();
+        assert!(read_record(dir.path(), &"1.0.0".parse().unwrap(), "test")
+            .unwrap()
+            .is_some());
+        let original = std::fs::read(dir.path().join(RECORD_NAME)).unwrap();
+        assert!(
+            migrate_verified_legacy_record(dir.path(), &mut record, b"ambiguous", "nsis").is_err()
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join(RECORD_NAME)).unwrap(),
+            original
+        );
+        let bytes = b"MZfixture-OPENBITFUN_MAINTENANCE_V1";
+        record = self::record(bytes);
+        record.package_kind = None;
+        save_package(dir.path(), &record, bytes).unwrap();
+        assert!(verify_package(bytes, &record, "invalid-key").is_err());
+        assert_eq!(
+            serde_json::from_slice::<PendingUpdateRecord>(
+                &std::fs::read(dir.path().join(RECORD_NAME)).unwrap()
+            )
+            .unwrap()
+            .package_kind,
+            None
+        );
+        migrate_verified_legacy_record(dir.path(), &mut record, bytes, "nsis").unwrap();
+        assert_eq!(
+            serde_json::from_slice::<PendingUpdateRecord>(
+                &std::fs::read(dir.path().join(RECORD_NAME)).unwrap()
+            )
+            .unwrap()
+            .package_kind
+            .as_deref(),
+            Some("nsis")
+        );
+        record.package_kind = Some("other-format".into());
+        save_package(dir.path(), &record, b"package").unwrap();
+        assert!(read_record(dir.path(), &"1.0.0".parse().unwrap(), "test")
+            .unwrap_err()
+            .contains("installation format"));
+        assert!(dir.path().join(record.package_name().unwrap()).is_file());
         let mut legacy = serde_json::to_value(&record).unwrap();
         legacy.as_object_mut().unwrap().remove("packageKind");
         let decoded: PendingUpdateRecord = serde_json::from_value(legacy).unwrap();
         assert!(decoded.package_kind.is_none());
+    }
+
+    #[test]
+    fn successful_reboot_receipts_preserve_legacy_receipt_compatibility() {
+        let dir = tempfile::tempdir().unwrap();
+        for reboot in [false, true] {
+            let mut receipt = serde_json::json!({"version":"2.0.0", "success":true});
+            if reboot {
+                receipt["rebootRequired"] = true.into();
+            }
+            std::fs::write(
+                dir.path().join(RECEIPT_NAME),
+                serde_json::to_vec(&receipt).unwrap(),
+            )
+            .unwrap();
+            let response = pending_response(dir.path(), record(b"package")).unwrap();
+            assert_eq!(response.reboot_required, reboot.then_some(true));
+            if reboot {
+                assert!(response.install_error.unwrap().contains("Restart"));
+            }
+        }
     }
 
     #[test]

@@ -185,9 +185,7 @@ async fn send_connection_probe(client: &AIClient, max_attempts: usize) -> Result
                 }
                 if error
                     .downcast_ref::<AiProviderError>()
-                    .is_some_and(|error| {
-                        !openbitfun_agent_stream::retry::should_retry(&error.category)
-                    })
+                    .is_some_and(|error| !openbitfun_agent_stream::retry::should_retry_error(error))
                 {
                     return Err(error);
                 }
@@ -399,6 +397,7 @@ mod tests {
                 skip_ssl_verify: false,
                 custom_request_body: None,
                 custom_request_body_mode: None,
+                responses: None,
             });
             Self {
                 client,

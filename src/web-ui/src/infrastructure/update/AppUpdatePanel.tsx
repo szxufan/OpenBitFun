@@ -21,8 +21,8 @@ export function AppUpdatePanel() {
   const skipped = Boolean(target && target === state.skippedVersion);
   const busy = !state.initialized || state.checkStatus === 'checking' || downloading || state.status === 'installing';
   const versionChanged = isUpdateVersionChangedError(state.error);
-  const canDownload = !versionChanged && Boolean((candidate && candidate !== state.version) || state.error);
-  const canSkip = Boolean(target && target !== state.version);
+  const canDownload = !state.rebootRequired && !versionChanged && Boolean((candidate && candidate !== state.version) || state.error);
+  const canSkip = !state.rebootRequired && Boolean(target && target !== state.version);
   const fraction = getUpdateDownloadFraction(state.progress);
   const percent = fraction == null ? null : Math.round(fraction * 100);
   const productName = getVersionInfo().name;
@@ -55,11 +55,12 @@ export function AppUpdatePanel() {
       </DialogHeader>
       <DialogBody className="openbitfun-update-details__body">
         <div className="openbitfun-update-panel" data-openbitfun-component="update" data-openbitfun-part="panel">
-          {(status || state.error || state.checkError) && <div className="openbitfun-update-panel__feedback"
+          {(status || state.error || state.checkError || state.rebootRequired) && <div className="openbitfun-update-panel__feedback"
             data-openbitfun-component="about-dialog" data-openbitfun-part="updateFeedback">
             {status && <p className="openbitfun-update-panel__status" role="status"
               data-openbitfun-component="update" data-openbitfun-part="panelStatus">{status}</p>}
             {state.error && <Alert tone="error" showIcon message={formatUpdateInstallError(state.error, t)} />}
+            {state.rebootRequired && <Alert tone="warning" showIcon message={t('update.systemRestartMessage')} />}
             {state.checkError && <Alert tone="error" showIcon message={formatUpdateInstallError(state.checkError, t)} />}
           </div>}
           {releaseNotes ? (
@@ -113,8 +114,8 @@ export function AppUpdatePanel() {
                   onClick={() => void state.checkForUpdates()}>
                   {t(state.checkStatus === 'checking' ? 'update.checking' : 'update.checkForUpdates')}
                 </Button>}
-                {state.version && <Button size="md" variant="primary" disabled={busy} onClick={state.requestInstall}>
-                  {t(state.status === 'installing' ? 'update.installing' : 'update.installAndRestart')}
+                {state.version && <Button size="md" variant="primary" disabled={busy || state.rebootRequired} onClick={state.requestInstall}>
+                  {t(state.rebootRequired ? 'update.systemRestartRequired' : state.status === 'installing' ? 'update.installing' : 'update.installAndRestart')}
                   {candidate && candidate !== state.version && ` · v${state.version}`}
                 </Button>}
                 {!canDownload && !canSkip && !versionChanged && !state.version && <Button size="md" variant="fill" onClick={state.closeDetails}>

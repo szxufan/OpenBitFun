@@ -629,6 +629,8 @@ pub struct ProxyConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AIConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responses: Option<crate::responses::ResponsesRequestSettings>,
     pub name: String,
     pub base_url: String,
     pub request_url: String,
@@ -658,6 +660,9 @@ pub struct AIConfig {
 /// in this contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModelRequestContext {
+    /// Opaque execution-lifetime identity, distinct from shareable prompt-cache lineage.
+    /// Absence means a standalone request with no reusable transport continuation.
+    pub conversation_scope: Option<std::sync::Arc<String>>,
     /// Stable, opaque routing identity for provider-side prompt-prefix caches.
     pub prompt_cache_route_key: Option<String>,
     /// JSON Schema requested for this turn's final model output.
@@ -696,9 +701,18 @@ pub enum ModelResponseReplayItem {
         item_id: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         summary: Vec<ModelReasoningSummaryPart>,
+        /// Provider-returned reasoning content, separate from the display summary.
+        /// Preserve absence in legacy records and explicit empty content separately.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content: Option<Vec<ModelReasoningContentPart>>,
         opaque_state: String,
     },
-    AssistantMessage,
+    AssistantMessage {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        phase: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+    },
     FunctionCall {
         call_id: String,
     },
@@ -706,6 +720,11 @@ pub enum ModelResponseReplayItem {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelReasoningSummaryPart {
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelReasoningContentPart {
     pub text: String,
 }
 
@@ -1006,6 +1025,34 @@ mod remote_model_routing_compatibility {
             serde_json::from_value(serialized).unwrap();
         assert_eq!(restored, enriched);
         assert_eq!(restored.id, "medium");
+    }
+
+    #[test]
+    fn legacy_assistant_replay_round_trips_and_new_phase_is_additive() {
+        let old = serde_json::json!({"kind":"assistant_message"});
+        let item: super::ModelResponseReplayItem = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(serde_json::to_value(item).unwrap(), old);
+        let new =
+            serde_json::json!({"kind":"assistant_message","phase":"final_answer","text":"answer"});
+        let item: super::ModelResponseReplayItem = serde_json::from_value(new.clone()).unwrap();
+        assert_eq!(serde_json::to_value(item).unwrap(), new);
+    }
+
+    #[test]
+    fn reasoning_replay_content_preserves_absent_empty_and_nonempty_shapes() {
+        for content in [
+            None,
+            Some(serde_json::json!([])),
+            Some(serde_json::json!([{"text":" first\n"}, {"text":""}, {"text":"second"}])),
+        ] {
+            let mut value = serde_json::json!({"kind":"opaque_reasoning","opaque_state":"state"});
+            if let Some(content) = content {
+                value["content"] = content;
+            }
+            let item: super::ModelResponseReplayItem =
+                serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(serde_json::to_value(item).unwrap(), value);
+        }
     }
 
     #[test]

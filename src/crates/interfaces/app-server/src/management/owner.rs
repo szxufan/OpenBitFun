@@ -459,6 +459,8 @@ fn model_from_mutation(
         skip_ssl_verify: mutation.skip_ssl_verify,
         custom_request_body,
         custom_request_body_mode: current.custom_request_body_mode,
+        responses: current.responses,
+        responses_defaults: current.responses_defaults,
         auth: current.auth,
         image_dialect: current.image_dialect,
         channel_routing: current.channel_routing,

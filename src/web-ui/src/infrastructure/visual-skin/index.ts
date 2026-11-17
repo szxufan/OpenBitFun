@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { VisualSkinRuntime } from './runtime';
 
 export * from './types';
+export * from './archive';
 export * from './contract';
 export * from './validator';
 export * from './parser';
@@ -21,6 +22,7 @@ export function useVisualSkin() {
     watchProjection: skinRuntime.watchProjection,
     skins: snapshot.catalog,
     activate: (id: string) => skinRuntime.activate(id),
+    deactivate: () => skinRuntime.deactivate(),
     preview: (id: string) => skinRuntime.preview(id),
     cancelPreview: () => skinRuntime.cancelPreview(),
     importPackage: (source: ArrayBuffer) => skinRuntime.importPackage(source),

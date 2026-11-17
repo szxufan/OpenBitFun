@@ -1484,6 +1484,8 @@
     "readyVersion": "版本 {{version}} 已下載",
     "installWarning": "安裝將重啟本裝置上的 OpenBitFun，並中斷此裝置上的活動會話。",
     "installAndRestart": "安裝並重啟",
+    "systemRestartRequired": "需要重新啟動系統",
+    "systemRestartMessage": "更新已安裝，請重新啟動 Windows 完成更新，無需重複安裝。",
     "installing": "正在安裝…",
     "deferredMessage": "更新已保留，可隨時點擊左下角的勾號安裝並重啟。",
     "downloadAgain": "重新下載",
@@ -1864,6 +1866,7 @@
     "scrollPrevious": "向左捲動標籤頁",
     "scrollNext": "向右捲動標籤頁",
     "closeTab": "關閉{{label}}",
+    "closeDeviceTabs": "關閉該裝置全部標籤頁",
     "workspaceUnavailable": "此工作階段所屬的工作區尚未開啟，請先重新開啟該工作區，再切換至此工作階段。"
   },
   "loading": {

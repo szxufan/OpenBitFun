@@ -1128,6 +1128,7 @@ pub(crate) async fn get_session_usage_report(
             include_hidden_subagents: options.include_hidden_subagents,
             include_system_prompt_preview: options.include_system_prompt_preview,
             context_preview_category: options.context_preview_category,
+            context_estimate: options.context_estimate,
         })
         .await
         .map_err(|error| {
@@ -1147,6 +1148,7 @@ struct UsageReportOptions {
     include_hidden_subagents: bool,
     include_system_prompt_preview: bool,
     context_preview_category: Option<openbitfun_core_types::UsageContextCategory>,
+    context_estimate: Option<openbitfun_core_types::UsageContextEstimateRequest>,
 }
 
 /// Reads the Desktop `GetSessionUsageReportRequest` option fields with the
@@ -1166,6 +1168,13 @@ fn usage_report_options(request: &Value) -> Result<UsageReportOptions, String> {
         include_system_prompt_preview: optional_bool(request, "includeSystemPromptPreview")
             .unwrap_or(false),
         context_preview_category,
+        context_estimate: ["contextEstimate", "context_estimate"]
+            .iter()
+            .find_map(|key| request.get(*key))
+            .filter(|value| !value.is_null())
+            .map(|value| serde_json::from_value(value.clone()))
+            .transpose()
+            .map_err(|error| format!("Invalid context estimate options: {error}"))?,
     })
 }
 
@@ -1226,6 +1235,7 @@ mod tests {
                 include_hidden_subagents: true,
                 include_system_prompt_preview: false,
                 context_preview_category: None,
+                context_estimate: None,
             }
         );
         let snake = json!({
@@ -1239,6 +1249,7 @@ mod tests {
                 include_hidden_subagents: false,
                 include_system_prompt_preview: true,
                 context_preview_category: Some(UsageContextCategory::ToolDefinitions),
+                context_estimate: None,
             }
         );
         // A category a newer controller knows maps to Unknown instead of failing.
@@ -1249,6 +1260,19 @@ mod tests {
                 .context_preview_category,
             Some(UsageContextCategory::Unknown)
         );
+        for key in ["contextEstimate", "context_estimate"] {
+            let options = super::usage_report_options(
+                &json!({key: {"includeContents": true, "contextOnly": true}}),
+            )
+            .unwrap();
+            assert_eq!(
+                options.context_estimate,
+                Some(openbitfun_core_types::UsageContextEstimateRequest {
+                    include_contents: true,
+                    context_only: true,
+                })
+            );
+        }
         assert!(super::usage_report_options(&json!({ "context_preview_category": 3 })).is_err());
     }
 

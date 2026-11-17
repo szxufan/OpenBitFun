@@ -4,15 +4,25 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReviewPlatformPullRequest, ReviewPlatformPullRequestDetailPage, ReviewPlatformPullRequestReviewTarget, ReviewPlatformWorkspaceSnapshot, ReviewRepositoryLocator } from '@/infrastructure/api/service-api/ReviewPlatformAPI';
 import type { Session } from '@/flow_chat/types/flow-chat';
+import type { SessionResponse } from '@/tools/terminal/types/session';
 import { ReviewPlatformPanel } from './ReviewPlatformPanel';
 import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 import type { PeerHostCapabilities } from '@/infrastructure/peer-device/PeerConnectionManager';
 
 const mocks = vi.hoisted(() => ({
   snapshot: vi.fn(), context: vi.fn(), detail: vi.fn(), openExternal: vi.fn(), reviewTarget: vi.fn(),
-  prepareReview: vi.fn(),
+  prepareReview: vi.fn(), setClipboard: vi.fn(),
+  notify: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
   state: { sessions: new Map<string, Session>(), activeSessionId: null as string | null },
   t: (key: string) => key,
+}));
+// The panel must create a real manual session in its owning workspace and open
+// that returned identity, so both shared services stay observable here.
+const terminal = vi.hoisted(() => ({ create: vi.fn(), open: vi.fn() }));
+type StoredWorkspace = { rootPath?: string; workspaceKind?: string; connectionId?: string; name?: string };
+const workspaces = vi.hoisted(() => ({
+  opened: new Map<string, StoredWorkspace>(),
+  recent: [] as StoredWorkspace[],
 }));
 const peer = vi.hoisted(() => ({ active: false, capabilities: null as Partial<PeerHostCapabilities> | null }));
 vi.mock('@/infrastructure/peer-device/peerDeviceContextState', () => ({
@@ -20,9 +30,9 @@ vi.mock('@/infrastructure/peer-device/peerDeviceContextState', () => ({
     ? { peerMode: { active: true }, currentPeerCapabilities: peer.capabilities }
     : null,
 }));
-vi.mock('@/infrastructure/api', () => ({ reviewPlatformAPI: { getWorkspaceSnapshot: mocks.snapshot, getWorkspaceContext: mocks.context, getPullRequestDetailPage: mocks.detail, getPullRequestReviewTarget: mocks.reviewTarget }, systemAPI: { openExternal: mocks.openExternal } }));
+vi.mock('@/infrastructure/api', () => ({ reviewPlatformAPI: { getWorkspaceSnapshot: mocks.snapshot, getWorkspaceContext: mocks.context, getPullRequestDetailPage: mocks.detail, getPullRequestReviewTarget: mocks.reviewTarget }, systemAPI: { openExternal: mocks.openExternal, setClipboard: mocks.setClipboard } }));
 vi.mock('@/infrastructure/markdown', () => ({ MarkdownRenderer: () => null }));
-vi.mock('@/shared/notification-system', () => ({ notificationService: {} }));
+vi.mock('@/shared/notification-system', () => ({ notificationService: mocks.notify }));
 vi.mock('@/infrastructure/i18n', () => ({ useI18n: () => ({ t: mocks.t }), i18nService: { t: mocks.t, formatDate: () => '' } }));
 vi.mock('@/flow_chat/services/sessionActivation', () => ({ openMainSession: vi.fn() }));
 vi.mock('@/flow_chat/services/btwSessionPane', () => ({ openBtwSessionInAuxPane: vi.fn() }));
@@ -30,7 +40,16 @@ vi.mock('@/flow_chat/services/ReviewService', () => ({ launchPreparedReviewSessi
 vi.mock('@/flow_chat/components/DeepReviewConsentDialog', () => ({ useDeepReviewConsent: () => ({ confirmDeepReviewLaunch: vi.fn(), deepReviewConsentDialog: null }) }));
 vi.mock('@/flow_chat/store/FlowChatStore', () => ({ flowChatStore: { getState: () => mocks.state, subscribe: () => () => {} } }));
 vi.mock('@/shared/stores/contextStore', () => ({ useContextStore: {} }));
+// Kept empty: the panel must create a real session instead of asking the IDE
+// control facade for a terminal that carries no session identity.
 vi.mock('@/shared/services/ide-control', () => ({ quickActions: {} }));
+vi.mock('@/shared/services/createManualTerminalSession', () => ({ createManualTerminalSession: terminal.create }));
+vi.mock('@/shared/services/openShellSessionTarget', () => ({ openShellSessionTarget: terminal.open }));
+vi.mock('@/infrastructure/services/business/workspaceManager', () => ({
+  workspaceManager: {
+    getState: () => ({ openedWorkspaces: workspaces.opened, recentWorkspaces: workspaces.recent }),
+  },
+}));
 
 function pull(number: number, state: 'open' | 'merged'): ReviewPlatformPullRequest {
   return { id: String(number), number, state, title: `PR ${number}`, author: 'author', sourceBranch: 'feature', targetBranch: 'main',
@@ -87,6 +106,33 @@ async function mount() {
   return path;
 }
 
+/** A GitHub workspace whose CLI session is missing, so the panel gates on auth. */
+function githubAuthSnapshot(path: string): ReviewPlatformWorkspaceSnapshot {
+  const result = snapshot(path);
+  const remote = result.remotes[0];
+  remote.platform = 'github';
+  remote.url = 'https://github.com/example/repo.git';
+  remote.host = 'github.com';
+  remote.authState = 'not_connected';
+  result.repository = { ...result.repository!, platform: 'github', host: 'github.com' };
+  result.pullRequests = [];
+  result.pagination = { page: 1, perPage: 10, total: 0, hasNext: false };
+  result.authChallenge = { platform: 'github', host: 'github.com', remoteId: remote.id,
+    projectPath: 'example/repo', state: 'missing', message: '', requiredScopes: [] };
+  return result;
+}
+
+function buttonByText(owner: ParentNode, text: string): HTMLButtonElement | undefined {
+  return [...owner.querySelectorAll<HTMLButtonElement>('button')]
+    .find(button => (button.textContent ?? '').trim() === text);
+}
+
+/** `exiting` proves the dialog started to close; its content is retained until then. */
+function authDialogState(): string | null {
+  return document.querySelector('[data-openbitfun-component="dialog"][data-openbitfun-part="surface"]')
+    ?.getAttribute('data-state') ?? null;
+}
+
 function statisticText(owner: Element, id: string): string | null | undefined {
   const lineStat = /^(pr|detail)-(additions|deletions)$/.exec(id);
   if (lineStat) {
@@ -111,6 +157,14 @@ describe('Gitee panel state and asynchronous request ordering', () => {
     mocks.openExternal.mockReset().mockResolvedValue(undefined);
     mocks.reviewTarget.mockReset();
     mocks.prepareReview.mockReset();
+    mocks.setClipboard.mockReset().mockResolvedValue(undefined);
+    mocks.notify.success.mockReset();
+    mocks.notify.warning.mockReset();
+    mocks.notify.error.mockReset();
+    terminal.create.mockReset();
+    terminal.open.mockReset();
+    workspaces.opened.clear();
+    workspaces.recent.length = 0;
     mocks.state.sessions.clear();
     mocks.state.activeSessionId = null;
   });
@@ -452,5 +506,231 @@ describe('Gitee panel state and asynchronous request ordering', () => {
       [expect.objectContaining({ pullRequestId: '10', section: 'reviews' })],
     ]));
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  describe('GitHub CLI authentication terminal', () => {
+    const owningPath = '/owning-workspace';
+    const owningId = workspaceIdFor(owningPath);
+    const activeSessionOwner = 'workspace:some-other-workspace';
+    const shell: SessionResponse = { id: 'terminal-42', name: 'Shell 7', shellType: 'bash',
+      cwd: owningPath, status: 'running', cols: 80, rows: 24, source: 'manual' };
+
+    const mountAuthPanel = async (cwdPath = owningPath) => {
+      mocks.snapshot.mockImplementation(({ repositoryPath }: ReviewRepositoryLocator) => Promise.resolve(githubAuthSnapshot(repositoryPath)));
+      await act(async () => { root.render(<ReviewPlatformPanel workspaceId={owningId} workspacePath={cwdPath} />); });
+      const authenticate = buttonByText(host, 'Authenticate');
+      expect(authenticate).toBeDefined();
+      await act(async () => { authenticate!.click(); });
+    };
+    const clickOpenTerminal = async () => {
+      const openTerminal = buttonByText(document, 'Open terminal');
+      expect(openTerminal).toBeDefined();
+      await act(async () => { openTerminal!.click(); });
+    };
+
+    beforeEach(() => {
+      terminal.create.mockResolvedValue(shell);
+      // The owning workspace is a remote workspace, so only its stored record
+      // can name the connection the created terminal belongs to.
+      workspaces.opened.set(owningId, { rootPath: owningPath, workspaceKind: 'remote', connectionId: 'ssh-owner' });
+      // The chat session executes elsewhere; it must never select the target.
+      mocks.state.sessions.set('chat', {
+        sessionId: 'chat', sessionKind: 'normal', workspaceId: activeSessionOwner, dialogTurns: [],
+      } as Session);
+      mocks.state.activeSessionId = 'chat';
+    });
+
+    it('copies the login command and opens the returned session in the owning workspace', async () => {
+      await mountAuthPanel();
+      expect(authDialogState()).not.toBeNull();
+      await clickOpenTerminal();
+      expect(mocks.setClipboard).toHaveBeenCalledExactlyOnceWith('gh auth login --hostname github.com');
+      expect(terminal.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: owningId, workspacePath: owningPath });
+      expect(terminal.open).toHaveBeenCalledExactlyOnceWith({
+        sessionId: 'terminal-42', sessionName: 'Shell 7',
+        scope: { surfaceId: 'local', workspaceId: owningId, workspacePath: owningPath, remoteConnectionId: 'ssh-owner' },
+      });
+      expect(terminal.open.mock.invocationCallOrder[0]).toBeGreaterThan(terminal.create.mock.invocationCallOrder[0]);
+      expect(mocks.notify.success).toHaveBeenCalledOnce();
+      expect(authDialogState()).toBe('exiting');
+    });
+
+    it('keeps a retryable error and reports no success when creation fails', async () => {
+      await mountAuthPanel();
+      terminal.create.mockRejectedValueOnce(new Error('Terminal workspace ID is unavailable'));
+      await clickOpenTerminal();
+      expect(mocks.setClipboard).toHaveBeenCalledOnce();
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+      expect(authDialogState()).toBe('open');
+      expect(document.body.textContent).toContain('common:reviewPlatform.messages.openAuthFailed');
+      expect(buttonByText(document, 'Open terminal')).toBeDefined();
+
+      // The retained dialog lets the user retry; the second click copies the
+      // command again and creates the session that succeeds.
+      await clickOpenTerminal();
+      expect(mocks.setClipboard).toHaveBeenCalledTimes(2);
+      expect(terminal.create).toHaveBeenCalledTimes(2);
+      expect(terminal.open).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'terminal-42' }));
+      expect(mocks.notify.success).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the retryable error without copying or creating when a remote owner has no connection', async () => {
+      workspaces.opened.set(owningId, { rootPath: owningPath, workspaceKind: 'remote' });
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      // The owner is resolved before the clipboard write, so nothing happens.
+      expect(mocks.setClipboard).not.toHaveBeenCalled();
+      expect(terminal.create).not.toHaveBeenCalled();
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+      expect(authDialogState()).toBe('open');
+      expect(document.body.textContent).toContain('common:reviewPlatform.messages.openAuthFailed');
+    });
+
+    it('starts at the owner root when the panel path belongs to another workspace', async () => {
+      await mountAuthPanel('/canvas-fallback-workspace');
+      await clickOpenTerminal();
+      expect(terminal.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: owningId, workspacePath: owningPath });
+      expect(terminal.open).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        scope: { surfaceId: 'local', workspaceId: owningId, workspacePath: owningPath, remoteConnectionId: 'ssh-owner' },
+      }));
+      expect(mocks.notify.success).toHaveBeenCalledOnce();
+    });
+
+    it('keeps a local owner scope free of any connection and an inside cwd', async () => {
+      workspaces.opened.set(owningId, { rootPath: owningPath, workspaceKind: 'normal' });
+      await mountAuthPanel(`${owningPath}/src`);
+      await clickOpenTerminal();
+      expect(terminal.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: owningId, workspacePath: `${owningPath}/src` });
+      const { scope } = terminal.open.mock.calls[0][0] as { scope: Record<string, unknown> };
+      expect(scope).toEqual({ surfaceId: 'local', workspaceId: owningId, workspacePath: owningPath });
+      expect(scope).not.toHaveProperty('remoteConnectionId');
+      expect(mocks.notify.success).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the retryable error when the owner connection changes during the clipboard write', async () => {
+      const clipboard = deferred<void>();
+      mocks.setClipboard.mockReturnValueOnce(clipboard.promise);
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      // The panel is still current, so only the owner check can stop this; the
+      // service would otherwise create the PTY on the new connection.
+      workspaces.opened.set(owningId, { rootPath: owningPath, workspaceKind: 'remote', connectionId: 'ssh-reconnected' });
+      await act(async () => clipboard.resolve());
+      expect(terminal.create).not.toHaveBeenCalled();
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+      expect(authDialogState()).toBe('open');
+      expect(document.body.textContent).toContain('common:reviewPlatform.messages.openAuthFailed');
+      expect(buttonByText(document, 'Open terminal')).toBeDefined();
+    });
+
+    it('keeps the retryable error when the owner disappears during the clipboard write', async () => {
+      const clipboard = deferred<void>();
+      mocks.setClipboard.mockReturnValueOnce(clipboard.promise);
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      workspaces.opened.delete(owningId);
+      await act(async () => clipboard.resolve());
+      expect(terminal.create).not.toHaveBeenCalled();
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+      expect(authDialogState()).toBe('open');
+    });
+
+    it('keeps the retryable error when the owner disappears during creation', async () => {
+      const creation = deferred<SessionResponse>();
+      terminal.create.mockReturnValueOnce(creation.promise);
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      workspaces.opened.delete(owningId);
+      await act(async () => creation.resolve(shell));
+      // The host already owns the PTY; this only refuses to present it.
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+      expect(authDialogState()).toBe('open');
+      expect(document.body.textContent).toContain('common:reviewPlatform.messages.openAuthFailed');
+    });
+
+    it('keeps the retryable error when the owner connection changes during creation', async () => {
+      const creation = deferred<SessionResponse>();
+      terminal.create.mockReturnValueOnce(creation.promise);
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      workspaces.opened.set(owningId, { rootPath: owningPath, workspaceKind: 'remote', connectionId: 'ssh-reconnected' });
+      await act(async () => creation.resolve(shell));
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+      expect(authDialogState()).toBe('open');
+    });
+
+    it('still opens the created session when the owner record only changed metadata', async () => {
+      const creation = deferred<SessionResponse>();
+      terminal.create.mockReturnValueOnce(creation.promise);
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      workspaces.opened.set(owningId, { rootPath: owningPath, workspaceKind: 'remote', connectionId: 'ssh-owner', name: 'Renamed' });
+      await act(async () => creation.resolve(shell));
+      expect(terminal.open).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'terminal-42' }));
+      expect(mocks.notify.success).toHaveBeenCalledOnce();
+    });
+
+    it('does not open or notify when the panel unmounts during creation', async () => {
+      const creation = deferred<SessionResponse>();
+      terminal.create.mockReturnValueOnce(creation.promise);
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      await act(async () => { root.unmount(); });
+      root = createRoot(host);
+      await act(async () => creation.resolve(shell));
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+    });
+
+    it('does not create a terminal when the clipboard copy settles after a device switch', async () => {
+      const clipboard = deferred<void>();
+      mocks.setClipboard.mockReturnValueOnce(clipboard.promise);
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      await act(async () => { activateSurface('auth-clipboard-peer'); });
+      await act(async () => clipboard.resolve());
+      expect(terminal.create).not.toHaveBeenCalled();
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+    });
+
+    it('leaves a pending creation to the host instead of opening it on the new device', async () => {
+      const creation = deferred<SessionResponse>();
+      terminal.create.mockReturnValueOnce(creation.promise);
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      expect(terminal.create).toHaveBeenCalledOnce();
+      await act(async () => { activateSurface('auth-create-peer'); });
+      await act(async () => creation.resolve(shell));
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+    });
+
+    it('does not reuse an abandoned creation after returning to the same device', async () => {
+      const abandoned = deferred<SessionResponse>();
+      terminal.create.mockReturnValueOnce(abandoned.promise);
+      await act(async () => { activateSurface('auth-return-peer'); });
+      await mountAuthPanel();
+      await clickOpenTerminal();
+      await act(async () => { activateSurface('auth-return-other-peer'); });
+      await act(async () => { activateSurface('auth-return-peer'); });
+      const returned = buttonByText(host, 'Authenticate');
+      expect(returned).toBeDefined();
+      await act(async () => { returned!.click(); });
+      await act(async () => abandoned.resolve({ ...shell, id: 'abandoned-42' }));
+      expect(terminal.open).not.toHaveBeenCalled();
+      expect(mocks.notify.success).not.toHaveBeenCalled();
+
+      await clickOpenTerminal();
+      expect(terminal.create).toHaveBeenCalledTimes(2);
+      expect(terminal.open).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ sessionId: 'terminal-42' }));
+      expect(mocks.notify.success).toHaveBeenCalledOnce();
+    });
   });
 });

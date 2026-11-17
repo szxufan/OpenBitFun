@@ -291,3 +291,25 @@ test('packs exposed text contrast using the product contract', async () => {
   assert.equal(skin.components[0].slots.root.textShadowToken, 'shadow.base');
   assert.equal(product.validateVisualSkinPackage({ ...skin, components: [{ component: 'markdown', slots: { root: { textShadowToken: 'color.surface.panel' } } }] }).valid, false);
 });
+
+test('packs MP4 surface backdrops while rejecting non-MP4 files and component video slots', async () => {
+  const mp4 = Buffer.from([0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0]);
+  const { directory } = await fixture(skin => {
+    skin.assets.film = { mimeType: 'video/mp4', source: { kind: 'path', path: 'assets/film.mp4' } };
+    skin.manifest.previewAssetId = 'film';
+    skin.surfaces = [{ surface: 'shell', backgroundAssetId: 'film', fit: 'cover' }];
+  });
+  await writeFile(join(directory, 'assets/film.mp4'), mp4);
+  const packed = await buildDirectory(directory, product);
+  assert.match(packed.skin.assets.film.dataUrl, /^data:video\/mp4;base64,/);
+
+  await writeFile(join(directory, 'assets/film.mp4'), Buffer.alloc(16));
+  await assert.rejects(buildDirectory(directory, product), /not a valid MP4/);
+
+  const badSlot = await fixture(skin => {
+    skin.assets.film = { mimeType: 'video/mp4', source: { kind: 'path', path: 'assets/film.mp4' } };
+    skin.components = [{ component: 'button', slots: { root: { assetId: 'film' } } }];
+  });
+  await writeFile(join(badSlot.directory, 'assets/film.mp4'), mp4);
+  await assert.rejects(buildDirectory(badSlot.directory, product), /only supported as a surface backgroundAssetId/);
+});

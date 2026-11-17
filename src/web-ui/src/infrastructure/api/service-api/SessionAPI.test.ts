@@ -40,6 +40,16 @@ describe('SessionAPI paged metadata reads', () => {
     });
   });
 
+  it('requests current context explicitly through the existing host transport', async () => {
+    invokeMock.mockResolvedValue({ contextEstimate: { capturedAt: 1 } });
+    await sessionAPI.getSessionUsageReport({ sessionId: 'fork', workspaceId: 'workspace-1',
+      contextEstimate: { includeContents: true, contextOnly: true } });
+    expect(invokeMock).toHaveBeenLastCalledWith('get_session_usage_report', {
+      request: { session_id: 'fork', workspace_id: 'workspace-1', include_hidden_subagents: true,
+        context_estimate: { includeContents: true, contextOnly: true } },
+    });
+  });
+
   it('does not send a local workspace request to an equal ID on a newly selected peer', async () => {
     const pending = sessionAPI.listSessionsPage({ workspaceId: 'same-workspace-id', limit: 5 });
     activateSurface('peer-with-the-same-workspace');

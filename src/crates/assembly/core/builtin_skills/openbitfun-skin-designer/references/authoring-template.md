@@ -93,7 +93,7 @@ Start from the supplied pixels when the brief is reference-driven. Record source
 and delivered resolution, animation frames/duration, target CSS size and DPR.
 Do not silently downscale, retime, shorten loops, or upscale and call it sharper.
 If an asset exceeds the current limits, report the limit and proposed tradeoff.
-The current package supports images, not video backgrounds.
+The package also supports an MP4 surface backdrop (muted, looping, no audio).
 
 Use an available image generator for matching raster fragments when useful.
 Example requests include a sparse vertical edge, shallow toolbar ornament or

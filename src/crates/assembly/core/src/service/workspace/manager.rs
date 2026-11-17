@@ -191,6 +191,10 @@ pub struct WorkspaceOpenOptions {
     pub scan_options: ScanOptions,
     pub auto_set_current: bool,
     pub add_to_recent: bool,
+    /// When `true` (default for explicit folder opens), opening an already-open
+    /// project workspace promotes it to the first project slot. Selection by ID,
+    /// legacy upgrade paths, and background SSH restore pass `false`.
+    pub promote_if_opened: bool,
     pub workspace_kind: WorkspaceKind,
     pub assistant_id: Option<String>,
     pub display_name: Option<String>,
@@ -212,6 +216,7 @@ impl Default for WorkspaceOpenOptions {
             scan_options: ScanOptions::default(),
             auto_set_current: true,
             add_to_recent: true,
+            promote_if_opened: true,
             workspace_kind: WorkspaceKind::Normal,
             assistant_id: None,
             display_name: None,
@@ -1072,7 +1077,11 @@ impl WorkspaceManager {
                 }
             }
             if keep_opened {
-                self.ensure_workspace_open(&workspace_id);
+                if options.promote_if_opened {
+                    self.promote_workspace_open(&workspace_id);
+                } else {
+                    self.ensure_workspace_open(&workspace_id);
+                }
             }
             if options.auto_set_current {
                 self.set_current_workspace_with_recent_policy(
@@ -1504,8 +1513,9 @@ impl WorkspaceManager {
     }
 
     /// Ensures a workspace is in the opened list. A newly opened workspace goes
-    /// first; an already opened one keeps its place, so activating a workspace
-    /// never reorders the list users arrange (recency lives in the recent list).
+    /// to the front of its section (projects skip leading assistants); an
+    /// already opened one keeps its place, so activating a workspace never
+    /// reorders the list users arrange (recency lives in the recent list).
     fn ensure_workspace_open(&mut self, workspace_id: &str) {
         if self
             .opened_workspace_ids
@@ -1514,8 +1524,68 @@ impl WorkspaceManager {
         {
             return;
         }
+        let is_assistant = self
+            .workspaces
+            .get(workspace_id)
+            .is_some_and(|workspace| workspace.workspace_kind == WorkspaceKind::Assistant);
+        let insert_at = if is_assistant {
+            0
+        } else {
+            self.opened_workspace_ids
+                .iter()
+                .position(|id| {
+                    self.workspaces.get(id).is_none_or(|workspace| {
+                        workspace.workspace_kind != WorkspaceKind::Assistant
+                    })
+                })
+                .unwrap_or(self.opened_workspace_ids.len())
+        };
         self.opened_workspace_ids
-            .insert(0, workspace_id.to_string());
+            .insert(insert_at, workspace_id.to_string());
+    }
+
+    /// Ensures a workspace is open and, when it is a project workspace, places
+    /// it at the front of the project slots while leaving assistant slots in place.
+    fn promote_workspace_open(&mut self, workspace_id: &str) {
+        let is_assistant = self
+            .workspaces
+            .get(workspace_id)
+            .is_some_and(|workspace| workspace.workspace_kind == WorkspaceKind::Assistant);
+        if is_assistant
+            || !self
+                .opened_workspace_ids
+                .iter()
+                .any(|id| id == workspace_id)
+        {
+            self.ensure_workspace_open(workspace_id);
+            return;
+        }
+
+        let workspaces = &self.workspaces;
+        let mut projects: Vec<String> = self
+            .opened_workspace_ids
+            .iter()
+            .filter(|id| {
+                id.as_str() != workspace_id
+                    && workspaces.get(*id).is_none_or(|workspace| {
+                        workspace.workspace_kind != WorkspaceKind::Assistant
+                    })
+            })
+            .cloned()
+            .collect();
+        projects.insert(0, workspace_id.to_string());
+
+        let mut project_iter = projects.into_iter();
+        for slot in &mut self.opened_workspace_ids {
+            let is_project_slot = workspaces
+                .get(slot.as_str())
+                .is_none_or(|workspace| workspace.workspace_kind != WorkspaceKind::Assistant);
+            if is_project_slot {
+                if let Some(next) = project_iter.next() {
+                    *slot = next;
+                }
+            }
+        }
     }
 
     /// Returns manager statistics.
@@ -1947,6 +2017,79 @@ mod tests {
         assert_eq!(
             WorkspaceIdentity::collect_changed_fields(Some(&previous), Some(&current)),
             vec!["avatar".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn opening_project_promotes_to_first_project_slot_without_moving_assistants() {
+        use super::{
+            WorkspaceInfo, WorkspaceInfoRuntimeExt, WorkspaceKind, WorkspaceManager,
+            WorkspaceManagerConfig, WorkspaceOpenOptions,
+        };
+
+        let temp = tempfile::tempdir().expect("temp assistant dir");
+        let mut manager = WorkspaceManager::new(WorkspaceManagerConfig::default());
+        let assistant = WorkspaceInfo::new_without_worktree(
+            temp.path().to_path_buf(),
+            WorkspaceOpenOptions {
+                workspace_kind: WorkspaceKind::Assistant,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        manager
+            .workspaces
+            .insert(assistant.id.clone(), assistant.clone());
+        manager.opened_workspace_ids = vec![assistant.id.clone()];
+
+        let remote = |promote_if_opened: bool| WorkspaceOpenOptions {
+            workspace_kind: WorkspaceKind::Remote,
+            remote_connection_id: Some("ssh-dev".into()),
+            remote_ssh_host: Some("dev.example".into()),
+            promote_if_opened,
+            ..Default::default()
+        };
+
+        let proj_a = manager
+            .open_workspace_with_options("/srv/proj-a".into(), remote(true))
+            .await
+            .unwrap();
+        let proj_b = manager
+            .open_workspace_with_options("/srv/proj-b".into(), remote(true))
+            .await
+            .unwrap();
+        assert_eq!(
+            manager.opened_workspace_ids,
+            vec![assistant.id.clone(), proj_b.id.clone(), proj_a.id.clone()]
+        );
+
+        // Background restore (`promote_if_opened: false`) preserves existing order.
+        manager
+            .open_workspace_with_options("/srv/proj-a".into(), remote(false))
+            .await
+            .unwrap();
+        assert_eq!(
+            manager.opened_workspace_ids,
+            vec![assistant.id.clone(), proj_b.id.clone(), proj_a.id.clone()]
+        );
+
+        // Explicit open (`promote_if_opened: true`) moves proj-a to the first project slot,
+        // keeping the leading assistant untouched.
+        manager
+            .open_workspace_with_options("/srv/proj-a".into(), remote(true))
+            .await
+            .unwrap();
+        assert_eq!(
+            manager.opened_workspace_ids,
+            vec![assistant.id.clone(), proj_a.id.clone(), proj_b.id.clone()]
+        );
+
+        // Ordinary activation keeps existing order.
+        manager.set_active_workspace(&proj_b.id).unwrap();
+        assert_eq!(
+            manager.opened_workspace_ids,
+            vec![assistant.id.clone(), proj_a.id.clone(), proj_b.id.clone()]
         );
     }
 }

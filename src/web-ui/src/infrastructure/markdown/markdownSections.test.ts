@@ -61,4 +61,13 @@ describe('Markdown presentation sections', () => {
     const source = prefix + dependent + '\n\n' + prefix;
     expect(markdownSections(source)).toEqual([{ start: 0, end: source.length }]);
   });
+
+  it('splits technical documents with inline code generics, indexing, and < comparisons', () => {
+    const technical = (
+      'Use `Vec<u8>`, `Result<T, String>`, and `matrix[i][j]` whenever latency < 16 ms and a <= b.\n\n'
+    ).repeat(120);
+    const sections = markdownSections(technical, { streaming: true });
+    expect(sections.length).toBeGreaterThan(2);
+    expect(sections.map(section => technical.slice(section.start, section.end)).join('')).toBe(technical);
+  });
 });

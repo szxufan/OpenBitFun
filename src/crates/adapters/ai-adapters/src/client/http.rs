@@ -83,6 +83,28 @@ fn create_http_client_with_connection_mode(
     skip_ssl_verify: bool,
     direct: bool,
 ) -> Client {
+    create_transport_client(proxy_config, skip_ssl_verify, direct, false)
+}
+
+pub(crate) fn create_websocket_http_client(
+    proxy_config: Option<ProxyConfig>,
+    skip_ssl_verify: bool,
+    request_url: &str,
+) -> Client {
+    create_transport_client(
+        proxy_config,
+        skip_ssl_verify,
+        is_loopback_url(request_url),
+        true,
+    )
+}
+
+fn create_transport_client(
+    proxy_config: Option<ProxyConfig>,
+    skip_ssl_verify: bool,
+    direct: bool,
+    websocket: bool,
+) -> Client {
     openbitfun_services_core::tls_provider::ensure_ring_crypto_provider();
     let mut builder = Client::builder()
         .tls_backend_rustls()
@@ -106,6 +128,13 @@ fn create_http_client_with_connection_mode(
     }
 
     let apply_policy = |builder: ClientBuilder| {
+        let builder = if websocket {
+            builder
+                .http1_only()
+                .redirect(reqwest::redirect::Policy::none())
+        } else {
+            builder
+        };
         if direct {
             // Do not let a local gateway redirect a direct client to another host.
             builder

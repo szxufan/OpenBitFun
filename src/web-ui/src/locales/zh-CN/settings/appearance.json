@@ -49,6 +49,7 @@
     "previewing": "预览中",
     "cancelPreview": "取消预览",
     "activate": "使用皮肤",
+    "deactivate": "不使用皮肤",
     "active": "当前使用",
     "remove": "移除皮肤",
     "error": "皮肤操作失败：{{message}}",

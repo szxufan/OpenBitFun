@@ -308,6 +308,7 @@ mod tests {
                 let context = prepare_request_context(
                     &client,
                     Some(ModelRequestContext {
+                        conversation_scope: None,
                         prompt_cache_route_key: Some("private-runtime-conversation".into()),
                         ..Default::default()
                     }),

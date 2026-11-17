@@ -34,6 +34,21 @@ pub(crate) fn optional_bool(obj: &Value, camel: &str) -> Option<bool> {
     field(obj, camel, &snake).and_then(|v| v.as_bool())
 }
 
+pub(crate) fn get_string_vec(obj: &Value, camel: &str) -> Result<Vec<String>, String> {
+    let snake = camel_to_snake(camel);
+    let items = field(obj, camel, &snake)
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| format!("Missing or invalid '{camel}' field"))?;
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| format!("Invalid string entry in '{camel}'"))
+        })
+        .collect()
+}
+
 fn camel_to_snake(camel: &str) -> String {
     let mut out = String::with_capacity(camel.len() + 4);
     for (i, ch) in camel.chars().enumerate() {
@@ -64,5 +79,14 @@ mod tests {
             optional_string(&camel, "workspacePath").as_deref(),
             Some("/a")
         );
+        assert_eq!(
+            get_string_vec(&json!({ "workspaceIds": ["b", "a"] }), "workspaceIds").unwrap(),
+            vec!["b".to_string(), "a".to_string()]
+        );
+        assert_eq!(
+            get_string_vec(&json!({ "workspace_ids": ["b", "a"] }), "workspaceIds").unwrap(),
+            vec!["b".to_string(), "a".to_string()]
+        );
+        assert!(get_string_vec(&json!({ "workspaceIds": ["b", 1] }), "workspaceIds").is_err());
     }
 }

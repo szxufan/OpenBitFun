@@ -51,10 +51,19 @@ pub(super) fn register_uninstall_entry(
     version: &str,
     uninstall_command: &str,
 ) -> Result<()> {
-    let hkcu = root_for(install_path);
-    ensure_registration_owner(&hkcu, install_path)?;
-    let (key, _) = hkcu
-        .create_subkey(UNINSTALL_KEY)
+    let hkcu = root_for(install_path)?;
+    register_uninstall_entry_at(&hkcu, install_path, version, uninstall_command)
+}
+
+fn register_uninstall_entry_at(
+    root: &RegKey,
+    install_path: &Path,
+    version: &str,
+    uninstall_command: &str,
+) -> Result<()> {
+    let keys = registration_keys(root, install_path)?;
+    let (key, _) = root
+        .create_subkey(&keys[0])
         .with_context(|| "Failed to create uninstall registry key")?;
 
     let exe_path = install_path.join(MAIN_APP_EXE);
@@ -62,7 +71,12 @@ pub(super) fn register_uninstall_entry(
     // Establish ownership before optional metadata so interrupted first-time
     // registration remains recognizable during journal recovery.
     key.set_value("InstallLocation", &quote_windows_path(install_path))?;
-    key.set_value("DisplayName", &APP_NAME)?;
+    let display_name = if keys[0] == UNINSTALL_KEY {
+        APP_NAME.to_string()
+    } else {
+        format!("{APP_NAME} ({})", install_path.display())
+    };
+    key.set_value("DisplayName", &display_name)?;
     key.set_value("DisplayVersion", &version)?;
     key.set_value("Publisher", &TAURI_MANUFACTURER)?;
     key.set_value("MainBinaryName", &MAIN_APP_EXE)?;
@@ -75,16 +89,19 @@ pub(super) fn register_uninstall_entry(
     key.set_value("NoModify", &1u32)?;
     key.set_value("NoRepair", &1u32)?;
 
-    log::info!("Registered uninstall entry at {}", UNINSTALL_KEY);
+    log::info!("Registered uninstall entry at {}", keys[0]);
     Ok(())
 }
 
 /// Same as Tauri NSIS `WriteRegStr SHCTX "${MANUPRODUCTKEY}" "" $INSTDIR` — used for default install dir / upgrades.
 pub(super) fn register_tauri_install_location(install_path: &Path) -> Result<()> {
-    let hkcu = root_for(install_path);
-    ensure_registration_owner(&hkcu, install_path)?;
-    let path = tauri_manufacturer_product_key();
-    let (key, _) = hkcu
+    let hkcu = root_for(install_path)?;
+    register_tauri_install_location_at(&hkcu, install_path)
+}
+
+fn register_tauri_install_location_at(root: &RegKey, install_path: &Path) -> Result<()> {
+    let path = registration_keys(root, install_path)?[1].clone();
+    let (key, _) = root
         .create_subkey(&path)
         .with_context(|| format!("Failed to create registry key {}", path))?;
     let dir = install_path.to_string_lossy();
@@ -104,14 +121,28 @@ pub(super) fn read_tauri_install_location() -> Option<String> {
 
 /// Remove only keys that still point to the selected installation.
 pub(super) fn remove_tauri_install_location(install_path: &Path) -> Result<()> {
-    remove_owned_key(install_path, &tauri_manufacturer_product_key(), "")
+    for root in [maintenance_user_root()?, RegKey::predef(HKEY_LOCAL_MACHINE)] {
+        remove_registration_keys(&root, install_path, false)?;
+    }
+    Ok(())
 }
 pub(super) fn remove_uninstall_entry(install_path: &Path) -> Result<()> {
-    remove_owned_key(install_path, UNINSTALL_KEY, "InstallLocation")
+    for root in [maintenance_user_root()?, RegKey::predef(HKEY_LOCAL_MACHINE)] {
+        remove_registration_keys(&root, install_path, true)?;
+    }
+    Ok(())
 }
-fn remove_owned_key(install_path: &Path, path: &str, value: &str) -> Result<()> {
-    let root = root_for(install_path);
-    delete_owned_key(&root, install_path, path, value)
+
+fn remove_registration_keys(root: &RegKey, install_path: &Path, uninstall: bool) -> Result<()> {
+    let (legacy, index, value) = if uninstall {
+        (UNINSTALL_KEY.to_string(), 0, "InstallLocation")
+    } else {
+        (tauri_manufacturer_product_key(), 1, "")
+    };
+    for key in [legacy, installation_keys(install_path)[index].clone()] {
+        delete_owned_key(root, install_path, &key, value)?;
+    }
+    Ok(())
 }
 
 fn delete_owned_key(root: &RegKey, install_path: &Path, path: &str, value: &str) -> Result<()> {
@@ -148,30 +179,33 @@ pub(super) fn remove_autostart_run_entry(install_path: &Path) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn is_machine_install(path: &Path) -> bool {
-    !read_uninstall_key(RegKey::predef(HKEY_CURRENT_USER), "hkcu")
-        .is_some_and(|v| path_matches(&v.install_location, path))
-        && (read_uninstall_key(RegKey::predef(HKEY_LOCAL_MACHINE), "hklm")
-            .is_some_and(|v| path_matches(&v.install_location, path))
-            || std::fs::read(path.join(super::transaction::INVENTORY))
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-                .is_some_and(|value| {
-                    value.get("allUsers").and_then(serde_json::Value::as_bool) == Some(true)
-                })
-            // The inventory and registration may already be backed up when an
-            // interrupted machine uninstall re-enters maintenance.
-            || std::fs::read(path.join(super::transaction::WORK_DIR).join("journal.json"))
-                .ok().and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-                .is_some_and(|value| value.get("schema").and_then(serde_json::Value::as_u64) == Some(1)
-                    && value.pointer("/integrations/registry/machine").and_then(serde_json::Value::as_bool) == Some(true)))
+pub(super) fn scope(
+    path: &Path,
+) -> std::result::Result<openbitfun_services_core::installation_scope::InstallationScope, String> {
+    let owner = std::env::args()
+        .skip(1)
+        .take_while(|arg| !arg.eq_ignore_ascii_case("/ARGS"))
+        .find_map(|arg| arg.strip_prefix("/OWNER_SID=").map(str::to_string));
+    openbitfun_services_core::installation_scope::windows_installation_scope(
+        path,
+        APP_NAME,
+        owner.as_deref(),
+    )
+}
+
+pub(super) fn is_machine_install(path: &Path) -> std::result::Result<bool, String> {
+    scope(path).map(|scope| scope.machine_install)
 }
 
 pub(super) fn validate_scope(path: &Path, all_users: bool) -> Result<()> {
-    if all_users
-        && read_uninstall_key(RegKey::predef(HKEY_CURRENT_USER), "hkcu")
-            .is_some_and(|value| path_matches(&value.install_location, path))
-    {
+    validate_scope_facts(scope(path).map_err(anyhow::Error::msg)?, all_users)
+}
+
+fn validate_scope_facts(
+    scope: openbitfun_services_core::installation_scope::InstallationScope,
+    all_users: bool,
+) -> Result<()> {
+    if all_users && scope.current_user_registration && !scope.machine_install {
         anyhow::bail!("This directory is a current-user installation; retain its scope or uninstall before changing scope");
     }
     Ok(())
@@ -180,16 +214,16 @@ pub(super) fn validate_scope(path: &Path, all_users: bool) -> Result<()> {
 pub(super) fn installed_version(path: &Path) -> Option<String> {
     [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE]
         .into_iter()
-        .filter_map(|hive| read_uninstall_key(RegKey::predef(hive), "registry"))
+        .filter_map(|hive| read_installation_at(&RegKey::predef(hive), "registry", path))
         .find(|value| path_matches(&value.install_location, path))
         .and_then(|value| value.display_version)
 }
-fn root_for(path: &Path) -> RegKey {
-    RegKey::predef(if is_machine_install(path) {
-        HKEY_LOCAL_MACHINE
+fn root_for(path: &Path) -> Result<RegKey> {
+    if is_machine_install(path).map_err(anyhow::Error::msg)? {
+        Ok(RegKey::predef(HKEY_LOCAL_MACHINE))
     } else {
-        HKEY_CURRENT_USER
-    })
+        maintenance_user_root()
+    }
 }
 fn path_matches(value: &str, path: &Path) -> bool {
     normalize_registry_path(value)
@@ -204,39 +238,79 @@ fn command_targets(value: &str, path: &Path) -> bool {
     };
     path_matches(program, &path.join(MAIN_APP_EXE))
 }
-fn ensure_registration_owner(root: &RegKey, path: &Path) -> Result<()> {
-    for (name, value) in [
-        (UNINSTALL_KEY.to_string(), "InstallLocation"),
-        (tauri_manufacturer_product_key(), ""),
-    ] {
+fn installation_keys(path: &Path) -> [String; 2] {
+    let id = super::commands::windows_installation_id(path);
+    [
+        format!("{UNINSTALL_KEY}-{id}"),
+        format!("{}-{id}", tauri_manufacturer_product_key()),
+    ]
+}
+
+// Keep updating legacy installations under their original keys. New directories
+// get independent sibling keys, so uninstalling a legacy copy cannot erase them.
+fn registration_keys(root: &RegKey, path: &Path) -> Result<[String; 2]> {
+    let keys = installation_keys(path);
+    let mut scoped_registration = false;
+    for (name, value) in [(&keys[0], "InstallLocation"), (&keys[1], "")] {
         match root.open_subkey(name) {
             Ok(key) => {
-                let existing: String = key.get_value(value).context(
-                    "Cannot establish existing installation ownership; registry data was preserved",
-                )?;
-                anyhow::ensure!(path_matches(&existing, path), "An installation is registered at {existing}; select that directory to update or uninstall it first");
-                // Older desktop builds rewrote the manufacturer location even
-                // in development. The owned uninstall record is authoritative;
-                // a successful maintenance transaction repairs that stale hint.
-                return Ok(());
+                let existing: String = key.get_value(value)?;
+                anyhow::ensure!(path_matches(&existing, path), "Installation registration belongs to another directory; registry data was preserved");
+                scoped_registration = true;
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
     }
-    Ok(())
+    if scoped_registration {
+        return Ok(keys);
+    }
+    let legacy = [UNINSTALL_KEY.to_string(), tauri_manufacturer_product_key()];
+    for (name, value) in [(&legacy[0], "InstallLocation"), (&legacy[1], "")] {
+        match root.open_subkey(name) {
+            Ok(key) => {
+                let existing: String = key.get_value(value).context(
+                    "Cannot establish existing installation ownership; registry data was preserved",
+                )?;
+                // Older desktop builds rewrote the manufacturer location even
+                // in development. The owned uninstall record is authoritative;
+                // a successful maintenance transaction repairs that stale hint.
+                if path_matches(&existing, path) {
+                    return Ok(legacy.clone());
+                }
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(keys)
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(super) struct Snapshot {
     machine: bool,
-    keys: Vec<Option<Vec<(String, u32, Vec<u8>)>>>,
+    keys: Vec<KeySnapshot>,
+    #[serde(default)]
+    installation_keys: Vec<KeySnapshot>,
+    #[serde(default)]
+    other_registration: Option<RegistrationSnapshot>,
     #[serde(default)]
     user_sid: Option<String>,
     #[serde(default)]
     user_values: Vec<(String, String, Option<(u32, Vec<u8>)>)>,
     #[serde(default)]
     context_keys: Vec<(String, Vec<(String, Vec<(String, u32, Vec<u8>)>)>)>,
+}
+
+type KeySnapshot = Option<Vec<(String, u32, Vec<u8>)>>;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RegistrationSnapshot {
+    machine: bool,
+    keys: Vec<KeySnapshot>,
+    #[serde(default)]
+    installation_keys: Vec<KeySnapshot>,
 }
 
 const CONTEXT_KEYS: [&str; 2] = [
@@ -246,6 +320,8 @@ const CONTEXT_KEYS: [&str; 2] = [
 
 fn maintenance_user_sid() -> Result<String> {
     let sid = std::env::args()
+        .skip(1)
+        .take_while(|arg| !arg.eq_ignore_ascii_case("/ARGS"))
         .find_map(|arg| arg.strip_prefix("/OWNER_SID=").map(str::to_string))
         .map(Ok)
         .unwrap_or_else(super::elevation::owner_sid)
@@ -313,16 +389,9 @@ fn raw_value(kind: u32, bytes: &[u8]) -> Result<winreg::RegValue> {
     })
 }
 
-pub(super) fn snapshot(path: &Path, machine: bool) -> Result<Snapshot> {
-    let install_path = path;
-    let root = RegKey::predef(if machine {
-        HKEY_LOCAL_MACHINE
-    } else {
-        HKEY_CURRENT_USER
-    });
-    ensure_registration_owner(&root, path)?;
+fn snapshot_registration_keys(root: &RegKey, names: &[String]) -> Result<Vec<KeySnapshot>> {
     let mut keys = Vec::new();
-    for name in [UNINSTALL_KEY.to_string(), tauri_manufacturer_product_key()] {
+    for name in names {
         keys.push(match root.open_subkey(name) {
             Ok(key) => Some(
                 key.enum_values()
@@ -333,8 +402,45 @@ pub(super) fn snapshot(path: &Path, machine: bool) -> Result<Snapshot> {
             Err(e) => return Err(e.into()),
         });
     }
+    Ok(keys)
+}
+
+pub(super) fn snapshot(path: &Path, machine: bool) -> Result<Snapshot> {
+    let install_path = path;
     let sid = maintenance_user_sid()?;
     let user = user_root(&sid)?;
+    let root = if machine {
+        RegKey::predef(HKEY_LOCAL_MACHINE)
+    } else {
+        user_root(&sid)?
+    };
+    registration_keys(&root, path)?;
+    // Keep the legacy two-key payload intact for interrupted older transactions.
+    let keys = snapshot_registration_keys(
+        &root,
+        &[UNINSTALL_KEY.to_string(), tauri_manufacturer_product_key()],
+    )?;
+    let installation_keys = snapshot_registration_keys(&root, &installation_keys(path))?;
+    let scope = scope(path).map_err(anyhow::Error::msg)?;
+    let other_registration = if (machine && scope.current_user_registration)
+        || (!machine && scope.machine_registration)
+    {
+        let other = if machine {
+            user_root(&sid)?
+        } else {
+            RegKey::predef(HKEY_LOCAL_MACHINE)
+        };
+        Some(RegistrationSnapshot {
+            machine: !machine,
+            keys: snapshot_registration_keys(
+                &other,
+                &[UNINSTALL_KEY.to_string(), tauri_manufacturer_product_key()],
+            )?,
+            installation_keys: snapshot_registration_keys(&other, &self::installation_keys(path))?,
+        })
+    } else {
+        None
+    };
     let mut user_values = Vec::new();
     for (path, name) in [
         ("Environment", "Path"),
@@ -380,31 +486,82 @@ pub(super) fn snapshot(path: &Path, machine: bool) -> Result<Snapshot> {
     Ok(Snapshot {
         machine,
         keys,
+        installation_keys,
+        other_registration,
         user_sid: Some(sid),
         user_values,
         context_keys,
     })
 }
 
-pub(super) fn restore(install_path: &Path, snapshot: &Snapshot) -> Result<()> {
+fn restore_registration_keys(
+    root: &RegKey,
+    install_path: &Path,
+    snapshot: &Snapshot,
+) -> Result<()> {
+    restore_registration_values(
+        root,
+        install_path,
+        &snapshot.keys,
+        &snapshot.installation_keys,
+    )
+}
+
+fn restore_registration_values(
+    root: &RegKey,
+    install_path: &Path,
+    keys: &[KeySnapshot],
+    installation: &[KeySnapshot],
+) -> Result<()> {
+    anyhow::ensure!(keys.len() == 2, "Invalid registry recovery snapshot");
     anyhow::ensure!(
-        snapshot.keys.len() == 2,
-        "Invalid registry recovery snapshot"
+        installation.is_empty() || installation.len() == 2,
+        "Invalid per-installation registry recovery snapshot"
     );
-    let root = RegKey::predef(if snapshot.machine {
-        HKEY_LOCAL_MACHINE
-    } else {
-        HKEY_CURRENT_USER
-    });
-    for ((path, name), original) in [
+    let mut paths = vec![
         (UNINSTALL_KEY.to_string(), "InstallLocation"),
         (tauri_manufacturer_product_key(), ""),
-    ]
-    .into_iter()
-    .zip(&snapshot.keys)
-    {
+    ];
+    if !installation.is_empty() {
+        let scoped = installation_keys(install_path);
+        paths.extend([
+            (scoped[0].clone(), "InstallLocation"),
+            (scoped[1].clone(), ""),
+        ]);
+    }
+    let originals = keys.iter().chain(installation).collect::<Vec<_>>();
+    let mut preserve_foreign = vec![false; paths.len()];
+    for (index, ((path, name), original)) in paths.iter().zip(&originals).enumerate() {
+        if index < 2 && !installation.is_empty() {
+            // A new directory does not own the shared legacy records. Do not
+            // roll back another installation's metadata or resurrect its keys.
+            use winreg::types::FromRegValue;
+            let originally_owned = original
+                .as_ref()
+                .and_then(|values| values.iter().find(|(key, _, _)| key == name))
+                .map(|(_, kind, bytes)| -> Result<bool> {
+                    Ok(path_matches(
+                        &String::from_reg_value(&raw_value(*kind, bytes)?)?,
+                        install_path,
+                    ))
+                })
+                .transpose()?
+                .unwrap_or(false);
+            let currently_owned = match root
+                .open_subkey(path)
+                .and_then(|key| key.get_value::<String, _>(*name))
+            {
+                Ok(value) => path_matches(&value, install_path),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+                Err(error) => return Err(error.into()),
+            };
+            if !originally_owned && !currently_owned {
+                preserve_foreign[index] = true;
+                continue;
+            }
+        }
         match root.open_subkey(&path) {
-            Ok(key) => match key.get_value::<String, _>(name) {
+            Ok(key) => match key.get_value::<String, _>(*name) {
                 Ok(value) => anyhow::ensure!(
                     path_matches(&value, install_path)
                         || original.as_ref().is_some_and(|values| {
@@ -430,10 +587,10 @@ pub(super) fn restore(install_path: &Path, snapshot: &Snapshot) -> Result<()> {
             Err(error) => return Err(error.into()),
         }
     }
-    for (path, values) in [UNINSTALL_KEY.to_string(), tauri_manufacturer_product_key()]
-        .iter()
-        .zip(&snapshot.keys)
-    {
+    for (index, ((path, _), values)) in paths.iter().zip(originals).enumerate() {
+        if preserve_foreign[index] {
+            continue;
+        }
         if let Some(values) = values {
             let (key, _) = root.create_subkey(path)?;
             let names = key
@@ -474,6 +631,39 @@ pub(super) fn restore(install_path: &Path, snapshot: &Snapshot) -> Result<()> {
                 Err(e) => return Err(e.into()),
             }
         }
+    }
+    Ok(())
+}
+
+pub(super) fn restore(install_path: &Path, snapshot: &Snapshot) -> Result<()> {
+    if let Some(sid) = &snapshot.user_sid {
+        anyhow::ensure!(
+            sid == &maintenance_user_sid()?,
+            "Registry recovery belongs to another user"
+        );
+    }
+    let root = if snapshot.machine {
+        RegKey::predef(HKEY_LOCAL_MACHINE)
+    } else if let Some(sid) = &snapshot.user_sid {
+        user_root(sid)?
+    } else {
+        RegKey::predef(HKEY_CURRENT_USER)
+    };
+    restore_registration_keys(&root, install_path, snapshot)?;
+    if let Some(other) = &snapshot.other_registration {
+        anyhow::ensure!(
+            other.machine != snapshot.machine,
+            "Invalid duplicate-registration recovery scope"
+        );
+        let root =
+            if other.machine {
+                RegKey::predef(HKEY_LOCAL_MACHINE)
+            } else {
+                user_root(snapshot.user_sid.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("Duplicate registration recovery has no owner")
+                })?)?
+            };
+        restore_registration_values(&root, install_path, &other.keys, &other.installation_keys)?;
     }
     if let Some(sid) = &snapshot.user_sid {
         anyhow::ensure!(
@@ -579,6 +769,236 @@ fn merge_owned_path(previous: &str, present: &str, install_path: &Path) -> Strin
 #[cfg(test)]
 mod maintenance_tests {
     use super::*;
+
+    #[test]
+    fn duplicate_user_registration_does_not_change_an_existing_machine_scope() {
+        use openbitfun_services_core::installation_scope::InstallationScope;
+        let mut facts = InstallationScope {
+            current_user_registration: true,
+            machine_registration: true,
+            machine_install: true,
+        };
+        assert!(validate_scope_facts(facts, true).is_ok());
+        facts.machine_install = false;
+        assert!(validate_scope_facts(facts, true).is_err());
+        assert!(validate_scope_facts(facts, false).is_ok());
+        facts.current_user_registration = false;
+        assert!(validate_scope_facts(facts, true).is_ok());
+    }
+
+    struct RegistryFixture(String, RegKey);
+
+    impl RegistryFixture {
+        fn new() -> Self {
+            let name = format!(
+                r"Software\OpenBitFunMaintenanceTests\{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            let (root, _) = RegKey::predef(HKEY_CURRENT_USER)
+                .create_subkey(&name)
+                .unwrap();
+            Self(name, root)
+        }
+    }
+
+    impl Drop for RegistryFixture {
+        fn drop(&mut self) {
+            RegKey::predef(HKEY_CURRENT_USER)
+                .delete_subkey_all(&self.0)
+                .unwrap();
+        }
+    }
+
+    fn registration_snapshot(root: &RegKey, path: &Path) -> Snapshot {
+        Snapshot {
+            machine: false,
+            keys: snapshot_registration_keys(
+                root,
+                &[UNINSTALL_KEY.to_string(), tauri_manufacturer_product_key()],
+            )
+            .unwrap(),
+            installation_keys: snapshot_registration_keys(root, &installation_keys(path)).unwrap(),
+            other_registration: None,
+            user_sid: None,
+            user_values: Vec::new(),
+            context_keys: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn duplicate_hive_records_are_removed_and_restored_without_touching_other_directories() {
+        let fixture = RegistryFixture::new();
+        let (user, _) = fixture.1.create_subkey("User").unwrap();
+        let (machine, _) = fixture.1.create_subkey("Machine").unwrap();
+        let ours = Path::new(r"C:\Apps\OpenBitFun");
+        let other = Path::new(r"D:\Other\OpenBitFun");
+        for hive in [&user, &machine] {
+            register_uninstall_entry_at(hive, ours, "1.0.11", "uninstall.exe").unwrap();
+            register_tauri_install_location_at(hive, ours).unwrap();
+            register_uninstall_entry_at(hive, other, "1.0.11", "other.exe").unwrap();
+        }
+        let original = registration_snapshot(&user, ours);
+        let extra = RegistrationSnapshot {
+            machine: true,
+            keys: snapshot_registration_keys(
+                &machine,
+                &[UNINSTALL_KEY.to_string(), tauri_manufacturer_product_key()],
+            )
+            .unwrap(),
+            installation_keys: snapshot_registration_keys(&machine, &installation_keys(ours))
+                .unwrap(),
+        };
+        for hive in [&user, &machine] {
+            remove_registration_keys(hive, ours, false).unwrap();
+            remove_registration_keys(hive, ours, true).unwrap();
+            assert!(read_installation_at(hive, "fixture", ours).is_none());
+            assert!(read_installation_at(hive, "fixture", other).is_some());
+        }
+        restore_registration_keys(&user, ours, &original).unwrap();
+        let extra: RegistrationSnapshot =
+            serde_json::from_slice(&serde_json::to_vec(&extra).unwrap()).unwrap();
+        restore_registration_values(&machine, ours, &extra.keys, &extra.installation_keys).unwrap();
+        assert!(read_installation_at(&user, "fixture", ours).is_some());
+        assert!(read_installation_at(&machine, "fixture", ours).is_some());
+    }
+
+    #[test]
+    fn parallel_installations_register_update_rollback_and_uninstall_independently() {
+        let fixture = RegistryFixture::new();
+        let root = &fixture.1;
+        let first = Path::new(r"C:\Apps\OpenBitFun");
+        let second = Path::new(r"D:\Apps\OpenBitFun");
+        for path in [first, second] {
+            register_uninstall_entry_at(root, path, "1.0.11", "uninstall.exe").unwrap();
+            register_tauri_install_location_at(root, path).unwrap();
+        }
+        assert_ne!(installation_keys(first), installation_keys(second));
+        // A legacy runtime may rewrite this global hint. It must not move an
+        // already registered independent installation back to the global keys.
+        root.create_subkey(tauri_manufacturer_product_key())
+            .unwrap()
+            .0
+            .set_value("", &second.to_string_lossy().as_ref())
+            .unwrap();
+        assert_eq!(
+            registration_keys(root, second).unwrap(),
+            installation_keys(second)
+        );
+        let snapshot = registration_snapshot(root, second);
+        register_uninstall_entry_at(root, second, "1.0.12", "uninstall.exe").unwrap();
+        assert_eq!(
+            read_installation_at(root, "fixture", first)
+                .unwrap()
+                .display_version
+                .as_deref(),
+            Some("1.0.11")
+        );
+        assert_eq!(
+            read_installation_at(root, "fixture", second)
+                .unwrap()
+                .display_version
+                .as_deref(),
+            Some("1.0.12")
+        );
+        restore_registration_keys(root, second, &snapshot).unwrap();
+        assert_eq!(
+            read_installation_at(root, "fixture", second)
+                .unwrap()
+                .display_version
+                .as_deref(),
+            Some("1.0.11")
+        );
+        for (key, value) in installation_keys(first).iter().zip(["InstallLocation", ""]) {
+            delete_owned_key(root, first, key, value).unwrap();
+        }
+        assert!(read_installation_at(root, "fixture", first).is_none());
+        assert_eq!(
+            read_first_installation(root, "fixture")
+                .unwrap()
+                .install_location,
+            second.to_string_lossy()
+        );
+    }
+
+    #[test]
+    fn legacy_registration_and_recovery_payloads_remain_compatible() {
+        let fixture = RegistryFixture::new();
+        let root = &fixture.1;
+        let legacy = Path::new(r"C:\Legacy\OpenBitFun");
+        let second = Path::new(r"D:\Other\OpenBitFun");
+        let (key, _) = root.create_subkey(UNINSTALL_KEY).unwrap();
+        key.set_value("InstallLocation", &quote_windows_path(legacy))
+            .unwrap();
+        key.set_value("DisplayVersion", &"1.0.10").unwrap();
+        let (hint, _) = root
+            .create_subkey(tauri_manufacturer_product_key())
+            .unwrap();
+        hint.set_value("", &r"C:\OldDevelopmentHost").unwrap();
+        let original = registration_snapshot(root, legacy);
+        // This is the shape written before per-directory registration existed.
+        let old_payload = serde_json::json!({"machine": false, "keys": original.keys});
+        let old: Snapshot = serde_json::from_value(old_payload.clone()).unwrap();
+        assert!(old.installation_keys.is_empty());
+        register_uninstall_entry_at(root, legacy, "1.0.11", "uninstall.exe").unwrap();
+        register_tauri_install_location_at(root, legacy).unwrap();
+        assert_eq!(registration_keys(root, legacy).unwrap()[0], UNINSTALL_KEY);
+        assert_eq!(
+            hint.get_value::<String, _>("").unwrap(),
+            legacy.to_string_lossy()
+        );
+        restore_registration_keys(root, legacy, &old).unwrap();
+        assert_eq!(
+            key.get_value::<String, _>("DisplayVersion").unwrap(),
+            "1.0.10"
+        );
+        assert_eq!(
+            hint.get_value::<String, _>("").unwrap(),
+            r"C:\OldDevelopmentHost"
+        );
+        let before_new = registration_snapshot(root, second);
+        register_uninstall_entry_at(root, second, "1.0.11", "uninstall.exe").unwrap();
+        register_tauri_install_location_at(root, second).unwrap();
+        assert_eq!(
+            key.get_value::<String, _>("DisplayVersion").unwrap(),
+            "1.0.10"
+        );
+        register_uninstall_entry_at(root, legacy, "1.0.12", "uninstall.exe").unwrap();
+        restore_registration_keys(root, second, &before_new).unwrap();
+        assert!(read_installation_at(root, "fixture", second).is_none());
+        assert_eq!(
+            read_installation_at(root, "fixture", legacy)
+                .unwrap()
+                .display_version
+                .as_deref(),
+            Some("1.0.12")
+        );
+
+        // Older readers still see exactly the original two legacy key snapshots.
+        #[derive(serde::Deserialize, serde::Serialize)]
+        struct LegacySnapshot {
+            machine: bool,
+            keys: Vec<KeySnapshot>,
+        }
+        let old_reader: LegacySnapshot =
+            serde_json::from_value(serde_json::to_value(&original).unwrap()).unwrap();
+        assert_eq!(serde_json::to_value(old_reader).unwrap(), old_payload);
+        let roundtrip: Snapshot =
+            serde_json::from_slice(&serde_json::to_vec(&old).unwrap()).unwrap();
+        restore_registration_keys(root, legacy, &roundtrip).unwrap();
+    }
+
+    #[test]
+    fn directory_identity_is_stable_across_windows_path_spellings() {
+        assert_eq!(
+            installation_keys(Path::new(r"C:\Apps\OpenBitFun")),
+            installation_keys(Path::new("c:/apps/openbitfun/"))
+        );
+    }
+
     #[test]
     fn path_recovery_preserves_concurrent_changes_and_is_idempotent() {
         let root = Path::new(r"C:\OpenBitFun");
@@ -630,8 +1050,12 @@ pub(super) struct UninstallRegistryData {
     pub hive: &'static str,
 }
 
-fn read_uninstall_key(root: RegKey, hive_name: &'static str) -> Option<UninstallRegistryData> {
-    let key = root.open_subkey(UNINSTALL_KEY).ok()?;
+fn read_uninstall_key(
+    root: &RegKey,
+    name: &str,
+    hive_name: &'static str,
+) -> Option<UninstallRegistryData> {
+    let key = root.open_subkey(name).ok()?;
     let install_location: String = key.get_value("InstallLocation").ok()?;
     let display_version: Option<String> = key.get_value("DisplayVersion").ok();
     let uninstall_string: Option<String> = key.get_value("UninstallString").ok();
@@ -643,10 +1067,42 @@ fn read_uninstall_key(root: RegKey, hive_name: &'static str) -> Option<Uninstall
     })
 }
 
+fn read_installation_at(
+    root: &RegKey,
+    hive: &'static str,
+    path: &Path,
+) -> Option<UninstallRegistryData> {
+    [
+        UNINSTALL_KEY.to_string(),
+        installation_keys(path)[0].clone(),
+    ]
+    .iter()
+    .filter_map(|name| read_uninstall_key(root, name, hive))
+    .find(|value| path_matches(&value.install_location, path))
+}
+
+fn read_first_installation(root: &RegKey, hive: &'static str) -> Option<UninstallRegistryData> {
+    if let Some(legacy) = read_uninstall_key(root, UNINSTALL_KEY, hive) {
+        return Some(legacy);
+    }
+    let (parent, product) = UNINSTALL_KEY.rsplit_once('\\')?;
+    let key = root.open_subkey(parent).ok()?;
+    let mut names = key.enum_keys().collect::<std::io::Result<Vec<_>>>().ok()?;
+    names.sort();
+    names
+        .into_iter()
+        .filter(|name| name.starts_with(&format!("{product}-")))
+        .find_map(|name| {
+            let name = format!(r"{parent}\{name}");
+            let data = read_uninstall_key(root, &name, hive)?;
+            (installation_keys(Path::new(&data.install_location))[0] == name).then_some(data)
+        })
+}
+
 /// Detect existing install like NSIS `ReadRegStr` on `UNINSTKEY` (HKCU then HKLM).
 pub(super) fn read_existing_install_from_uninstall_registry() -> Option<UninstallRegistryData> {
-    read_uninstall_key(RegKey::predef(HKEY_CURRENT_USER), "hkcu")
-        .or_else(|| read_uninstall_key(RegKey::predef(HKEY_LOCAL_MACHINE), "hklm"))
+    read_first_installation(&RegKey::predef(HKEY_CURRENT_USER), "hkcu")
+        .or_else(|| read_first_installation(&RegKey::predef(HKEY_LOCAL_MACHINE), "hklm"))
 }
 
 /// Remove OpenBitFun context menu entries (no longer registered on install).

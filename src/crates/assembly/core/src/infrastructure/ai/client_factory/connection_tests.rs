@@ -62,6 +62,7 @@ async fn probe_draft(
         reasoning,
         custom_request_body,
         custom_request_body_mode: Some("merge".into()),
+        responses: None,
         max_tokens: Some(1_024),
         ..Default::default()
     };

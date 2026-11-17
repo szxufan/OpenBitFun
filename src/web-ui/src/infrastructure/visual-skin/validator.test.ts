@@ -17,7 +17,16 @@ describe('validateVisualSkinPackage', () => {
   it('uses the same decoded byte budget for embedded assets and archive entries', () => {
     const asset = (size: number) => ({ ...base, assets: { art: { mimeType: 'image/webp', source: { kind: 'data', data: 'data:image/webp;base64,' + Buffer.alloc(size).toString('base64') } } } });
     expect(validateVisualSkinPackage(asset(MAX_SKIN_ASSET_BYTES)).valid).toBe(true);
-    expect(validateVisualSkinPackage(asset(MAX_SKIN_ASSET_BYTES + 1)).valid).toBe(false);
+    for (const extra of [1, 4]) {
+      const result = validateVisualSkinPackage(asset(MAX_SKIN_ASSET_BYTES + extra));
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]?.message).toContain('exceeds the asset size limit');
+    }
+    for (const bad of ['==', 'abc']) {
+      const result = validateVisualSkinPackage({ ...base, assets: { art: { mimeType: 'image/webp', source: { kind: 'data', data: `data:image/webp;base64,${bad}` } } } });
+      expect(result.valid).toBe(false);
+      expect(result.errors[0]?.message).toContain('invalid base64');
+    }
   });
   it('accepts exact camelCase product part names without relaxing identifier safety', () => {
     const component = { component: 'chat-composer', slots: { contextBar: { foregroundToken: 'color.content.primary' } }, states: { hover: { slots: { pageHeader: { borderToken: 'color.border.default' } } } } };

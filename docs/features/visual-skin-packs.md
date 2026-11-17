@@ -69,7 +69,7 @@ The importer accepts two package forms:
 - **Canonical JSON** uses `manifest`, `modes`, `assets`, `components`, and
   `surfaces`. JSON assets must be embedded as base64 data URLs.
 - **ZIP** may contain a canonical `skin.json` with declared package-relative
-  image assets. The importer also accepts the multi-file entrypoint format
+  image or MP4 video assets. The importer also accepts the multi-file entrypoint format
   (`format: openbitfun-visual-skin`), resolving its token/asset/slot/recipe files
   into canonical fields. New Skill output uses the canonical format directly
   to avoid authoring fields that the conversion does not project.
@@ -78,16 +78,24 @@ The runtime accepts the public token contract from
 `@openbitfun/theme-openbitfun` and `@openbitfun/design-tokens`, named visual
 slots, component recipes, interaction states, and surface profiles. It validates
 identifiers, exact public token names (without aliases), asset MIME types, data URLs, package-relative paths,
-archive size, and undeclared files before persisting a package. ZIP directory
-metadata is checked before extraction (96 entries including directories,
-16 MiB per entry, 416 MiB total); manifest/entrypoint reads additionally have a
-512 KiB limit. Extraction uses a bounded streaming sink, cancellation, and CRC
-validation. Actual output is bounded as well as declared sizes, and each asset
-is extracted once. Packages cannot
+and undeclared files before persisting a package. The only size limit is
+**128 MiB per file** (including `skin.json`); entry count, package size and
+total expanded size are not limited. ZIP directory metadata is checked before
+extraction. Extraction uses a bounded streaming sink, cancellation, and CRC
+validation. Actual output is bounded by the per-file limit as well as the
+declared size, and each asset is extracted once. Assets are kept in memory as
+base64 data URLs, so very large assets cost far more memory than their file size.
+
+Assets may be PNG, JPEG, WebP, SVG or `video/mp4`. An MP4 is valid only as a
+surface `backgroundAssetId` (or the preview): the runtime mounts it as a muted,
+looping `<video>` in the surface's paint plane, mapping `fit` to `object-fit`
+and `backgroundPosition` to `object-position`; the surface scrim still tints it.
+CSS cannot paint video, so an MP4 cannot be used as a component or state slot
+`assetId`, and the validator rejects it there. Packages cannot
 provide CSS, selectors, JavaScript, network URLs, markup, product copy,
 permissions, or business logic.
 
-The importer consumes image assets, semantic/theme colors, component color
+The importer consumes image and MP4 video assets, semantic/theme colors, component color
 aliases and public color/shadow system tokens. Radius, spacing, typography
 metrics, layout, control dimensions and motion tokens are rejected. A package
 cannot ship executable font or stylesheet code.

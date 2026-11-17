@@ -72,6 +72,8 @@ pub struct WorkspaceCreateOptions {
     pub scan_options: ScanOptions,
     pub auto_set_current: bool,
     pub add_to_recent: bool,
+    /// See [`crate::service::workspace::manager::WorkspaceOpenOptions::promote_if_opened`].
+    pub promote_if_opened: bool,
     pub workspace_kind: WorkspaceKind,
     pub assistant_id: Option<String>,
     pub display_name: Option<String>,
@@ -99,6 +101,7 @@ impl Default for WorkspaceCreateOptions {
             scan_options: ScanOptions::default(),
             auto_set_current: true,
             add_to_recent: true,
+            promote_if_opened: true,
             workspace_kind: WorkspaceKind::Normal,
             assistant_id: None,
             display_name: None,
@@ -678,7 +681,7 @@ impl WorkspaceService {
         &self,
         known: &WorkspaceInfo,
     ) -> OpenBitFunResult<WorkspaceInfo> {
-        self.open_known_remote_workspace_with_rebind(known, RemoteConnectionRebind::Reject)
+        self.open_known_remote_workspace_with_rebind(known, RemoteConnectionRebind::Reject, false)
             .await
     }
 
@@ -686,6 +689,7 @@ impl WorkspaceService {
         &self,
         known: &WorkspaceInfo,
         remote_connection_rebind: RemoteConnectionRebind,
+        promote_if_opened: bool,
     ) -> OpenBitFunResult<WorkspaceInfo> {
         let connection_id = known.remote_ssh_connection_id().ok_or_else(|| {
             OpenBitFunError::service(format!(
@@ -708,6 +712,7 @@ impl WorkspaceService {
 
         let remote_path = normalize_remote_workspace_path(&known.root_path.to_string_lossy());
         let options = WorkspaceCreateOptions {
+            promote_if_opened,
             workspace_kind: WorkspaceKind::Remote,
             display_name: Some(known.name.clone()),
             remote_connection_id: Some(connection_id.to_string()),
@@ -1432,6 +1437,7 @@ impl WorkspaceService {
                 scan_options: ScanOptions::default(),
                 auto_set_current: existing_workspace.status == WorkspaceStatus::Active,
                 add_to_recent: false,
+                promote_if_opened: false,
                 workspace_kind: existing_workspace.workspace_kind.clone(),
                 assistant_id: existing_workspace.assistant_id.clone(),
                 display_name: Some(existing_workspace.name.clone()),
@@ -2145,6 +2151,7 @@ impl WorkspaceService {
             scan_options: options.scan_options.clone(),
             auto_set_current: options.auto_set_current,
             add_to_recent: options.add_to_recent,
+            promote_if_opened: options.promote_if_opened,
             workspace_kind: options.workspace_kind.clone(),
             assistant_id: options.assistant_id.clone(),
             display_name: options.display_name.clone(),
@@ -3960,6 +3967,75 @@ mod tests {
             !service
                 .is_manageable_assistant_workspace_path(&env.root.join("Documents").join("foo")),
             "unrelated directories must be rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_folder_open_promotes_project_while_selection_and_legacy_upgrade_preserve_order(
+    ) {
+        let env = TestEnvironment::new();
+        let service = build_test_workspace_service(env.path_manager.clone()).await;
+        service.ensure_assistant_workspaces().await.unwrap();
+        let assistant_id = service.get_opened_workspaces().await[0].id.clone();
+
+        let project_a_dir = env.create_workspace_dir("project-a");
+        let project_b_dir = env.create_workspace_dir("project-b");
+        let project_a = service.open_workspace(project_a_dir.clone()).await.unwrap();
+        let project_b = service.open_workspace(project_b_dir.clone()).await.unwrap();
+
+        let opened_ids =
+            |list: Vec<WorkspaceInfo>| list.into_iter().map(|w| w.id).collect::<Vec<_>>();
+        assert_eq!(
+            opened_ids(service.get_opened_workspaces().await),
+            vec![
+                assistant_id.clone(),
+                project_b.id.clone(),
+                project_a.id.clone()
+            ]
+        );
+
+        // Selecting by ID and legacy path-only upgrade must keep existing order.
+        service.open_workspace_by_id(&project_a.id).await.unwrap();
+        assert_eq!(
+            opened_ids(service.get_opened_workspaces().await),
+            vec![
+                assistant_id.clone(),
+                project_b.id.clone(),
+                project_a.id.clone()
+            ]
+        );
+        service
+            .upgrade_legacy_workspace_open(project_a_dir.clone(), None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            opened_ids(service.get_opened_workspaces().await),
+            vec![
+                assistant_id.clone(),
+                project_b.id.clone(),
+                project_a.id.clone()
+            ]
+        );
+
+        // Explicit open promotes the project to the first project slot and persists it.
+        service.open_workspace(project_a_dir).await.unwrap();
+        assert_eq!(
+            opened_ids(service.get_opened_workspaces().await),
+            vec![
+                assistant_id.clone(),
+                project_a.id.clone(),
+                project_b.id.clone()
+            ]
+        );
+        let saved: WorkspacePersistenceData = service
+            .persistence
+            .load_json("workspace_data")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            saved.opened_workspace_ids,
+            vec![assistant_id, project_a.id, project_b.id]
         );
     }
 }

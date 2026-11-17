@@ -2,6 +2,20 @@
 
 [中文](./README.zh-CN.md) | English
 
+## Responses connection settings
+
+In **Settings → Models → provider/model editor → Advanced settings**, choose
+**HTTP** or **WebSocket** for Responses models. Existing configurations keep
+HTTP with full context. WebSocket supports either full context or incremental
+context using `previous_response_id`, with `store: false` in both cases.
+HTTP cannot use incremental context, and there is no automatic transport switch.
+
+Provider settings are defaults for its Responses models. Editing a model creates
+an override; **Use provider settings** clears it. Choose WebSocket only for a
+provider that supports Responses WebSocket connections. An unsupported Peer host
+must be upgraded before these settings can be edited or tested there.
+
+
 ## Overview
 
 This directory contains OpenBitFun’s **Web UI** (React + TypeScript). The same frontend codebase is reused by:

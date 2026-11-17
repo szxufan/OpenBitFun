@@ -113,6 +113,7 @@ impl Tool for WriteStdinTool {
         Ok(r#"Writes stdin to, or polls, a running ExecCommand session.
 
 Pass the session_id returned by ExecCommand. Leave chars empty or omit it to poll for new output.
+When waiting for a long-running command to finish, explicitly set a longer yield_time_ms, such as 600000 ms, to avoid frequent polling. Use shorter waits when you need to respond to interactive prompts or inspect intermediate output.
 chars is sent only to sessions started with tty=true. For tty=false sessions, this tool only polls.
 Use append_enter=true to submit a line after chars. Use this for line-oriented interactive prompts instead of trying to encode \\r or \\n manually.
 Output is only what was produced during this tool call's wait window."#
@@ -141,7 +142,7 @@ Output is only what was produced during this tool call's wait window."#
                 },
                 "yield_time_ms": {
                     "type": "number",
-                    "description": "How long to wait for output before yielding. Defaults to 30000 ms."
+                    "description": "How long to wait for output before yielding, in milliseconds. Defaults to 180000 ms. When waiting for a long-running command to finish, explicitly set a longer wait, such as 600000 ms, to avoid frequent polling."
                 }
             },
             "required": ["session_id"],

@@ -21,7 +21,10 @@ pub(super) async fn request_summary(
         client.send_message_once_with_trace_and_request_context(
             messages.clone(),
             tools.clone(),
-            Some(context.clone()),
+            Some(ModelRequestContext {
+                conversation_scope: None,
+                ..context.clone()
+            }),
             trace.clone(),
         )
     })
@@ -60,7 +63,10 @@ where
                     AiProviderError::from_parts(format!("{error:#}"), None, None, None)
                 }),
         };
-        if !should_retry(&error.category) || attempt + 1 == MAX_MODEL_ATTEMPTS {
+        if !should_retry(&error.category)
+            || error.delivery_uncertain
+            || attempt + 1 == MAX_MODEL_ATTEMPTS
+        {
             error.message = format!(
                 "Compression summary failed after {} attempts: {}",
                 attempt + 1,

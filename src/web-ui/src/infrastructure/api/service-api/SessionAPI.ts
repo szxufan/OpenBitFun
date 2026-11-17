@@ -166,6 +166,7 @@ export interface SessionUsageReportRequest {
   includeHiddenSubagents?: boolean;
   includeSystemPromptPreview?: boolean;
   contextPreviewCategory?: UsageContextCategory;
+  contextEstimate?: { includeContents?: boolean; contextOnly?: boolean };
 }
 
 export type UsageContextCategory = 'systemPrompt' | 'toolDefinitions' | 'rules' | 'skills' | 'mcpTools' | 'subagentDefinitions';
@@ -185,7 +186,16 @@ export interface UsageContextBreakdown {
   contextWindow?: number;
 }
 
+/** One read-only inspection of the executing host's current context. */
+export interface UsageContextEstimate {
+  capturedAt: number;
+  composition?: UsageContextBreakdown;
+  contents?: Partial<Record<UsageContextCategory, string>>;
+  unavailableReason?: string;
+}
+
 export interface SessionUsageReport {
+  contextEstimate?: UsageContextEstimate;
   context?: UsageContextBreakdown;
   /** Opt-in view of the latest cached system message, not a historical snapshot. */
   systemPromptPreview?: { content: string; cachedAt: number };
@@ -604,6 +614,7 @@ export class SessionAPI {
           ...await sessionWorkspaceIdRequest(request.workspaceId),
           include_hidden_subagents: request.includeHiddenSubagents ?? true,
           ...(request.includeSystemPromptPreview ? { include_system_prompt_preview: true } : {}),
+          ...(request.contextEstimate ? { context_estimate: request.contextEstimate } : {}),
           ...(request.contextPreviewCategory ? { context_preview_category: request.contextPreviewCategory } : {}),
         }
       }));

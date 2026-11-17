@@ -7,7 +7,10 @@ const globalStateMocks = vi.hoisted(() => ({
   getRecentWorkspaces: vi.fn(),
   getOpenedWorkspaces: vi.fn(),
   getAssistantWorkspaces: vi.fn(),
+  openWorkspace: vi.fn(),
+  openRemoteWorkspace: vi.fn(),
   openWorkspaceById: vi.fn(),
+  reorderOpenedWorkspaces: vi.fn(),
   setActiveWorkspace: vi.fn(),
   closeWorkspace: vi.fn(),
   deleteAssistantWorkspace: vi.fn(),
@@ -83,11 +86,14 @@ async function getFreshWorkspaceHarness() {
   vi.resetModules();
   const deviceSurface = await import('@/infrastructure/peer-device/deviceSurface');
   deviceSurface.resetDeviceSurfaceForTest();
+  const displayOrder = await import('./workspaceDisplayOrder');
+  displayOrder.resetWorkspaceDisplayOrdersForTest();
   const { WorkspaceManager } = await import('./workspaceManager');
   (WorkspaceManager as unknown as { instance: unknown }).instance = null;
   return {
     manager: WorkspaceManager.getInstance(),
     deviceSurface,
+    displayOrder,
   };
 }
 
@@ -691,14 +697,14 @@ describe('WorkspaceManager device surface switching', () => {
 
     // While another device is rendered, this device's catalog reads a list
     // arranged on another controller.
-    expect(displayOrder.stableWorkspaceOrder(deviceSurface.LOCAL_SURFACE_ID, [c, b, a]).map(item => item.id)).toEqual(['c', 'b', 'a']);
+    displayOrder.setWorkspaceDisplayOrder(deviceSurface.LOCAL_SURFACE_ID, ['c', 'b', 'a']);
     // The background section's fallback and the live list returned to both
     // draw that order; the live list's next host read keeps it.
     expect(manager.getSurfaceOpenedWorkspaces(deviceSurface.LOCAL_SURFACE_ID).map(item => item.id)).toEqual(['c', 'b', 'a']);
     deviceSurface.activateSurface(deviceSurface.LOCAL_SURFACE_ID);
     expect([...manager.getState().openedWorkspaces.keys()]).toEqual(['c', 'b', 'a']);
     globalStateMocks.setActiveWorkspace.mockResolvedValue(b);
-    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([b, c, a]);
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([c, b, a]);
     await manager.setActiveWorkspace(b.id);
     await flushAsyncWork();
     expect([...manager.getState().openedWorkspaces.keys()]).toEqual(['c', 'b', 'a']);
@@ -1122,5 +1128,277 @@ describe('WorkspaceManager state-quiet loading and error events', () => {
 
     expect(types).toContain('workspace:error');
     expect(manager.getState().error).toBe('scan failed');
+  });
+});
+
+describe('WorkspaceManager openWorkspace promotion', () => {
+  const workspaceA = {
+    id: 'workspace-a',
+    name: 'Repo A',
+    rootPath: '/repo/a',
+    workspaceKind: 'normal',
+    identity: null,
+  };
+  const workspaceB = {
+    id: 'workspace-b',
+    name: 'Repo B',
+    rootPath: '/repo/b',
+    workspaceKind: 'normal',
+    identity: null,
+  };
+  const workspaceC = {
+    id: 'workspace-c',
+    name: 'Repo C',
+    rootPath: '/repo/c',
+    workspaceKind: 'remote',
+    identity: null,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    configureGlobalState();
+    globalStateMocks.initializeWorkspaceStartupState.mockResolvedValue({
+      cleanupRemovedCount: 0,
+      recentWorkspaces: [workspaceA, workspaceB, workspaceC],
+      openedWorkspaces: [workspaceA, workspaceB, workspaceC],
+      currentWorkspace: workspaceA,
+      legacyRemoteWorkspace: null,
+    });
+    globalStateMocks.getCurrentWorkspace.mockResolvedValue(workspaceA);
+    globalStateMocks.getRecentWorkspaces.mockResolvedValue([workspaceA, workspaceB, workspaceC]);
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([workspaceA, workspaceB, workspaceC]);
+    globalStateMocks.reorderOpenedWorkspaces.mockResolvedValue(undefined);
+  });
+
+  it('adopts the backend-promoted order for an already-opened local workspace without a second reorder RPC', async () => {
+    const manager = await getFreshWorkspaceManager();
+    await manager.initialize();
+
+    globalStateMocks.openWorkspace.mockResolvedValue(workspaceB);
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([workspaceB, workspaceA, workspaceC]);
+    await manager.openWorkspace(workspaceB.rootPath);
+
+    expect(Array.from(manager.getState().openedWorkspaces.keys())).toEqual([
+      workspaceB.id,
+      workspaceA.id,
+      workspaceC.id,
+    ]);
+    expect(globalStateMocks.reorderOpenedWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it('adopts the backend-promoted order for an already-opened remote workspace without a second reorder RPC', async () => {
+    const manager = await getFreshWorkspaceManager();
+    await manager.initialize();
+
+    globalStateMocks.openRemoteWorkspace.mockResolvedValue(workspaceC);
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([workspaceC, workspaceA, workspaceB]);
+    await manager.openRemoteWorkspace({
+      connectionId: 'conn-1',
+      connectionName: 'Remote',
+      remotePath: '/repo/c',
+    });
+
+    expect(Array.from(manager.getState().openedWorkspaces.keys())).toEqual([
+      workspaceC.id,
+      workspaceA.id,
+      workspaceB.id,
+    ]);
+    expect(globalStateMocks.reorderOpenedWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it('keeps local and peer display orders independent, including identical workspace IDs', async () => {
+    const { manager, deviceSurface } = await getFreshWorkspaceHarness();
+    await manager.initialize();
+
+    deviceSurface.activateSurface('peer-b');
+    globalStateMocks.initializeWorkspaceStartupState.mockResolvedValueOnce({
+      cleanupRemovedCount: 0,
+      recentWorkspaces: [workspaceC, workspaceA, workspaceB],
+      openedWorkspaces: [workspaceC, workspaceA, workspaceB],
+      currentWorkspace: workspaceC,
+      legacyRemoteWorkspace: null,
+    });
+    await manager.initialize();
+
+    globalStateMocks.openWorkspace.mockResolvedValue(workspaceB);
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([workspaceB, workspaceC, workspaceA]);
+    await manager.openWorkspace(workspaceB.rootPath);
+
+    expect(Array.from(manager.getState().openedWorkspaces.keys())).toEqual([
+      workspaceB.id,
+      workspaceC.id,
+      workspaceA.id,
+    ]);
+    expect(manager.getSurfaceOpenedWorkspaces(deviceSurface.LOCAL_SURFACE_ID).map(w => w.id))
+      .toEqual([workspaceA.id, workspaceB.id, workspaceC.id]);
+    deviceSurface.activateSurface(deviceSurface.LOCAL_SURFACE_ID);
+    expect(Array.from(manager.getState().openedWorkspaces.keys()))
+      .toEqual([workspaceA.id, workspaceB.id, workspaceC.id]);
+    deviceSurface.activateSurface('peer-b');
+    expect(Array.from(manager.getState().openedWorkspaces.keys()))
+      .toEqual([workspaceB.id, workspaceC.id, workspaceA.id]);
+  });
+
+  it('snapshots pre-promotion geometry before state updates and emits reveal afterwards', async () => {
+    const { manager, displayOrder } = await getFreshWorkspaceHarness();
+    await manager.initialize();
+
+    globalStateMocks.openWorkspace.mockResolvedValue(workspaceB);
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([workspaceB, workspaceA, workspaceC]);
+    const steps: string[] = [];
+    displayOrder.subscribeWorkspacePromotionSnapshot((_surfaceId, workspaceId) => {
+      steps.push(`snapshot:${workspaceId}`);
+      // At pre-promotion snapshot time, state still reflects the old layout.
+      expect(Array.from(manager.getState().openedWorkspaces.keys()))
+        .toEqual([workspaceA.id, workspaceB.id, workspaceC.id]);
+    });
+    displayOrder.subscribeWorkspaceReveal(request => {
+      steps.push(`reveal:${request.workspaceId}:${request.promoted}`);
+    });
+    manager.addEventListener(event => { steps.push(event.type); });
+
+    const opened = await manager.openWorkspace(workspaceB.rootPath);
+    expect(opened).toBe(workspaceB);
+    expect(Array.from(manager.getState().openedWorkspaces.keys()))
+      .toEqual([workspaceB.id, workspaceA.id, workspaceC.id]);
+    expect(manager.getState().loading).toBe(false);
+    expect(steps).toEqual([
+      'workspace:loading',
+      `snapshot:${workspaceB.id}`,
+      'workspace:opened',
+      `reveal:${workspaceB.id}:true`,
+    ]);
+    expect(globalStateMocks.reorderOpenedWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it('does not leak reveal requests onto a new device switched inside a workspace:opened listener', async () => {
+    const { manager, deviceSurface, displayOrder } = await getFreshWorkspaceHarness();
+    await manager.initialize();
+    globalStateMocks.openWorkspace.mockResolvedValue(workspaceB);
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([workspaceB, workspaceA, workspaceC]);
+    const reveals: string[] = [];
+    displayOrder.subscribeWorkspaceReveal(request => { reveals.push(request.surfaceId); });
+
+    manager.addEventListener(event => {
+      if (event.type === 'workspace:opened') {
+        deviceSurface.activateSurface('peer-b');
+      }
+    });
+
+    await manager.openWorkspace(workspaceB.rootPath);
+    await flushAsyncWork();
+
+    expect(reveals).toEqual([]);
+    expect(manager.getSurfaceOpenedWorkspaces(deviceSurface.LOCAL_SURFACE_ID)[0]?.id).toBe(workspaceB.id);
+    expect(manager.getState().openedWorkspaces.size).toBe(0);
+  });
+
+  it('normalizes transport failures to SurfaceChangedError when the device changed mid-open', async () => {
+    const { manager, deviceSurface } = await getFreshWorkspaceHarness();
+    await manager.initialize();
+    globalStateMocks.openWorkspace.mockImplementation(async () => {
+      deviceSurface.activateSurface('peer-b');
+      throw new Error('peer link closed');
+    });
+
+    const error = await manager.openWorkspace(workspaceB.rootPath).catch(cause => cause);
+    expect(isSurfaceChangedError(error)).toBe(true);
+    expect(manager.getState().error).toBeNull();
+  });
+
+  it('does not snapshot promotion or emit reveal when opening an assistant directory', async () => {
+    const assistantA = { ...workspaceA, id: 'assistant-a', rootPath: '/assistant/a', workspaceKind: 'assistant' };
+    const assistantB = { ...workspaceA, id: 'assistant-b', rootPath: '/assistant/b', workspaceKind: 'assistant' };
+    const opened = [assistantA, assistantB, workspaceA];
+    globalStateMocks.initializeWorkspaceStartupState.mockResolvedValue({
+      cleanupRemovedCount: 0,
+      recentWorkspaces: opened,
+      openedWorkspaces: opened,
+      currentWorkspace: workspaceA,
+      legacyRemoteWorkspace: null,
+    });
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue(opened);
+
+    const { manager, displayOrder } = await getFreshWorkspaceHarness();
+    await manager.initialize();
+    const reveals: string[] = [];
+    displayOrder.subscribeWorkspaceReveal(request => { reveals.push(request.workspaceId); });
+
+    globalStateMocks.openWorkspace.mockResolvedValue(assistantB);
+    await manager.openWorkspace(assistantB.rootPath);
+
+    expect(Array.from(manager.getState().openedWorkspaces.keys()))
+      .toEqual([assistantA.id, assistantB.id, workspaceA.id]);
+    expect(globalStateMocks.reorderOpenedWorkspaces).not.toHaveBeenCalled();
+    expect(reveals).toEqual([]);
+  });
+
+  it('detects promotion within the project section while leaving the assistant slot alone', async () => {
+    const assistant = { ...workspaceA, id: 'assistant', rootPath: '/assistant', workspaceKind: 'assistant' };
+    const opened = [assistant, workspaceA, workspaceB];
+    globalStateMocks.initializeWorkspaceStartupState.mockResolvedValue({
+      cleanupRemovedCount: 0,
+      recentWorkspaces: opened,
+      openedWorkspaces: opened,
+      currentWorkspace: workspaceA,
+      legacyRemoteWorkspace: null,
+    });
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue(opened);
+    const { manager, displayOrder } = await getFreshWorkspaceHarness();
+    await manager.initialize();
+    const reveals: Array<{ id: string; promoted: boolean }> = [];
+    displayOrder.subscribeWorkspaceReveal(req => {
+      reveals.push({ id: req.workspaceId, promoted: req.promoted });
+    });
+
+    globalStateMocks.openWorkspace.mockResolvedValue(workspaceA);
+    await manager.openWorkspace(workspaceA.rootPath);
+
+    globalStateMocks.openWorkspace.mockResolvedValue(workspaceB);
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([assistant, workspaceB, workspaceA]);
+    await manager.openWorkspace(workspaceB.rootPath);
+    expect(Array.from(manager.getState().openedWorkspaces.keys()))
+      .toEqual([assistant.id, workspaceB.id, workspaceA.id]);
+    expect(reveals).toEqual([
+      { id: workspaceA.id, promoted: false },
+      { id: workspaceB.id, promoted: true },
+    ]);
+    expect(globalStateMocks.reorderOpenedWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it('forwards promoteIfOpened: false on background remote restore and skips reveal', async () => {
+    const { manager, displayOrder } = await getFreshWorkspaceHarness();
+    await manager.initialize();
+    const reveals: string[] = [];
+    displayOrder.subscribeWorkspaceReveal(req => { reveals.push(req.workspaceId); });
+    globalStateMocks.openRemoteWorkspace.mockResolvedValue(workspaceC);
+
+    await manager.openRemoteWorkspace({
+      connectionId: 'conn-1', connectionName: 'Remote', remotePath: workspaceC.rootPath,
+    }, { promoteIfOpened: false });
+
+    expect(Array.from(manager.getState().openedWorkspaces.keys()))
+      .toEqual([workspaceA.id, workspaceB.id, workspaceC.id]);
+    expect(reveals).toEqual([]);
+    expect(globalStateMocks.openRemoteWorkspace.mock.calls[0][4]).toEqual({ promoteIfOpened: false });
+  });
+
+  it('reveals without promotion motion for a newly opened workspace', async () => {
+    const { manager, displayOrder } = await getFreshWorkspaceHarness();
+    await manager.initialize();
+    const added = { ...workspaceA, id: 'workspace-new', rootPath: '/repo/new' };
+    const reveals: Array<{ id: string; promoted: boolean }> = [];
+    displayOrder.subscribeWorkspaceReveal(req => {
+      reveals.push({ id: req.workspaceId, promoted: req.promoted });
+    });
+    globalStateMocks.openWorkspace.mockResolvedValue(added);
+    globalStateMocks.getOpenedWorkspaces.mockResolvedValue([added, workspaceA, workspaceB, workspaceC]);
+
+    await manager.openWorkspace(added.rootPath);
+
+    expect(Array.from(manager.getState().openedWorkspaces.keys()))
+      .toEqual([added.id, workspaceA.id, workspaceB.id, workspaceC.id]);
+    expect(reveals).toEqual([{ id: added.id, promoted: false }]);
+    expect(globalStateMocks.reorderOpenedWorkspaces).not.toHaveBeenCalled();
   });
 });

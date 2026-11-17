@@ -242,6 +242,8 @@ pub struct GetSessionUsageReportRequest {
     pub include_system_prompt_preview: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_preview_category: Option<openbitfun_core_types::UsageContextCategory>,
+    #[serde(default)]
+    pub context_estimate: Option<openbitfun_core_types::UsageContextEstimateRequest>,
 }
 
 fn default_include_hidden_subagents() -> bool {
@@ -567,6 +569,7 @@ pub async fn get_session_usage_report(
             request.include_hidden_subagents,
             request.include_system_prompt_preview,
             request.context_preview_category,
+            request.context_estimate,
         )
         .await
         .map_err(|error| {
@@ -968,5 +971,27 @@ mod catalog_request_tests {
             serde_json::from_value(current.clone()).unwrap();
         assert_eq!(request.refresh_external_discovery, Some(true));
         assert_eq!(serde_json::to_value(request).unwrap(), current);
+    }
+}
+
+#[cfg(test)]
+mod context_estimate_request_tests {
+    use super::*;
+
+    #[test]
+    fn current_context_estimate_preserves_legacy_request_defaults() {
+        let legacy = serde_json::json!({"session_id": "session-1", "workspace_id": "workspace-1"});
+        let request: GetSessionUsageReportRequest = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(request.context_estimate.is_none());
+        assert!(request.include_hidden_subagents);
+        let mut current = legacy;
+        current["context_estimate"] =
+            serde_json::json!({"includeContents": true, "contextOnly": true});
+        let request: GetSessionUsageReportRequest = serde_json::from_value(current).unwrap();
+        let restored: GetSessionUsageReportRequest =
+            serde_json::from_value(serde_json::to_value(request).unwrap()).unwrap();
+        let options = restored.context_estimate.unwrap();
+        assert!(options.include_contents);
+        assert!(options.context_only);
     }
 }

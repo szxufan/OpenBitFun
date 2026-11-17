@@ -3,7 +3,7 @@ import { Card, Empty, Icon, IconButton, OverflowText, Tooltip, createOverlayPort
 import { ChartPie, ExternalLink, Minus, Shrink } from 'lucide-react';
 import { useI18n } from '@/infrastructure/i18n';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
-import type { UsageContextBreakdown } from '@/infrastructure/api/service-api/SessionAPI';
+import type { UsageContextBreakdown, UsageContextEstimate } from '@/infrastructure/api/service-api/SessionAPI';
 import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
 import { formatTokenCount, formatUsagePercent } from './usageReportUtils';
 import { useUsageSeriesHighlight } from './useUsageSeriesHighlight';
@@ -30,7 +30,7 @@ export function ContextUsagePopover({
   triggerRef: RefObject<HTMLButtonElement>;
   currentTokens: number;
   maxTokens: number;
-  loadContext?: () => Promise<UsageContextBreakdown | undefined>;
+  loadContext?: () => Promise<UsageContextEstimate | undefined>;
   previewSession?: { sessionId: string; workspaceId?: string };
   compactDisabled?: boolean;
   onCompact?: () => void;
@@ -39,10 +39,11 @@ export function ContextUsagePopover({
 }) {
   const { t } = useI18n('flow-chat');
   const popoverRef = useRef<HTMLDivElement>(null);
+  const [estimate, setEstimate] = useState<UsageContextEstimate>();
   const { previewLoading, previewContext } = useContextPreview({
-    ...previewSession, reportSessionId: previewSession?.sessionId,
+    ...previewSession, reportSessionId: previewSession?.sessionId, estimate,
   });
-  const [context, setContext] = useState<UsageContextBreakdown>();
+  const context = estimate?.composition;
   const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'unsupported' | 'updateRequired'>(
     loadContext ? 'loading' : 'ready',
   );
@@ -52,7 +53,7 @@ export function ContextUsagePopover({
     let current = true;
     if (loaderRef.current) {
       void loaderRef.current().then(value => {
-        if (current) { setContext(value); setStatus('ready'); }
+        if (current) { setEstimate(value); setStatus(value ? 'ready' : 'unsupported'); }
       }, (error: unknown) => {
         if (!current) return;
         // A peer host without the report is an expected state, not a load failure.
@@ -178,7 +179,7 @@ export function ContextUsagePopover({
                     : status === 'updateRequired' ? t('usage.context.updateRequired')
                       : t('usage.context.unavailable')}
             </span>
-          } />
+          } description={estimate?.unavailableReason} />
         </div>}
       </div>
     </Card>,

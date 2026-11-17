@@ -109,3 +109,6 @@ pub mod asar;
 
 #[cfg(all(feature = "installed-apps", target_os = "windows"))]
 pub mod installed_apps;
+
+#[cfg(all(feature = "installed-apps", target_os = "windows"))]
+pub mod installation_scope;

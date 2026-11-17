@@ -2047,6 +2047,7 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       return existingRequest;
     }
 
+    let ownsBoundaryStatus = () => false;
     const request = (async () => {
       const currentViewportIntent = viewportIntentRef.current;
       const presentation = currentViewportIntent?.kind === 'turn'
@@ -2060,13 +2061,20 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       }
 
       const scope = getActiveSurfaceScope();
-      const isCurrent = () => scope.isCurrent()
+      ownsBoundaryStatus = () => scope.isCurrent()
         && activeSessionIdRef.current === sessionId
-        && historyPresentationOwnerGenerationRef.current === presentationOwnerGeneration
-        && options?.isCurrent?.() !== false;
+        && historyPresentationOwnerGenerationRef.current === presentationOwnerGeneration;
+      const isCurrent = () => ownsBoundaryStatus() && options?.isCurrent?.() !== false;
+      let synchronizationPrepared = false;
       if (options?.synchronizeHistory) {
         setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'loading' }));
         try {
+          // The host snapshot can itself move the rendered boundary. Reserve
+          // its commit before publishing it, otherwise the pager cancels this
+          // recovery as if an unrelated navigation had replaced the reader.
+          const prepared = await options.prepareViewportForPresentationCommit?.();
+          if (prepared === false || !isCurrent()) return 'cancelled';
+          synchronizationPrepared = Boolean(options.prepareViewportForPresentationCommit);
           await flowChatStore.synchronizeSessionHistory(sessionId, isCurrent);
           if (!isCurrent()) return 'cancelled';
         } catch (error) {
@@ -2081,10 +2089,12 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       // while the reader still displays its copy. Reacquire that exact range
       // before extending it; repeatedly fetching the adjacent page cannot
       // restore a missing active window, even after an explicit source sync.
-      const activeRange = flowChatStore.getSessionHistoryViewState(sessionId)?.activeRange;
-      if (presentation && (!activeRange
-        || activeRange.startOrdinal !== presentation.range.startOrdinal
-        || activeRange.endOrdinalExclusive !== presentation.range.endOrdinalExclusive)) {
+      const readerWindowIsCurrent = () => {
+        const activeRange = flowChatStore.getSessionHistoryViewState(sessionId)?.activeRange;
+        return !presentation || (activeRange?.startOrdinal === presentation.range.startOrdinal
+          && activeRange.endOrdinalExclusive === presentation.range.endOrdinalExclusive);
+      };
+      if (presentation && !readerWindowIsCurrent()) {
         setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'loading' }));
         try {
           const restored = await flowChatStore.restoreSessionHistoryWindow(sessionId, presentation.range, isCurrent);
@@ -2250,13 +2260,23 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       setHistoryBoundaryState(previous => ({ ...previous, [direction]: 'loading' }));
       let viewportPreparationStarted = false;
       try {
-        const result = direction === 'before'
-          ? await flowChatStore.loadPreviousSessionTurnWindow(sessionId, targetOrdinal)
-          : await flowChatStore.loadSessionTurnWindow(sessionId, targetOrdinal, {
+        const loadAdjacentWindow = () => direction === 'before'
+          ? flowChatStore.loadPreviousSessionTurnWindow(sessionId, targetOrdinal)
+          : flowChatStore.loadSessionTurnWindow(sessionId, targetOrdinal, {
             source: 'prefetch',
             before: 4,
             after: 12,
           });
+        let result = await loadAdjacentWindow();
+        if (presentation && result.status === 'ready' && result.isCurrent && isCurrent() && !readerWindowIsCurrent()) {
+          // The adjacent read can itself adopt a new catalog and retire the
+          // active window. Restore the reader before extending, then confirm
+          // the adjacent page again: restoration may also replace cached bodies.
+          const restored = await flowChatStore.restoreSessionHistoryWindow(sessionId, presentation.range, isCurrent);
+          if (!isCurrent()) return 'cancelled';
+          if (!restored) throw new Error('The reader history range is no longer available');
+          result = await loadAdjacentWindow();
+        }
         if (!result.isCurrent || !isCurrent()) {
           recordHistoryPagingEvent(sessionId, 'outcome_cancelled', {
             direction,
@@ -2313,21 +2333,29 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
           return 'not-ready';
         }
 
+        const preparedHistoryView = flowChatStore.getSessionHistoryViewState(sessionId);
         viewportPreparationStarted = Boolean(options?.prepareViewportForPresentationCommit);
-        const preparationResult = await options?.prepareViewportForPresentationCommit?.();
+        const preparationResult = synchronizationPrepared
+          ? true
+          : await options?.prepareViewportForPresentationCommit?.();
         const activeSessionIsCurrent = activeSessionIdRef.current === sessionId;
         const presentationOwnerIsCurrent = (
           historyPresentationOwnerGenerationRef.current === presentationOwnerGeneration
         );
+        const currentHistoryView = flowChatStore.getSessionHistoryViewState(sessionId);
+        const historyWindowIsCurrent = readerWindowIsCurrent()
+          && currentHistoryView?.navigationGeneration === preparedHistoryView?.navigationGeneration
+          && currentHistoryView?.catalog?.revision === preparedHistoryView?.catalog?.revision;
         if (
           preparationResult === false
           || !activeSessionIsCurrent
           || !presentationOwnerIsCurrent
           || !isCurrent()
+          || !historyWindowIsCurrent
         ) {
           recordHistoryPagingEvent(sessionId, 'outcome_cancelled', {
             direction,
-            reason: 'viewport-preparation',
+            reason: historyWindowIsCurrent ? 'viewport-preparation' : 'history-window-superseded',
             preparationResult: preparationResult ?? null,
             activeSessionIsCurrent,
             presentationOwnerIsCurrent,
@@ -2416,6 +2444,11 @@ export const ModernFlowChatContainer: React.FC<ModernFlowChatContainerProps> = (
       // Only the request that owns the slot may release it.
       if (historyBoundaryRequestsRef.current[direction] === request) {
         historyBoundaryRequestsRef.current[direction] = null;
+        // A pager ticket may be cancelled without replacing the reader. The
+        // request still owns its loading indicator, but never a newer reader's.
+        setHistoryBoundaryState(previous => ownsBoundaryStatus() && previous[direction] === 'loading'
+          ? { ...previous, [direction]: 'idle' }
+          : previous);
       }
     });
     historyBoundaryRequestsRef.current[direction] = request;

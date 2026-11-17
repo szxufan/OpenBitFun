@@ -31,6 +31,8 @@
       --openbitfun-skin-surface-background-position: center;
       --openbitfun-skin-surface-background-size: cover;
       --openbitfun-skin-surface-background-opacity: 0;
+      --openbitfun-skin-surface-video-fit: cover;
+      --openbitfun-skin-surface-video-position: center;
       --openbitfun-skin-surface-scrim-color: transparent;
       --openbitfun-skin-surface-scrim-opacity: 0;
 
@@ -57,6 +59,20 @@
           background-repeat: no-repeat;
           background-size: var(--openbitfun-skin-surface-background-size);
           opacity: var(--openbitfun-skin-surface-background-opacity);
+        }
+
+        // MP4 backdrop. Appended after ::before and before ::after, so the
+        // scrim still tints it. It never receives input.
+        > video[data-openbitfun-skin-video] {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          border-radius: inherit;
+          object-fit: var(--openbitfun-skin-surface-video-fit);
+          object-position: var(--openbitfun-skin-surface-video-position);
+          opacity: var(--openbitfun-skin-surface-background-opacity);
+          pointer-events: none;
         }
 
         &::after {

@@ -948,6 +948,9 @@ mod tests {
                 items: vec![ModelResponseReplayItem::OpaqueReasoning {
                     item_id: Some("rs_1".to_string()),
                     summary: vec![],
+                    content: Some(vec![openbitfun_core_types::ModelReasoningContentPart {
+                        text: "provider reasoning".to_string(),
+                    }]),
                     opaque_state: "opaque".to_string(),
                 }],
             },
@@ -963,8 +966,8 @@ mod tests {
         assert_eq!(replay.protocol, "openai_responses");
         assert!(matches!(
             &replay.items[0],
-            ModelResponseReplayItem::OpaqueReasoning { opaque_state, .. }
-                if opaque_state == "opaque"
+            ModelResponseReplayItem::OpaqueReasoning { opaque_state, content: Some(content), .. }
+                if opaque_state == "opaque" && content.len() == 1 && content[0].text == "provider reasoning"
         ));
     }
 
@@ -989,7 +992,10 @@ mod tests {
                 channel_origin: None,
                 channel_fingerprint: None,
                 account_origin: None,
-                items: vec![ModelResponseReplayItem::AssistantMessage],
+                items: vec![ModelResponseReplayItem::AssistantMessage {
+                    phase: None,
+                    text: None,
+                }],
             },
         ));
 

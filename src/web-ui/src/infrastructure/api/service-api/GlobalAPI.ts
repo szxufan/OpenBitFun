@@ -96,6 +96,12 @@ export interface OpenRemoteWorkspaceOptions {
    * connection to this connection.
    */
   rebindConnection?: boolean;
+  /**
+   * Move a record this device already has open to the front of its section.
+   * Explicit selections keep the default (`true`); background restore passes
+   * `false` so reconnecting never rearranges the sidebar.
+   */
+  promoteIfOpened?: boolean;
 }
 
 export interface UpdateAppStatusRequest {
@@ -233,6 +239,7 @@ export class GlobalAPI {
           connectionName,
           ...(h ? { sshHost: h } : {}),
           ...(options.rebindConnection ? { rebindConnection: true } : {}),
+          ...(options.promoteIfOpened === false ? { promoteIfOpened: false } : {}),
         },
       });
     } catch (error) {

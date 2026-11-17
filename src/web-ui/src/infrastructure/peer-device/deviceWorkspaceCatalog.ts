@@ -38,7 +38,7 @@ import {
 } from './deviceSurface';
 import { observeSurfaceEvents } from './deviceSurfaceRouting';
 import { acknowledgeOnDevice, deviceCatalogLocalTransport, invokeOnDevice } from './deviceCatalogTransport';
-import { stableWorkspaceOrder } from '@/infrastructure/services/business/workspaceDisplayOrder';
+import { setWorkspaceDisplayOrder } from '@/infrastructure/services/business/workspaceDisplayOrder';
 import { getDeviceOpenIntent, useDeviceOpenIntent } from './deviceOpenIntent';
 
 const log = createLogger('DeviceWorkspaceCatalog');
@@ -499,9 +499,8 @@ export class DeviceWorkspaceCatalog {
         this.io.invoke<APIWorkspaceInfo[]>(entry.deviceId, 'get_opened_workspaces', { request: {} }),
       ]);
       if (!this.isCurrent(entry)) return;
-      // The same display order the live list of this device uses.
-      const workspaces = stableWorkspaceOrder(entry.surfaceId,
-        upgradeLegacyWorktreeReferences(Array.isArray(raw) ? raw : []).map(mapWorkspaceInfo));
+      const workspaces = upgradeLegacyWorktreeReferences(Array.isArray(raw) ? raw : []).map(mapWorkspaceInfo);
+      setWorkspaceDisplayOrder(entry.surfaceId, workspaces.map(workspace => workspace.id));
       const opened = new Set(workspaces.map(workspace => workspace.id));
       const sessions = Object.fromEntries(Object.entries(entry.snapshot.sessions)
         .filter(([workspaceId]) => opened.has(workspaceId)));

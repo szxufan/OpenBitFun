@@ -1484,6 +1484,8 @@
     "readyVersion": "版本 {{version}} 已下载",
     "installWarning": "安装将重启本设备上的 OpenBitFun，并中断此设备上的活动会话。",
     "installAndRestart": "安装并重启",
+    "systemRestartRequired": "需要重启系统",
+    "systemRestartMessage": "更新已安装，请重启 Windows 完成更新，无需重复安装。",
     "installing": "正在安装…",
     "deferredMessage": "更新已保留，可随时点击左下角的对勾安装并重启。",
     "downloadAgain": "重新下载",
@@ -1864,6 +1866,7 @@
     "scrollPrevious": "向左滚动标签页",
     "scrollNext": "向右滚动标签页",
     "closeTab": "关闭{{label}}",
+    "closeDeviceTabs": "关闭该设备全部标签页",
     "workspaceUnavailable": "此会话所属的工作区尚未打开，请先重新打开该工作区，再切换到此会话。"
   },
   "loading": {

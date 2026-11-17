@@ -103,6 +103,8 @@ export function resolveAIModels(
       inline_think_in_text: entry.inline_think_in_text,
       image_dialect: entry.image_dialect,
       channel_routing: entry.channel_routing,
+      responses: entry.responses,
+      responses_defaults: provider.responses_defaults,
     }));
   }
   return resolved;
@@ -141,6 +143,7 @@ export function splitFlattenedModel(
     provider.skip_ssl_verify = model.skip_ssl_verify ?? false;
     provider.custom_request_body = model.custom_request_body;
     provider.custom_request_body_mode = model.custom_request_body_mode;
+    provider.responses_defaults = model.responses_defaults;
     providerId = provider.id;
   } else {
     providerId = instanceId ?? `provider_${providers.length + 1}_${Date.now().toString(36)}`;
@@ -158,6 +161,7 @@ export function splitFlattenedModel(
       custom_request_body: model.custom_request_body,
       custom_request_body_mode: model.custom_request_body_mode,
       metadata: model.metadata,
+      responses_defaults: model.responses_defaults,
     });
   }
   return {
@@ -179,6 +183,7 @@ export function splitFlattenedModel(
     image_dialect: model.image_dialect,
     channel_routing: model.channel_routing,
     request_url: model.request_url,
+    responses: model.responses,
   };
 }
 

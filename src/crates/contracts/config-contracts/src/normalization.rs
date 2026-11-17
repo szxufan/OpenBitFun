@@ -24,6 +24,19 @@ pub(crate) fn validate_image_budget_request_body(
     Ok(())
 }
 
+/// Incremental Responses context is only valid over WebSocket transport.
+/// Shared by provider-default and model-override validation.
+fn validate_responses_settings(
+    settings: &openbitfun_core_types::responses::ResponsesRequestSettings,
+) -> Result<(), &'static str> {
+    if settings.context == openbitfun_core_types::responses::ResponsesContextMode::Incremental
+        && settings.transport != openbitfun_core_types::responses::ResponsesTransport::Websocket
+    {
+        return Err("incremental context requires WebSocket transport");
+    }
+    Ok(())
+}
+
 /// Provider-neutral provider validation, shared by startup and offline import.
 pub fn validate_provider_config(
     provider: &crate::AIProviderConfig,
@@ -31,6 +44,14 @@ pub fn validate_provider_config(
 ) -> Result<(), String> {
     if provider.provider.trim().is_empty() {
         return Err(format!("Provider protocol is required at index {index}"));
+    }
+    if let Some(settings) = &provider.responses_defaults {
+        validate_responses_settings(settings).map_err(|error| {
+            format!(
+                "Provider defaults of '{}' {error} at index {index}",
+                provider.name
+            )
+        })?;
     }
     Ok(())
 }
@@ -40,6 +61,10 @@ pub fn validate_provider_config(
 /// against the provider's custom request body) are checked by
 /// [`validate_resolved_model_config`].
 pub fn validate_model_entry(entry: &crate::AIModelEntry, index: usize) -> Result<(), String> {
+    if let Some(settings) = &entry.responses {
+        validate_responses_settings(settings)
+            .map_err(|error| format!("Model '{}' {error} at index {index}", entry.model_name))?;
+    }
     if !entry.supports_text_generation() {
         for (field, present) in [
             ("context_window", entry.context_window.is_some()),
@@ -544,6 +569,33 @@ pub fn reconcile_model_references(config: &mut GlobalConfig) -> ModelReferenceRe
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn responses_incremental_requires_websocket_in_both_scopes() {
+        use openbitfun_core_types::responses::{ResponsesContextMode, ResponsesRequestSettings};
+        let invalid = ResponsesRequestSettings {
+            context: ResponsesContextMode::Incremental,
+            ..Default::default()
+        };
+        let mut entry = crate::AIModelEntry {
+            model_name: "m".to_string(),
+            ..Default::default()
+        };
+        entry.responses = Some(invalid.clone());
+        assert!(super::validate_model_entry(&entry, 0)
+            .unwrap_err()
+            .contains("WebSocket"));
+        entry.responses = None;
+        let mut provider = crate::AIProviderConfig {
+            name: "p".to_string(),
+            provider: "responses".to_string(),
+            ..Default::default()
+        };
+        provider.responses_defaults = Some(invalid);
+        assert!(super::validate_provider_config(&provider, 0)
+            .unwrap_err()
+            .contains("WebSocket"));
+    }
+
     use super::*;
     use crate::types::{AIModelEntry, ModelCapability, ModelCategory};
 

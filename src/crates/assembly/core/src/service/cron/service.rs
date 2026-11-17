@@ -5,8 +5,9 @@ use super::schedule::{
 };
 use super::store::CronJobStore;
 use super::types::{
-    CreateCronJobRequest, CronJob, CronJobPayload, CronJobTarget, CronJobTargetKind, CronJobsFile,
-    CronLaunchSpec, CronSchedule, CronWorkspaceRef, UpdateCronJobRequest, DEFAULT_RETRY_DELAY_MS,
+    CreateCronJobRequest, CronJob, CronJobPayload, CronJobRunStatus, CronJobTarget,
+    CronJobTargetKind, CronJobsFile, CronLaunchSpec, CronSchedule, CronWorkspaceRef,
+    UpdateCronJobRequest,
 };
 use super::{CronJobsChangedEvent, CronJobsChangedReason, CRON_JOBS_CHANGED_EVENT};
 use crate::agentic::coordination::scheduler::DIALOG_TURN_ID_ALREADY_SETTLED_MESSAGE;
@@ -702,19 +703,21 @@ impl CronService {
             Err(error) => {
                 let missing_session = matches!(job.target_kind(), CronJobTargetKind::Session)
                     && cron_enqueue_error_is_missing_session(&error);
-                let failure_action = job.state.mark_enqueue_failed(
-                    now_after_submit,
-                    error.clone(),
-                    DEFAULT_RETRY_DELAY_MS,
-                    missing_session,
-                );
+                let failure_action =
+                    job.state
+                        .mark_enqueue_failed(now_after_submit, error.clone(), missing_session);
                 job.updated_at_ms = now_after_submit;
 
-                if matches!(
+                let disable_missing_session = matches!(
                     failure_action,
                     ScheduledJobEnqueueFailureAction::DisableMissingSession
-                ) {
+                );
+                if disable_missing_session || job.is_one_shot() {
                     job.enabled = false;
+                    job.state.mark_disabled();
+                }
+
+                if disable_missing_session {
                     info!(
                         "Scheduled job auto-disabled (session no longer exists): job_id={}, session_id={}",
                         job.id,
@@ -1047,6 +1050,21 @@ fn reconcile_loaded_job(job: &mut CronJob, now_ms: i64) -> OpenBitFunResult<bool
         now_ms,
         "Application restarted before the scheduled job finished".to_string(),
     ) {
+        job.updated_at_ms = now_ms;
+    }
+
+    // Older versions kept failed submissions pending and retried every five
+    // seconds, creating another workspace session on each attempt.
+    if job.state.last_run_status == Some(CronJobRunStatus::Error)
+        && matches!(
+            (job.state.pending_trigger_at_ms, job.state.last_run_finished_at_ms),
+            (Some(pending_at), Some(finished_at)) if pending_at <= finished_at
+        )
+    {
+        job.state.clear_pending_trigger();
+        if job.is_one_shot() {
+            job.enabled = false;
+        }
         job.updated_at_ms = now_ms;
     }
 
@@ -1401,6 +1419,114 @@ mod tests {
         assert!(!cron_enqueue_error_is_turn_already_settled(
             "Session metadata not found"
         ));
+    }
+
+    #[test]
+    fn restart_discards_legacy_failed_retry_and_keeps_the_next_daily_run() {
+        let scheduled_at_ms = Utc
+            .with_ymd_and_hms(2026, 11, 15, 22, 0, 0)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let next_run_at_ms = scheduled_at_ms + 86_400_000;
+        let mut job = sample_job(CronSchedule::Cron {
+            expr: "0 6 * * *".to_string(),
+            tz: Some("Asia/Shanghai".to_string()),
+        });
+        job.target = CronJobTarget::Workspace {
+            workspace: job.workspace().clone(),
+            launch: CronLaunchSpec::default(),
+        };
+        let mut legacy = serde_json::to_value(&job).unwrap();
+        legacy["state"] = serde_json::json!({
+            "nextRunAtMs": next_run_at_ms,
+            "pendingTriggerAtMs": scheduled_at_ms,
+            "retryAtMs": scheduled_at_ms + 5_000,
+            "lastRunStatus": "error",
+            "lastError": "Model API unavailable",
+            "lastRunFinishedAtMs": scheduled_at_ms + 1,
+            "consecutiveFailures": 400
+        });
+        job = serde_json::from_value(legacy).unwrap();
+
+        assert!(reconcile_loaded_job(&mut job, scheduled_at_ms + 60_000).unwrap());
+        assert!(job.enabled);
+        assert_eq!(job.state.pending_trigger_at_ms, None);
+        assert_eq!(job.state.retry_at_ms, None);
+        assert_eq!(next_wakeup_for_job(&job), Some(next_run_at_ms));
+        assert_eq!(
+            job.state.last_error.as_deref(),
+            Some("Model API unavailable")
+        );
+        assert_eq!(job.state.last_run_finished_at_ms, Some(scheduled_at_ms + 1));
+        assert_eq!(job.state.consecutive_failures, 400);
+        assert_eq!(
+            compute_next_run_after_ms(&job.schedule, job.created_at_ms, scheduled_at_ms).unwrap(),
+            Some(next_run_at_ms)
+        );
+
+        let mut restored = serde_json::from_str(&serde_json::to_string(&job).unwrap()).unwrap();
+        assert!(!reconcile_loaded_job(&mut restored, scheduled_at_ms + 120_000).unwrap());
+        assert_eq!(restored, job);
+    }
+
+    #[test]
+    fn restart_disables_legacy_failed_one_shot_without_rescheduling_it() {
+        let mut job = sample_job(CronSchedule::At {
+            at: "2026-11-16T06:00:00+08:00".to_string(),
+        });
+        job.state = CronJobState {
+            pending_trigger_at_ms: Some(100),
+            retry_at_ms: Some(5_100),
+            last_run_status: Some(CronJobRunStatus::Error),
+            last_error: Some("Model API unavailable".to_string()),
+            last_run_finished_at_ms: Some(200),
+            consecutive_failures: 2,
+            ..Default::default()
+        };
+
+        assert!(reconcile_loaded_job(&mut job, 10_000).unwrap());
+        assert!(!job.enabled);
+        assert_eq!(next_wakeup_for_job(&job), None);
+        assert_eq!(job.state.pending_trigger_at_ms, None);
+        assert_eq!(job.state.retry_at_ms, None);
+        assert_eq!(job.state.consecutive_failures, 2);
+        assert!(!reconcile_loaded_job(&mut job, 20_000).unwrap());
+    }
+
+    #[test]
+    fn restart_preserves_a_trigger_that_has_not_been_attempted() {
+        let mut job = sample_job(CronSchedule::Every {
+            every_ms: 60_000,
+            anchor_ms: Some(0),
+        });
+        job.state.next_run_at_ms = Some(60_000);
+        job.state.pending_trigger_at_ms = Some(100);
+
+        reconcile_loaded_job(&mut job, 1_000).unwrap();
+
+        assert!(job.enabled);
+        assert_eq!(job.state.pending_trigger_at_ms, Some(100));
+        assert_eq!(job.state.retry_at_ms, Some(1_000));
+        assert_eq!(next_wakeup_for_job(&job), Some(1_000));
+    }
+
+    #[test]
+    fn restart_preserves_a_new_manual_trigger_after_an_earlier_failure() {
+        let mut job = sample_job(CronSchedule::Every {
+            every_ms: 60_000,
+            anchor_ms: Some(0),
+        });
+        job.state.next_run_at_ms = Some(60_000);
+        job.state
+            .mark_enqueue_failed(100, "Model API unavailable".to_string(), false);
+        job.state.mark_manual_trigger(200);
+
+        reconcile_loaded_job(&mut job, 1_000).unwrap();
+
+        assert!(job.enabled);
+        assert_eq!(job.state.pending_trigger_at_ms, Some(200));
+        assert_eq!(next_wakeup_for_job(&job), Some(1_000));
     }
 
     #[tokio::test]

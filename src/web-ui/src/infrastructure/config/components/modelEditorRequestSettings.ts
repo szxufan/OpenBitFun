@@ -1,6 +1,8 @@
 import type { AIModelConfig } from '../types';
 
 export type ModelEditorRequestSettings = Pick<AIModelConfig,
+  | 'responses'
+  | 'responses_defaults'
   | 'inline_think_in_text'
   | 'max_images_per_request'
   | 'custom_headers'
@@ -12,6 +14,8 @@ export type ModelEditorRequestSettings = Pick<AIModelConfig,
 
 export function getModelEditorRequestSettings(config: Partial<AIModelConfig> = {}): ModelEditorRequestSettings {
   return {
+    responses: config.responses ? { ...config.responses } : undefined,
+    responses_defaults: config.responses_defaults ? { ...config.responses_defaults } : undefined,
     inline_think_in_text: config.inline_think_in_text ?? true,
     max_images_per_request: config.max_images_per_request,
     custom_headers: config.custom_headers ? { ...config.custom_headers } : undefined,

@@ -131,6 +131,7 @@ impl ModelRoundLifecycle {
         // Cancellation and local runtime failures also classify as Unknown.
         // Only failures from the model request may enter pool recovery.
         self.safe_to_switch_model
+            && !matches!(error, OpenBitFunError::AIProvider(error) if error.delivery_uncertain)
             && matches!(
                 error,
                 OpenBitFunError::AIProvider(_)
@@ -1021,7 +1022,7 @@ impl RoundExecutor {
                 .map_err(|error| OpenBitFunError::AIClient(error.to_string()).with_channel_bound_replay())?;
             let mut usage_context =
                 openbitfun_services_core::token_usage::types::ModelRequestUsageContext {
-                    context_composition: context.context_composition.clone(),
+                    context_composition: None,
                     version: 1,
                     round_id: round_id.clone(),
                     attempt_id: attempt_id.clone(),
@@ -1129,6 +1130,12 @@ impl RoundExecutor {
                     let provider_error = e.downcast_ref::<AiProviderError>().cloned();
                     let err_msg = format!("{e:#}");
                     let error = Self::terminal_request_error(&e, lifecycle.attempts_started());
+                    if provider_error
+                        .as_ref()
+                        .is_some_and(|error| error.delivery_uncertain)
+                    {
+                        return Err(error);
+                    }
                     let prefer_alternative = Self::prefer_pool_alternative(
                         &error.error_category(),
                         lifecycle,
@@ -1622,6 +1629,9 @@ impl RoundExecutor {
                         Self::error_trace_response("error", err_msg.clone()),
                     )
                     .await;
+                    if provider_error.is_some_and(|error| error.delivery_uncertain) {
+                        return Err(stream_err.error);
+                    }
                     let prefer_alternative = Self::prefer_pool_alternative(
                         &stream_error_category,
                         lifecycle,
@@ -2911,6 +2921,10 @@ pub(super) mod tests {
             ErrorCategory::Unknown,
         ));
         assert!(lifecycle.allows_pool_failover(&error));
+        let mut uncertain =
+            AiProviderError::classified("delivery unknown".into(), ErrorCategory::Network);
+        uncertain.delivery_uncertain = true;
+        assert!(!lifecycle.allows_pool_failover(&OpenBitFunError::AIProvider(uncertain)));
         lifecycle.observe_output(true);
         assert!(!lifecycle.allows_pool_failover(&error));
     }
@@ -2994,7 +3008,6 @@ pub(super) mod tests {
 
     pub(in crate::agentic::execution) fn test_round_context() -> RoundContext {
         RoundContext {
-            context_composition: None,
             session_id: "session-1".to_string(),
             subagent_parent_info: None,
             permission_delegation: None,
@@ -3215,6 +3228,7 @@ pub(super) mod tests {
                     skip_ssl_verify: false,
                     custom_request_body: None,
                     custom_request_body_mode: None,
+                    responses: None,
                 },
             ))
         }
@@ -4183,6 +4197,7 @@ pub(super) mod tests {
                         openbitfun_core_types::ModelResponseReplayItem::OpaqueReasoning {
                             item_id: Some("historical-reasoning".into()),
                             summary: vec![],
+                            content: None,
                             opaque_state: "synthetic-encrypted-state".into(),
                         },
                         openbitfun_core_types::ModelResponseReplayItem::FunctionCall {
@@ -5061,14 +5076,8 @@ pub(super) mod tests {
             .iter()
             .filter_map(|message| message.metadata.model_response_replay.as_ref())
             .collect();
-        assert_eq!(
-            replays.len(),
-            if opaque {
-                restored_messages.len() / 2
-            } else {
-                0
-            }
-        );
+        // Plain assistant snapshots now preserve Responses message phases too.
+        assert_eq!(replays.len(), restored_messages.len() / 2);
         for (index, replay) in replays.into_iter().enumerate() {
             assert_eq!(
                 replay.account_origin.as_ref().unwrap(),
@@ -5078,9 +5087,15 @@ pub(super) mod tests {
                     upstream_account_id: Some("restart-backup-seat".into()),
                 }
             );
-            assert!(replay.items.iter().any(|item| matches!(item,
+            assert_eq!(
+                replay.items.iter().any(|item| matches!(item,
                 openbitfun_core_types::ModelResponseReplayItem::OpaqueReasoning { opaque_state, .. }
-                    if opaque_state == &format!("synthetic-state-{index}"))));
+                    if opaque_state == &format!("synthetic-state-{index}"))),
+                opaque
+            );
+            assert!(replay.items.iter().any(|item| matches!(item,
+                openbitfun_core_types::ModelResponseReplayItem::AssistantMessage { text: Some(text), .. }
+                    if text == "Persisted backup answer")));
         }
         if phase != "seed" {
             let directory = config.user_data_dir().await.join("subscription-routing");
@@ -6730,12 +6745,6 @@ pub(super) mod tests {
             let source = test_account_source(vec![primary.client(), backup.client()], false);
             let mut context = test_round_context();
             context.account_client_source = Some(source);
-            let composition = openbitfun_core_types::UsageContextBreakdown {
-                system_prompt: 3,
-                conversation: 7,
-                ..Default::default()
-            };
-            context.context_composition = Some(composition.clone());
             let mut executor = test_round_executor();
             executor.usage_service = Some(service.clone());
             let result = executor
@@ -6764,7 +6773,7 @@ pub(super) mod tests {
                 .request_context()
                 .unwrap()
                 .context_composition
-                == Some(composition.clone())));
+                .is_none()));
             let failed = records
                 .iter()
                 .find(|record| record.request_context().unwrap().attempt_index == 1)
@@ -7191,9 +7200,13 @@ pub(super) mod tests {
                     openbitfun_core_types::ModelResponseReplayItem::OpaqueReasoning {
                         item_id: Some("original-reasoning".into()),
                         summary: vec![],
+                        content: None,
                         opaque_state: "original-encrypted-state".into(),
                     },
-                    openbitfun_core_types::ModelResponseReplayItem::AssistantMessage,
+                    openbitfun_core_types::ModelResponseReplayItem::AssistantMessage {
+                        phase: None,
+                        text: None,
+                    },
                     openbitfun_core_types::ModelResponseReplayItem::FunctionCall {
                         call_id: "already-executed".into(),
                     },
@@ -7303,6 +7316,7 @@ pub(super) mod tests {
                     openbitfun_core_types::ModelResponseReplayItem::OpaqueReasoning {
                         item_id: None,
                         summary: vec![],
+                        content: None,
                         opaque_state: "opaque-test-state".into(),
                     },
                 ],
@@ -7367,6 +7381,7 @@ pub(super) mod tests {
                     openbitfun_core_types::ModelResponseReplayItem::OpaqueReasoning {
                         item_id: Some("reasoning-history".into()),
                         summary: vec![],
+                        content: None,
                         opaque_state: "account-a-encrypted-reasoning".into(),
                     },
                 );
@@ -7988,6 +8003,73 @@ pub(super) mod tests {
             let attempt = records[0].request_context().unwrap();
             assert_eq!(attempt.outcome, ModelRequestOutcome::Cancelled);
             assert!(!records[0].usage_is_known());
+        }
+    }
+
+    #[tokio::test]
+    async fn websocket_interruption_never_retries_or_recovers_partial_output() {
+        use futures::{SinkExt, StreamExt};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio_tungstenite::tungstenite::Message;
+        for partial in [false, true] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}/responses", listener.local_addr().unwrap());
+            let requests = Arc::new(AtomicUsize::new(0));
+            let observed = requests.clone();
+            let server = tokio::spawn(async move {
+                loop {
+                    let (tcp, _) = listener.accept().await.unwrap();
+                    let mut socket = tokio_tungstenite::accept_async(tcp).await.unwrap();
+                    socket.next().await.unwrap().unwrap();
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    socket
+                        .send(Message::Text(
+                            json!({"type":"response.created","response":{"id":"r1"}})
+                                .to_string()
+                                .into(),
+                        ))
+                        .await
+                        .unwrap();
+                    if partial {
+                        socket.send(Message::Text(json!({"type":"response.output_text.delta","delta":"Partial answer"}).to_string().into())).await.unwrap();
+                    }
+                    let _ = socket.close(None).await;
+                }
+            });
+            let client = Arc::new(crate::infrastructure::ai::AIClient::new(serde_json::from_value(json!({
+                "name":"fixture","base_url":url,"request_url":url,"model":"test","api_key":"synthetic",
+                "format":"responses","context_window":4096,"inline_think_in_text":false,"skip_ssl_verify":false,
+                "responses":{"transport":"websocket","context":"incremental"}
+            })).unwrap()));
+            let executor = test_round_executor();
+            let result = tokio::time::timeout(
+                Duration::from_secs(5),
+                executor.execute_round(
+                    client,
+                    test_round_context(),
+                    vec![super::AIMessage::user("Inspect".into())],
+                    None,
+                    None,
+                ),
+            )
+            .await;
+            server.abort();
+            let error = result
+                .expect("uncertain delivery must stop promptly")
+                .expect_err("must preserve the interrupted request");
+            assert!(
+                matches!(error, OpenBitFunError::AIProvider(ref provider) if provider.delivery_uncertain)
+            );
+            assert_eq!(requests.load(Ordering::SeqCst), 1);
+            assert!(!executor
+                .event_queue
+                .dequeue_batch(100)
+                .await
+                .iter()
+                .any(|event| matches!(
+                    event.event,
+                    AgenticEvent::ModelRoundAttemptSuperseded { .. }
+                )));
         }
     }
 

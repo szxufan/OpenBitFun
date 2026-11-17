@@ -4,6 +4,7 @@ pub(super) mod commands;
 mod elevation;
 mod extract;
 mod generated_locale_contract;
+mod launch;
 mod transaction;
 mod types;
 

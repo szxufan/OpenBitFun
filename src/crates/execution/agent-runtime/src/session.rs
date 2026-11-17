@@ -9,11 +9,18 @@ use serde::{Deserialize, Serialize};
 use std::time::SystemTime;
 use uuid::Uuid;
 
+fn new_model_conversation_scope() -> std::sync::Arc<String> {
+    std::sync::Arc::new(Uuid::new_v4().to_string())
+}
+
 // ============ Session ============
 
 /// Session: contains multiple dialog turns
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
+    /// Process-local continuation scope. Restoring or branching starts a fresh model chain.
+    #[serde(skip, default = "new_model_conversation_scope")]
+    pub model_conversation_scope: std::sync::Arc<String>,
     pub session_id: String,
     pub session_name: String,
     /// Current/default mode selection for the session.
@@ -101,6 +108,7 @@ impl Session {
             openbitfun_core_types::agent_identity::canonical_agent_id(&agent_type).to_owned();
         let now = SystemTime::now();
         Self {
+            model_conversation_scope: new_model_conversation_scope(),
             session_id: Uuid::new_v4().to_string(),
             session_name,
             agent_type,
@@ -129,6 +137,7 @@ impl Session {
             openbitfun_core_types::agent_identity::canonical_agent_id(&agent_type).to_owned();
         let now = SystemTime::now();
         Self {
+            model_conversation_scope: new_model_conversation_scope(),
             session_id,
             session_name,
             agent_type,
@@ -425,6 +434,29 @@ pub fn sanitize_persisted_session_state(state: &SessionState) -> SessionState {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn conversation_transport_scope_is_shared_only_with_live_session_clones() {
+        let original = super::Session::new("Main".into(), "agent".into(), Default::default());
+        let cloned = original.clone();
+        assert!(std::sync::Arc::ptr_eq(
+            &original.model_conversation_scope,
+            &cloned.model_conversation_scope
+        ));
+        let persisted = serde_json::to_value(&original).unwrap();
+        assert!(persisted.get("model_conversation_scope").is_none());
+        let restored: super::Session = serde_json::from_value(persisted.clone()).unwrap();
+        assert_ne!(
+            original.model_conversation_scope,
+            restored.model_conversation_scope
+        );
+        assert_eq!(serde_json::to_value(restored).unwrap(), persisted);
+        let branch = super::Session::new("Branch".into(), "agent".into(), Default::default());
+        assert_ne!(
+            original.model_conversation_scope,
+            branch.model_conversation_scope
+        );
+    }
+
     #[test]
     fn model_routing_is_additive_and_preserves_unknown_strategy() {
         let mut old = serde_json::to_value(super::SessionConfig::default()).unwrap();

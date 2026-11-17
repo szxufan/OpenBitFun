@@ -217,8 +217,10 @@ fn read_native_error(path: &Path, code: u32) -> Option<String> {
 }
 
 pub(super) fn persist_native_outcome(code: u32, error: Option<&str>) {
-    let Some(id) =
-        std::env::args().find_map(|arg| arg.strip_prefix("/RESULT_ID=").map(str::to_owned))
+    let Some(id) = std::env::args()
+        .skip(1)
+        .take_while(|arg| !arg.eq_ignore_ascii_case("/ARGS"))
+        .find_map(|arg| arg.strip_prefix("/RESULT_ID=").map(str::to_owned))
     else {
         return;
     };

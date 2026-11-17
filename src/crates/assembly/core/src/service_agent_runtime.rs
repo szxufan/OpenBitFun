@@ -3340,7 +3340,7 @@ impl RemoteDialogRuntimeHost for CoreRemoteDialogRuntimeHost<'_> {
                 return;
             }
             let workspace = binding_workspace_for_terminal;
-            let name = format!("Chat-{}", &sid[..8.min(sid.len())]);
+            let name = format!("Chat-{}", sid.chars().take(8).collect::<String>());
             match binding
                 .get_or_create(
                     &sid,

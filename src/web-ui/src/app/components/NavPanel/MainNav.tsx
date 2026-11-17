@@ -51,7 +51,8 @@ import { useSidebarNavigation } from '@/app/navigation/useSidebarNavigation';
 import PinnedNavigationItems from './components/PinnedNavigationItems';
 import { createProject, type ProjectDraft, type ProjectFolder } from '@/app/services/createProject';
 import { useWorkspaceSessionViewStore } from './workspaceSessionView';
-import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
+import { getActiveSurfaceId, getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
+import { subscribeWorkspaceReveal } from '@/infrastructure/services/business/workspaceDisplayOrder';
 import { useNurseryStore } from '@/app/scenes/profile/nurseryStore';
 import { RetainedMountBoundary } from '@/shared/presence';
 import { lazyWithRecovery } from '@/shared/utils/lazyWithRecovery';
@@ -194,6 +195,15 @@ const MainNav: React.FC = () => {
     window.addEventListener('nav:new-project', onNewProject);
     return () => window.removeEventListener('nav:new-project', onNewProject);
   }, []);
+
+  // Explicitly opening or re-adding a project workspace from any entry point
+  // switches out of the flat session list so the project header can be revealed.
+  useEffect(() => subscribeWorkspaceReveal(request => {
+    if (request.surfaceId !== getActiveSurfaceId()) return;
+    if (useWorkspaceSessionViewStore.getState().grouping === 'all') {
+      useWorkspaceSessionViewStore.getState().setGrouping('grouped');
+    }
+  }), []);
 
   const peerDevice = usePeerDeviceModeOptional();
   const signedIn = useDeviceDirectory(state => state.localId !== null);

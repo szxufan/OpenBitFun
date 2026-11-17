@@ -11,6 +11,30 @@ pub(super) const WORK_DIR: &str = ".openbitfun-maintenance";
 pub(super) const LOCK_FILE: &str = ".openbitfun-maintenance.lock";
 pub(super) const INVENTORY: &str = ".openbitfun-installed.json";
 
+/// Probe the same sibling lock used by maintenance, before an unelevated host
+/// promises it can write. Existing installations can have a writable root but
+/// a protected parent; opening an existing lock still requires write access.
+pub(super) fn probe_lock_access(root: &Path) -> std::io::Result<()> {
+    if !root.exists() {
+        return Ok(());
+    }
+    let root = root.canonicalize()?;
+    let name = root
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("Installation has no directory name"))?
+        .to_string_lossy();
+    let parent = root
+        .parent()
+        .ok_or_else(|| std::io::Error::other("Installation has no parent"))?;
+    let _file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(parent.join(format!(".{name}.maintenance.lock")))?;
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize)]
 struct Entry {
     path: String,
@@ -380,28 +404,123 @@ impl Transaction {
 
     fn clean_work(&self) -> Result<(), String> {
         // Never follow links while recursively deleting our own transaction tree.
-        fn remove_tree(path: &Path) -> Result<(), String> {
+        fn remove_tree(path: &Path, keep_journal_until_last: bool) -> Result<(), String> {
             if !path.exists() {
                 return Ok(());
             }
             for entry in fs::read_dir(path).map_err(|e| e.to_string())? {
                 let entry = entry.map_err(|e| e.to_string())?;
+                if keep_journal_until_last && entry.file_name() == "journal.json" {
+                    continue;
+                }
                 checked_path(path, Path::new(&entry.file_name()))?;
                 if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-                    remove_tree(&entry.path())?;
+                    remove_tree(&entry.path(), false)?;
                 } else {
                     fs::remove_file(entry.path()).map_err(|e| e.to_string())?;
                 }
             }
+            if keep_journal_until_last {
+                let journal = checked_path(path, Path::new("journal.json"))?;
+                match fs::remove_file(journal) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
             fs::remove_dir(path).map_err(|e| e.to_string())
         }
-        remove_tree(&self.work)
+        remove_tree(&self.work, true)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn lock_probe_detects_a_protected_parent_even_when_the_installation_is_writable() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("OpenBitFun");
+        fs::create_dir(&root).unwrap();
+        let script = r#"$ErrorActionPreference='Stop'
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl=Get-Acl -LiteralPath $env:OPENBITFUN_LOCK_PARENT
+$rule=[Security.AccessControl.FileSystemAccessRule]::new($sid,[Security.AccessControl.FileSystemRights]::CreateFiles,[Security.AccessControl.InheritanceFlags]::None,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Deny)
+if($env:OPENBITFUN_LOCK_RESTORE -eq '1'){$acl.RemoveAccessRuleSpecific($rule)}else{$acl.AddAccessRule($rule)}
+Set-Acl -LiteralPath $env:OPENBITFUN_LOCK_PARENT -AclObject $acl
+"#;
+        let acl = |restore: bool| {
+            super::super::commands::create_windows_silent_command(
+                super::super::commands::system_powershell().unwrap(),
+            )
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .env(
+                "PSModulePath",
+                super::super::commands::system_powershell()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .join("Modules"),
+            )
+            .env("OPENBITFUN_LOCK_PARENT", temp.path())
+            .env("OPENBITFUN_LOCK_RESTORE", if restore { "1" } else { "0" })
+            .output()
+            .unwrap()
+        };
+        let configured = acl(false);
+        if !configured.status.success() {
+            let _ = acl(true);
+            panic!(
+                "Cannot configure temporary ACL: {}",
+                String::from_utf8_lossy(&configured.stderr)
+            );
+        }
+        let target_writable = tempfile::NamedTempFile::new_in(&root).is_ok();
+        let lock = probe_lock_access(&root);
+        let restored = acl(true);
+        assert!(
+            restored.status.success(),
+            "{}",
+            String::from_utf8_lossy(&restored.stderr)
+        );
+        assert!(target_writable);
+        assert_eq!(
+            lock.unwrap_err().kind(),
+            std::io::ErrorKind::PermissionDenied
+        );
+        probe_lock_access(&root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn cleanup_failure_keeps_committed_journal_until_retry_finishes() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("app.exe"), b"old").unwrap();
+        let mut tx = Transaction::open(temp.path()).unwrap();
+        staged(&tx, "app.exe", b"new");
+        tx.publish(&["app.exe".into()], &[]).unwrap();
+        // On NTFS this sorts after journal.json. Cleanup must retain the journal
+        // even when earlier backup cleanup succeeded before this file blocks it.
+        fs::write(tx.stage().join("locked.tmp"), b"staging residue").unwrap();
+        let held = OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(tx.stage().join("locked.tmp"))
+            .unwrap();
+        assert!(!tx.commit().unwrap());
+        let journal: Journal =
+            serde_json::from_slice(&fs::read(tx.work.join("journal.json")).unwrap()).unwrap();
+        assert!(journal.committed);
+        drop(held);
+        drop(tx);
+        let next = Transaction::open(temp.path()).unwrap();
+        assert_eq!(fs::read(temp.path().join("app.exe")).unwrap(), b"new");
+        assert!(!next.work.join("journal.json").exists());
+        assert!(!next.stage().join("locked.tmp").exists());
+    }
 
     fn staged(transaction: &Transaction, name: &str, bytes: &[u8]) {
         let target = transaction.stage().join(name);

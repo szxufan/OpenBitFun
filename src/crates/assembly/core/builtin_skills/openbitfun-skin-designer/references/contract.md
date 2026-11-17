@@ -14,7 +14,7 @@ The optional [authoring template](authoring-template.md) does not override it.
 | Theme/material | Exported paint tokens: semantic/component colors and public color/shadow tokens | No font metrics/families, spacing, radius, dimensions, layout or motion overrides |
 | Existing surfaces | Base material, one backdrop, one scrim, supported image fit/position/alpha, local tokens and supported states | No new surfaces, arbitrary layer stacks, clipping or content geometry |
 | Existing components and owned parts | Supported background assets/material, foreground, existing border color, box/glyph shadows and emitted states | No arbitrary selectors, DOM changes, icon/text replacement, hiding, repositioning or new behaviors |
-| Assets | Local PNG/JPEG/WebP/SVG, including supported animated image content | No external URLs, scripts, video backgrounds or font installation |
+| Assets | Local PNG/JPEG/WebP/SVG, including supported animated image content, and MP4 video as a surface backdrop | No external URLs, scripts, video in component slots or font installation |
 | Modes | Any nonempty subset of the four supported modes, with documented fallback/merging | A fallback is not a separately authored mode; requested coverage is a user requirement |
 
 Assets, component recipes and explicit surface profiles are optional. A valid
@@ -60,7 +60,7 @@ The ZIP root contains `skin.json`:
 
 `schemaVersion` is the parser's format identifier. Do not invent alternate
 generations of the skin system. Optional manifest keys are `author`,
-`description`, and `previewAssetId` (a declared image id). Ids use lower-case
+`description`, and `previewAssetId` (a declared asset id). Ids use lower-case
 letters/digits with `.`, `_`, or `-` separators; manifest id is at most 96 chars.
 `name` and `version` are non-empty strings of at most 160 chars.
 
@@ -103,8 +103,13 @@ or prove browser consumption of a syntactically safe string.
 }
 ```
 
-Supported MIME types are `image/png`, `image/jpeg`, `image/webp`, and
-`image/svg+xml`. A ZIP may use path assets or embedded data assets. Standalone
+Supported MIME types are `image/png`, `image/jpeg`, `image/webp`,
+`image/svg+xml`, and `video/mp4`. An MP4 is only valid as a surface
+`backgroundAssetId` (or `previewAssetId`); the runtime plays it muted and looping
+in the surface's paint plane, with `fit` mapped to `object-fit` and
+`backgroundPosition` to `object-position`. It cannot be used as a component or
+state slot `assetId`, which paint CSS backgrounds. Use H.264 for the widest
+decoder support. A ZIP may use path assets or embedded data assets. Standalone
 JSON requires `source: { "kind": "data", "data": "data:image/webp;base64,..." }`.
 Paths are relative POSIX paths inside the skin directory; no traversal, absolute
 paths, remote URLs, or escaping symlinks. Every file must exist and every asset
@@ -112,11 +117,12 @@ reference must resolve. Keep SVGs self-contained; do not embed scripts, HTML,
 external resources, or font files. Provenance, licensing, dimensions, and safe
 areas belong in the accompanying analysis, not invented manifest keys.
 
-Current importer limits: 32 MiB input, 96 ZIP entries including directory entries,
-16 MiB per expanded entry, 48 MiB expanded total, and 512 KiB for `skin.json`.
-The packer emits no directory entries. JSON-only imports also have the 512 KiB
-manifest limit. The production parser checks bounded extraction and CRC; it
-does not certify asset licensing, raster identity, or aesthetic suitability.
+Current importer limit: one file may be at most 128 MiB once expanded (this
+includes `skin.json`). There is no limit on package size, entry count, or total
+expanded size. The production parser checks bounded per-file extraction and CRC;
+it does not certify asset licensing, raster identity, or aesthetic suitability.
+Large assets are held in memory as base64 data URLs, so the resident cost is
+well above the file size.
 
 ## Surfaces
 
@@ -294,7 +300,7 @@ not padding, geometry, or a new `calendar-body` slot. See
 
 A canonical ZIP has `skin.json` at its root and declared relative assets, with no
 enclosing skin directory. Standalone canonical JSON can be imported when every
-asset is embedded and its bytes fit the manifest limit. Worksheets, provenance,
+asset is embedded as a data URL within the per-file limit. Worksheets, provenance,
 analysis and visual reports are not importer fields or required archive files.
 
 ```text

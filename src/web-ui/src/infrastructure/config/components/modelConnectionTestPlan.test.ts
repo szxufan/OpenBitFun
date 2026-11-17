@@ -78,3 +78,12 @@ describe('configsNeedingAutoTest', () => {
     expect(configsNeedingAutoTest([], next, false)).toEqual([next[0]]);
   });
 });
+
+
+it('tests an inheriting model when provider defaults change, skipping unchanged overrides', () => {
+  const explicit = { ...model('explicit'), provider: 'responses', responses: { transport: 'http', context: 'full' } as const };
+  const inherited = { ...model('inherited'), provider: 'responses' };
+  const previous = [explicit, inherited];
+  const next = previous.map(config => ({ ...config, responses_defaults: { transport: 'websocket', context: 'incremental' } as const }));
+  expect(configsNeedingAutoTest(previous, next, true).map(config => config.id)).toEqual(['inherited']);
+});

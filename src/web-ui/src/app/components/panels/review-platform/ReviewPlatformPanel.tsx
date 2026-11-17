@@ -61,13 +61,17 @@ import type { FlowToolItem, Session } from '@/flow_chat/types/flow-chat';
 import { findLatestCodeReviewResultState, summarizeCodeReviewResult } from '@/flow_chat/utils/reviewSessionSummary';
 import { parsePullRequestUrl, remoteMatchesPullRequestLink } from '@/shared/utils/pullRequestLinks';
 import { useContextStore } from '@/shared/stores/contextStore';
-import { quickActions } from '@/shared/services/ide-control';
 import {
   withGitRepositoryTrustRecovery,
 } from '@/shared/services/gitTrustService';
+import { createManualTerminalSession } from '@/shared/services/createManualTerminalSession';
+import { openShellSessionTarget } from '@/shared/services/openShellSessionTarget';
 import type { PullRequestContext } from '@/shared/types/context';
+import type { ContentResourceScope } from '@/shared/types/contentResource';
 import { getActiveSurfaceId, getActiveSurfaceScope, isLocalSurface, onSurfaceActivated, surfaceScopedKey, type DeviceSurfaceId, type SurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import { useReviewPlatformSupport } from '@/infrastructure/peer-device/useReviewPlatformSupport';
+import { workspaceManager } from '@/infrastructure/services/business/workspaceManager';
+import { isTerminalPathInside } from '@/tools/terminal/services/terminalWorkspaceScope';
 import {
   currentPullRequestReviewStatusText,
   effectivePullRequestReviewFreshness,
@@ -296,6 +300,56 @@ function rememberRemote(surfaceId: DeviceSurfaceId, workspaceId: string, remoteI
     }
   } catch {
     // Ignore storage failures; the selector still works for the current session.
+  }
+}
+
+/**
+ * The workspace this panel was opened for owns the terminal. Only its stored
+ * record (opened or recent, selected by ID like `captureContentScope`) can name
+ * the root and connection, so an unavailable or connection-less remote owner
+ * fails instead of falling back to the rendered workspace.
+ */
+function ownerWorkspaceRecord(workspaceId?: string) {
+  if (!workspaceId) return null;
+  const state = workspaceManager.getState();
+  return state.openedWorkspaces.get(workspaceId)
+    ?? state.recentWorkspaces.find(record => record.id === workspaceId)
+    ?? null;
+}
+
+function resolveAuthTerminalOwner(surfaceId: DeviceSurfaceId, workspaceId: string): ContentResourceScope {
+  const owner = ownerWorkspaceRecord(workspaceId);
+  if (!owner) throw new Error('Terminal owner workspace is unavailable');
+  const remote = owner.workspaceKind === 'remote';
+  if (remote && !owner.connectionId) throw new Error('Terminal owner connection is unavailable');
+  return {
+    surfaceId,
+    workspaceId,
+    workspacePath: owner.rootPath,
+    ...(remote ? { remoteConnectionId: owner.connectionId } : {}),
+  };
+}
+
+/**
+ * A restored `review-platform` panel can carry the canvas fallback path rather
+ * than its owner's, so only a cwd inside the owner root is kept as the terminal
+ * directory; anything else starts at the root instead of another workspace.
+ */
+function ownerTerminalDirectory(scope: ContentResourceScope, workspacePath?: string): string {
+  const root = scope.workspacePath ?? '';
+  const remote = Boolean(scope.remoteConnectionId);
+  return workspacePath && isTerminalPathInside(workspacePath, root, remote) ? workspacePath : root;
+}
+
+/** A created PTY stays with its host; this only decides whether its tab opens here. */
+function assertAuthTerminalOwner(scope: ContentResourceScope): void {
+  const owner = ownerWorkspaceRecord(scope.workspaceId);
+  if (!owner) throw new Error('Terminal owner workspace is unavailable');
+  const remote = owner.workspaceKind === 'remote';
+  const connectionId = remote ? owner.connectionId : undefined;
+  // Identity only: an ordinary record update keeps the same root and connection.
+  if (owner.rootPath !== scope.workspacePath || connectionId !== scope.remoteConnectionId) {
+    throw new Error('Terminal owner workspace changed');
   }
 }
 
@@ -1871,25 +1925,44 @@ function ReviewPlatformContent({
   const handleOpenGithubAuthTerminal = useCallback(async () => {
     if (!isPanelCurrent()) return;
     if (!selectedRemote || selectedRemote.platform !== 'github') return;
-    const command = `gh auth login --hostname ${selectedRemote.host}`;
+    const host = selectedRemote.host;
+    const command = `gh auth login --hostname ${host}`;
     setAuthSaving(true);
     setAuthError(null);
     try {
+      // Resolve the owner once, before any await and before the clipboard write:
+      // a missing or changed owner must fail this retry rather than re-target the
+      // terminal at whatever workspace is rendered by then.
+      const ownerScope = resolveAuthTerminalOwner(surface.surfaceId, workspaceId);
+      const workingDirectory = ownerTerminalDirectory(ownerScope, workspacePath);
       await systemAPI.setClipboard(command);
       if (!isPanelCurrent()) return;
+      // The clipboard write is already an await: an owner that moved to another
+      // connection meanwhile must fail before the PTY is created on the new one.
+      assertAuthTerminalOwner(ownerScope);
+      // The host owns the PTY, so it is created once here and never killed when
+      // this panel goes away; only opening its tab belongs to this panel.
+      const session = await createManualTerminalSession({ workspaceId, workspacePath: workingDirectory });
+      if (!isPanelCurrent()) return;
+      // Creation awaits again, so the owner is re-checked before its PTY is shown.
+      assertAuthTerminalOwner(ownerScope);
+      openShellSessionTarget({
+        sessionId: session.id,
+        sessionName: session.name,
+        scope: ownerScope,
+      });
       setAuthModalOpen(false);
-      quickActions.openTerminal(undefined, workspacePath);
       notificationService.success('GitHub CLI login command copied. Paste it in the terminal to continue.', {
         duration: 3500,
       });
     } catch (err) {
       if (!isPanelCurrent()) return;
       setAuthError(err, 'openAuthFailed');
-      log.error('Failed to prepare GitHub CLI authentication', { error: err, host: selectedRemote.host });
+      log.error('Failed to prepare GitHub CLI authentication', { error: err, host });
     } finally {
       if (isPanelCurrent()) setAuthSaving(false);
     }
-  }, [isPanelCurrent, setAuthError, selectedRemote, workspacePath]);
+  }, [isPanelCurrent, setAuthError, selectedRemote, surface.surfaceId, workspaceId, workspacePath]);
 
   const handleCopyGithubAuthCommand = useCallback(async () => {
     if (!isPanelCurrent()) return;

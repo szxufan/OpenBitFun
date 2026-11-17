@@ -840,7 +840,7 @@ fn truncate_id(id: &str) -> String {
     if id.len() <= 8 {
         id.to_string()
     } else {
-        format!("{}…", &id[..8])
+        format!("{}…", id.chars().take(8).collect::<String>())
     }
 }
 
@@ -888,6 +888,11 @@ mod tests {
         for c in text.chars() {
             form.handle_key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
         }
+    }
+
+    #[test]
+    fn truncate_id_handles_multibyte_ids() {
+        assert_eq!(truncate_id(&"中".repeat(9)), format!("{}…", "中".repeat(8)));
     }
 
     #[test]

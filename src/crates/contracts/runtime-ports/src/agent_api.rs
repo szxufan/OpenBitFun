@@ -489,6 +489,8 @@ pub struct AgentSessionUsageRequest {
     pub include_system_prompt_preview: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_preview_category: Option<openbitfun_core_types::UsageContextCategory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_estimate: Option<openbitfun_core_types::UsageContextEstimateRequest>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -3615,6 +3617,18 @@ mod tests {
         let encoded = serde_json::to_value(&request).unwrap();
         assert_eq!(
             serde_json::from_value::<AgentSessionUsageRequest>(encoded).unwrap(),
+            request
+        );
+        assert!(request.context_estimate.is_none());
+        request.context_estimate = Some(openbitfun_core_types::UsageContextEstimateRequest {
+            include_contents: true,
+            context_only: true,
+        });
+        let current = serde_json::to_value(&request).unwrap();
+        assert_eq!(current["contextEstimate"]["includeContents"], true);
+        assert_eq!(current["contextEstimate"]["contextOnly"], true);
+        assert_eq!(
+            serde_json::from_value::<AgentSessionUsageRequest>(current).unwrap(),
             request
         );
         request.include_system_prompt_preview = true;

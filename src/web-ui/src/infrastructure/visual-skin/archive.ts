@@ -1,14 +1,11 @@
 import type { FileEntry, ZipReader } from '@zip.js/zip.js';
 
-export const MAX_SKIN_EXPANDED_BYTES = 48 * 1024 * 1024;
-export const MAX_SKIN_MANIFEST_BYTES = 512 * 1024;
-export const MAX_SKIN_ASSET_BYTES = 16 * 1024 * 1024;
-const MAX_ENTRIES = 96;
+/** The only size limit in the skin pipeline: one file, 128 MiB. */
+export const MAX_SKIN_ASSET_BYTES = 128 * 1024 * 1024;
 
 /** Metadata preflight and a bounded output sink; no unbounded async() reads. */
 export class SkinArchive {
   readonly files = new Map<string, FileEntry>();
-  private expandedBytes = 0;
   private constructor(private readonly reader: ZipReader<Uint8Array>) {}
 
   static async open(source: ArrayBuffer): Promise<SkinArchive> {
@@ -18,11 +15,8 @@ export class SkinArchive {
       useWebWorkers: false, checkSignature: true, checkOverlappingEntry: true,
     });
     const archive = new SkinArchive(reader);
-    let entries = 0;
-    let declaredBytes = 0;
     try {
       for await (const entry of reader.getEntriesGenerator()) {
-        if (++entries > MAX_ENTRIES) throw new Error('Visual skin archive has too many entries');
         const path = entry.directory ? entry.filename.replace(/\/$/, '') : entry.filename;
         if (!path || path.startsWith('/') || path.includes('\\') || path.split('/').some(segment => !segment || segment === '.' || segment === '..')) {
           throw new Error(`Visual skin archive path is unsafe: ${entry.filename}`);
@@ -30,8 +24,6 @@ export class SkinArchive {
         if (!Number.isSafeInteger(entry.uncompressedSize) || entry.uncompressedSize < 0 || entry.uncompressedSize > MAX_SKIN_ASSET_BYTES) {
           throw new Error(`Visual skin archive entry exceeds its size limit: ${entry.filename}`);
         }
-        declaredBytes += entry.uncompressedSize;
-        if (declaredBytes > MAX_SKIN_EXPANDED_BYTES) throw new Error('Visual skin archive exceeds the total expanded size limit');
         if (entry.directory) continue;
         if (entry.encrypted) throw new Error('Encrypted visual skin archives are unsupported');
         if (archive.files.has(entry.filename)) throw new Error(`Duplicate visual skin archive path: ${entry.filename}`);
@@ -42,7 +34,7 @@ export class SkinArchive {
     } catch (error) { await reader.close(); throw error; }
   }
 
-  async read(path: string, limit: number): Promise<Uint8Array> {
+  async read(path: string, limit: number = MAX_SKIN_ASSET_BYTES): Promise<Uint8Array> {
     const entry = this.files.get(path);
     if (!entry) throw new Error(`Visual skin archive file is missing: ${path}`);
     if (entry.uncompressedSize > limit) throw new Error(`Visual skin archive entry exceeds its size limit: ${path}`);
@@ -53,8 +45,9 @@ export class SkinArchive {
       await entry.getData(new WritableStream<Uint8Array>({
         write: chunk => {
           size += chunk.byteLength;
-          this.expandedBytes += chunk.byteLength;
-          if (size > limit || this.expandedBytes > MAX_SKIN_EXPANDED_BYTES) {
+          // A forged directory can understate its size; the per-file budget is
+          // therefore enforced against the real stream as well.
+          if (size > limit) {
             const error = new Error(`Visual skin decompression size limit exceeded: ${path}`);
             abort.abort(error);
             throw error;
@@ -73,10 +66,30 @@ export class SkinArchive {
   async close(): Promise<void> { await this.reader.close(); }
 }
 
+type Base64Uint8Array = Uint8Array & { toBase64?: () => string };
+type Base64Uint8ArrayConstructor = typeof Uint8Array & { fromBase64?: (value: string) => Uint8Array };
+
 export function skinAssetDataUrl(mime: string, bytes: Uint8Array): string {
-  let binary = '';
-  for (let offset = 0; offset < bytes.length; offset += 32768) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+  const native = (bytes as Base64Uint8Array).toBase64;
+  if (typeof native === 'function') {
+    return `data:${mime};base64,${native.call(bytes)}`;
   }
-  return `data:${mime};base64,${btoa(binary)}`;
+  // 32766 is a multiple of 3, so each chunk encodes without interior '=' padding.
+  const parts = [`data:${mime};base64,`];
+  for (let offset = 0; offset < bytes.length; offset += 32766) {
+    parts.push(btoa(String.fromCharCode(...bytes.subarray(offset, offset + 32766))));
+  }
+  return parts.join('');
+}
+
+export function decodeSkinDataUrl(dataUrl: string): Uint8Array {
+  const payload = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  const fromBase64 = (Uint8Array as Base64Uint8ArrayConstructor).fromBase64;
+  if (typeof fromBase64 === 'function') {
+    return fromBase64(payload);
+  }
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
 }

@@ -101,6 +101,33 @@ describe('VisualSkinRuntime', () => {
     expect(document.querySelector('style[data-openbitfun-skin-runtime]')?.textContent).toContain('--openbitfun-color-content-primary:#fefefe');
   });
 
+  it('deactivates paint and restores the host theme without removing the package', async () => {
+    const storage = new MemoryVisualSkinStorage();
+    const runtime = runtimeWith(storage);
+    document.documentElement.setAttribute('data-color-scheme', 'dark');
+    const nativeStyle = document.createElement('style');
+    nativeStyle.textContent = ':root { --openbitfun-color-content-primary: #6789ab; }';
+    const surface = document.createElement('main');
+    surface.setAttribute('data-openbitfun-surface', 'shell');
+    document.head.appendChild(nativeStyle);
+    document.body.appendChild(surface);
+    try {
+      await runtime.importPackage(new TextEncoder().encode(JSON.stringify(projectionPackageSource)).buffer);
+      expect(surface.hasAttribute('data-openbitfun-skin-artwork')).toBe(true);
+      await runtime.deactivate();
+      expect(await storage.getSelection()).toBeNull();
+      expect(await storage.get('projection-skin')).not.toBeNull();
+      expect(runtime.getSnapshot()).toMatchObject({ activeSkinId: null, activeSkin: null, previewSkinId: null, projection: null, status: 'ready' });
+      expect(runtime.getSnapshot().catalog.map(entry => entry.id)).toEqual(['projection-skin']);
+      expect(document.documentElement.getAttribute('data-color-scheme')).toBe('dark');
+      expect(getComputedStyle(document.documentElement).getPropertyValue('--openbitfun-color-content-primary')).toBe('#6789ab');
+      expect(document.querySelector('style[data-openbitfun-skin-runtime]')).toBeNull();
+      expect(document.querySelector('[data-openbitfun-skin-id], [data-openbitfun-skin-surface], [data-openbitfun-skin-artwork], [data-openbitfun-skin-node], [data-openbitfun-skin-background-source]')).toBeNull();
+      await runtime.activate('projection-skin');
+      expect(runtime.getSnapshot().activeSkinId).toBe('projection-skin');
+    } finally { nativeStyle.remove(); surface.remove(); }
+  });
+
   it('projects named slots, product components, and surfaces through fixed selectors', async () => {
     const runtime = runtimeWith(new MemoryVisualSkinStorage());
     const component = document.createElement('div');

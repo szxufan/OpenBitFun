@@ -603,10 +603,14 @@ export function useFlowChatVirtualizer<T>({
   const originInsetObserverRef = useRef<{ element: HTMLElement; observer: ResizeObserver } | null>(null);
   // Initial binding and delayed observer deliveries publish through the same
   // ownership check, so a retired node cannot replace the current inset.
-  const publishOriginInset = useCallback((element: HTMLElement | null) => {
+  const publishOriginInset = useCallback((element: HTMLElement | null, borderBoxBlockSize?: number) => {
     if (element) {
       if (originInsetObserverRef.current?.element !== element || !element.isConnected) return;
-      setContentStartPx(element.offsetHeight);
+      setContentStartPx(
+        borderBoxBlockSize !== undefined && Number.isFinite(borderBoxBlockSize)
+          ? Math.round(borderBoxBlockSize)
+          : element.offsetHeight,
+      );
     } else if (originInsetObserverRef.current === null) {
       setContentStartPx(0);
     }
@@ -618,7 +622,9 @@ export function useFlowChatVirtualizer<T>({
     previous?.observer.disconnect();
     originInsetObserverRef.current = null;
     if (!originInset) { publishOriginInset(null); return; }
-    const observer = new ResizeObserver(() => publishOriginInset(originInset));
+    const observer = new ResizeObserver((entries) => {
+      publishOriginInset(originInset, entries[0]?.borderBoxSize?.[0]?.blockSize);
+    });
     originInsetObserverRef.current = { element: originInset, observer };
     observer.observe(originInset, { box: 'border-box' });
     publishOriginInset(originInset);
@@ -1043,14 +1049,24 @@ export function useFlowChatVirtualizer<T>({
     const scroller = scrollerRef.current;
     if (!scroller || isViewportSuspendedRef.current()) return;
     const elements = scroller.querySelectorAll<HTMLElement>('[data-virtual-index]');
-    const measurements: Array<[number, number]> = [];
+    const targets: Array<[number, HTMLElement]> = [];
+    // Pass 1: commit any changed index attributes before reading layout so
+    // interleaved DOM attribute writes + getBoundingClientRect() calls do not
+    // force N separate style/layout recalculations across rendered rows.
     for (const element of elements) {
       if (element.closest('[data-flowchat-virtual-viewport]') !== scroller) continue;
       const index = toVirtualIndex(Number(element.getAttribute('data-virtual-index')));
       if (!Number.isInteger(index)) continue;
-      element.setAttribute('data-flowchat-measure-index', String(index));
-      measurements.push([index, virtualizer.options.measureElement(element, undefined, virtualizer)]);
+      const indexAttr = String(index);
+      if (element.getAttribute('data-flowchat-measure-index') !== indexAttr) {
+        element.setAttribute('data-flowchat-measure-index', indexAttr);
+      }
+      targets.push([index, element]);
     }
+    const measurements: Array<[number, number]> = targets.map(([index, element]) => [
+      index,
+      virtualizer.options.measureElement(element, undefined, virtualizer),
+    ]);
     // measure() clears keyed sizes but leaves the previous derived positions.
     // Rebuild those before resizeItem compares heights: otherwise unchanged
     // compact rows look like zero deltas, never repopulate the empty size cache,
@@ -1069,20 +1085,24 @@ export function useFlowChatVirtualizer<T>({
   }, []);
   const layoutSignature = `${estimateContext?.availableWidthPx ?? ''}:${fontRevision}`;
   const measuredLayoutRef = useRef(layoutSignature);
+  const previousKeyRevisionRef = useRef<string | null>(null);
   const previousKeysRef = useRef(new Set<string>());
   const retiredMeasurementsRef = useRef(0);
   /** A pass owed to a layout that a pane drag had not finished moving. */
   const pendingLayoutMeasureRef = useRef(false);
   useLayoutEffect(() => {
-    const keys = new Set(itemKeysRef.current);
-    for (const key of previousKeysRef.current) if (!keys.has(key)) {
-      retiredMeasurementsRef.current++;
-      reservedEstimatesRef.current.delete(key);
-      measuredKeysRef.current.delete(key);
-      // A key that returns later starts from an estimate, not its retained size.
-      restoredItemKeys.delete(key);
+    if (previousKeyRevisionRef.current !== itemKeyRevision) {
+      previousKeyRevisionRef.current = itemKeyRevision;
+      const keys = new Set(itemKeysRef.current);
+      for (const key of previousKeysRef.current) if (!keys.has(key)) {
+        retiredMeasurementsRef.current++;
+        reservedEstimatesRef.current.delete(key);
+        measuredKeysRef.current.delete(key);
+        // A key that returns later starts from an estimate, not its retained size.
+        restoredItemKeys.delete(key);
+      }
+      previousKeysRef.current = keys;
     }
-    previousKeysRef.current = keys;
     if (measuredLayoutRef.current === layoutSignature && retiredMeasurementsRef.current < 2048
       && !pendingLayoutMeasureRef.current) return;
     /*

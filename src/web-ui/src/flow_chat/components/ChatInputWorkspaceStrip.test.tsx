@@ -434,11 +434,11 @@ describe('ChatInputWorkspaceStrip git refresh behavior', () => {
   it('opens the overview from the context ring, highlights categories and offers explicit preview and report actions', async () => {
     const onOpen = vi.fn();
     const onCompact = vi.fn();
-    const loadContext = vi.fn(async () => ({
+    const loadContext = vi.fn(async () => ({ capturedAt: 123, contents: {}, composition: {
       systemPrompt: 1600, toolDefinitions: 3900, rules: 8300, skills: 1700,
       mcpTools: 2700, subagentDefinitions: 1100, summarizedConversation: 0,
       conversation: 114000, contextWindow: 256000,
-    }));
+    } }));
     await act(async () => root.render(
       <ChatInputWorkspaceStrip workspaceId="workspace-1" repositoryPath="/project" workspaceLabel="Project"
         usageReport={{ visible: true, currentTokens: 133300, maxTokens: 256000, onOpen, onCompact, loadContext,
@@ -481,8 +481,16 @@ describe('ChatInputWorkspaceStrip git refresh behavior', () => {
     await act(async () => headerActions[0]!.click());
     expect(onCompact).toHaveBeenCalledOnce();
     expect(document.querySelector('[data-testid="context-usage-popover"]')).toBeNull();
+    loadContext.mockResolvedValueOnce({ capturedAt: 456, contents: {}, composition: {
+      systemPrompt: 1600, toolDefinitions: 3900, rules: 8300, skills: 1700,
+      mcpTools: 2700, subagentDefinitions: 1100, summarizedConversation: 2000,
+      conversation: 0, contextWindow: 256000,
+    } });
     await act(async () => trigger.click());
     const reopenedOverview = document.querySelector<HTMLElement>('[data-testid="context-usage-popover"]')!;
+    expect(loadContext).toHaveBeenCalledTimes(2);
+    expect(reopenedOverview.querySelector('[data-usage-category="conversation"] dd')?.textContent).toBe('0');
+    expect(reopenedOverview.querySelector('[data-usage-category="summarizedConversation"] dd')?.textContent).toBe('2K');
     await act(async () => reopenedOverview.querySelector<HTMLButtonElement>('[data-testid="context-usage-view-report"]')!.click());
     expect(onOpen).toHaveBeenCalledOnce();
     expect(document.querySelector('[data-testid="context-usage-popover"]')).toBeNull();
@@ -517,7 +525,7 @@ describe('ChatInputWorkspaceStrip git refresh behavior', () => {
     ));
     const trigger = container.querySelector<HTMLButtonElement>('[data-openbitfun-part="usageAction"]')!;
     await act(async () => trigger.click());
-    expect(document.querySelector('[data-testid="context-usage-popover"]')?.textContent).toContain('usage.context.unavailable');
+    expect(document.querySelector('[data-testid="context-usage-popover"]')?.textContent).toContain('usage.context.unsupported');
     expect(document.querySelector('.context-usage-popover__bar')).toBeNull();
     await act(async () => trigger.click());
     await act(async () => trigger.click());
@@ -526,10 +534,10 @@ describe('ChatInputWorkspaceStrip git refresh behavior', () => {
   });
 
   it('keeps legacy category counts without treating the composer default as reported capacity', async () => {
-    const loadContext = vi.fn(async () => ({
+    const loadContext = vi.fn(async () => ({ capturedAt: 123, contents: {}, composition: {
       systemPrompt: 100, toolDefinitions: 20, rules: 0, skills: 0, mcpTools: 0,
       subagentDefinitions: 0, summarizedConversation: 40, conversation: 840,
-    }));
+    } }));
     await act(async () => root.render(
       <ChatInputWorkspaceStrip workspaceId="workspace-1" repositoryPath="/project" workspaceLabel="Project"
         usageReport={{ visible: true, currentTokens: 1000, maxTokens: 128128, onOpen: vi.fn(), loadContext }} />,

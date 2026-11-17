@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VisualSkinConfigSection } from './VisualSkinConfigSection';
 
 const activateMock = vi.hoisted(() => vi.fn());
+const deactivateMock = vi.hoisted(() => vi.fn());
 const previewMock = vi.hoisted(() => vi.fn());
 const cancelPreviewMock = vi.hoisted(() => vi.fn());
 const importMock = vi.hoisted(() => vi.fn());
@@ -43,6 +44,7 @@ vi.mock('@/infrastructure/visual-skin', () => ({
     watchProjection: watchProjectionMock,
     importPackage: importMock,
     activate: activateMock,
+    deactivate: deactivateMock,
     preview: previewMock,
     cancelPreview: cancelPreviewMock,
     remove: removeMock,
@@ -62,6 +64,7 @@ describe('VisualSkinConfigSection', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
     activateMock.mockReset();
+    deactivateMock.mockReset();
     previewMock.mockReset();
     cancelPreviewMock.mockReset();
     importMock.mockReset();
@@ -95,6 +98,46 @@ describe('VisualSkinConfigSection', () => {
     skinState.activeSkinId = null;
     const html = renderToStaticMarkup(<VisualSkinConfigSection />);
     expect(html).toContain('data-testid="visual-skin-empty"');
+  });
+
+  it.each(['active', 'preview'] as const)('offers deactivation while %s without removing imported skins', async state => {
+    if (state === 'preview') {
+      skinState.activeSkinId = null;
+      skinState.previewSkinId = 'sample.skin';
+    }
+    await mount();
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="visual-skin-deactivate"]')!;
+    expect(button.textContent).toBe('skin.deactivate');
+    await act(async () => button.click());
+    expect(deactivateMock).toHaveBeenCalledTimes(1);
+    expect(removeMock).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-skin-id="sample.skin"]')).not.toBeNull();
+  });
+
+  it('disables deactivation once no skin or preview is selected', async () => {
+    skinState.activeSkinId = null;
+    await mount();
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="visual-skin-deactivate"]')!;
+    expect(button.disabled).toBe(true);
+    await act(async () => button.click());
+    expect(deactivateMock).not.toHaveBeenCalled();
+  });
+
+  it('prevents duplicate deactivation while persistence is pending and allows retry after failure', async () => {
+    let reject!: (error: Error) => void;
+    deactivateMock.mockImplementationOnce(() => new Promise<void>((_, rejectAction) => { reject = rejectAction; }));
+    await mount();
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="visual-skin-deactivate"]')!;
+    await act(async () => button.click());
+    expect(button.disabled).toBe(true);
+    await act(async () => button.click());
+    expect(deactivateMock).toHaveBeenCalledTimes(1);
+    await act(async () => reject(new Error('Unable to clear selection')));
+    expect(button.disabled).toBe(false);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Unable to clear selection');
+    await act(async () => button.click());
+    expect(deactivateMock).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
   it('distinguishes the saved skin from a temporary preview and keeps every card action reachable', async () => {
     skinState.skins.push({ id: 'other.skin', name: 'Other skin', description: 'A long reference description', version: '2', author: 'Artist' });
@@ -159,6 +202,38 @@ describe('VisualSkinConfigSection', () => {
     await mount();
     expect(container.querySelector('[role="alert"]')?.textContent).toContain(skinState.error);
     expect(watchProjectionMock).not.toHaveBeenCalled();
+  });
+
+  it('renders an MP4 preview as a muted looping blob video and revokes it on unmount', async () => {
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:skin-preview');
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    try {
+      const mp4 = Buffer.from([0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0]).toString('base64');
+      skinState.skins = [{
+        id: 'video.skin',
+        name: 'Video Skin',
+        description: 'Looping MP4 backdrop',
+        version: '1.0.0',
+        author: 'AI',
+        previewAsset: `data:video/mp4;base64,${mp4}`,
+      } as (typeof skinState.skins)[number]];
+      await mount();
+      const preview = container.querySelector<HTMLDivElement>('.visual-skin-config__preview')!;
+      const video = preview.querySelector<HTMLVideoElement>('video')!;
+      expect(preview.style.backgroundImage).toBe('');
+      expect(video).not.toBeNull();
+      expect(video.getAttribute('src')).toBe('blob:skin-preview');
+      expect(video.muted && video.loop && video.autoplay).toBe(true);
+      expect(video.hasAttribute('disablepictureinpicture')).toBe(true);
+      expect(video.tabIndex).toBe(-1);
+      await act(async () => root!.unmount());
+      root = null;
+      container.remove();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:skin-preview');
+    } finally {
+      createObjectURL.mockRestore();
+      revokeObjectURL.mockRestore();
+    }
   });
 
 });

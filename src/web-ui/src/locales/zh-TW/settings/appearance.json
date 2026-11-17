@@ -49,6 +49,7 @@
     "previewing": "預覽中",
     "cancelPreview": "取消預覽",
     "activate": "使用皮膚",
+    "deactivate": "不使用皮膚",
     "active": "目前使用",
     "remove": "移除皮膚",
     "error": "皮膚操作失敗：{{message}}",

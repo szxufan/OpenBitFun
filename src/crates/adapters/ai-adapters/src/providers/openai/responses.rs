@@ -28,7 +28,7 @@ fn short_hash(value: &str) -> &str {
     value.get(..12).unwrap_or(value)
 }
 
-fn prompt_cache_key_hash(request_body: &serde_json::Value) -> Option<String> {
+pub(crate) fn prompt_cache_key_hash(request_body: &serde_json::Value) -> Option<String> {
     request_body
         .get("prompt_cache_key")
         .and_then(serde_json::Value::as_str)
@@ -336,6 +336,20 @@ pub(crate) async fn send_stream(
 
     let compatibility = crate::providers::opencode::FreeTools::prepare(client, &mut request_body)?;
 
+    crate::client::responses_websocket::validate(client)?;
+    if client.config.responses.unwrap_or_default().transport
+        == openbitfun_core_types::responses::ResponsesTransport::Websocket
+    {
+        return crate::client::responses_websocket::send(
+            client,
+            request_body,
+            request_context,
+            trace,
+        )
+        .await
+        .map(|response| compatibility.wrap(response));
+    }
+
     execute_sse_request(
         Some(client),
         "Responses API",
@@ -396,6 +410,7 @@ mod tests {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            responses: None,
         })
     }
 
@@ -517,6 +532,7 @@ mod tests {
     fn attaches_runtime_prompt_cache_key_after_custom_body_merge() {
         let client = test_client();
         let request_context = ModelRequestContext {
+            conversation_scope: None,
             prompt_cache_route_key: Some("lineage-1".to_string()),
             output_schema: None,
         };
@@ -539,6 +555,7 @@ mod tests {
             "properties": { "summary": { "type": "string" } }
         });
         let request_context = ModelRequestContext {
+            conversation_scope: None,
             prompt_cache_route_key: None,
             output_schema: Some(schema.clone()),
         };

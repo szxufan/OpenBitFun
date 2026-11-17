@@ -9008,6 +9008,7 @@ export class FlowChatStore {
       requireActiveSession: true,
       shouldApply,
       shouldReplayRuntimeSnapshot: () => false,
+      synchronizeHistoryCatalog: true,
     });
     if (!result.applied && shouldApply?.() !== false && this.state.sessions.get(sessionId) !== session) {
       throw new Error('Session history changed during source synchronization');
@@ -9029,6 +9030,8 @@ export class FlowChatStore {
       requireActiveSession?: boolean;
       shouldApply?: () => boolean;
       shouldReplayRuntimeSnapshot?: (snapshot: SessionRuntimeEventSnapshot) => boolean;
+      /** Explicit recovery accepts a new host revision even if its previews are incomplete. */
+      synchronizeHistoryCatalog?: boolean;
     },
   ): Promise<PeerSessionSnapshotRefreshResult> {
     const scope = getActiveSurfaceScope();
@@ -9237,7 +9240,10 @@ export class FlowChatStore {
         }
       }
       const turnCatalog = restored.turnCatalog?.sessionId === sessionId
-        ? selectPreferredTurnCatalog(session.turnCatalog, restored.turnCatalog)
+        ? options?.synchronizeHistoryCatalog
+          && session.turnCatalog?.revision !== restored.turnCatalog.revision
+          ? restored.turnCatalog
+          : selectPreferredTurnCatalog(session.turnCatalog, restored.turnCatalog)
         : session.turnCatalog;
       const restoredAgentType = resolveRestoredAgentType(
         restored.session.agentType, session.mode, session.config.agentType,

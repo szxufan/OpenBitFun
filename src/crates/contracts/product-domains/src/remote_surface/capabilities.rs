@@ -67,6 +67,7 @@ pub enum PeerHostCapability {
     SubscriptionAccountFailoverV1,
     /// Explicit cross-provider model channels and native failover are supported.
     ModelChannelRoutingV1,
+    ResponsesWebsocketV1,
     /// Account eligibility is independent of login and survives sign-out.
     SubscriptionAccountManagementV1,
     /// `miniapp_agent_run` accepts non-empty `contextFiles`.
@@ -164,6 +165,7 @@ impl PeerHostCapability {
         Self::SubscriptionAccountPoolsV1,
         Self::SubscriptionAccountFailoverV1,
         Self::ModelChannelRoutingV1,
+        Self::ResponsesWebsocketV1,
         Self::SubscriptionAccountManagementV1,
         Self::MiniappAgentContextFilesV1,
         Self::MiniappAgentImagesV1,
@@ -222,6 +224,7 @@ impl PeerHostCapability {
             Self::SubscriptionAccountPoolsV1 => "subscription_account_pools_v1",
             Self::SubscriptionAccountFailoverV1 => "subscription_account_failover_v1",
             Self::ModelChannelRoutingV1 => "model_channel_routing_v1",
+            Self::ResponsesWebsocketV1 => "responses_websocket_v1",
             Self::SubscriptionAccountManagementV1 => "subscription_account_management_v1",
             Self::MiniappAgentContextFilesV1 => "miniapp_agent_context_files_v1",
             Self::MiniappAgentImagesV1 => "miniapp_agent_images_v1",
@@ -287,6 +290,7 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::SubscriptionAccountPoolsV1,
     PeerHostCapability::SubscriptionAccountFailoverV1,
     PeerHostCapability::ModelChannelRoutingV1,
+    PeerHostCapability::ResponsesWebsocketV1,
     PeerHostCapability::SubscriptionAccountManagementV1,
     PeerHostCapability::MiniappAgentContextFilesV1,
     PeerHostCapability::MiniappAgentImagesV1,
@@ -336,6 +340,7 @@ const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::TargetedSessionRollback,
     PeerHostCapability::TokenUsageStatistics,
     PeerHostCapability::ModelChannelRoutingV1,
+    PeerHostCapability::ResponsesWebsocketV1,
     PeerHostCapability::ProductControlV1,
     PeerHostCapability::RemoteConnectControlV1,
     PeerHostCapability::CancelTool,

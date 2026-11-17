@@ -2640,6 +2640,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         connection_id: &str,
         ssh_host: Option<&str>,
         remote_connection_rebind: RemoteConnectionRebind,
+        promote_if_opened: bool,
     ) -> OpenBitFunResult<WorkspaceInfo> {
         let workspace = workspace_service
             .prepare_remote_workspace(path, connection_id, ssh_host)
@@ -2653,7 +2654,11 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 .and_then(|host| host.as_str()),
         )?;
         workspace_service
-            .open_known_remote_workspace_with_rebind(&workspace, remote_connection_rebind)
+            .open_known_remote_workspace_with_rebind(
+                &workspace,
+                remote_connection_rebind,
+                promote_if_opened,
+            )
             .await
     }
 
@@ -2853,6 +2858,48 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         model_id: &str,
     ) -> OpenBitFunResult<()> {
         self.update_session_model_selection(session_id, model_id, None)
+            .await
+    }
+
+    /// Resolve prompt sources after the caller has released the session read permit.
+    pub(crate) async fn estimate_session_context(
+        &self,
+        inputs: crate::agentic::session::session_manager::ContextEstimateInputs,
+        options: &openbitfun_core_types::UsageContextEstimateRequest,
+    ) -> OpenBitFunResult<openbitfun_core_types::UsageContextEstimate> {
+        let workspace = Self::build_workspace_binding(&inputs.session.config)
+            .await
+            .ok_or_else(|| {
+                OpenBitFunError::validation(
+                    "Session workspace is unavailable for context inspection",
+                )
+            })?;
+        let services = Self::build_workspace_services(&Some(workspace.clone())).await?;
+        let restrictions = runtime_tool_restrictions_for_session_lifetime(
+            miniapp_agent_run_tool_restrictions(
+                inputs.turn_metadata.as_ref(),
+                inputs.session.created_by.as_deref(),
+            ),
+            self.session_manager
+                .is_transient_session(&inputs.session.session_id),
+        );
+        let mut context_vars = HashMap::new();
+        copy_turn_control_context(&mut context_vars, inputs.turn_metadata.as_ref());
+        Self::copy_output_schema_context(&mut context_vars, inputs.turn_metadata.as_ref());
+        if metadata_bool(inputs.turn_metadata.as_ref(), "acp_transport") == Some(true) {
+            context_vars.insert("acp_transport".into(), "true".into());
+        }
+        self.execution_engine
+            .estimate_current_context(
+                inputs,
+                workspace,
+                services,
+                self.terminal_port.get(),
+                self.remote_exec_port.get(),
+                restrictions,
+                context_vars,
+                options,
+            )
             .await
     }
 

@@ -13,6 +13,7 @@ use crate::stream::types::unified::UnifiedResponse;
 pub use anthropic::handle_anthropic_stream;
 pub use gemini::{handle_gemini_code_assist_stream, handle_gemini_stream};
 pub use openai::handle_openai_stream;
+pub(crate) use responses::handle_responses_events;
 pub use responses::handle_responses_stream;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

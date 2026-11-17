@@ -532,3 +532,77 @@ The most important implementation choices are:
   `src/crates/assembly/core/src/agentic/skill_agent_snapshot.rs`
 - Provider cache telemetry:
   `src/crates/adapters/ai-adapters/src/stream/types/`
+
+
+## Responses transport and conversation continuation
+
+Responses providers support three explicit combinations: HTTP with full input
+(the unchanged default), WebSocket with full input, and WebSocket with incremental
+input. Neither selector has an automatic mode. HTTP with incremental input is
+rejected. WebSocket requests always use `store: false`; enabling continuation does
+not enable server-side response storage. This policy is available for any configured
+Responses route, including API-key providers and supported subscription accounts;
+the operator must select a provider that implements the WebSocket protocol.
+
+The provider editor writes `responses_defaults` alongside the existing shared
+endpoint settings on its model records. A model's optional `responses` overrides
+that default as a pair of `{ "transport": "websocket", "context": "incremental" }`.
+Clearing the override restores inheritance; changing a provider default preserves
+explicit model overrides. Non-Responses routes retain but do not consume either preference. Old
+records omit both fields and remain HTTP/full; neither field is required or written
+by default. Native CLI and headless hosts consume the same persisted configuration.
+
+`ai-adapters::client::responses_websocket` owns HTTP upgrade, event framing,
+connection reuse and response checkpoints. It uses the ordinary request header,
+authorization, proxy, TLS and adaptive request-capacity policies. SSE and WebSocket
+feed the same Responses event parser. Connection setup is bounded by the existing
+30-second ceiling and a shorter configured TTFT budget. Metadata alone does not
+satisfy TTFT. Streams retain cancellation, idle timeout, usage and tool-call
+semantics, and actual transmitted attempts are recorded independently.
+
+Each live runtime Session owns a nonserialized opaque conversation scope. Session
+clones share it, while branches, restored sessions and other sessions receive new
+scopes, even if their prompt-cache lineage is shared. The adapter partitions by
+that scope and resolved client configuration, serializes requests on each socket,
+and releases idle sockets/checkpoints after 60 seconds. Standalone requests do not
+reuse continuation state. Suggestions and compression requests have no main-session
+scope. Credentials and approved configuration are revalidated on every send.
+
+A checkpoint contains the completed response id, full submitted request and ordered
+output items. The next request may send `previous_response_id` only if all other
+request properties match and its input starts with the prior full input plus the
+prior output. Non-semantic provider metadata and an empty `reasoning.content: []`
+placeholder are normalized for this comparison. An empty reasoning content array
+is equivalent to omission in canonical replay; nonempty, null or unknown content
+is not discarded. This comparison does not modify stored output or wire input.
+Captured reasoning content is preserved through session persistence and request
+reconstruction, including explicit empty arrays and the order and text of nonempty
+`reasoning_text` parts. Legacy replay records without content remain readable and
+omit the field on replay. Unsupported content shapes invalidate replay capture
+instead of being silently reduced to empty content.
+Assistant message phases, encrypted reasoning and tool call identities remain
+part of replay. Edited history, compression, tools/instructions changes, a different
+client, a replaced socket, cancellation or incomplete output start from full input.
+Full canonical history remains local; response ids and sockets are never persisted.
+
+A first-frame `previous_response_not_found` rejection may rebuild full input once
+on the existing socket. A first-frame `websocket_connection_limit_reached` may
+reconnect once and send full input. Both preserve `store: false`, revalidate
+authorization and trace each real payload. A socket interruption or timeout after
+sending has uncertain delivery: it returns a typed nonretryable error and forbids
+automatic model/channel failover or partial-output recovery. There is no automatic
+HTTP fallback. Explicit provider failures keep the shared error semantics.
+
+The model socket belongs to the execution host, independently of the driving UI.
+SSH workspace location does not move model state onto the controller. Peer Device
+Mode advertises `responses_websocket_v1`; settings controls, config writes and
+connection probes reject unsupported peers before RPC. Mobile/IM control uses the
+selected host model configuration without a new per-turn protocol field. Detached
+jobs use the target's configuration and create fresh runtime scopes after restore;
+a submitter connection is not needed to continue a live model request.
+
+Verification uses local WebSocket servers, contract round trips and simulated peer
+capability negotiation. These fixtures cover message conversion, isolation,
+continuation rejection, trace payloads, cancellation, authorization revocation and
+TTFT interruption. They do not establish live provider compatibility or physical
+SSH, Remote Control, Peer Device or Detached Dispatch connectivity.

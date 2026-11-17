@@ -341,6 +341,8 @@ export interface AIProviderConfig {
   custom_request_body?: string;
   custom_request_body_mode?: CustomRequestBodyMode;
   metadata?: Record<string, any>;
+  /** Responses transport/context defaults for every model of this provider. */
+  responses_defaults?: ResponsesRequestSettings;
 }
 
 /** Slim model entry persisted under `ai.models`; references `provider_id`. */
@@ -363,6 +365,8 @@ export interface AIModelEntry {
   image_dialect?: ImageDialect;
   channel_routing?: ModelChannelRouting;
   request_url?: string;
+  /** Responses transport/context override; wins over the provider defaults. */
+  responses?: ResponsesRequestSettings;
 }
 
 /**
@@ -370,6 +374,8 @@ export interface AIModelEntry {
  * Persisted `ai.models` entries are slim; runtime consumers read this shape.
  */
 export interface AIModelConfig {
+  responses?: ResponsesRequestSettings;
+  responses_defaults?: ResponsesRequestSettings;
   id?: string;
   /** `AIProviderConfig::id` of the owning provider (resolved projection). */
   provider_id?: string;
@@ -412,6 +418,11 @@ export interface AIModelConfig {
   image_dialect?: ImageDialect;
   /** Ordered backup channels (other model configs). Absent keeps one channel. */
   channel_routing?: ModelChannelRouting;
+}
+
+export interface ResponsesRequestSettings {
+  transport: 'http' | 'websocket';
+  context: 'full' | 'incremental';
 }
 
 /** Explicit failover route; members are other model configuration IDs. */

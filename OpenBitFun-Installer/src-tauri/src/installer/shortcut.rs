@@ -8,10 +8,46 @@ use super::MAIN_APP_EXE;
 const SHORTCUT_NAME: &str = "OpenBitFun.lnk";
 const NESTED_START_MENU_DIR: &str = "OpenBitFun";
 
+fn installation_shortcut_name(install_path: &Path) -> String {
+    let label = super::commands::normalized_windows_install_path(install_path)
+        .chars()
+        .rev()
+        .take(60)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .map(|c| {
+            if r#"\/:*?"<>|"#.contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect::<String>();
+    format!(
+        "OpenBitFun ({} - {}).lnk",
+        label,
+        &super::commands::windows_installation_id(install_path)[..12]
+    )
+}
+
+fn shortcut_path(directory: &Path, install_path: &Path) -> Result<PathBuf> {
+    let legacy = directory.join(SHORTCUT_NAME);
+    if legacy.try_exists()?
+        && super::commands::windows_path_eq_case_insensitive(
+            &shortcut_target(&legacy)?,
+            &install_path.join(MAIN_APP_EXE),
+        )
+    {
+        return Ok(legacy);
+    }
+    Ok(directory.join(installation_shortcut_name(install_path)))
+}
+
 /// Create a desktop shortcut for OpenBitFun.
 pub(super) fn create_desktop_shortcut(install_path: &Path) -> Result<()> {
     let desktop = desktop_dir(install_path)?;
-    let shortcut_path = desktop.join(SHORTCUT_NAME);
+    let shortcut_path = shortcut_path(&desktop, install_path)?;
     let exe_path = install_path.join(MAIN_APP_EXE);
 
     create_lnk(&shortcut_path, &exe_path, install_path)?;
@@ -23,7 +59,7 @@ pub(super) fn create_desktop_shortcut(install_path: &Path) -> Result<()> {
 pub(super) fn create_start_menu_shortcut(install_path: &Path) -> Result<()> {
     let start_menu = get_start_menu_dir(install_path)?;
     remove_nested_start_menu_shortcut(&start_menu, install_path)?;
-    let shortcut_path = start_menu.join(SHORTCUT_NAME);
+    let shortcut_path = shortcut_path(&start_menu, install_path)?;
     let exe_path = install_path.join(MAIN_APP_EXE);
 
     create_lnk(&shortcut_path, &exe_path, install_path)?;
@@ -33,8 +69,10 @@ pub(super) fn create_start_menu_shortcut(install_path: &Path) -> Result<()> {
 
 /// Remove desktop shortcut.
 pub(super) fn remove_desktop_shortcut(install_path: &Path) -> Result<()> {
+    let desktop = desktop_dir(install_path)?;
+    remove_owned_shortcut(&desktop.join(SHORTCUT_NAME), install_path)?;
     remove_owned_shortcut(
-        &desktop_dir(install_path)?.join(SHORTCUT_NAME),
+        &desktop.join(installation_shortcut_name(install_path)),
         install_path,
     )
 }
@@ -44,13 +82,17 @@ pub(super) fn remove_start_menu_shortcut(install_path: &Path) -> Result<()> {
     let start_menu = get_start_menu_dir(install_path)?;
     let shortcut_path = start_menu.join(SHORTCUT_NAME);
     remove_owned_shortcut(&shortcut_path, install_path)?;
+    remove_owned_shortcut(
+        &start_menu.join(installation_shortcut_name(install_path)),
+        install_path,
+    )?;
     remove_nested_start_menu_shortcut(&start_menu, install_path)?;
     Ok(())
 }
 
 /// Get the current user's Start Menu Programs directory.
 fn desktop_dir(install_path: &Path) -> Result<PathBuf> {
-    if super::registry::is_machine_install(install_path) {
+    if super::registry::is_machine_install(install_path).map_err(anyhow::Error::msg)? {
         Ok(PathBuf::from(std::env::var("PUBLIC")?).join("Desktop"))
     } else {
         dirs::desktop_dir().with_context(|| "Cannot find Desktop directory")
@@ -58,11 +100,13 @@ fn desktop_dir(install_path: &Path) -> Result<PathBuf> {
 }
 
 fn get_start_menu_dir(install_path: &Path) -> Result<PathBuf> {
-    let appdata = std::env::var(if super::registry::is_machine_install(install_path) {
-        "PROGRAMDATA"
-    } else {
-        "APPDATA"
-    })
+    let appdata = std::env::var(
+        if super::registry::is_machine_install(install_path).map_err(anyhow::Error::msg)? {
+            "PROGRAMDATA"
+        } else {
+            "APPDATA"
+        },
+    )
     .with_context(|| "Start Menu location is unavailable")?;
     Ok(PathBuf::from(appdata)
         .join("Microsoft")
@@ -109,9 +153,11 @@ fn remove_owned_shortcut(path: &Path, install_path: &Path) -> Result<()> {
 pub(super) struct Snapshot {
     files: Vec<Option<Vec<u8>>>,
     machine: bool,
+    #[serde(default)]
+    installation_files: Vec<Option<Vec<u8>>>,
 }
 
-pub(super) fn snapshot(_install_path: &Path, machine: bool) -> Result<Snapshot> {
+pub(super) fn snapshot(install_path: &Path, machine: bool) -> Result<Snapshot> {
     let start = PathBuf::from(std::env::var(if machine {
         "PROGRAMDATA"
     } else {
@@ -128,15 +174,25 @@ pub(super) fn snapshot(_install_path: &Path, machine: bool) -> Result<Snapshot> 
         start.join(SHORTCUT_NAME),
         start.join(NESTED_START_MENU_DIR).join(SHORTCUT_NAME),
     ];
-    let files = paths
+    let files = snapshot_files(&paths)?;
+    let name = installation_shortcut_name(install_path);
+    let installation_files = snapshot_files(&[desktop.join(&name), start.join(&name)])?;
+    Ok(Snapshot {
+        files,
+        machine,
+        installation_files,
+    })
+}
+
+fn snapshot_files(paths: &[PathBuf]) -> Result<Vec<Option<Vec<u8>>>> {
+    Ok(paths
         .iter()
         .map(|path| match std::fs::read(path) {
             Ok(bytes) => Ok(Some(bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
         })
-        .collect::<std::io::Result<Vec<_>>>()?;
-    Ok(Snapshot { files, machine })
+        .collect::<std::io::Result<Vec<_>>>()?)
 }
 
 pub(super) fn restore(install_path: &Path, snapshot: &Snapshot) -> Result<()> {
@@ -154,12 +210,32 @@ pub(super) fn restore(install_path: &Path, snapshot: &Snapshot) -> Result<()> {
     } else {
         dirs::desktop_dir().with_context(|| "Desktop is unavailable")?
     };
-    let paths = [
+    let mut paths = vec![
         desktop.join(SHORTCUT_NAME),
         start.join(SHORTCUT_NAME),
         start.join(NESTED_START_MENU_DIR).join(SHORTCUT_NAME),
     ];
-    for (path, bytes) in paths.iter().zip(&snapshot.files) {
+    anyhow::ensure!(
+        snapshot.installation_files.is_empty() || snapshot.installation_files.len() == 2,
+        "Invalid per-installation shortcut recovery snapshot"
+    );
+    if !snapshot.installation_files.is_empty() {
+        let name = installation_shortcut_name(install_path);
+        paths.extend([desktop.join(&name), start.join(&name)]);
+    }
+    restore_files(
+        install_path,
+        &paths,
+        snapshot.files.iter().chain(&snapshot.installation_files),
+    )
+}
+
+fn restore_files<'a>(
+    install_path: &Path,
+    paths: &[PathBuf],
+    files: impl Iterator<Item = &'a Option<Vec<u8>>>,
+) -> Result<()> {
+    for (path, bytes) in paths.iter().zip(files) {
         if let Some(bytes) = bytes {
             if std::fs::read(path).is_ok_and(|current| current == *bytes) {
                 continue;
@@ -209,4 +285,72 @@ fn create_lnk(shortcut_path: &Path, target: &Path, _working_dir: &Path) -> Resul
         target.display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parallel_shortcuts_and_legacy_shortcuts_survive_other_installation_maintenance() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        let links = temp.path().join("links");
+        for path in [&first, &second, &links] {
+            std::fs::create_dir(path).unwrap();
+        }
+        let ping = PathBuf::from(std::env::var_os("SYSTEMROOT").unwrap()).join("System32/ping.exe");
+        for path in [&first, &second] {
+            std::fs::copy(&ping, path.join(MAIN_APP_EXE)).unwrap();
+        }
+        let legacy = links.join(SHORTCUT_NAME);
+        create_lnk(&legacy, &first.join(MAIN_APP_EXE), &first).unwrap();
+        let additional = shortcut_path(&links, &second).unwrap();
+        assert_ne!(legacy, additional);
+        let before = snapshot_files(&[legacy.clone(), additional.clone()]).unwrap();
+        create_lnk(&additional, &second.join(MAIN_APP_EXE), &second).unwrap();
+        assert_eq!(shortcut_path(&links, &first).unwrap(), legacy);
+        assert!(super::super::commands::windows_path_eq_case_insensitive(
+            &shortcut_target(&legacy).unwrap(),
+            &first.join(MAIN_APP_EXE)
+        ));
+        restore_files(
+            &second,
+            &[legacy.clone(), additional.clone()],
+            before.iter(),
+        )
+        .unwrap();
+        assert!(legacy.is_file());
+        assert!(!additional.exists());
+        create_lnk(&additional, &second.join(MAIN_APP_EXE), &second).unwrap();
+        remove_owned_shortcut(&legacy, &second).unwrap();
+        assert!(legacy.is_file());
+        remove_owned_shortcut(&additional, &second).unwrap();
+        assert!(legacy.is_file());
+        assert!(!additional.exists());
+    }
+
+    #[test]
+    fn legacy_shortcut_snapshots_roundtrip_without_new_required_fields() {
+        let payload = serde_json::json!({"files": [null, [1, 2, 3], null], "machine": true});
+        let snapshot: Snapshot = serde_json::from_value(payload.clone()).unwrap();
+        assert!(snapshot.installation_files.is_empty());
+        let roundtrip: Snapshot =
+            serde_json::from_slice(&serde_json::to_vec(&snapshot).unwrap()).unwrap();
+        assert_eq!(roundtrip.files, snapshot.files);
+        assert_eq!(roundtrip.machine, snapshot.machine);
+        #[derive(serde::Deserialize, serde::Serialize)]
+        struct LegacySnapshot {
+            files: Vec<Option<Vec<u8>>>,
+            machine: bool,
+        }
+        let old_reader: LegacySnapshot =
+            serde_json::from_value(serde_json::to_value(&snapshot).unwrap()).unwrap();
+        assert_eq!(serde_json::to_value(old_reader).unwrap(), payload);
+        assert_eq!(
+            installation_shortcut_name(Path::new(r"C:\Apps\OpenBitFun")),
+            installation_shortcut_name(Path::new("c:/apps/openbitfun/"))
+        );
+    }
 }

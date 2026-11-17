@@ -80,6 +80,11 @@ vi.mock('../sessions/SessionsSection', () => ({
 
 import WorkspaceListSection from './WorkspaceListSection';
 import { useSceneStore } from '@/app/stores/sceneStore';
+import {
+  prepareWorkspacePromotion,
+  requestWorkspaceReveal,
+  resetWorkspaceDisplayOrdersForTest,
+} from '@/infrastructure/services/business/workspaceDisplayOrder';
 
 function sessionTab(workspaceId: string, surfaceId = 'local'): SceneTab {
   const session = { surfaceId, workspaceKey: sessionSceneWorkspaceKey(workspaceId), sessionId: `chat-${workspaceId}` };
@@ -96,6 +101,7 @@ afterEach(() => {
   state.workspaces = [...state.defaultWorkspaces];
   useSceneStore.setState({ activeTabId: null, openTabs: [] });
   useContentResourceStore.setState({ resources: {} });
+  resetWorkspaceDisplayOrdersForTest();
   activateSurface('local');
 });
 
@@ -422,6 +428,161 @@ describe('assistant pinning', () => {
       expect(list.container.querySelector('[data-testid="nav-workspace-list-empty"]')).not.toBeNull();
     } finally {
       list.unmount();
+    }
+  });
+});
+
+describe('re-added workspace promotion', () => {
+  it('brings the promoted row into view once the new order renders and reveals already-first rows too', () => {
+    state.grouping = 'grouped';
+    const first = { id: 'first-project', name: 'First', workspaceKind: 'normal' };
+    const second = { id: 'second-project', name: 'Second', workspaceKind: 'normal' };
+    state.workspaces = [first, second];
+    const scrolled: Array<string | null> = [];
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      scrolled.push(this.getAttribute('data-workspace-id'));
+    });
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+
+    const list = renderList();
+    try {
+      // An unrelated re-render does not scroll.
+      list.render();
+      expect(scrollIntoView).not.toHaveBeenCalled();
+
+      act(() => { requestWorkspaceReveal('local', second.id, true); });
+      state.workspaces = [second, first];
+      list.render();
+
+      expect(list.ownerRows()).toEqual([second.id, first.id]);
+      expect(scrolled).toEqual([second.id]);
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+
+      // Re-adding the row already at index 0 still scrolls it into view without changing order.
+      scrollIntoView.mockClear();
+      scrolled.length = 0;
+      act(() => { requestWorkspaceReveal('local', second.id, false); });
+      expect(scrolled).toEqual([second.id]);
+    } finally {
+      list.unmount();
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it('reveals the target row once flat view switches to grouped', () => {
+    state.grouping = 'all';
+    const first = { id: 'first-project', name: 'First', workspaceKind: 'normal' };
+    const second = { id: 'second-project', name: 'Second', workspaceKind: 'normal' };
+    state.workspaces = [first, second];
+    const scrolled: Array<string | null> = [];
+    const scrollIntoView = vi.fn(function (this: HTMLElement) {
+      scrolled.push(this.getAttribute('data-workspace-id'));
+    });
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+
+    const list = renderList();
+    try {
+      act(() => { requestWorkspaceReveal('local', second.id, true); });
+      state.workspaces = [second, first];
+      list.render();
+      expect(scrolled).toEqual([]);
+
+      state.grouping = 'grouped';
+      list.render();
+      expect(scrolled).toEqual([second.id]);
+    } finally {
+      list.unmount();
+      delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it('clears the sticky section header when scrolling and subtracts scrollDelta from FLIP animations', () => {
+    state.grouping = 'grouped';
+    const items = [
+      { id: 'w-0', name: 'Zero', workspaceKind: 'normal' },
+      { id: 'w-1', name: 'One', workspaceKind: 'normal' },
+      { id: 'w-2', name: 'Two', workspaceKind: 'normal' },
+      { id: 'w-3', name: 'Three', workspaceKind: 'normal' },
+    ];
+    state.workspaces = [...items];
+
+    const scrollRoot = document.createElement('div');
+    scrollRoot.scrollTop = 1000;
+    const section = document.createElement('div');
+    section.setAttribute('data-openbitfun-section', 'sessions');
+    const stickyHeader = document.createElement('div');
+    stickyHeader.setAttribute('data-openbitfun-part', 'stickySectionHeader');
+    const content = document.createElement('div');
+    section.append(stickyHeader, content);
+    scrollRoot.appendChild(section);
+    document.body.appendChild(scrollRoot);
+
+    const scrollRootRef = { current: scrollRoot };
+    const layoutOffsets = new Map<string, number>([
+      ['w-0', 82],
+      ['w-1', 122],
+      ['w-2', 1082],
+      ['w-3', 1482],
+    ]);
+
+    vi.spyOn(scrollRoot, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 60, 260, 400));
+    vi.spyOn(stickyHeader, 'getBoundingClientRect').mockImplementation(() => new DOMRect(0, 60, 260, 22));
+
+    const animated = new Map<string, Keyframe[]>();
+    const animateMock = vi.fn(function (this: HTMLElement, keyframes: Keyframe[] | PropertyIndexedKeyframes | null) {
+      const id = this.getAttribute('data-workspace-id') ?? '';
+      animated.set(id, (keyframes as Keyframe[]) ?? []);
+      return { cancel: vi.fn(), addEventListener: vi.fn() } as unknown as Animation;
+    });
+    const originalAnimate = HTMLElement.prototype.animate;
+    HTMLElement.prototype.animate = animateMock;
+
+    const root = createRoot(content);
+    const bindRowRects = () => {
+      for (const node of content.querySelectorAll<HTMLElement>('[data-workspace-id]')) {
+        const id = node.getAttribute('data-workspace-id')!;
+        node.getBoundingClientRect = () => new DOMRect(0, (layoutOffsets.get(id) ?? 0) - scrollRoot.scrollTop, 260, 34);
+      }
+    };
+
+    try {
+      act(() => root.render(<WorkspaceListSection variant="all" scrollRootRef={scrollRootRef} />));
+      bindRowRects();
+
+      // Promote w-2 from scrolled-down layoutY=1082 to index 0 (layoutY=82, right below stickyHeader.bottom=82).
+      act(() => { prepareWorkspacePromotion('local', 'w-2'); });
+      state.workspaces = [items[2], items[0], items[1], items[3]];
+      layoutOffsets.set('w-2', 82);
+      layoutOffsets.set('w-0', 122);
+      layoutOffsets.set('w-1', 162);
+      layoutOffsets.set('w-3', 1482);
+      // Bind rects as soon as React mounts/updates, so useLayoutEffect reads the new layout positions.
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        if (this === scrollRoot) return new DOMRect(0, 60, 260, 400);
+        if (this === stickyHeader) return new DOMRect(0, 60, 260, 22);
+        const id = this.getAttribute('data-workspace-id')
+          ?? this.closest('[data-workspace-id]')?.getAttribute('data-workspace-id');
+        if (id && layoutOffsets.has(id)) {
+          return new DOMRect(0, (layoutOffsets.get(id) ?? 0) - scrollRoot.scrollTop, 260, 34);
+        }
+        return new DOMRect(0, 0, 0, 0);
+      });
+      act(() => {
+        requestWorkspaceReveal('local', 'w-2', true);
+        root.render(<WorkspaceListSection variant="all" scrollRootRef={scrollRootRef} />);
+      });
+
+      // `scrollTop` aligns w-2's top (layoutY=82) to stickyHeader.bottom (82), not scrollRoot.top (60).
+      expect(scrollRoot.scrollTop).toBe(0);
+      // Neighbours w-0 and w-1 shifted by exactly 40px in layout, NOT -1040px!
+      expect(animated.get('w-0')?.[0]).toEqual({ transform: 'translateY(-40px)' });
+      expect(animated.get('w-1')?.[0]).toEqual({ transform: 'translateY(-40px)' });
+      // Off-screen unmoved w-3 (layoutY=1482) is skipped completely.
+      expect(animated.has('w-3')).toBe(false);
+    } finally {
+      act(() => root.unmount());
+      scrollRoot.remove();
+      HTMLElement.prototype.animate = originalAnimate;
     }
   });
 });

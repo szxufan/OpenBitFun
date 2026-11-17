@@ -9,7 +9,7 @@ pub fn run() {
         Ok(true) => return,
         Ok(false) => {}
         Err(error) => {
-            if std::env::args().any(|arg| arg == "--quiet") {
+            if commands::maintenance_is_non_interactive() {
                 eprintln!("Cannot start uninstaller: {error}");
             } else {
                 show_native_error(&format!("Cannot start uninstaller: {error}"));
@@ -32,7 +32,7 @@ pub fn run() {
         commands::persist_native_outcome(code, result.as_ref().err().map(String::as_str));
         if let Err(error) = result {
             eprintln!("Maintenance failed: {error}");
-            if !std::env::args().any(|arg| arg.starts_with("/READY_EVENT=") || arg == "--quiet") {
+            if !commands::maintenance_is_non_interactive() {
                 show_native_error(&error);
             }
             std::process::exit(code as i32);

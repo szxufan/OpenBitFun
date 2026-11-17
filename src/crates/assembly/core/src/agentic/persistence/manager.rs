@@ -9,6 +9,7 @@ pub(crate) use external_history::external_history_catalog;
 mod session_catalog;
 mod turn_window_index;
 mod usage_context;
+#[cfg(test)]
 pub(crate) use usage_context::SessionUsageContextSnapshot;
 
 use crate::agentic::core::{
@@ -2990,6 +2991,7 @@ impl PersistenceManager {
         let dialog_turn_ids = turns.iter().map(|turn| turn.turn_id.clone()).collect();
 
         Ok(Session {
+            model_conversation_scope: Arc::new(uuid::Uuid::new_v4().to_string()),
             session_id: metadata.session_id.clone(),
             session_name: metadata.session_name.clone(),
             agent_type: if legacy_minimal {

@@ -45,7 +45,6 @@ export function Options({
   const [pathError, setPathError] = useState<string | null>(null);
   const shownError = error ?? pathError;
   const busy = isInstalling || isSelectingPath;
-  const existingTarget = Boolean(existingInstall?.detected && existingInstall.installLocation === options.installPath);
 
   useEffect(() => {
     if (options.installPath) refreshDiskSpace(options.installPath);
@@ -63,19 +62,6 @@ export function Options({
         setOptions((prev) => ({ ...prev, installPath: validated.installPath }));
         clearInstallError();
       }
-    } catch (error) { setPathError(String(error)); }
-    finally { pathOperation.current = false; setIsSelectingPath(false); }
-  };
-
-  const changeScope = async (allUsers: boolean) => {
-    if (pathOperation.current) return;
-    pathOperation.current = true;
-    setIsSelectingPath(true);
-    setPathError(null);
-    try {
-      const installPath = await installPathApi.defaultPath(allUsers);
-      setOptions(previous => ({ ...previous, allUsers, installPath }));
-      clearInstallError();
     } catch (error) { setPathError(String(error)); }
     finally { pathOperation.current = false; setIsSelectingPath(false); }
   };
@@ -164,12 +150,6 @@ export function Options({
               disabled={isInstalling}
               onCheckedChange={(checked) => setOptions((prev) => ({ ...prev, startMenu: checked }))}
               label={t('options.startMenu')}
-            />
-            <Checkbox
-              checked={existingTarget ? existingInstall?.source === 'uninstall_hklm' : options.allUsers === true}
-              disabled={busy || previewOnly || existingTarget}
-              onCheckedChange={(checked) => { void changeScope(checked); }}
-              label={t('options.allUsers')}
             />
           </fieldset>
         </div>

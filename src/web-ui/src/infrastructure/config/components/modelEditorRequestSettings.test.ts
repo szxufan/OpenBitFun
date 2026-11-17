@@ -70,3 +70,30 @@ describe('model editor request drafts', () => {
     expect(updated.map(draft => draft.requestSettings.custom_request_body)).toEqual(['{"temperature":0.2}', '{"temperature":0.8}']);
   });
 });
+
+
+describe('Responses provider defaults and model overrides', () => {
+  it('keeps explicit model overrides while updating provider defaults and supports reset', () => {
+    const defaults = { transport: 'websocket', context: 'incremental' } as const;
+    const override = { transport: 'http', context: 'full' } as const;
+    const drafts = [
+      { key: 'inherited', requestSettings: getModelEditorRequestSettings() },
+      { key: 'overridden', requestSettings: getModelEditorRequestSettings({ responses: override }) },
+    ];
+    const changed = updateModelEditorRequestSettings(drafts, { responses_defaults: defaults });
+    expect(changed[0].requestSettings.responses).toBeUndefined();
+    expect(changed[1].requestSettings.responses).toEqual(override);
+    expect(changed.every(draft => draft.requestSettings.responses_defaults === defaults)).toBe(true);
+    const reset = updateModelEditorRequestSettings(changed, { responses: undefined }, 'overridden');
+    const saved = JSON.parse(JSON.stringify(prepareModelEditorRequestSettingsForSave(reset[1].requestSettings)));
+    expect(saved.responses).toBeUndefined();
+    expect(saved.responses_defaults).toEqual(defaults);
+    expect(changed[1].requestSettings.responses).toEqual(override);
+  });
+
+  it('round trips old request preferences without opting into a new transport', () => {
+    const saved = JSON.parse(JSON.stringify(prepareModelEditorRequestSettingsForSave(getModelEditorRequestSettings())));
+    expect(saved).not.toHaveProperty('responses');
+    expect(saved).not.toHaveProperty('responses_defaults');
+  });
+});

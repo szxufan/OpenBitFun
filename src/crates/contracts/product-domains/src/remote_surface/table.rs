@@ -632,7 +632,7 @@ pub(super) const OPERATIONS: &[OperationDefinition] = &[
     op("remove_recent_workspace",                                    Agnostic,    Proxied,          CLI_NOT_IMPLEMENTED),
     op("rename_file",                                                Routed,      Proxied,          HANDLED),
     host_invoke_only("rename_session",                               Agnostic,    Proxied,          HANDLED),
-    op("reorder_opened_workspaces",                                  Unaudited,   Proxied,          CLI_NOT_IMPLEMENTED),
+    op("reorder_opened_workspaces",                                  Agnostic,    Proxied,          HANDLED),
     op("replace_mode_skill_selection",                               Unaudited,   Proxied,          CLI_NOT_IMPLEMENTED),
     op("report_ide_control_result",                                  Unaudited,   ControllerLocal,  REFUSED),
     op("report_miniapp_web_result",                                      Agnostic,    ControllerLocal,  REFUSED),

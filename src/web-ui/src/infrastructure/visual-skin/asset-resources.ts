@@ -1,7 +1,8 @@
 import type { StoredVisualSkin } from './types';
+import { decodeSkinDataUrl } from './archive';
 import { referencedSkinAssets } from './part-paint';
 
-/** Display-only image URLs. Persisted packages always retain their original data. */
+/** Display-only media URLs. Persisted packages always retain their original data. */
 export class VisualSkinImageResources {
   private readonly generations = new Map<StoredVisualSkin, Map<string, string>>();
 
@@ -13,11 +14,11 @@ export class VisualSkinImageResources {
       for (const id of referencedSkinAssets(skin)) {
         const asset = skin.assets[id];
         if (!asset?.dataUrl) continue;
-        const payload = asset.dataUrl.slice(asset.dataUrl.indexOf(',') + 1);
-        const binary = atob(payload);
-        const bytes = new Uint8Array(binary.length);
-        for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
-        urls.set(id, URL.createObjectURL(new Blob([bytes], { type: asset.mimeType })));
+        const bytes = decodeSkinDataUrl(asset.dataUrl);
+        const buffer = bytes.buffer instanceof ArrayBuffer
+          ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+          : new Uint8Array(bytes).buffer;
+        urls.set(id, URL.createObjectURL(new Blob([buffer], { type: asset.mimeType })));
       }
     } catch (error) {
       urls.forEach(url => URL.revokeObjectURL(url));

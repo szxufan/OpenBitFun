@@ -90,4 +90,21 @@ describe('ModelSettingsPage presentation', () => {
       /@container config-panel \(max-width: 360px\)\s*\{\s*&__cli-account\.openbitfun-config-page-row\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);[\s\S]*?gap: var\(--openbitfun-space-2\);[\s\S]*?justify-content: flex-start;/,
     );
   });
+
+  it('lays out fallback channels across the full row width below a standard-measure add picker', () => {
+    const start = source.indexOf('function renderChannelRoutingRows(');
+    const end = source.indexOf('const renderSelectedModelRows = () =>', start);
+    const channelRouting = source.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(channelRouting).not.toContain('<FieldGroup');
+    expect(channelRouting).not.toContain('account-pool-item');
+    expect(channelRouting).toContain('openbitfun-model-settings__channel-route-row');
+    expect(channelRouting).toContain('<ol className="openbitfun-model-settings__channel-route-list">');
+    expect(styles).toMatch(
+      /&__channel-route-row\.openbitfun-config-page-row\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) minmax\(0, var\(--openbitfun-overlay-menu-inline-size\)\);/,
+    );
+    expect(styles).toMatch(/&__channel-route-list\s*\{[\s\S]*?grid-column: 1 \/ -1;/);
+    expect(styles).not.toMatch(/&__channel-route-item\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
 });

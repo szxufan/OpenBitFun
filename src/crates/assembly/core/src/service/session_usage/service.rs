@@ -2970,6 +2970,7 @@ mod tests {
             remote_ssh_host: remote_connection_id.map(|_| "host.example".to_string()),
             include_system_prompt_preview: false,
             context_preview_category: None,
+            context_estimate: None,
             include_hidden_subagents: true,
         }
     }

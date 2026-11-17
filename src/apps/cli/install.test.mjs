@@ -5,6 +5,69 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
+test('Bash fallbacks use the same kernel lock and never fall back to shlock', { skip: process.platform !== 'linux' }, t => {
+  const temp = mkdtempSync(join(tmpdir(), 'openbitfun-native-lock-'));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const source = readFileSync(new URL('./install.sh', import.meta.url), 'utf8').split('for arg in "$@"; do')[0];
+  const script = source + `
+fixture="$OPENBITFUN_INSTALL_TEST_ROOT"
+mkdir -p "$fixture/host"
+printf host > "$fixture/host/extension-host.js"
+cat > "$fixture/source" <<'EXE'
+#!/usr/bin/env bash
+if [ "$1" = --internal-hold-installation-lock ]; then
+  exec /usr/bin/python3 -c 'import fcntl,sys; lock=open(sys.argv[1],"a+"); fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB); print("OPENBITFUN_INSTALL_LOCK_V1",flush=True); sys.stdin.buffer.read()' "$2"
+fi
+echo new
+EXE
+chmod +x "$fixture/source"
+shlock() { echo 'Incorrect PID-file lock fallback' >&2; return 97; }
+for BACKEND in perl python native; do
+  command() {
+    if [ "$1" = -v ]; then
+      case "$2" in
+        flock) return 1;;
+        perl) [ "$BACKEND" = perl ] || return 1;;
+        python3) [ "$BACKEND" != native ] || return 1;;
+      esac
+    fi
+    builtin command "$@"
+  }
+  destination="$fixture/$BACKEND"
+  mkdir -p "$destination"
+  printf old > "$destination/openbitfun"
+  exec 8<>"$destination/.openbitfun-cli-install.lock"
+  flock -n 8
+  inode=$(stat -c '%i' "$destination/.openbitfun-cli-install.lock")
+  if install_bundle "$fixture/source" "$fixture/host" "$destination"; then exit 31; fi
+  [ "$(cat "$destination/openbitfun")" = old ]
+  [ "$(stat -c '%i' "$destination/.openbitfun-cli-install.lock")" = "$inode" ]
+  exec 8>&-
+  install_bundle "$fixture/source" "$fixture/host" "$destination"
+  [ "$("$destination/openbitfun" --version)" = new ]
+  [ "$(stat -c '%i' "$destination/.openbitfun-cli-install.lock")" = "$inode" ]
+  mktemp() {
+    case "$*" in *'/.openbitfun-install.'*) return 1;; esac
+    builtin command mktemp "$@"
+  }
+  install() {
+    touch "$OPENBITFUN_INSTALL_TEST_ROOT/unexpected-stage"
+    return 97
+  }
+  if install_bundle "$fixture/source" "$fixture/host" "$destination"; then exit 32; fi
+  [ ! -e "$fixture/unexpected-stage" ]
+  [ "$("$destination/openbitfun" --version)" = new ]
+  unset -f install mktemp
+done
+echo 'PASS native lock fallback fixtures'
+`;
+  const file = join(temp, 'fixture.sh'); writeFileSync(file, script);
+  const result = spawnSync('bash', [file], { encoding: 'utf8', timeout: 30000,
+    env: { ...process.env, OPENBITFUN_INSTALL_TEST_ROOT: temp } });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /PASS native lock fallback fixtures/);
+});
+
 test('CLI installer serializes writers, rolls back publication errors and preserves failed recovery copies', t => {
   const temp = mkdtempSync(join(tmpdir(), 'openbitfun-cli-install-test-'));
   t.after(() => rmSync(temp, { recursive: true, force: true }));

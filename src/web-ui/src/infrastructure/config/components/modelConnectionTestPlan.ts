@@ -17,6 +17,12 @@ export function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function responsesPreferences(config: AIModelConfig) {
+  return ['response', 'responses'].includes(config.provider)
+    ? config.responses ?? config.responses_defaults ?? { transport: 'http', context: 'full' }
+    : undefined;
+}
+
 export function providerConnectionChanged(
   previous: AIModelConfig | undefined,
   next: AIModelConfig,
@@ -32,6 +38,7 @@ export function providerConnectionChanged(
     || normalizeComparableString(previous.custom_headers_mode) !== normalizeComparableString(next.custom_headers_mode)
     || normalizeComparableString(previous.custom_request_body) !== normalizeComparableString(next.custom_request_body)
     || normalizeComparableString(previous.custom_request_body_mode) !== normalizeComparableString(next.custom_request_body_mode)
+    || stableJson(responsesPreferences(previous)) !== stableJson(responsesPreferences(next))
     || (previous.skip_ssl_verify ?? false) !== (next.skip_ssl_verify ?? false)
   );
 }
@@ -45,6 +52,7 @@ function modelProbeChanged(previous: AIModelConfig, next: AIModelConfig): boolea
   return (
     normalizeComparableString(previous.model_name) !== normalizeComparableString(next.model_name)
     || normalizeComparableString(previous.request_url) !== normalizeComparableString(next.request_url)
+    || stableJson(previous.responses) !== stableJson(next.responses)
     || supportsImageProbe(previous) !== supportsImageProbe(next)
   );
 }

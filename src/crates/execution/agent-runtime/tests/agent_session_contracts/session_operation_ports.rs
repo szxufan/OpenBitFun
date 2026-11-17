@@ -152,6 +152,7 @@ async fn runtime_delegates_narrow_session_operations_to_registered_ports() {
             remote_ssh_host: None,
             include_system_prompt_preview: false,
             context_preview_category: None,
+            context_estimate: None,
             include_hidden_subagents: true,
         })
         .await

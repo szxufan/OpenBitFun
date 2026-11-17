@@ -2273,7 +2273,7 @@ export const requiredContentRules = [
   {
     path: 'src/crates/execution/agent-runtime/tests/agent_session_contracts/scheduled_job_contracts.rs',
     reason:
-      'agent-runtime scheduled-job owner must keep behavior-equivalence contracts for wire shape, retry, coalescing, one-shot, missing-session, and restart recovery semantics',
+      'agent-runtime scheduled-job owner must keep contracts for wire shape, pending wakeups, failed-trigger consumption, coalescing, one-shot, missing-session, and restart recovery semantics',
     patterns: [
       {
         regex: /\bmanual_trigger_coalesces_existing_pending_run\b/,
@@ -2296,8 +2296,16 @@ export const requiredContentRules = [
         message: 'missing enqueue success one-shot regression',
       },
       {
-        regex: /\benqueue_failure_preserves_retry_and_missing_session_disable_semantics\b/,
+        regex: /\benqueue_failure_consumes_trigger_and_preserves_missing_session_disable_semantics\b/,
         message: 'missing enqueue failure regression',
+      },
+      {
+        regex: /\bfailed_trigger_waits_for_the_next_schedule_instead_of_retrying\b/,
+        message: 'missing failed trigger scheduling regression',
+      },
+      {
+        regex: /\bfailed_one_shot_trigger_stops_until_an_explicit_manual_run\b/,
+        message: 'missing failed one-shot manual run regression',
       },
       {
         regex: /\brestart_recovery_marks_active_turn_error\b/,

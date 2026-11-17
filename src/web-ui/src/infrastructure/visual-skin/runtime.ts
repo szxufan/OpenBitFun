@@ -23,6 +23,8 @@ const ACTIVE_ID_ATTRIBUTE = 'data-openbitfun-skin-id';
 const SURFACE_ATTRIBUTE = 'data-openbitfun-skin-surface';
 const ARTWORK_ATTRIBUTE = 'data-openbitfun-skin-artwork';
 const BACKGROUND_SOURCE_ATTRIBUTE = 'data-openbitfun-skin-background-source';
+const VIDEO_ATTRIBUTE = 'data-openbitfun-skin-video';
+const PAINT_PLANE_ATTRIBUTE = 'data-openbitfun-skin-paint';
 const SAFE_IDENTIFIER = /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/;
 const SAFE_STATE = /^[a-z][a-z0-9_-]{0,48}$/;
 const SAFE_BACKGROUND_POSITION = /^(?:center|top|bottom|left|right|[-+]?\d{1,3}(?:\.\d+)?%)(?:\s+(?:center|top|bottom|left|right|[-+]?\d{1,3}(?:\.\d+)?%))?$/;
@@ -55,6 +57,14 @@ function safeFit(value: unknown): value is 'cover' | 'contain' | 'fill' {
 
 function safeOpacity(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+function teardownSkinVideo(video: HTMLVideoElement): void {
+  if (!video.paused) {
+    try { video.pause?.(); } catch { /* not supported in this environment */ }
+  }
+  video.removeAttribute('src');
+  video.remove();
 }
 
 function declaration(name: string, value: string | number): string {
@@ -305,6 +315,7 @@ function compileSkinCss(skin: StoredVisualSkin, partUrls: ReadonlyMap<string, st
     if (!SAFE_IDENTIFIER.test(surface.surface) || !isVisualSkinSurfaceId(surface.surface)) return;
     const asset = surface.backgroundAssetId ? skin.assets[surface.backgroundAssetId] : undefined;
     const backgroundUrl = surface.backgroundAssetId ? partUrls.get(surface.backgroundAssetId) : undefined;
+    const isVideo = asset?.mimeType === 'video/mp4';
     if (asset?.dataUrl && !backgroundUrl) throw new Error(`Visual skin image URL is missing: ${surface.backgroundAssetId}`);
     const backgroundOpacity = surface.backgroundOpacity ?? (asset?.dataUrl ? 1 : undefined);
     const baseToken = tokenVariable(surface.baseToken ?? VISUAL_SKIN_SURFACE_BASE_TOKENS[surface.surface]);
@@ -318,9 +329,13 @@ function compileSkinCss(skin: StoredVisualSkin, partUrls: ReadonlyMap<string, st
       // pseudo-layers can then have independent opacity without exposing the
       // product canvas underneath the surface.
       baseToken ? declaration('background-color', baseOpacity === 1 ? `var(${baseToken})` : baseFill) : '',
-      backgroundUrl ? surfaceDeclaration('background-image', `url("${backgroundUrl}")`) : '',
-      asset?.dataUrl ? surfaceDeclaration('background-size', surface.fit === 'fill' ? '100% 100%' : safeFit(surface.fit) ? surface.fit : 'cover') : '',
-      asset?.dataUrl && surface.backgroundPosition && SAFE_BACKGROUND_POSITION.test(surface.backgroundPosition) ? surfaceDeclaration('background-position', surface.backgroundPosition) : '',
+      // CSS cannot paint video: an MP4 backdrop is mounted as a <video> in the
+      // surface's paint plane and positioned through object-fit/object-position.
+      backgroundUrl && !isVideo ? surfaceDeclaration('background-image', `url("${backgroundUrl}")`) : '',
+      asset?.dataUrl && !isVideo ? surfaceDeclaration('background-size', surface.fit === 'fill' ? '100% 100%' : safeFit(surface.fit) ? surface.fit : 'cover') : '',
+      asset?.dataUrl && !isVideo && surface.backgroundPosition && SAFE_BACKGROUND_POSITION.test(surface.backgroundPosition) ? surfaceDeclaration('background-position', surface.backgroundPosition) : '',
+      isVideo ? surfaceDeclaration('video-fit', safeFit(surface.fit) ? surface.fit : 'cover') : '',
+      isVideo && surface.backgroundPosition && SAFE_BACKGROUND_POSITION.test(surface.backgroundPosition) ? surfaceDeclaration('video-position', surface.backgroundPosition) : '',
       asset?.dataUrl && safeOpacity(backgroundOpacity) ? surfaceDeclaration('background-opacity', backgroundOpacity) : '',
       scrimToken && tokenVariable(scrimToken)
         ? surfaceDeclaration('scrim-color', `var(${tokenVariable(scrimToken)})`)
@@ -413,6 +428,11 @@ export class VisualSkinRuntime {
     await this.applySelection(id);
   }
 
+  async deactivate(): Promise<void> {
+    await this.initialize();
+    await this.applySelection(null);
+  }
+
   async preview(id: string): Promise<void> {
     await this.initialize();
     const skin = await this.storage.get(id);
@@ -458,28 +478,25 @@ export class VisualSkinRuntime {
     this.replaceStyle(this.skinCss(skin));
   }
 
-  private async applySelection(id: string): Promise<void> {
+  private async applySelection(id: string | null): Promise<void> {
     const before = this.snapshot;
     const previousSkin = this.appliedSkin;
     let committed = false;
     try {
-      const skin = await this.storage.get(id);
-      if (!skin) throw new Error(`Visual skin is not installed: ${id}`);
-      this.partImages.ensure(skin);
+      const skin = id === null ? null : await this.storage.get(id);
+      if (id !== null && !skin) throw new Error(`Visual skin is not installed: ${id}`);
+      if (skin) this.partImages.ensure(skin);
       // Selection writes are transactional. Do not touch the visible skin
       // until IndexedDB confirms that the selection has committed.
       this.setSnapshot({ status: 'applying', error: undefined });
       await this.storage.setSelection(id);
       committed = true;
-      this.appliedSkin = skin;
-      document.documentElement.setAttribute(ACTIVE_ID_ATTRIBUTE, id);
-      this.syncSurfaceMarkers(skin);
-      this.replaceStyle(this.skinCss(skin));
-      this.setSnapshot({ initialized: true, activeSkinId: id, activeSkin: skin, previewSkinId: null, projection: createProjectionReport(skin), status: 'ready', error: undefined });
+      this.restoreDisplay(skin);
+      this.setSnapshot({ initialized: true, activeSkinId: id, activeSkin: skin, previewSkinId: null, projection: skin ? createProjectionReport(skin) : null, status: 'ready', error: undefined });
       this.collectPartImages();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      log.error('Visual skin activation failed', { skinId: id, error: message });
+      log.error('Visual skin selection failed', { skinId: id, error: message });
       if (committed) {
         await this.storage.setSelection(before.activeSkinId);
         this.clearAppliedSkin();
@@ -537,6 +554,7 @@ export class VisualSkinRuntime {
       }
       this.mutationObserver = new MutationObserver(() => this.queueRefresh(true));
       this.mutationObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-color-scheme', 'data-contrast'] });
+      document.addEventListener('visibilitychange', this.syncVideoPlayback);
       if (document.body) {
         this.projectionObserver = new MutationObserver(records => {
           let repaint = false, diagnose = false;
@@ -593,6 +611,7 @@ export class VisualSkinRuntime {
   dispose(): void {
     this.mutationObserver?.disconnect();
     this.projectionObserver?.disconnect();
+    document.removeEventListener('visibilitychange', this.syncVideoPlayback);
     for (const name of ['pointerover', 'pointerout', 'pointerdown', 'pointerup', 'focusin', 'focusout', 'change', 'input', 'keydown', 'keyup', 'reset']) {
       document.body?.removeEventListener(name, this.queueProjectionRefresh, true);
     }
@@ -625,6 +644,7 @@ export class VisualSkinRuntime {
     document.querySelectorAll(`[${ARTWORK_ATTRIBUTE}]`).forEach(node => node.removeAttribute(ARTWORK_ATTRIBUTE));
     document.querySelectorAll(`[${BACKGROUND_SOURCE_ATTRIBUTE}]`).forEach(node => node.removeAttribute(BACKGROUND_SOURCE_ATTRIBUTE));
     document.querySelectorAll(`[${SKIN_NODE_ATTRIBUTE}]`).forEach(node => node.removeAttribute(SKIN_NODE_ATTRIBUTE));
+    document.querySelectorAll<HTMLVideoElement>(`video[${VIDEO_ATTRIBUTE}]`).forEach(teardownSkinVideo);
     document.documentElement.removeAttribute(ACTIVE_ID_ATTRIBUTE);
     this.appliedSkin = null;
   }
@@ -654,7 +674,64 @@ export class VisualSkinRuntime {
         else node.setAttribute(name, value);
       }
     }
+    this.syncSurfaceVideos(skin);
   }
+
+  /**
+   * MP4 backdrops are real <video> children of the surface paint plane. Existing
+   * players with an unchanged source are left running so repaints (mode flips,
+   * late-mounting surfaces) never restart playback.
+   */
+  private syncSurfaceVideos(skin: StoredVisualSkin | null): void {
+    const desired = new Map<Element, string>();
+    if (skin) {
+      const urls = this.partImages.ensure(skin);
+      resolveSkinSurfaces(skin, currentMode()).selected.map(entry => entry.surface).filter(surface => isVisualSkinSurfaceId(surface.surface)).forEach(profile => {
+        const url = profile.backgroundAssetId && skin.assets[profile.backgroundAssetId]?.mimeType === 'video/mp4'
+          ? urls.get(profile.backgroundAssetId) : undefined;
+        if (!url || (profile.backgroundOpacity ?? 1) <= 0) return;
+        document.querySelectorAll(`[data-openbitfun-surface="${cssEscape(profile.surface)}"]`).forEach(node => {
+          const plane = [...node.children].find(child => child.hasAttribute(PAINT_PLANE_ATTRIBUTE));
+          if (plane) desired.set(plane, url);
+        });
+      });
+    }
+    document.querySelectorAll<HTMLVideoElement>(`video[${VIDEO_ATTRIBUTE}]`).forEach(video => {
+      const plane = video.parentElement;
+      if (!plane || desired.get(plane) !== video.getAttribute('src')) teardownSkinVideo(video);
+    });
+    desired.forEach((url, plane) => {
+      if (plane.querySelector(`:scope > video[${VIDEO_ATTRIBUTE}]`)) return;
+      const video = document.createElement('video');
+      video.setAttribute(VIDEO_ATTRIBUTE, 'true');
+      video.setAttribute('src', url);
+      video.setAttribute('aria-hidden', 'true');
+      video.tabIndex = -1;
+      video.muted = true;
+      video.defaultMuted = true;
+      video.loop = true;
+      video.autoplay = !document.hidden;
+      video.playsInline = true;
+      video.controls = false;
+      video.disablePictureInPicture = true;
+      video.preload = 'auto';
+      plane.appendChild(video);
+      if (!document.hidden) {
+        // Autoplay is allowed for muted video; a rejection only means "not now".
+        try { void video.play?.()?.catch(() => undefined); } catch { /* not supported in this environment */ }
+      }
+    });
+  }
+
+  private syncVideoPlayback = (): void => {
+    document.querySelectorAll<HTMLVideoElement>(`video[${VIDEO_ATTRIBUTE}]`).forEach(video => {
+      if (document.hidden) {
+        try { video.pause?.(); } catch { /* not supported in this environment */ }
+      } else {
+        try { void video.play?.()?.catch(() => undefined); } catch { /* not supported in this environment */ }
+      }
+    });
+  };
 
   private setSnapshot(patch: Partial<VisualSkinSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...patch };

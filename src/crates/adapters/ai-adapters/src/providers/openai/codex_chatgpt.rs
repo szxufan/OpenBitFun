@@ -265,6 +265,19 @@ pub(crate) async fn send_stream(
     let idle_timeout = client.stream_options.idle_timeout;
     let ttft_timeout = client.stream_options.ttft_timeout;
 
+    crate::client::responses_websocket::validate(client)?;
+    if client.config.responses.unwrap_or_default().transport
+        == openbitfun_core_types::responses::ResponsesTransport::Websocket
+    {
+        return crate::client::responses_websocket::send(
+            client,
+            request_body,
+            request_context,
+            trace,
+        )
+        .await;
+    }
+
     execute_sse_request(
         Some(client),
         "Codex ChatGPT Responses API",
@@ -346,6 +359,7 @@ mod tests {
             .unwrap(),
         );
         let context = ModelRequestContext {
+            conversation_scope: None,
             prompt_cache_route_key: Some("runtime".into()),
             ..Default::default()
         };
@@ -388,6 +402,7 @@ mod tests {
             "api_key": "synthetic", "model": "gpt-5.5", "format": "responses", "context_window": 128000, "inline_think_in_text": false, "skip_ssl_verify": false
         })).unwrap()).with_subscription_provider(crate::subscription_auth::SubscriptionProvider::Codex);
         let context = ModelRequestContext {
+            conversation_scope: None,
             prompt_cache_route_key: Some("conversation-a".into()),
             ..Default::default()
         };

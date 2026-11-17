@@ -169,13 +169,12 @@ async function readBounded(path, limit) {
 
 export async function buildDirectory(directory, product) {
   const root = await realpath(resolve(directory));
-  const manifestBytes = await readBounded(join(root, 'skin.json'), product.MAX_SKIN_MANIFEST_BYTES);
+  const manifestBytes = await readBounded(join(root, 'skin.json'), product.MAX_SKIN_ASSET_BYTES);
   const skin = JSON.parse(manifestBytes.toString('utf8'));
   lintAuthoring(skin, product);
   const paths = Object.values(skin.assets ?? {}).flatMap(asset => asset.source.kind === 'path' ? [asset.source.path] : []);
   unique(['skin.json', ...paths], 'archive paths');
   const files = new Map([['skin.json', manifestBytes]]);
-  let total = manifestBytes.length;
   for (const path of paths.sort()) {
     const target = await realpath(resolve(root, path));
     const inside = relative(root, target);
@@ -183,8 +182,6 @@ export async function buildDirectory(directory, product) {
       throw new Error(`Asset resolves outside the skin directory: ${path}`);
     }
     const bytes = await readBounded(target, product.MAX_SKIN_ASSET_BYTES);
-    total += bytes.length;
-    if (total > product.MAX_SKIN_EXPANDED_BYTES) throw new Error('Skin exceeds the total expanded size limit');
     files.set(path, bytes);
   }
   const zip = new product.JSZip();
@@ -198,14 +195,14 @@ export async function buildDirectory(directory, product) {
 
 export async function validateInput(input, product) {
   if ((await stat(input)).isDirectory()) return buildDirectory(input, product);
-  // The parser performs the same archive and expansion checks used on import.
-  const bytes = await readBounded(input, 32 * 1024 * 1024);
+  // The only product limit is per file (MAX_SKIN_ASSET_BYTES); the package itself is unbounded.
+  const bytes = await readBounded(input, Number.POSITIVE_INFINITY);
   const parser = new product.VisualSkinPackageParser();
   const skin = await parser.parse(bufferSource(bytes));
   let raw;
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
     const archive = await product.SkinArchive.open(bufferSource(bytes));
-    try { raw = JSON.parse(new TextDecoder().decode(await archive.read('skin.json', product.MAX_SKIN_MANIFEST_BYTES))); }
+    try { raw = JSON.parse(new TextDecoder().decode(await archive.read('skin.json'))); }
     finally { await archive.close(); }
   } else raw = JSON.parse(bytes.toString('utf8'));
   lintAuthoring(raw, product);

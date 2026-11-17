@@ -38,7 +38,7 @@ import {
 } from './thread-goal/ThreadGoalStripControl';
 import { formatCompactTokenCount } from '../utils/tokenUsageDisplay';
 import { ContextUsagePopover } from './usage/ContextUsagePopover';
-import type { UsageContextBreakdown } from '@/infrastructure/api/service-api/SessionAPI';
+import type { UsageContextEstimate } from '@/infrastructure/api/service-api/SessionAPI';
 import './ChatInputWorkspaceStrip.scss';
 
 export interface ChatInputWorkspaceStripProps {
@@ -57,7 +57,7 @@ export interface ChatInputWorkspaceStripProps {
     sessionKey?: string;
     anchorRef?: React.RefObject<HTMLElement>;
     previewSession?: { sessionId: string; workspaceId?: string };
-    loadContext?: () => Promise<UsageContextBreakdown | undefined>;
+    loadContext?: () => Promise<UsageContextEstimate | undefined>;
     compactDisabled?: boolean;
     onCompact?: () => void;
     onOpen: () => void;

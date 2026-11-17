@@ -2,6 +2,9 @@
 //!
 //! Responsible for session CRUD, lifecycle management, and resource association
 
+mod context_estimate;
+pub(crate) use context_estimate::ContextEstimateInputs;
+
 use crate::agentic::agents::get_agent_registry;
 use crate::agentic::context_normalization::normalize_incomplete_tool_calls;
 use crate::agentic::core::{
@@ -12183,6 +12186,145 @@ mod tests {
                 prompt_cache_policy: PromptCachePolicy::default(),
             },
         )
+    }
+
+    #[tokio::test]
+    async fn current_context_estimate_reads_compression_forks_and_legacy_snapshots_without_writes()
+    {
+        use openbitfun_services_core::session::{SessionBranchBoundary, SessionBranchRequest};
+        let workspace = TestWorkspace::new();
+        let persistence = Arc::new(PersistenceManager::new(workspace.path_manager()).unwrap());
+        let manager = test_manager(persistence.clone());
+        let session = manager
+            .create_session(
+                "Estimate".into(),
+                "Standard".into(),
+                SessionConfig {
+                    workspace_path: Some(workspace.path().to_string_lossy().into_owned()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        let storage = manager
+            .effective_session_storage_path(&session.session_id)
+            .await
+            .unwrap();
+        let turn = DialogTurnData::new(
+            "turn-estimate".into(),
+            0,
+            session.session_id.clone(),
+            crate::service::session::UserMessageData {
+                id: "input".into(),
+                content: "Uncompressed history".into(),
+                timestamp: 1,
+                metadata: None,
+            },
+        );
+        persistence.save_dialog_turn(&storage, &turn).await.unwrap();
+        let mut summary = Message::user("Compressed summary".into());
+        summary.metadata.semantic_kind =
+            Some(crate::agentic::core::MessageSemanticKind::CompressionSummary);
+        persistence
+            .save_turn_context_snapshot(&storage, &session.session_id, 0, &[summary.clone()])
+            .await
+            .unwrap();
+        manager
+            .context_store
+            .replace_context(&session.session_id, vec![summary.clone()]);
+        let live = manager
+            .read_context_estimate_inputs(&storage, &session.session_id)
+            .await
+            .unwrap();
+        assert_eq!(live.messages.len(), 1);
+        assert_eq!(live.messages[0].id, summary.id);
+
+        let fork = persistence
+            .branch_session(
+                &storage,
+                &SessionBranchRequest {
+                    source_session_id: session.session_id.clone(),
+                    source_turn_id: turn.turn_id.clone(),
+                    boundary: SessionBranchBoundary::ThroughTurn,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(manager.get_session(&fork.session_id).is_none());
+        // Corrupt display-only legacy data must not affect a current-context query.
+        let root = if persistence.is_resolved_sessions_dir(&storage) {
+            storage.clone()
+        } else {
+            persistence.path_manager().project_sessions_dir(&storage)
+        };
+        let dir = root.join(&fork.session_id);
+        std::fs::write(
+            dir.join("usage-context.json"),
+            b"legacy unreadable display snapshot",
+        )
+        .unwrap();
+        fn files(path: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+            let mut result = std::collections::BTreeMap::new();
+            for entry in std::fs::read_dir(path).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    result.extend(files(&path));
+                } else {
+                    result.insert(path.clone(), std::fs::read(path).unwrap());
+                }
+            }
+            result
+        }
+        let before = files(&dir);
+        let copied = manager
+            .read_context_estimate_inputs(&storage, &fork.session_id)
+            .await
+            .unwrap();
+        assert_eq!(copied.messages.len(), 1);
+        assert_eq!(copied.messages[0].id, summary.id);
+        assert!(
+            manager.get_session(&fork.session_id).is_none(),
+            "inspection must not restore a session"
+        );
+        assert_eq!(
+            before,
+            files(&dir),
+            "inspection must not rewrite persisted data"
+        );
+        // Legacy sessions with no context snapshot fall back to model-visible turns.
+        persistence
+            .delete_turn_context_snapshots_from(&storage, &fork.session_id, 0)
+            .await
+            .unwrap();
+        let legacy = manager
+            .read_context_estimate_inputs(&storage, &fork.session_id)
+            .await
+            .unwrap();
+        assert!(legacy
+            .messages
+            .iter()
+            .any(|message| matches!(&message.content,
+            MessageContent::Text(text) if text.contains("Uncompressed history"))));
+        // A staged revert must exclude both retained snapshots and in-memory history.
+        persistence
+            .save_session_revert_state(
+                &storage,
+                &session.session_id,
+                &SessionRevertState {
+                    schema_version: SESSION_REVERT_SCHEMA_VERSION,
+                    boundary_turn: 0,
+                    original_turn_end: 1,
+                    phase: SessionRevertPhase::Staged,
+                    workspace_checkpoint: Vec::new(),
+                },
+            )
+            .await
+            .unwrap();
+        let reverted = manager
+            .read_context_estimate_inputs(&storage, &session.session_id)
+            .await
+            .unwrap();
+        assert!(reverted.messages.is_empty());
     }
 
     #[tokio::test]

@@ -109,21 +109,23 @@ it('keeps the theme page open and shows the error if saving preferences fails', 
   expect(close).not.toHaveBeenCalled(); expect(launch).not.toHaveBeenCalled();
 });
 
-it('keeps installation scope and directory coherent while resolving a machine path, and reports resolution failures', async () => {
-  let reject!: (error: string) => void;
-  vi.mocked(invoke).mockImplementationOnce(() => new Promise((_, no) => { reject = no; }));
+it('offers shortcut preferences without a scope switch or changing the custom directory', async () => {
   const changed = vi.fn(); const install = vi.fn();
   await act(async () => root.render(<Options options={initial} setOptions={changed} diskSpace={null} error={null}
     refreshDiskSpace={vi.fn()} existingInstall={null} onLaunchRegisteredUninstaller={vi.fn()}
     onBack={vi.fn()} onInstall={install} isInstalling={false} clearInstallError={vi.fn()} />));
   const labels = [...container.querySelectorAll<HTMLLabelElement>('[data-openbitfun-component="checkbox"]')];
-  const scope = labels.find(label => label.textContent?.includes('options.allUsers'))!;
-  act(() => scope.click());
-  expect(changed).not.toHaveBeenCalled();
+  expect(labels).toHaveLength(2);
+  expect(container.textContent).not.toContain('options.allUsers');
+  for (const label of labels) {
+    act(() => label.click());
+    const update = changed.mock.lastCall![0];
+    expect(update(initial).installPath).toBe(initial.installPath);
+    expect(update(initial).allUsers).toBeUndefined();
+  }
+  expect(invoke).not.toHaveBeenCalled();
   const installButton = [...container.querySelectorAll('button')].find(button => button.textContent === 'options.install')!;
-  expect(installButton.disabled).toBe(true);
-  await act(async () => { reject('Cannot locate Program Files'); });
-  expect(changed).not.toHaveBeenCalled();
-  expect(container.textContent).toContain('errors.maintenance.failed');
-  expect(install).not.toHaveBeenCalled();
+  expect(installButton.disabled).toBe(false);
+  await act(async () => installButton.click());
+  expect(install).toHaveBeenCalledOnce();
 });

@@ -141,32 +141,34 @@ fn enqueue_success_sets_active_turn_and_disables_one_shot_next_run() {
 }
 
 #[test]
-fn enqueue_failure_preserves_retry_and_missing_session_disable_semantics() {
-    let mut retry_state = ScheduledJobRuntimeState {
+fn enqueue_failure_consumes_trigger_and_preserves_missing_session_disable_semantics() {
+    let mut failed_state = ScheduledJobRuntimeState {
+        next_run_at_ms: Some(60_000),
         pending_trigger_at_ms: Some(100),
+        retry_at_ms: Some(150),
         consecutive_failures: 1,
         ..Default::default()
     };
 
-    let retry_action = retry_state.mark_enqueue_failed(
-        200,
-        "temporary failure".to_string(),
-        DEFAULT_SCHEDULED_JOB_RETRY_DELAY_MS,
-        false,
-    );
+    let failure_action =
+        failed_state.mark_enqueue_failed(200, "temporary failure".to_string(), false);
 
-    assert_eq!(retry_action, ScheduledJobEnqueueFailureAction::Retry);
     assert_eq!(
-        retry_state.retry_at_ms,
-        Some(200 + DEFAULT_SCHEDULED_JOB_RETRY_DELAY_MS)
+        failure_action,
+        ScheduledJobEnqueueFailureAction::SkipTrigger
     );
-    assert_eq!(retry_state.pending_trigger_at_ms, Some(100));
-    assert_eq!(retry_state.consecutive_failures, 2);
+    assert_eq!(failed_state.retry_at_ms, None);
+    assert_eq!(failed_state.pending_trigger_at_ms, None);
+    assert_eq!(failed_state.next_run_at_ms, Some(60_000));
+    assert_eq!(failed_state.consecutive_failures, 2);
     assert_eq!(
-        retry_state.last_run_status,
+        failed_state.last_run_status,
         Some(ScheduledJobRunStatus::Error)
     );
-    assert_eq!(retry_state.last_error.as_deref(), Some("temporary failure"));
+    assert_eq!(
+        failed_state.last_error.as_deref(),
+        Some("temporary failure")
+    );
 
     let mut missing_session_state = ScheduledJobRuntimeState {
         active_turn_id: Some("stale-turn".to_string()),
@@ -177,12 +179,8 @@ fn enqueue_failure_preserves_retry_and_missing_session_disable_semantics() {
         ..Default::default()
     };
 
-    let disable_action = missing_session_state.mark_enqueue_failed(
-        200,
-        "session not found".to_string(),
-        5_000,
-        true,
-    );
+    let disable_action =
+        missing_session_state.mark_enqueue_failed(200, "session not found".to_string(), true);
 
     assert_eq!(
         disable_action,
@@ -193,6 +191,56 @@ fn enqueue_failure_preserves_retry_and_missing_session_disable_semantics() {
     assert_eq!(missing_session_state.pending_trigger_at_ms, None);
     assert_eq!(missing_session_state.retry_at_ms, None);
     assert_eq!(missing_session_state.consecutive_failures, 3);
+}
+
+#[test]
+fn failed_trigger_waits_for_the_next_schedule_instead_of_retrying() {
+    let scheduled_at_ms = 1_000;
+    let next_run_at_ms = scheduled_at_ms + 86_400_000;
+    let mut state = ScheduledJobRuntimeState {
+        next_run_at_ms: Some(scheduled_at_ms),
+        ..Default::default()
+    };
+    state.apply_due_scheduled_trigger(scheduled_at_ms, Some(next_run_at_ms));
+
+    state.mark_enqueue_failed(
+        scheduled_at_ms + 1,
+        "Model API unavailable".to_string(),
+        false,
+    );
+
+    assert_eq!(state.pending_trigger_at_ms, None);
+    assert_eq!(state.retry_at_ms, None);
+    assert_eq!(state.last_run_status, Some(ScheduledJobRunStatus::Error));
+    assert_eq!(state.last_error.as_deref(), Some("Model API unavailable"));
+    assert_eq!(state.consecutive_failures, 1);
+    assert_eq!(state.next_wakeup_at_ms(), Some(next_run_at_ms));
+    for attempt in 1..=500 {
+        assert!(
+            !state.pending_is_due(scheduled_at_ms + attempt * DEFAULT_SCHEDULED_JOB_RETRY_DELAY_MS)
+        );
+    }
+
+    assert_eq!(
+        state.apply_due_scheduled_trigger(next_run_at_ms, Some(next_run_at_ms + 86_400_000)),
+        ScheduledJobTriggerAction::Pending
+    );
+    assert!(state.pending_is_due(next_run_at_ms));
+}
+
+#[test]
+fn failed_one_shot_trigger_stops_until_an_explicit_manual_run() {
+    let mut state = ScheduledJobRuntimeState {
+        pending_trigger_at_ms: Some(100),
+        ..Default::default()
+    };
+    state.mark_enqueue_failed(200, "Model initialization failed".to_string(), false);
+
+    assert_eq!(state.next_wakeup_at_ms(), None);
+    assert!(!state.pending_is_due(100_000));
+
+    state.mark_manual_trigger(100_001);
+    assert!(state.pending_is_due(100_001));
 }
 
 #[test]

@@ -2,6 +2,18 @@
 
 中文 | [English](./README.md)
 
+## Responses 连接设置
+
+在 **设置 → 模型 → 供应商/模型编辑 → 高级设置** 中，为 Responses 模型选择
+**HTTP** 或 **WebSocket**。已有配置保持 HTTP + 全量上下文。WebSocket 可选择全量，
+或使用 `previous_response_id` 发送增量；两者均保持 `store: false`。
+HTTP 不支持增量，也没有自动切换传输方式的选项。
+
+供应商设置作为其 Responses 模型的默认值。单独修改模型会建立覆盖值，点击
+**恢复供应商设置** 可恢复继承。启用 WebSocket 前需确认供应商支持 Responses
+WebSocket 协议。连接较旧的 Peer 主机时，需要升级目标主机才能编辑或测试这些设置。
+
+
 ## 概述
 
 本目录是 OpenBitFun 的 **Web UI**（React + TypeScript）。同一份前端代码会被复用在：

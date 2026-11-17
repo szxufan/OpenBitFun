@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useI18n } from '@/infrastructure/i18n';
 import { MarkdownRenderer } from '@/infrastructure/markdown';
 import { Empty, Icon, IconButton, LoadingState, PageHeader, ScrollArea, Tooltip } from '@openbitfun/ui';
-import type { SessionUsageReport } from '@/infrastructure/api/service-api/SessionAPI';
+import type { SessionUsageReport, UsageContextEstimate } from '@/infrastructure/api/service-api/SessionAPI';
 import {
   buildSessionUsageExportMarkdown,
   isUnusedSession,
@@ -47,9 +47,12 @@ export const SessionUsagePanel: React.FC<SessionUsagePanelProps> = ({
   const { t } = useI18n('flow-chat');
   const reportTitle = t('usage.panel.report');
   const [copied, setCopied] = useState(false);
+  const [previewEstimate, setPreviewEstimate] = useState<UsageContextEstimate>();
+  useEffect(() => setPreviewEstimate(undefined), [report]);
   const { previewLoading, previewContext: handlePreviewContext } = useContextPreview({
     sessionId: sessionId ?? report?.sessionId, reportSessionId: report?.sessionId,
     workspaceId: workspaceId ?? report?.workspace.workspaceId,
+    estimate: previewEstimate, onEstimate: setPreviewEstimate,
   });
   const [redactExportPaths, setRedactExportPaths] = useState(getUsageExportRedactPathsPreference);
 
@@ -142,7 +145,7 @@ export const SessionUsagePanel: React.FC<SessionUsagePanelProps> = ({
         />
       </div>
 
-      <SessionUsageSummary report={report} workspaceName={workspaceName}
+      <SessionUsageSummary report={previewEstimate ? { ...report, contextEstimate: previewEstimate } : report} workspaceName={workspaceName}
         onPreviewContext={handlePreviewContext} previewLoading={previewLoading} />
     </ScrollArea>
   );

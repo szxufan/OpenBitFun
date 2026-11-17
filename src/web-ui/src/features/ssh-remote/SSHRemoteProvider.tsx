@@ -424,8 +424,9 @@ export const SSHRemoteProvider: React.FC<SSHRemoteProviderProps> = ({ children }
     scope: SurfaceScope,
   ): Promise<WorkspaceInfo | null> => {
     try {
+      // Restoring is not an add: it must not move the record in the sidebar.
       return await runInSurfaceScope(scope, 'restore SSH workspace record', () =>
-        workspaceManager.openRemoteWorkspace(workspace));
+        workspaceManager.openRemoteWorkspace(workspace, { promoteIfOpened: false }));
     } catch (error) {
       scope.assertCurrent('restore SSH workspace record');
       if (!isRemoteWorkspaceConnectionConflictError(error)) {

@@ -49,6 +49,7 @@
     "previewing": "Previewing",
     "cancelPreview": "Cancel preview",
     "activate": "Use skin",
+    "deactivate": "Disable skin",
     "active": "Active",
     "remove": "Remove skin",
     "error": "Skin operation failed: {{message}}",

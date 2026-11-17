@@ -432,3 +432,13 @@ cargo test --locked -p openbitfun-core --no-default-features --features agent-ru
 
 This delayed loopback HTTP fixture separates response headers, metadata and model
 output. It does not exercise a real provider or remote host.
+
+For on-demand context composition, compression/fork recovery without display
+snapshots, and request-ledger independence:
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib -- current_context_estimate context_composition account_attempt_ledger_keeps_failed_usage_actual_accounts_and_idempotent_events
+```
+
+These local fixtures cover read-only persistence and typed estimates, not live
+remote workspace, Peer, relay, or detached transports.

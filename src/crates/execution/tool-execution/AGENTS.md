@@ -73,6 +73,7 @@ agent-facing tool surface.
 
 ```bash
 cargo test -p tool-runtime
+cargo test -p tool-runtime --no-default-features --lib exec_command::tests::
 cargo test -p tool-runtime --no-default-features --lib computer_use
 cargo test -p tool-runtime --features shell-analysis --lib shell_analysis
 cargo test -p tool-runtime --lib fs::read_file::tests::

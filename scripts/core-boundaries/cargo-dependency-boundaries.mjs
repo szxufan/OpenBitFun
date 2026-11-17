@@ -594,6 +594,9 @@ const THIRD_PARTY_CAPABILITY_PROFILES = new Map([
   ['tokio-tungstenite', {
     label: 'Tokio Tungstenite',
     packages: new Map([
+      // Responses upgrades use the existing Reqwest proxy/TLS policy. This owner
+      // needs WebSocket framing/handshake, not a second TCP/TLS connector.
+      ['openbitfun-ai-adapters', dependencyProfile(['handshake'], { useDefaultFeatures: false })],
       ['openbitfun-core', { ...dependencyProfile([], { optional: true }),
         devProfile: dependencyProfile([], { kind: 'dev' }),
       }],

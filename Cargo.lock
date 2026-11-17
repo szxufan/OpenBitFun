@@ -5847,6 +5847,7 @@ dependencies = [
  "tokenizers",
  "tokio",
  "tokio-stream",
+ "tokio-tungstenite 0.29.0",
  "tokio-util",
  "urlencoding",
  "uuid",

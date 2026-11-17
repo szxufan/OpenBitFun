@@ -48,6 +48,24 @@ afterEach(() => {
 });
 
 describe('staged app update', () => {
+  it('does not replace a reboot-pending package when download is the first action', async () => {
+    mocks.pending.mockResolvedValueOnce({ version: '2.0.0', rebootRequired: true });
+    await state().startInstall(true);
+    expect(state().rebootRequired).toBe(true);
+    expect(mocks.download).not.toHaveBeenCalled();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+  it('restores a successful MSI reboot requirement without retrying installation', async () => {
+    mocks.pending.mockResolvedValueOnce({ version: '2.0.0', rebootRequired: true, installError: 'Restart Windows to finish installing the update' });
+    await state().initialize();
+    expect(state()).toMatchObject({ status: 'ready', rebootRequired: true, error: null });
+    state().requestInstall();
+    expect(state()).toMatchObject({ detailsOpen: true, promptOpen: false });
+    await state().confirmInstall();
+    await state().startInstall(true);
+    expect(mocks.install).not.toHaveBeenCalled();
+    expect(mocks.download).not.toHaveBeenCalled();
+  });
   it('requests backend cancellation and waits for transfer termination before clearing download state', async () => {
     let reject!: (error: Error) => void;
     mocks.download.mockImplementationOnce(() => new Promise((_, no) => { reject = no; }));

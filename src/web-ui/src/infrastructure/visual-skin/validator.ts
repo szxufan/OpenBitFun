@@ -22,6 +22,7 @@ const supportedMimeTypes = new Set([
   'image/jpeg',
   'image/webp',
   'image/svg+xml',
+  'video/mp4',
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -106,17 +107,30 @@ function validateDataUrl(
   errors: VisualSkinValidationIssue[],
 ): void {
   const prefix = `data:${mimeType};base64,`;
-  if (!value.startsWith(prefix) || value.length > prefix.length + Math.ceil(MAX_SKIN_ASSET_BYTES / 3) * 4) {
+  if (!value.startsWith(prefix)) {
     errors.push(issue(path, `must be a base64 data URL for ${mimeType}`));
     return;
   }
   const payload = value.slice(prefix.length);
-  if (payload.length === 0 || !/^[a-z0-9+/]*={0,2}$/i.test(payload)) {
+  if (payload.length > Math.ceil(MAX_SKIN_ASSET_BYTES / 3) * 4) {
+    errors.push(issue(path, 'exceeds the asset size limit'));
+    return;
+  }
+  if (payload.length === 0 || payload.length % 4 !== 0 || !/^[a-z0-9+/]+={0,2}$/i.test(payload)) {
     errors.push(issue(path, 'contains invalid base64 data'));
     return;
   }
   const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0;
-  if (Math.floor(payload.length * 3 / 4) - padding > MAX_SKIN_ASSET_BYTES) errors.push(issue(path, 'exceeds the asset size limit'));
+  const byteLength = Math.floor(payload.length * 3 / 4) - padding;
+  if (byteLength > MAX_SKIN_ASSET_BYTES) {
+    errors.push(issue(path, 'exceeds the asset size limit'));
+    return;
+  }
+  if (mimeType === 'video/mp4') {
+    const head = payload.length >= 16 ? atob(payload.slice(0, 16)) : '';
+    const isFtyp = byteLength >= 12 && head.slice(4, 8) === 'ftyp';
+    if (!isFtyp) errors.push(issue(path, 'is not a valid MP4 file'));
+  }
 }
 
 export function validateVisualSkinPackage(raw: unknown): VisualSkinValidationResult {
@@ -173,7 +187,7 @@ export function validateVisualSkinPackage(raw: unknown): VisualSkinValidationRes
         errors.push(issue(path, 'must be an object'));
         return;
       }
-      if (typeof asset.mimeType !== 'string' || !supportedMimeTypes.has(asset.mimeType)) errors.push(issue(`${path}.mimeType`, 'is not a supported image MIME type'));
+      if (typeof asset.mimeType !== 'string' || !supportedMimeTypes.has(asset.mimeType)) errors.push(issue(`${path}.mimeType`, 'is not a supported image or video MIME type'));
       if (!isRecord(asset.source)) {
         errors.push(issue(`${path}.source`, 'must be an object'));
       } else if (asset.source.kind === 'data') {
@@ -249,6 +263,14 @@ export function validateVisualSkinPackage(raw: unknown): VisualSkinValidationRes
   // instead of silently dropping a decorative recipe at render time.
   if (isRecord(raw.assets)) {
     const assetIds = new Set(Object.keys(raw.assets));
+    const videoIds = new Set(Object.entries(raw.assets).filter(([, asset]) => isRecord(asset) && asset.mimeType === 'video/mp4').map(([id]) => id));
+    // Component slots are painted with CSS background-image, which cannot play
+    // video. Video is therefore limited to surface backdrops and the preview.
+    const rejectVideoSlot = (recipe: unknown, path: string) => {
+      if (isRecord(recipe) && typeof recipe.assetId === 'string' && videoIds.has(recipe.assetId)) {
+        errors.push(issue(`${path}.assetId`, 'cannot use a video asset; video is only supported as a surface backgroundAssetId'));
+      }
+    };
     if (isRecord(manifest) && manifest.previewAssetId !== undefined
       && (typeof manifest.previewAssetId !== 'string' || !assetIds.has(manifest.previewAssetId))) {
       errors.push(issue('manifest.previewAssetId', 'must reference a declared asset'));
@@ -260,6 +282,7 @@ export function validateVisualSkinPackage(raw: unknown): VisualSkinValidationRes
           if (isRecord(recipe) && typeof recipe.assetId === 'string' && !assetIds.has(recipe.assetId)) {
             errors.push(issue(`components[${index}].slots.${slot}.assetId`, 'must reference a declared asset'));
           }
+          rejectVideoSlot(recipe, `components[${index}].slots.${slot}`);
         });
         if (isRecord(component.states)) {
           Object.entries(component.states).forEach(([state, stateRecipe]) => {
@@ -268,6 +291,7 @@ export function validateVisualSkinPackage(raw: unknown): VisualSkinValidationRes
               if (isRecord(recipe) && typeof recipe.assetId === 'string' && !assetIds.has(recipe.assetId)) {
                 errors.push(issue(`components[${index}].states.${state}.slots.${slot}.assetId`, 'must reference a declared asset'));
               }
+              rejectVideoSlot(recipe, `components[${index}].states.${state}.slots.${slot}`);
             });
           });
         }
@@ -286,6 +310,7 @@ export function validateVisualSkinPackage(raw: unknown): VisualSkinValidationRes
             if (isRecord(recipe) && typeof recipe.assetId === 'string' && !assetIds.has(recipe.assetId)) {
               errors.push(issue(`${groupPath}[${index}].states.${state}.slots.${slot}.assetId`, 'must reference a declared asset'));
             }
+            rejectVideoSlot(recipe, `${groupPath}[${index}].states.${state}.slots.${slot}`);
           });
         });
       });

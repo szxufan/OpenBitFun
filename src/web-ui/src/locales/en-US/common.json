@@ -1484,6 +1484,8 @@
     "readyVersion": "Version {{version}} is downloaded",
     "installWarning": "Installing will restart OpenBitFun on this device and interrupt its active sessions.",
     "installAndRestart": "Install and restart",
+    "systemRestartRequired": "System restart required",
+    "systemRestartMessage": "The update was installed. Restart Windows to finish applying it; you do not need to install it again.",
     "installing": "Installing…",
     "deferredMessage": "The update is saved. Select the bottom-left checkmark to install and restart whenever you are ready.",
     "downloadAgain": "Download again",
@@ -1864,6 +1866,7 @@
     "scrollPrevious": "Scroll tabs left",
     "scrollNext": "Scroll tabs right",
     "closeTab": "Close {{label}}",
+    "closeDeviceTabs": "Close all tabs for this device",
     "workspaceUnavailable": "This session's workspace is not open. Reopen its workspace to switch to this session."
   },
   "loading": {

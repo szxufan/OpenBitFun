@@ -1,6 +1,8 @@
 use super::unified::{UnifiedResponse, UnifiedTokenUsage, UnifiedToolCall};
 use openbitfun_agent_stream::ModelResponseReplayCapture;
-use openbitfun_core_types::{ModelReasoningSummaryPart, ModelResponseReplayItem};
+use openbitfun_core_types::{
+    ModelReasoningContentPart, ModelReasoningSummaryPart, ModelResponseReplayItem,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -150,16 +152,13 @@ pub fn parse_responses_replay_capture(output: &[Value]) -> Option<ModelResponseR
         return None;
     }
 
-    let mut contains_opaque_reasoning = false;
     let mut items = Vec::with_capacity(output.len());
     for item in output {
         let replay_item = parse_responses_replay_item(item)?;
-        contains_opaque_reasoning |=
-            matches!(replay_item, ModelResponseReplayItem::OpaqueReasoning { .. });
         items.push(replay_item);
     }
 
-    contains_opaque_reasoning.then(|| ModelResponseReplayCapture {
+    Some(ModelResponseReplayCapture {
         protocol: OPENAI_RESPONSES_REPLAY_PROTOCOL.to_string(),
         items,
     })
@@ -182,9 +181,14 @@ fn parse_responses_replay_item(item: &Value) -> Option<ModelResponseReplayItem> 
                 Some(summary) => parse_reasoning_summary(summary)?,
                 None => Vec::new(),
             };
+            let content = match item.get("content") {
+                Some(content) => Some(parse_reasoning_content(content)?),
+                None => None,
+            };
             Some(ModelResponseReplayItem::OpaqueReasoning {
                 item_id,
                 summary,
+                content,
                 opaque_state,
             })
         }
@@ -194,7 +198,23 @@ fn parse_responses_replay_item(item: &Value) -> Option<ModelResponseReplayItem> 
                 .and_then(Value::as_str)
                 .is_none_or(|role| role == "assistant") =>
         {
-            Some(ModelResponseReplayItem::AssistantMessage)
+            Some(ModelResponseReplayItem::AssistantMessage {
+                phase: item.get("phase").and_then(Value::as_str).map(str::to_owned),
+                text: item
+                    .get("content")
+                    .and_then(Value::as_array)
+                    .and_then(|parts| {
+                        parts
+                            .iter()
+                            .map(|part| {
+                                (part.get("type").and_then(Value::as_str) == Some("output_text"))
+                                    .then(|| part.get("text").and_then(Value::as_str))
+                                    .flatten()
+                            })
+                            .collect::<Option<Vec<_>>>()
+                            .map(|parts| parts.concat())
+                    }),
+            })
         }
         "function_call" => item
             .get("call_id")
@@ -205,6 +225,21 @@ fn parse_responses_replay_item(item: &Value) -> Option<ModelResponseReplayItem> 
             }),
         _ => None,
     }
+}
+
+fn parse_reasoning_content(value: &Value) -> Option<Vec<ModelReasoningContentPart>> {
+    value
+        .as_array()?
+        .iter()
+        .map(|part| {
+            (part.get("type").and_then(Value::as_str) == Some("reasoning_text"))
+                .then(|| part.get("text").and_then(Value::as_str))
+                .flatten()
+                .map(|text| ModelReasoningContentPart {
+                    text: text.to_string(),
+                })
+        })
+        .collect()
 }
 
 fn parse_reasoning_summary(value: &Value) -> Option<Vec<ModelReasoningSummaryPart>> {
@@ -232,6 +267,23 @@ mod tests {
     use openbitfun_core_types::ModelResponseReplayItem;
     use serde_json::json;
 
+    #[test]
+    fn rejects_reasoning_content_that_cannot_be_replayed_losslessly() {
+        for content in [
+            serde_json::json!(null),
+            serde_json::json!({}),
+            serde_json::json!([{"type":"unknown", "text":"keep"}]),
+            serde_json::json!([{"type":"reasoning_text"}]),
+            serde_json::json!([{"type":"reasoning_text", "text":42}]),
+            serde_json::json!([
+                {"type":"reasoning_text", "text":"valid"},
+                {"type":"unknown", "text":"must not silently drop"}
+            ]),
+        ] {
+            let item = serde_json::json!({"type":"reasoning", "encrypted_content":"opaque", "summary":[], "content":content});
+            assert!(parse_responses_replay_capture(&[item]).is_none());
+        }
+    }
     #[test]
     fn responses_cached_tokens_maps_to_cached_content() {
         let raw = r#"{
@@ -382,7 +434,7 @@ mod tests {
         assert_eq!(capture.items.len(), 3);
         assert!(matches!(
             &capture.items[0],
-            ModelResponseReplayItem::OpaqueReasoning { item_id, summary, opaque_state }
+            ModelResponseReplayItem::OpaqueReasoning { item_id, summary, content: None, opaque_state }
                 if item_id.as_deref() == Some("rs_1")
                     && summary.first().map(|part| part.text.as_str()) == Some("summary")
                     && opaque_state == "opaque"
@@ -393,7 +445,7 @@ mod tests {
         ));
         assert!(matches!(
             &capture.items[2],
-            ModelResponseReplayItem::AssistantMessage
+            ModelResponseReplayItem::AssistantMessage { phase: None, text: Some(text) } if text == "done"
         ));
     }
 

@@ -11,7 +11,7 @@ import { expandLargePastes, pickReferencedLargePastes } from '../utils/largePast
  */
 
 import React, { useRef, useCallback, useEffect, useReducer, useState, useMemo, useSyncExternalStore } from 'react';
-import type { UsageContextBreakdown } from '@/infrastructure/api/service-api/SessionAPI';
+import type { UsageContextEstimate } from '@/infrastructure/api/service-api/SessionAPI';
 import type { UsageReportUiParams } from '../session-drivers/types';
 import path from 'path-browserify';
 import { useTranslation } from 'react-i18next';
@@ -4013,9 +4013,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   }, [runEffectiveSessionUsageReport]);
 
   const loadContextUsageOverview = useCallback(async () => {
-    let context: UsageContextBreakdown | undefined;
+    let context: UsageContextEstimate | undefined;
     await runEffectiveSessionUsageReport(report => {
-      context = report.context;
+      context = report.contextEstimate;
       return true;
     });
     return context;

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { activateSurface, getActiveSurfaceId } from '@/infrastructure/peer-device/deviceSurface';
 import type { DialogTurn, ModelRound } from '../../types/flow-chat';
 import {
+  calculateTurnHash,
   convertDialogTurnToBackendFormat,
   debouncedSaveDialogTurn,
   immediateSaveDialogTurn,
@@ -543,5 +544,25 @@ describe('PersistenceModule', () => {
       expect.objectContaining({ turnIndex: 140 }),
       'workspace-local',
     );
+  });
+
+  it('computes deterministic structural turn hashes without JSON.stringify', () => {
+    const stringifySpy = vi.spyOn(JSON, 'stringify');
+    const base = createDialogTurn('processing');
+    base.modelRounds[0].items = [
+      { id: 't1', type: 'text', content: 'hello world', isStreaming: true, timestamp: 1001 } as any,
+    ];
+    const clone = structuredClone(base);
+    expect(calculateTurnHash(base)).toBe(calculateTurnHash(clone));
+    expect(stringifySpy).not.toHaveBeenCalled();
+
+    const changedText = structuredClone(base);
+    (changedText.modelRounds[0].items[0] as any).content = 'hello world!';
+    expect(calculateTurnHash(changedText)).not.toBe(calculateTurnHash(base));
+
+    const completed = structuredClone(base);
+    completed.status = 'completed';
+    expect(calculateTurnHash(completed)).not.toBe(calculateTurnHash(base));
+    stringifySpy.mockRestore();
   });
 });

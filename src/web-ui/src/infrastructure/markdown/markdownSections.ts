@@ -24,6 +24,20 @@ interface SettledPrefixRecord {
 
 let lastRecord: SettledPrefixRecord | undefined;
 
+function stripInlineCodeSpans(content: string): string {
+  if (!content.includes('`')) return content;
+  return content.replace(/(`+)[\s\S]*?\1/g, ' ');
+}
+
+function hasCrossBlockInlineSyntax(content: string): boolean {
+  if (!content.includes('<') && !content.includes('[')) return false;
+  const outsideCode = stripInlineCodeSpans(content);
+  // Match actual HTML/comment/declaration/autolink starts (or an unfinished
+  // trailing `<` while streaming) plus reference/footnote brackets, while keeping
+  // inline code (`Vec<T>`, `arr[0][1]`) and prose comparisons (`a < b`) splittable.
+  return /<(?:[A-Za-z!?/]|$)|\]\s*\[|\[\^/.test(outsideCode);
+}
+
 function computeRawBoundaries(source: string): { boundaries: number[]; extendable: boolean } {
   const normalized = source.replace(/\r\n?|\0/g, match => match === '\0' ? '\uFFFD' : '\n');
   const tokens: Parameters<typeof parser.block.parse>[3] = [];
@@ -32,7 +46,7 @@ function computeRawBoundaries(source: string): { boundaries: number[]; extendabl
   if (environment.references || environment.footnotes
     || tokens.some(token => token.type.startsWith('html') || token.type.startsWith('footnote')
       // Inline HTML/reference definitions may bind beyond a top-level block.
-      || (token.type === 'inline' && /<|\]\s*\[|\[\^/.test(token.content)))) {
+      || (token.type === 'inline' && hasCrossBlockInlineSyntax(token.content)))) {
     return { boundaries: [0], extendable: false };
   }
   const offsets = [0];

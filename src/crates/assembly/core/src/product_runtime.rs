@@ -444,6 +444,25 @@ async fn begin_consistent_persisted_session_read(
     session_id: &str,
     expected_workspace: Option<&WorkspaceSessionIdentity>,
 ) -> OpenBitFunResult<CoreSessionReadPermit> {
+    begin_session_read(
+        coordinator,
+        persistence,
+        storage_path,
+        session_id,
+        expected_workspace,
+        true,
+    )
+    .await
+}
+
+async fn begin_session_read(
+    coordinator: &ConversationCoordinator,
+    persistence: &PersistenceManager,
+    storage_path: &Path,
+    session_id: &str,
+    expected_workspace: Option<&WorkspaceSessionIdentity>,
+    recover_unfinished_revert: bool,
+) -> OpenBitFunResult<CoreSessionReadPermit> {
     validate_persisted_session_id(session_id)?;
     let session_manager = coordinator.get_session_manager();
     let guard = session_manager.acquire_session_mutation(session_id).await?;
@@ -467,7 +486,7 @@ async fn begin_consistent_persisted_session_read(
         .await?
     {
         if state.phase != crate::agentic::session::revert::SessionRevertPhase::Staged {
-            if session_manager.get_session(session_id).is_none() {
+            if !recover_unfinished_revert || session_manager.get_session(session_id).is_none() {
                 return Err(OpenBitFunError::OutcomeUnknown(
                     "Session facts are unavailable until the unfinished undo transition is restored"
                         .to_string(),
@@ -2981,23 +3000,72 @@ impl AgentSessionUsagePort for CoreSessionOperationsPort {
                 request.remote_ssh_host.clone(),
             )
             .await?;
-        let _read = begin_consistent_persisted_session_read(
+        let _read = begin_session_read(
             self.coordinator.as_ref(),
             self.persistence.as_ref(),
             &storage_path,
             &request.session_id,
             None,
+            request.context_estimate.is_none(),
         )
         .await
         .map_err(runtime_port_error)?;
-        generate_core_session_usage_report(
-            self.persistence.as_ref(),
-            self.token_usage_service.as_ref(),
-            &storage_path,
-            request,
-        )
-        .await
-        .map_err(runtime_port_error)
+        let estimate_options = request.context_estimate.clone();
+        let mut report = if estimate_options
+            .as_ref()
+            .is_some_and(|options| options.context_only)
+        {
+            SessionUsageReport::partial_unavailable(
+                &request.session_id,
+                chrono::Utc::now().timestamp_millis(),
+            )
+        } else {
+            generate_core_session_usage_report(
+                self.persistence.as_ref(),
+                self.token_usage_service.as_ref(),
+                &storage_path,
+                request.clone(),
+            )
+            .await
+            .map_err(runtime_port_error)?
+        };
+        let inputs = if estimate_options.is_some() {
+            Some(
+                self.coordinator
+                    .get_session_manager()
+                    .read_context_estimate_inputs(&storage_path, &request.session_id)
+                    .await,
+            )
+        } else {
+            None
+        };
+        // Prompt discovery can involve a remote workspace. Do not hold a session
+        // mutation permit across that IO or block the running agent for a viewer.
+        drop(_read);
+        if let Some(options) = estimate_options {
+            let estimate = match inputs.expect("requested context inputs") {
+                Ok(inputs) => {
+                    self.coordinator
+                        .estimate_session_context(inputs, &options)
+                        .await
+                }
+                Err(error) => Err(error),
+            };
+            report.context_estimate = Some(match estimate {
+                Ok(estimate) => estimate,
+                Err(error) => openbitfun_core_types::UsageContextEstimate {
+                    captured_at: chrono::Utc::now().timestamp_millis().max(0) as u64,
+                    composition: None,
+                    contents: Default::default(),
+                    unavailable_reason: Some(error.to_string()),
+                },
+            });
+            report.privacy.prompt_content_included |= report
+                .context_estimate
+                .as_ref()
+                .is_some_and(|estimate| !estimate.contents.is_empty());
+        }
+        Ok(report)
     }
 }
 
@@ -5202,6 +5270,7 @@ mod tests {
                     remote_ssh_host: None,
                     include_system_prompt_preview: false,
                     context_preview_category: None,
+                    context_estimate: None,
                     include_hidden_subagents: false,
                 })
                 .await
@@ -5231,6 +5300,38 @@ mod tests {
             .expect("usage task")
             .expect("usage after staged marker");
         assert_eq!(usage.scope.turn_count, 1);
+
+        // Context inspection must not repair an interrupted undo, even for a loaded session.
+        assert!(session_manager.get_session(session_id).is_some());
+        let mut interrupted = persistence
+            .load_session_revert_state(&storage_path, session_id)
+            .await
+            .unwrap()
+            .unwrap();
+        interrupted.phase = crate::agentic::session::revert::SessionRevertPhase::Applying;
+        persistence
+            .save_session_revert_state(&storage_path, session_id, &interrupted)
+            .await
+            .unwrap();
+        let error = super::begin_session_read(
+            coordinator.as_ref(),
+            persistence.as_ref(),
+            &storage_path,
+            session_id,
+            None,
+            false,
+        )
+        .await
+        .err()
+        .expect("inspection does not restore undo");
+        assert!(matches!(error, OpenBitFunError::OutcomeUnknown(_)));
+        assert_eq!(
+            persistence
+                .load_session_revert_state(&storage_path, session_id)
+                .await
+                .unwrap(),
+            Some(interrupted)
+        );
     }
 
     #[tokio::test]
@@ -5254,6 +5355,7 @@ mod tests {
                 remote_ssh_host: None,
                 include_system_prompt_preview: false,
                 context_preview_category: None,
+                context_estimate: None,
                 include_hidden_subagents: false,
             },
         )
@@ -5320,6 +5422,7 @@ mod tests {
                 remote_ssh_host: None,
                 include_system_prompt_preview: false,
                 context_preview_category: None,
+                context_estimate: None,
                 include_hidden_subagents: false,
             },
         )

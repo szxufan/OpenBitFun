@@ -1190,7 +1190,7 @@ impl StreamProcessor {
                             // retryable result at the caller.
                             let non_recoverable_stream_error =
                                 error_msg.contains("SSE Parsing Error")
-                                    || provider_error.as_ref().is_some_and(|error| !retry::should_retry(&error.category));
+                                    || provider_error.as_ref().is_some_and(|error| !retry::should_retry_error(error));
                             if !non_recoverable_stream_error && ctx.can_recover_as_partial_result()
                             {
                                 flush_sse_on_error(&sse_collector, &error_msg).await;
@@ -1547,9 +1547,11 @@ mod tests {
             ErrorCategory::InvalidRequest,
             ErrorCategory::ContentPolicy,
             ErrorCategory::ContextOverflow,
+            ErrorCategory::Network,
         ] {
             let mut provider_error =
                 AiProviderError::classified("Rejected after partial text".into(), category);
+            provider_error.delivery_uncertain = provider_error.category == ErrorCategory::Network;
             provider_error.provider_code = Some("fixture-rejection".into());
             let expected = provider_error.clone();
             let error = build_processor()
@@ -2630,9 +2632,15 @@ mod tests {
                         ModelResponseReplayItem::OpaqueReasoning {
                             item_id: Some("rs_1".to_string()),
                             summary: vec![],
+                            content: Some(vec![openbitfun_core_types::ModelReasoningContentPart {
+                                text: "provider reasoning".to_string(),
+                            }]),
                             opaque_state: "opaque".to_string(),
                         },
-                        ModelResponseReplayItem::AssistantMessage,
+                        ModelResponseReplayItem::AssistantMessage {
+                            phase: None,
+                            text: None,
+                        },
                     ],
                 }),
                 finish_reason: Some("stop".to_string()),
@@ -2659,5 +2667,10 @@ mod tests {
         let replay = result.model_response_replay.expect("replay capture");
         assert_eq!(replay.protocol, "openai_responses");
         assert_eq!(replay.items.len(), 2);
+        assert!(matches!(
+            &replay.items[0],
+            ModelResponseReplayItem::OpaqueReasoning { content: Some(content), .. }
+                if content.len() == 1 && content[0].text == "provider reasoning"
+        ));
     }
 }

@@ -28,6 +28,8 @@ import { beginDeviceOpen, endDeviceOpen } from '@/infrastructure/peer-device/dev
 import DeviceWorkspaceSections from './DeviceWorkspaceSections';
 import { useDeviceVisibilityPreferences } from '@/app/navigation/deviceVisibilityPreferences';
 import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
+import { requestWorkspaceReveal, resetWorkspaceDisplayOrdersForTest } from '@/infrastructure/services/business/workspaceDisplayOrder';
+import { useDeviceSectionDisclosure } from './useSidebarDevices';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -151,5 +153,18 @@ describe('DeviceWorkspaceSections hand-over', () => {
     expect(host.querySelector('[data-testid="live-list"]')).not.toBeNull();
     act(() => useDeviceVisibilityPreferences.getState().setVisible('local', false));
     expect(host.children).toHaveLength(0);
+  });
+
+  it('re-expands a collapsed current device section when a workspace open reveals a row on it', () => {
+    resetWorkspaceDisplayOrdersForTest();
+    useDeviceSectionDisclosure.setState({ expanded: {} });
+    slots.value = [slot('local', true), slot('peer-b', false)];
+    render();
+
+    act(() => host.querySelector<HTMLButtonElement>('[data-device-surface="local"] [data-testid="nav-device-section-toggle"]')!.click());
+    expect(body('local')).toBeUndefined();
+
+    act(() => { requestWorkspaceReveal('local', 'ws-1', true); });
+    expect(body('local')).toBe('live-list');
   });
 });

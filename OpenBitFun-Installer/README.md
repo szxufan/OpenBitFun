@@ -236,12 +236,20 @@ src-tauri/target/release-fast/openbitfun-installer.exe
 
 ### Installation, updates and recovery
 
-The default is a current-user installation. Select “Install for all users” for
-a new machine-wide installation; Windows then asks for administrator approval.
-An existing installation keeps its directory and scope. Updates to protected
+New installations use the current-user scope. The installer does not offer a
+scope switch or change a selected directory when editing shortcut preferences.
+An existing installation keeps its directory and scope, including legacy
+machine-wide installations. Updates to protected
 directories request elevation automatically. Canceling authorization leaves the
 existing application in place. Model and theme preferences remain with the
 original user, including when a different administrator approves maintenance.
+
+Multiple installation directories can coexist. New directories have separate
+Windows uninstall entries and shortcuts labeled with their location and a stable
+directory identifier. Updating or uninstalling one directory preserves the
+others. Legacy uninstall entries and shortcuts remain supported. Model settings
+and sessions continue to use the existing user data directory; installing another
+copy does not create an isolated user profile.
 
 Installations record their managed files in `.openbitfun-installed.json`.
 Updates and uninstallations preserve other files and user data. A running or
@@ -259,6 +267,21 @@ Windows in-app updates use the same signed standalone installer. The application
 exits after the maintenance worker is ready. Installation failures after exit
 are reported by a native dialog and retained for the next application launch.
 The restarted application runs under the original user's account.
+
+Native maintenance also accepts legacy NSIS arguments: `/D=` selects an install
+directory, `/S` requests silent execution, `/P` requests passive execution, and
+`_?=` selects the uninstall directory. Uninstall entrypoints retain their operation
+when `/UPDATE` is present. `/R /ARGS ...` restarts with the original application
+arguments and user token. Native `--quiet` keeps its `0`/`1`/`2` outcome contract;
+legacy NSIS uninstall callers receive `0` after successful removal with deferred
+cleanup, with the committed journal retained for a later cleanup retry.
+
+The application and installer share Windows scope detection, including legacy
+HKLM records without a new inventory. Same-directory HKCU/HKLM duplicates are
+both backed up and removed on uninstall; records for other directories remain.
+Protected installation or maintenance-lock locations request elevation before
+publication. Cleanup removes the transaction journal last, so cleanup failures
+remain retryable.
 
 Uninstall can be entered through Windows Settings, the registered uninstall
 command, or `uninstall.exe` in the installation directory. `--quiet` selects

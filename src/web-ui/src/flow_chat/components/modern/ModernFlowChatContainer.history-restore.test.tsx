@@ -18,6 +18,7 @@ const fixture = vi.hoisted(() => ({
   extend: vi.fn(),
   present: null as ((sessionId: string, presentation: SessionHistoryPresentation) => void) | null,
   loadedRanges: [] as SessionHistoryViewState['loadedRanges'],
+  navigationGeneration: 1,
 }));
 vi.mock('../../store/FlowChatStore', () => ({ flowChatStore: {
   getState: () => ({ activeSessionId: fixture.session?.sessionId, sessions: new Map(fixture.session ? [[fixture.session.sessionId, fixture.session]] : []) }),
@@ -25,6 +26,7 @@ vi.mock('../../store/FlowChatStore', () => ({ flowChatStore: {
   subscribeSelector: () => () => {},
   getSessionHistoryViewState: () => ({
     catalog: fixture.session?.turnCatalog ?? null, loadedRanges: fixture.loadedRanges, activeRange: fixture.cached?.range ?? null,
+    navigationGeneration: fixture.navigationGeneration,
   }),
   synchronizeSessionHistory: (...args: unknown[]) => fixture.synchronize(...args),
   reactivateSessionHistoryWindow: () => fixture.cached,
@@ -95,6 +97,7 @@ vi.mock('@/infrastructure/api/service-api/AgentAPI', () => ({ agentAPI: {
 } }));
 
 import { ModernFlowChatContainer } from './ModernFlowChatContainer';
+import { FlowChatHistoryPager } from './flowChatHistoryPager';
 import { registerConversationReader, stageConversationViewTransfer } from './flowChatViewHandoff';
 import { activateSurface, getActiveSurfaceScope, LOCAL_SURFACE_ID } from '@/infrastructure/peer-device/deviceSurface';
 
@@ -165,13 +168,15 @@ describe('FlowChat reader restoration across history rewrites', () => {
     activateSurface(LOCAL_SURFACE_ID);
     fixture.session = session();
     fixture.cached = presentation();
-    fixture.restore.mockResolvedValue(null);
-    fixture.extend.mockReturnValue(null);
+    fixture.restore.mockReset().mockResolvedValue(null);
+    fixture.extend.mockReset().mockReturnValue(null);
+    fixture.loadTurnWindow.mockReset();
     fixture.synchronize.mockResolvedValue(undefined);
     fixture.listProps = null;
     fixture.viewportSettled = true;
     fixture.present = null;
     fixture.loadedRanges = [];
+    fixture.navigationGeneration = 1;
     vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
     host = document.createElement('div');
     document.body.append(host);
@@ -293,6 +298,87 @@ describe('FlowChat reader restoration across history rewrites', () => {
     expect(fixture.restore).not.toHaveBeenCalled();
   });
 
+  it('keeps the retry ticket when the host snapshot moves the rendered boundary', async () => {
+    stageBookmark();
+    await render();
+    const pager = new FlowChatHistoryPager();
+    pager.commitLayout('4:8', { before: 'turn-4', after: 'turn-7' });
+    const ticket = pager.begin('before')!;
+    const read = deferred<void>();
+    fixture.synchronize.mockReturnValueOnce(read.promise);
+    fixture.loadTurnWindow.mockResolvedValue({ status: 'ready', isCurrent: true });
+    fixture.extend.mockReturnValue(presentation(0, 8));
+    let request!: Promise<unknown>;
+    await act(async () => {
+      request = fixture.listProps!.onHistoryWindowBoundaryIntent!('before', {
+        synchronizeHistory: true, isCurrent: () => pager.isCurrent(ticket),
+        prepareViewportForPresentationCommit: () => pager.prepareCommit(ticket),
+      });
+    });
+    pager.commitLayout('3:8', { before: 'turn-3', after: 'turn-7' });
+    await act(async () => {
+      read.resolve();
+      expect(await request).toBe('applied');
+    });
+    expect(fixture.listProps!.historyBoundaryState?.before).toBe('idle');
+    expect(host.querySelector('[data-turn-id="turn-0"]')).not.toBeNull();
+  });
+
+  it.each(['resolve', 'reject'] as const)('settles loading when a synchronization ticket is cancelled before %s', async settlement => {
+    stageBookmark();
+    await render();
+    const read = deferred<void>();
+    fixture.synchronize.mockReturnValueOnce(read.promise);
+    let current = true;
+    let request!: Promise<unknown>;
+    await act(async () => {
+      request = fixture.listProps!.onHistoryWindowBoundaryIntent!('before', {
+        synchronizeHistory: true, isCurrent: () => current,
+      });
+    });
+    expect(fixture.listProps!.historyBoundaryState?.before).toBe('loading');
+    current = false;
+    await act(async () => {
+      if (settlement === 'reject') read.reject(new Error('Read failed after cancellation'));
+      else read.resolve();
+      expect(await request).toBe('cancelled');
+    });
+    expect(fixture.listProps!.historyBoundaryState?.before).toBe('idle');
+  });
+
+  it('does not clear a newer retry when a cancelled synchronization fails late', async () => {
+    stageBookmark();
+    await render();
+    const first = deferred<void>();
+    const second = deferred<void>();
+    fixture.synchronize.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    let firstCurrent = true;
+    let older!: Promise<unknown>;
+    let newer!: Promise<unknown>;
+    await act(async () => {
+      older = fixture.listProps!.onHistoryWindowBoundaryIntent!('before', {
+        synchronizeHistory: true, isCurrent: () => firstCurrent,
+      });
+    });
+    firstCurrent = false;
+    await act(async () => {
+      newer = fixture.listProps!.onHistoryWindowBoundaryIntent!('before', {
+        synchronizeHistory: true, isCurrent: () => true,
+      });
+    });
+    await act(async () => {
+      first.reject(new Error('Superseded source read failed'));
+      expect(await older).toBe('cancelled');
+    });
+    expect(fixture.listProps!.historyBoundaryState?.before).toBe('loading');
+    await act(async () => {
+      second.reject(new Error('Owning host unavailable'));
+      expect(await newer).toBe('not-ready');
+    });
+    expect(fixture.listProps!.historyBoundaryState?.before).toBe('error');
+    expect(host.querySelector('[data-turn-id="turn-4"]')).not.toBeNull();
+  });
+
   it.each([false, true])('retries an orphaned reader after a failed read (explicit sync: %s)', async synchronizeHistory => {
     const window = presentation(3, 7);
     fixture.cached = window;
@@ -322,6 +408,165 @@ describe('FlowChat reader restoration across history rewrites', () => {
     expect(fixture.restore).toHaveBeenCalledTimes(2);
     expect(fixture.synchronize).toHaveBeenCalledTimes(synchronizeHistory ? 2 : 0);
     expect(host.querySelector('[data-turn-id="turn-0"]')).not.toBeNull();
+  });
+
+  it.each((['local', 'ssh', 'peer-device'] as const).flatMap(location =>
+    (['before', 'after'] as const).flatMap(direction =>
+      [false, true].map(synchronizeHistory => ({ location, direction, synchronizeHistory })),
+    ),
+  ))(
+    'recovers a catalog retired during $direction paging on $location (explicit sync: $synchronizeHistory)', async ({ location, direction, synchronizeHistory }) => {
+      if (location === 'peer-device') activateSurface('peer-device');
+      const withCatalog = (revision: string): Session => ({
+        ...sessionWithCatalog(42, revision),
+        ...(location === 'ssh' ? { remoteConnectionId: 'ssh-target', remoteSshHost: 'build-host' } : {}),
+      });
+      fixture.session = withCatalog('before-live-turn');
+      const window = presentation(38, 40);
+      fixture.cached = window;
+      stageBookmark(window);
+      await render();
+      fixture.restore.mockImplementation(async () => {
+        fixture.cached = window;
+        fixture.navigationGeneration += 1;
+        return window;
+      });
+      fixture.loadTurnWindow.mockImplementationOnce(async () => {
+        // Stale-response retry succeeds under a new catalog, but the old
+        // reader window was retired while this request was in flight.
+        fixture.cached = null;
+        fixture.navigationGeneration += 1;
+        fixture.session = withCatalog('after-live-turn');
+        return { status: 'ready', isCurrent: true };
+      }).mockResolvedValueOnce({ status: 'ready', isCurrent: true });
+      const extended = direction === 'before' ? presentation(34, 40) : presentation(38, 42);
+      fixture.extend.mockImplementation(() => {
+        if (!fixture.cached) return null;
+        fixture.cached = extended;
+        return extended;
+      });
+      const prepare = vi.fn(() => true);
+      let outcome: unknown;
+      await act(async () => {
+        outcome = await fixture.listProps!.onHistoryWindowBoundaryIntent!(direction, {
+          synchronizeHistory, prepareViewportForPresentationCommit: prepare,
+        });
+      });
+      expect(outcome).toBe('applied');
+      expect(prepare).toHaveBeenCalledTimes(1);
+      expect(host.querySelector(`[data-turn-id="turn-${extended.range.startOrdinal}"]`)).not.toBeNull();
+      expect(fixture.restore).toHaveBeenCalledTimes(1);
+      expect(fixture.loadTurnWindow).toHaveBeenCalledTimes(2);
+      expect(fixture.synchronize).toHaveBeenCalledTimes(synchronizeHistory ? 1 : 0);
+    },
+  );
+
+  it.each(['catalog', 'navigation', 'range'] as const)(
+    'cancels a page superseded by a %s change during viewport preparation', async change => {
+      fixture.session = sessionWithCatalog(42, 'before-preparation');
+      const window = presentation(38, 40);
+      fixture.cached = window;
+      stageBookmark(window);
+      await render();
+      fixture.loadTurnWindow.mockResolvedValue({ status: 'ready', isCurrent: true });
+      const cancel = vi.fn();
+      let outcome: unknown;
+      await act(async () => {
+        outcome = await fixture.listProps!.onHistoryWindowBoundaryIntent!('before', {
+          prepareViewportForPresentationCommit: async () => {
+            if (change === 'catalog') fixture.session = sessionWithCatalog(42, 'after-preparation');
+            if (change === 'navigation') fixture.navigationGeneration += 1;
+            if (change === 'range') fixture.cached = null;
+            return true;
+          },
+          cancelViewportPresentationCommit: cancel,
+        });
+      });
+      expect(outcome).toBe('cancelled');
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(fixture.extend).not.toHaveBeenCalled();
+      expect(fixture.listProps!.historyBoundaryState?.before).toBe('idle');
+      expect(host.querySelector('[data-turn-id="turn-38"]')).not.toBeNull();
+    },
+  );
+
+  it('leaves a failed post-read recovery retryable without replacing the reader', async () => {
+    fixture.session = sessionWithCatalog(42, 'before-live-turn');
+    const window = presentation(38, 40);
+    fixture.cached = window;
+    stageBookmark(window);
+    await render();
+    fixture.loadTurnWindow.mockImplementationOnce(async () => {
+      fixture.cached = null;
+      return { status: 'ready', isCurrent: true };
+    }).mockResolvedValue({ status: 'ready', isCurrent: true });
+    fixture.restore.mockRejectedValueOnce(new Error('History read timed out'));
+    let outcome: unknown;
+    await act(async () => { outcome = await fixture.listProps!.onHistoryWindowBoundaryIntent!('before'); });
+    expect(outcome).toBe('not-ready');
+    expect(fixture.listProps!.historyBoundaryState?.before).toBe('error');
+    expect(host.querySelector('[data-turn-id="turn-38"]')).not.toBeNull();
+    fixture.restore.mockImplementation(async () => { fixture.cached = window; return window; });
+    fixture.extend.mockReturnValue(presentation(34, 40));
+    await act(async () => {
+      outcome = await fixture.listProps!.onHistoryWindowBoundaryIntent!('before', { synchronizeHistory: true });
+    });
+    expect(outcome).toBe('applied');
+    expect(fixture.listProps!.historyBoundaryState?.before).toBe('idle');
+    expect(host.querySelector('[data-turn-id="turn-34"]')).not.toBeNull();
+  });
+
+  it.each(['resolve', 'reject'] as const)('ignores a late post-read recovery %s after changing devices', async settlement => {
+    const window = presentation(38, 40);
+    fixture.session = sessionWithCatalog(42, 'before-live-turn');
+    fixture.cached = window;
+    stageBookmark(window);
+    await render();
+    fixture.loadTurnWindow.mockImplementationOnce(async () => {
+      fixture.cached = null;
+      return { status: 'ready', isCurrent: true };
+    });
+    const read = deferred<SessionHistoryPresentation | null>();
+    fixture.restore.mockReturnValueOnce(read.promise);
+    const prepare = vi.fn(() => true);
+    let outcome!: Promise<unknown>;
+    await act(async () => {
+      outcome = fixture.listProps!.onHistoryWindowBoundaryIntent!('before', {
+        prepareViewportForPresentationCommit: prepare,
+      });
+    });
+    expect(fixture.restore).toHaveBeenCalledTimes(1);
+    activateSurface('peer-device');
+    await act(async () => {
+      if (settlement === 'resolve') read.resolve(window);
+      else read.reject(new Error('Retired recovery failed'));
+      await outcome;
+    });
+    expect(await outcome).toBe('cancelled');
+    expect(fixture.loadTurnWindow).toHaveBeenCalledTimes(1);
+    expect(fixture.extend).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it('cancels repeated catalog retirement instead of recursively retrying the page', async () => {
+    const window = presentation(38, 40);
+    fixture.session = sessionWithCatalog(42, 'before-live-turn');
+    fixture.cached = window;
+    stageBookmark(window);
+    await render();
+    fixture.loadTurnWindow.mockImplementation(async () => {
+      fixture.cached = null;
+      fixture.navigationGeneration += 1;
+      return { status: 'ready', isCurrent: true };
+    });
+    fixture.restore.mockImplementation(async () => { fixture.cached = window; return window; });
+    let outcome: unknown;
+    await act(async () => { outcome = await fixture.listProps!.onHistoryWindowBoundaryIntent!('before'); });
+    expect(outcome).toBe('cancelled');
+    expect(fixture.loadTurnWindow).toHaveBeenCalledTimes(2);
+    expect(fixture.restore).toHaveBeenCalledTimes(1);
+    expect(fixture.extend).not.toHaveBeenCalled();
+    expect(fixture.listProps!.historyBoundaryState?.before).toBe('idle');
   });
 
   it('rejects a late orphan recovery after changing devices', async () => {

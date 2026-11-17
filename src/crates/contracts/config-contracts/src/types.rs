@@ -1954,6 +1954,13 @@ pub fn is_valid_configured_max_output_tokens(context_window: u32, max_tokens: u3
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AIModelConfig {
+    /// Responses transport and context preferences; absent preserves HTTP/full behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responses: Option<openbitfun_core_types::responses::ResponsesRequestSettings>,
+    /// Provider-instance defaults, materialized with the other shared endpoint settings.
+    /// A model's explicit `responses` override wins. Only Responses routes consume these.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responses_defaults: Option<openbitfun_core_types::responses::ResponsesRequestSettings>,
     pub id: String,
     /// `AIProviderConfig::id` of the provider this projection was resolved
     /// from. Only meaningful on a resolved projection; always empty on a
@@ -2124,6 +2131,11 @@ pub struct AIProviderConfig {
     /// never live here.
     #[serde(default)]
     pub metadata: Option<serde_json::Value>,
+    /// Responses transport and context defaults for every model of this
+    /// provider. A model's explicit `responses` override wins. Only Responses
+    /// routes consume these; absent preserves HTTP with full input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responses_defaults: Option<openbitfun_core_types::responses::ResponsesRequestSettings>,
 }
 
 impl Default for AIProviderConfig {
@@ -2142,6 +2154,7 @@ impl Default for AIProviderConfig {
             custom_request_body: None,
             custom_request_body_mode: None,
             metadata: None,
+            responses_defaults: None,
         }
     }
 }
@@ -2183,6 +2196,11 @@ pub struct AIModelEntry {
     /// frontend on save; resolution falls back to the provider base URL.
     #[serde(default)]
     pub request_url: Option<String>,
+    /// Responses transport and context override for this model; wins over the
+    /// owning provider's `responses_defaults`. Absent preserves the provider
+    /// default (or HTTP with full input when the provider sets none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responses: Option<openbitfun_core_types::responses::ResponsesRequestSettings>,
 }
 
 impl Default for AIModelEntry {
@@ -2206,6 +2224,7 @@ impl Default for AIModelEntry {
             image_dialect: None,
             channel_routing: None,
             request_url: None,
+            responses: None,
         }
     }
 }
@@ -2248,6 +2267,8 @@ pub fn resolve_ai_model(provider: &AIProviderConfig, model: &AIModelEntry) -> AI
         auth: provider.auth.clone(),
         image_dialect: model.image_dialect,
         channel_routing: model.channel_routing.clone(),
+        responses: model.responses.clone(),
+        responses_defaults: provider.responses_defaults.clone(),
     }
 }
 
@@ -2328,6 +2349,7 @@ pub fn split_flattened_model(
             provider.skip_ssl_verify = model.skip_ssl_verify;
             provider.custom_request_body = model.custom_request_body.clone();
             provider.custom_request_body_mode = model.custom_request_body_mode.clone();
+            provider.responses_defaults = model.responses_defaults.clone();
             provider.id.clone()
         }
         None => {
@@ -2361,6 +2383,7 @@ pub fn split_flattened_model(
                 custom_request_body: model.custom_request_body.clone(),
                 custom_request_body_mode: model.custom_request_body_mode.clone(),
                 metadata: model.metadata.clone(),
+                responses_defaults: model.responses_defaults.clone(),
             });
             id
         }
@@ -2384,6 +2407,7 @@ pub fn split_flattened_model(
         image_dialect: model.image_dialect,
         channel_routing: model.channel_routing.clone(),
         request_url: model.request_url.clone(),
+        responses: model.responses.clone(),
     }
 }
 
@@ -2847,6 +2871,8 @@ impl Default for AIModelConfig {
             skip_ssl_verify: false,
             custom_request_body: None,
             custom_request_body_mode: None,
+            responses: None,
+            responses_defaults: None,
             auth: AuthConfig::ApiKey,
             image_dialect: None,
             channel_routing: None,

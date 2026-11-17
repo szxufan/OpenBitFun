@@ -259,6 +259,10 @@ impl InstallLock {
     fn acquire() -> Result<Self> {
         let path = Self::path()
             .ok_or_else(|| anyhow!("cannot resolve the CLI installation lock location"))?;
+        Self::acquire_at(&path)
+    }
+
+    fn acquire_at(path: &Path) -> Result<Self> {
         let mut options = fs::OpenOptions::new();
         options.read(true).write(true).create(true).truncate(false);
         #[cfg(windows)]
@@ -280,6 +284,38 @@ impl InstallLock {
         })?;
         Ok(Self { _file: file })
     }
+}
+
+/// Bootstrap lock holder for systems without a flock command. It runs before
+/// any Agent/runtime setup and holds the same kernel lock as self-update until
+/// the installing shell closes stdin. It never launches commands itself.
+pub(crate) fn run_install_lock_helper(args: &[std::ffi::OsString]) -> Option<Result<()>> {
+    if args
+        .first()
+        .is_none_or(|arg| arg != "--internal-hold-installation-lock")
+    {
+        return None;
+    }
+    Some((|| {
+        use std::io::Write;
+        anyhow::ensure!(
+            args.len() == 2,
+            "Installation lock helper requires one lock path"
+        );
+        let path = Path::new(&args[1]);
+        anyhow::ensure!(
+            path.is_absolute()
+                && path
+                    .file_name()
+                    .is_some_and(|name| name == ".openbitfun-cli-install.lock"),
+            "Invalid installation lock path"
+        );
+        let _lock = InstallLock::acquire_at(path)?;
+        println!("OPENBITFUN_INSTALL_LOCK_V1");
+        std::io::stdout().flush()?;
+        std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink())?;
+        Ok(())
+    })())
 }
 
 async fn update_from_configured_sources(check_only: bool) -> Result<UpdateOutcome> {
@@ -1259,6 +1295,52 @@ mod tests {
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    #[test]
+    fn installer_helper_fixture() {
+        if let Some(path) = std::env::var_os("OPENBITFUN_LOCK_HELPER_FIXTURE") {
+            run_install_lock_helper(&["--internal-hold-installation-lock".into(), path])
+                .unwrap()
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn installation_helper_and_self_update_contend_for_the_same_lock() {
+        use std::io::{BufRead, BufReader};
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join(".openbitfun-cli-install.lock");
+        let mut helper = openbitfun_services_core::process_manager::create_command(
+            std::env::current_exe().unwrap(),
+        )
+        .args([
+            "--exact",
+            "self_update::tests::installer_helper_fixture",
+            "--nocapture",
+        ])
+        .env("OPENBITFUN_LOCK_HELPER_FIXTURE", &path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+        let mut stdout = BufReader::new(helper.stdout.take().unwrap());
+        loop {
+            let mut line = String::new();
+            assert!(
+                stdout.read_line(&mut line).unwrap() > 0,
+                "helper exited before acquiring lock"
+            );
+            if line.trim() == "OPENBITFUN_INSTALL_LOCK_V1" {
+                break;
+            }
+        }
+        assert!(InstallLock::acquire_at(&path).is_err());
+        drop(helper.stdin.take());
+        assert!(helper.wait().unwrap().success());
+        assert!(InstallLock::acquire_at(&path).is_ok());
+        assert!(path.is_file(), "the stable lock inode must not be unlinked");
+    }
 
     /// Minimal HTTP/1.1 origin that serves `body` at a fixed rate, honours
     /// `Range: bytes=<n>-` and can be told to hang up mid-response. Enough to

@@ -19,6 +19,12 @@ so the updated `PATH` is visible.
 
 Official release archives contain the same `openbitfun` executable.
 
+Installation and self-update share an OS-backed lock. On macOS/Linux without
+the `flock` command, the installer uses available Perl, Python, or the packaged
+CLI lock helper. A PID-file-only `shlock` is not sufficient. Installing an older
+release without the helper requires `flock`, Perl, or Python; a missing compatible
+lock stops installation before replacing existing files.
+
 Prerequisites for a source install are a Rust toolchain and this repository.
 See the repository [contribution guide](../../../CONTRIBUTING.md) for development
 setup and build commands.

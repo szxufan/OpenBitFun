@@ -1485,7 +1485,8 @@ describe('SSHRemoteProvider remote workspace connection conflicts', () => {
     await renderProvider();
 
     expect(workspaceManagerMock.openRemoteWorkspace).toHaveBeenCalledTimes(1);
-    expect(workspaceManagerMock.openRemoteWorkspace.mock.calls[0]).toHaveLength(1);
+    // Never rebinds, and restore never moves the record in the sidebar.
+    expect(workspaceManagerMock.openRemoteWorkspace.mock.calls[0][1]).toEqual({ promoteIfOpened: false });
     expect(confirmWarningMock).not.toHaveBeenCalled();
     expect(notificationService.warning).toHaveBeenCalledWith(
       'ssh.remote.connectionConflictRestoreDeferred {"path":"/srv/shared"}',

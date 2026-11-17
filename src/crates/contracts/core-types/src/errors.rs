@@ -74,6 +74,9 @@ pub struct AiErrorDetail {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiProviderError {
+    /// The request may have executed. Automatic retry or channel failover is unsafe.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub delivery_uncertain: bool,
     pub message: String,
     pub category: ErrorCategory,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -105,6 +108,7 @@ impl AiProviderError {
             provider_code,
             http_status,
             retry_after_ms: None,
+            delivery_uncertain: false,
         }
     }
 
@@ -116,6 +120,7 @@ impl AiProviderError {
             provider_code: None,
             http_status: None,
             retry_after_ms: None,
+            delivery_uncertain: false,
         }
     }
 
@@ -132,11 +137,17 @@ impl AiProviderError {
             provider_message: Some(self.message.clone()),
             request_id: extract_error_field(&self.message, "request_id"),
             http_status: self.http_status,
-            retryable: Some(is_retryable_category(&self.category)),
+            retryable: Some(!self.delivery_uncertain && is_retryable_category(&self.category)),
             action_hints: action_hints_for_category(&self.category),
-            recovery_constraint: None,
+            recovery_constraint: self
+                .delivery_uncertain
+                .then(|| "model_delivery_uncertain".into()),
         }
     }
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 impl std::fmt::Display for AiProviderError {
@@ -567,6 +578,24 @@ fn extract_http_status(message: &str) -> Option<u16> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn legacy_provider_errors_round_trip_without_delivery_state() {
+        let old = serde_json::json!({"message":"offline","category":"network"});
+        let mut error: super::AiProviderError = serde_json::from_value(old.clone()).unwrap();
+        assert!(!error.delivery_uncertain);
+        assert_eq!(serde_json::to_value(&error).unwrap(), old);
+        error.delivery_uncertain = true;
+        assert_eq!(
+            serde_json::to_value(&error).unwrap()["deliveryUncertain"],
+            true
+        );
+        assert_eq!(error.detail().retryable, Some(false));
+        assert_eq!(
+            error.detail().recovery_constraint.as_deref(),
+            Some("model_delivery_uncertain")
+        );
+    }
+
     #[test]
     fn recovery_constraint_is_optional_and_unknown_values_survive_legacy_round_trip() {
         let legacy = serde_json::json!({"category":"provider_quota","providerCode":"insufficient_quota","httpStatus":429});

@@ -572,6 +572,7 @@ pub(crate) async fn print_usage_report(session_id: Option<&str>) -> Result<()> {
             remote_ssh_host: None,
             include_system_prompt_preview: false,
             context_preview_category: None,
+            context_estimate: None,
             include_hidden_subagents: true,
         })
         .await
