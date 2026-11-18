@@ -3,45 +3,68 @@
 id: feature.pages
 kind: feature
 category: connect
-title_zh: "Pages 发布"
-title_en: "Pages publishing"
+title_zh: "Pages 网页发布"
+title_en: "Pages Publishing"
 ---
 
-# Pages 发布 / Pages publishing
+# Pages 网页发布 / Pages Publishing
 
 > 功能 / Feature
 
-保存页面版本并发布到公开或私有地址，管理标题、可见性、历史版本和分享链接。
+不用买服务器、不用配繁琐的部署流水线——把智能体生成的交互网页、产品原型、数据报告或个人作品集直接发布成在线链接，自由控制公开或私密访问权限，每次更新自动保存历史版本，随时一键回滚或下线。
 
-Save page versions and publish them to public or private URLs while managing titles, visibility, history, and share links.
+Skip server setup and CI pipelines—publish AI-built webpages, interactive prototypes, reports, or portfolios to a live URL in seconds. Control public or private visibility, keep immutable version history on every save, and roll back or unpublish anytime.
+
+## 适用场景 / When to use it
+
+- 刚让 AI 做好一个新功能交互原型或活动落地页，直接说“发布成公开 Page 给我链接”，立刻发到群里让同事点开体验
+  - Just built a clickable prototype or landing page in chat? Ask the agent to publish it and share the live link with teammates immediately
+- 整理了一份团队内部复盘报告，发布为「仅自己可见」或「登录用户可见」，在手机或另一台电脑上随时安全查阅
+  - Host an internal technical memo with Private or Signed-in visibility so you can read it across devices without exposing it publicly
+- 已经上线的活动页需要改文案：先让 AI 保存一个新版本检查无误，再一键切换为线上正式版；万一写错秒切回上一版
+  - Save a revised version of a live Page first, verify everything looks right, and promote that version to production—with instant rollback if needed
 
 ## 完整功能清单 / Everything included
 
-- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 查看账户下的 Pages 与每个页面的当前发布状态
-  - List account Pages and inspect each page's current publishing state
-- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 保存不可变页面版本并浏览版本历史
-  - Save immutable page versions and browse version history
-- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 发布或重新部署选中的页面版本
-  - Publish or redeploy a selected page version
-- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 更新标题、公开/私有可见性和访问设置
-  - Update titles, public/private visibility, and access settings
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 创建可打开和分享的页面链接
-  - Create an openable, shareable link for a page
-- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 取消发布页面，同时保留可再次发布的版本
-  - Unpublish a page while retaining versions for later publication
-- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 删除单个版本或整个 Page
-  - Delete an individual version or an entire Page
+- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 列出账号下全部已发布与未发布的 Pages 及其状态、权限和链接
+  - List all published and unpublished Pages with their URLs, visibility, and timestamps
+  - 说明：一句话就能盘点你名下托管了哪些页面、当前对外是谁可见、最后一次更新在什么时候。
+  - Why & how: See every Page under your account—including unpublished drafts, live URLs, access levels, and last-updated times.
+- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 每次保存自动生成不可变历史版本，随时翻阅完整版本记录
+  - Save immutable Page versions automatically and browse full version history
+  - 说明：不用担心改坏了找不回来——每一次内容提交都对应独立版本号，历史脉络清清楚楚。
+  - Why & how: Every content update creates an immutable snapshot with its own version ID so earlier iterations are never lost.
+- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 保存、发布网页或将任意历史版本一键重新部署上线
+  - Publish or deploy a selected Page version live
+  - 说明：既可以把刚写好的新页面直接上线，也能在多个历史版本之间随时无缝切换线上生产版本。
+  - Why & how: Launch a brand-new Page to production or promote any existing saved version to become the live version instantly.
+- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 灵活修改页面标题，并在私密、登录可见与公开之间随时切换
+  - Update Page titles and switch between private, signed-in, and public visibility
+  - 说明：内部初稿先设 `private` 自己看，团队评审改 `relay` 登录可看，正式对外再切 `public` 公开分享，链接地址保持不变。
+  - Why & how: Keep early drafts Private, open them to signed-in users via Relay, or make them Public when ready—all without changing your Page slug.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 一键生成并打开可分享的在线访问链接
+  - Create and open a shareable access link for any Page
+  - 说明：在 Pages 管理界面中直接打开预览或复制分享地址发给协作者，支持带登录态的安全跳转。
+  - Why & how: Open your hosted Page directly in the browser or copy a clean share link from the Pages manager.
+- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 随时一键下线已发布的页面，同时完好保留所有历史版本
+  - Unpublish a live Page offline while keeping all saved versions intact
+  - 说明：活动结束或链接不想再让人访问？取消发布即可立即关闭外部访问，需要时随时能原样重新上线。
+  - Why & how: Take a Page offline immediately when a campaign or review ends while keeping every saved version ready to republish later.
+- **由专用智能体工具控制 / Delegated Agent tool** · `PageManage` · 按需清理单个冗余历史版本，或彻底删除整个 Page
+  - Delete an individual old version or remove an entire Page permanently
+  - 说明：既支持只删掉某次测试草稿版本，也支持把不再需要的整个页面干净移除。
+  - Why & how: Prune a single scratch version by version ID or delete the whole Page when you no longer need it.
 
 ## 怎么用 / How to use it
 
-1. 登录 OpenBitFun 账号（GitHub 或服务支持的邮箱验证码）
-   Sign in to OpenBitFun with GitHub or an email code supported by the service
-2. 打开 Pages
-   Open Pages
-3. 选择页面并确认发布与可见性
-   Choose a page and confirm publishing and visibility
+1. 先点击左下角设备状态按钮 →「管理设备」（设备与连接），在「概览」或「我的设备」中登录 OpenBitFun 账号（支持 GitHub 或邮箱验证码；CLI 用户可执行 `/login`）
+   Click the bottom-left Device Menu → Manage devices (Devices & Connections) and sign in under Overview or My devices with GitHub or an email code (or `/login` in the CLI)
+2. 在对话中直接告诉智能体要发布或更新的页面内容与可见性（例如“把这个网页发布成公开 Page”），或按 ⌘K / Ctrl+K 搜索 `Pages` 打开可视化管理页
+   Ask the agent in chat to publish or update your page (e.g., "Publish this HTML prototype as a public Page"), or press ⌘K / Ctrl+K and search "Pages" to open the visual manager
+3. 在 Pages 管理页（或智能体返回结果中）获取可分享链接、浏览历史版本列表、修改页面标题与访问权限，或随时切换线上版本与下线
+   Copy shareable links, browse version history, change titles or public/private access, promote an earlier version, or unpublish anytime
 
-入口 / Entry: OpenBitFun 对应场景
+入口 / Entry: 按 ⌘K / Ctrl+K 打开全局搜索 → 输入「Pages」打开管理页，或直接在会话里让智能体帮你发布和管理 / Press ⌘K / Ctrl+K → Search "Pages" to open the Pages manager, or ask the agent directly in chat to publish and manage Pages (`⌘K / Ctrl+K`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -57,12 +80,25 @@ Save page versions and publish them to public or private URLs while managing tit
 
 ## 可以直接对智能体说 / Try saying
 
-- “列出我已发布的 Pages”
-  - “List my published Pages”
-- “把这个页面改成私有”
-  - “Make this Page private”
-- “更新这个页面的内容并上线”
-  - “Update this Page content and deploy it”
+- “把当前目录里的演示网页发布成公开 Page，把链接发给我”
+  - “Publish this demo webpage as a public Page and give me the link”
+- “列出我账号下所有已发布和未发布的 Pages”
+  - “List all published and unpublished Pages under my account”
+- “把产品原型那个 Page 的访问权限改成仅自己可见”
+  - “Change my prototype Page visibility to private”
+- “把这个 Page 回滚到上一个历史版本上线”
+  - “Deploy the previous saved version of this Page”
+
+## 实用贴士 / Good to know
+
+- 怎么打开 Pages 管理界面？当前版本默认隐藏了左侧边栏的固定图标，按 `⌘K`（Windows/Linux 按 `Ctrl+K`）输入 `Pages` 即可秒开，或者直接在聊天里吩咐 AI 管理更省事。
+  - Where is the Pages UI? The sidebar icon is hidden by default to keep navigation uncluttered—press ⌘K / Ctrl+K and type "Pages" to open the visual manager, or simply ask the agent in chat.
+- 保存版本 ≠ 立即覆盖线上：AI 更新页面时默认可先保存为新版本而不立刻替换线上流量，只有你明确要求上线部署时才切换生产版本。
+  - Safe staged updates: saving a new Page version does not overwrite live traffic until you explicitly deploy it, making updates stress-free.
+- 保持同一种登录方式：GitHub 登录与邮箱验证码登录各自独立拥有名下的 Pages，跨设备查看时请用同一方式登录。
+  - Same sign-in method: GitHub and email-code logins maintain separate accounts—use the same login method across Desktop and CLI to see the same Pages.
+
+关联条目 / Related: `feature.remote-connect`, `feature.miniapps`, `feature.generative-ui`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

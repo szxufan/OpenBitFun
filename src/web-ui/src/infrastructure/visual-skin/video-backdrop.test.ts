@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { compile } from 'sass';
 import JSZip from 'jszip';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { VisualSkinRuntime } from './runtime';
@@ -84,6 +87,20 @@ describe('mp4 backdrop', () => {
     expect(css).not.toContain('--openbitfun-skin-asset-');
     expect(css).toContain('--openbitfun-skin-surface-background-opacity:1 !important;');
     expect(document.querySelector('main')!.getAttribute('data-openbitfun-skin-artwork')).toBe('true');
+  });
+
+  it('keeps the video paint plane composited while transcript hover controls change', () => {
+    const styles = compile(resolve('src/app/styles/visual-skin.scss')).css;
+    const plane = styles.match(/> \[data-openbitfun-skin-paint\]\s*\{[^}]*transform: translateZ\(0\);[^}]*\}/)?.[0];
+    expect(plane).toContain('transform: translateZ(0)');
+  });
+
+  it('does not blur a rectangular wallpaper patch behind the composer', () => {
+    const source = readFileSync(resolve('../../design-system/packages/ui/src/flow-chat/composer/ChatComposer.module.css'), 'utf8');
+    const contextRule = source.match(/\.root\[data-has-context="true"\]\s*\{[^}]*\}/)?.[0];
+    expect(contextRule).toContain('backdrop-filter: none');
+    expect(contextRule).toContain('-webkit-backdrop-filter: none');
+    expect(contextRule).not.toContain('blur(');
   });
 
   it('keeps the same player across repaints, swaps mode-specific videos, and cleans up on deactivate', async () => {

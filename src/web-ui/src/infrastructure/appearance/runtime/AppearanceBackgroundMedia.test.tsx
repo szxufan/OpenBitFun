@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -70,6 +72,12 @@ describe('AppearanceBackgroundMedia', () => {
     expect(html).toContain('loop=""');
     expect(html).toContain('muted=""');
     expect(html).toContain('data-media-ready="false"');
+  });
+
+  it('keeps the appearance video backdrop on a dedicated composited layer', () => {
+    const styles = readFileSync(resolve('src/app/layout/AppLayout.scss'), 'utf8');
+    const layerRule = styles.match(/\.openbitfun-appearance-background-media\s*\{[^}]*\}/)?.[0];
+    expect(layerRule).toContain('transform: translateZ(0);');
   });
 
   it('keeps the poster visible until a video frame is presented and hides the video again when suspended', async () => {

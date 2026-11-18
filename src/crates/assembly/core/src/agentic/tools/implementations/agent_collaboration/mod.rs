@@ -1,3 +1,5 @@
+//! Agent collaboration tools and shared delegation execution.
+
 use crate::agentic::agents::{
     get_agent_registry, AgentInfo, SubagentListScope, SubagentQueryContext,
 };
@@ -36,43 +38,35 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 mod agent_control;
+pub mod agent_control_tool;
+pub mod agent_list_tool;
+pub mod agent_wait_tool;
 mod background;
 mod deep_review;
 mod execution;
 mod input;
 mod launch_review_agent;
+mod legacy_task;
+mod model_policy;
+pub(crate) use model_policy::with_collaboration_model_policy;
+
+use model_policy::{model_override_validation, ModelOverridePolicy};
 mod schema;
 mod validation;
 
+pub use agent_control_tool::AgentControlTool;
+pub use agent_list_tool::AgentListTool;
+pub use agent_wait_tool::AgentWaitTool;
 pub use launch_review_agent::LaunchReviewAgentTool;
+pub use legacy_task::TaskTool;
 
-pub struct TaskTool;
 pub(crate) struct AgentExecutionTool;
 pub struct AgentSpawnTool;
+pub struct AgentForkTool;
 pub struct AgentSendInputTool;
 
 const LARGE_TASK_PROMPT_SOFT_LINE_LIMIT: usize = 180;
 const LARGE_TASK_PROMPT_SOFT_BYTE_LIMIT: usize = 16 * 1024;
-
-impl Default for TaskTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TaskTool {
-    pub fn new() -> Self {
-        Self
-    }
-
-    fn render_legacy_description() -> String {
-        AgentExecutionTool::new()
-            .render_description()
-            .replace("AgentSpawn", "Task")
-            .replace("AgentSendInput", "Task")
-            .replace("AgentControl", "Task")
-    }
-}
 
 impl Default for AgentExecutionTool {
     fn default() -> Self {
@@ -166,7 +160,7 @@ impl Tool for AgentExecutionTool {
     }
 
     async fn description(&self) -> OpenBitFunResult<String> {
-        Ok(self.render_description())
+        Ok(self.render_description(ModelOverridePolicy::presentation().await?.allowed))
     }
 
     async fn is_available_in_context(&self, _context: Option<&ToolUseContext>) -> bool {
@@ -186,18 +180,22 @@ impl Tool for AgentExecutionTool {
         &self,
         _context: Option<&ToolUseContext>,
     ) -> OpenBitFunResult<String> {
-        Ok(self.render_description())
+        Ok(self.render_description(ModelOverridePolicy::presentation().await?.allowed))
     }
 
     fn input_schema(&self) -> Value {
         Self::regular_input_schema()
     }
 
+    async fn input_schema_for_model(&self) -> Value {
+        ModelOverridePolicy::model_schema(self.input_schema()).await
+    }
+
     async fn input_schema_for_model_with_context(
         &self,
         _context: Option<&ToolUseContext>,
     ) -> Value {
-        Self::regular_input_schema()
+        self.input_schema_for_model().await
     }
 
     fn is_readonly(&self) -> bool {
@@ -262,6 +260,9 @@ impl Tool for AgentExecutionTool {
         input: &Value,
         context: Option<&ToolUseContext>,
     ) -> ValidationResult {
+        if let Some(validation) = model_override_validation(input).await {
+            return validation;
+        }
         Self::validate_invocation_input(
             input,
             false,
@@ -307,137 +308,8 @@ impl Tool for AgentExecutionTool {
         input: &Value,
         context: &ToolUseContext,
     ) -> OpenBitFunResult<Vec<ToolResult>> {
+        ModelOverridePolicy::enforce(input).await?;
         self.call_task_impl(input, context).await
-    }
-}
-
-/// Compatibility implementation for custom agents that still explicitly list
-/// the original combined collaboration tool. Built-in modes use the split
-/// Agent* tools above, while this entry point keeps existing custom-agent
-/// definitions executable without a configuration migration.
-#[async_trait]
-impl Tool for TaskTool {
-    fn name(&self) -> &str {
-        "Task"
-    }
-
-    fn manages_own_execution_timeout(&self) -> bool {
-        true
-    }
-
-    async fn description(&self) -> OpenBitFunResult<String> {
-        Ok(Self::render_legacy_description())
-    }
-
-    async fn is_available_in_context(&self, _context: Option<&ToolUseContext>) -> bool {
-        true
-    }
-
-    fn short_description(&self) -> String {
-        "Delegate work to a subagent task and collect the result.".to_string()
-    }
-
-    async fn description_with_context(
-        &self,
-        _context: Option<&ToolUseContext>,
-    ) -> OpenBitFunResult<String> {
-        Ok(Self::render_legacy_description())
-    }
-
-    fn input_schema(&self) -> Value {
-        AgentExecutionTool::regular_input_schema()
-    }
-
-    fn output_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "status": {"type": "string"},
-                "agent_id": {"type": "string"},
-                "bg_task_id": {"type": "string"},
-                "result": {"type": "string"},
-                "error": {"type": "string"}
-            },
-            "additionalProperties": true
-        })
-    }
-
-    async fn input_schema_for_model_with_context(
-        &self,
-        _context: Option<&ToolUseContext>,
-    ) -> Value {
-        AgentExecutionTool::regular_input_schema()
-    }
-
-    fn is_readonly(&self) -> bool {
-        false
-    }
-
-    fn is_concurrency_safe(&self, input: Option<&Value>) -> bool {
-        AgentExecutionTool::new().is_concurrency_safe(input)
-    }
-
-    fn permission_intents(
-        &self,
-        input: &Value,
-        context: &ToolUseContext,
-    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
-        AgentExecutionTool::new().permission_intents(input, context)
-    }
-
-    async fn validate_input(
-        &self,
-        input: &Value,
-        context: Option<&ToolUseContext>,
-    ) -> ValidationResult {
-        AgentExecutionTool::validate_invocation_input(
-            input,
-            false,
-            context.and_then(ToolUseContext::workspace_root),
-        )
-        .await
-    }
-
-    fn render_tool_use_message(&self, input: &Value, options: &ToolRenderOptions) -> String {
-        match TaskAction::parse(input).ok() {
-            Some(TaskAction::Cancel) => input
-                .get("agent_id")
-                .and_then(Value::as_str)
-                .map(|agent_id| format!("Cancelling background task: {agent_id}"))
-                .unwrap_or_else(|| "Cancelling background task".to_string()),
-            Some(TaskAction::SendInput) => input
-                .get("agent_id")
-                .and_then(Value::as_str)
-                .map(|agent_id| {
-                    if options.verbose {
-                        format!("Sending input to task: {agent_id}")
-                    } else {
-                        format!("Task input: {agent_id}")
-                    }
-                })
-                .unwrap_or_else(|| "Sending input to task".to_string()),
-            Some(TaskAction::Spawn) | None => input
-                .get("agent_id")
-                .and_then(Value::as_str)
-                .map(|agent_id| {
-                    if options.verbose {
-                        format!("Creating task: {agent_id}")
-                    } else {
-                        format!("Task: {agent_id}")
-                    }
-                })
-                .unwrap_or_else(|| "Creating task".to_string()),
-        }
-    }
-
-    async fn call_impl(
-        &self,
-        input: &Value,
-        context: &ToolUseContext,
-    ) -> OpenBitFunResult<Vec<ToolResult>> {
-        AgentExecutionTool::new()
-            .call_task_impl(input, context)
-            .await
     }
 }
 

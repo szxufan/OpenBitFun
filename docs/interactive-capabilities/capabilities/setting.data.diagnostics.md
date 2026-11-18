@@ -11,37 +11,58 @@ title_en: "Logs & diagnostics"
 
 > 设置 / Setting
 
-调整日志级别，查看运行日志路径，并导出用于排查问题的诊断包。
+即时调整运行日志级别、一键打开本机日志目录、查看上次崩溃或配置恢复提示，并在本地生成自动定位展示的可控隐私 ZIP 诊断包。
 
-Adjust logging level, inspect runtime log locations, and export diagnostic bundles for troubleshooting.
+Change backend log verbosity without restarting, open the runtime log folder, review crash or config-recovery notices, and export privacy-checked local ZIP diagnostic bundles.
+
+## 适用场景 / When to use it
+
+- 遇到偶发卡顿、MCP 连接失败或远程重连异常想提 Issue 反馈：点“导出诊断包”阅读隐私提示并点“继续导出”，系统会在日志目录打包好 ZIP 并自动弹出文件夹选中它，你可先解压核对再分享。
+  - Hit a tricky MCP connection error or reconnect hiccup? Click Export Diagnostics, confirm the privacy notice (`Continue export`), and OpenBitFun writes a timestamped ZIP into `<logs>/diagnostics/` and reveals it in Finder / Explorer so you can inspect it before sharing.
+- 开发插件或深入追查某个底层流式请求问题时，临时切到 `Trace` 并短暂勾选“包含敏感调试信息”复现一次，抓完日志立刻关回，兼顾排障效率与代码隐私。
+  - Chasing a low-level streaming or plugin issue? Temporarily switch Log Level to `Trace`, reproduce the problem once, export the bundle, and turn Sensitive Debug Info right back off.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 设置 Trace、Debug、Info、Warn、Error 或关闭后端日志
-  - Set backend logging to Trace, Debug, Info, Warn, Error, or Off
-- **智能体可直接控制 / Direct Agent control** · 选择诊断中是否允许包含敏感上下文，并在导出前明确提示
-  - Choose whether diagnostics may include sensitive context, with an explicit warning before export
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看日志路径并打开日志文件夹
-  - Inspect the log path and open the log folder
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 导出包含系统、配置健康和日志信息的诊断包
-  - Export a diagnostics bundle containing system, configuration-health, and log information
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看上次崩溃、非正常退出、启动恢复和配置恢复信息
-  - Inspect previous crashes, unclean shutdowns, startup recovery, and configuration recovery
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在开发构建中检查 DevTools 是否可用并打开或关闭
-  - In development builds, check DevTools availability and open or close them
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在开发构建中启用主窗口元素检查并回传选中的元素
-  - In development builds, inspect main-window elements and report the selected element
+- **智能体可直接控制 / Direct Agent control** · 即时切换 Trace、Debug、Info、Warn、Error 或关闭后端运行日志
+  - Switch backend runtime logging among Trace, Debug, Info, Warn, Error, or Off immediately
+  - 说明：配置默认级别为 `Debug`，修改后立即对当前运行进程生效，无需重启应用；日常若想进一步减少日志写入量可调至 `Info` 或 `Warn`。
+  - Why & how: Defaults to `Debug` in configuration and takes effect immediately without restarting OpenBitFun; step down to `Info` or `Warn` anytime if you want quieter disk logging.
+- **智能体可直接控制 / Direct Agent control** · 控制日志与诊断包是否允许记录敏感调试上下文（默认关闭）
+  - Control whether logs and diagnostic bundles may include sensitive debug context (off by default)
+  - 说明：默认关闭以保护隐私。开启后可能会把完整提示词、工具调用参数或模型原始返回写入本机日志；建议仅在深度复现问题时临时打开，排查完立即关闭。
+  - Why & how: Off by default to protect your privacy. Enabling it allows full prompts, tool arguments, or raw model responses into local logs — turn it on only briefly while reproducing a bug, then switch it back off.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看当前会话日志目录路径并一键打开本地日志文件夹
+  - Inspect the active session log directory path and open the log folder in one click
+  - 说明：直接展示当前实例正在写入的精确日志目录，点“打开文件夹”即可在访达（Finder）或资源管理器中用自己的编辑器查看实时日志文件。
+  - Why & how: Shows the exact directory where this running instance writes its logs and opens it directly in Finder or Explorer so you can tail or inspect files locally.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 确认隐私说明后导出本地 ZIP 诊断包并自动在文件管理器中定位
+  - Confirm the privacy notice to export a local ZIP diagnostics bundle and reveal it in your file manager
+  - 说明：点击“导出诊断包”会先弹出应用内隐私说明弹窗，确认“继续导出”后自动在 `<logs>/diagnostics/` 目录生成 `openbitfun-diagnostics-<时间戳>.zip`（含运行状态、配置健康与近期会话日志），并在访达 / 资源管理器中高亮该文件，**绝不自动上传**。
+  - Why & how: Clicking Export Diagnostics opens an in-app privacy confirmation dialog (`Continue export`), writes `openbitfun-diagnostics-<timestamp>.zip` (metadata, run state, config health, and recent session logs) into `<logs>/diagnostics/`, and automatically reveals the `.zip` file in Finder / Explorer — **never auto-uploading**.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看上次异常退出、崩溃记录以及启动与配置自动恢复详情
+  - Inspect previous crashes, unclean shutdown notices, and startup or configuration recovery details
+  - 说明：如果上一次运行发生了崩溃或配置文件局部损坏回退，页面顶部会用醒目卡片列出原因摘要与对应历史日志位置，帮你快速定位现场。
+  - Why & how: Whenever the previous run exited abnormally or triggered startup/config recovery, a banner highlights what happened and points straight to the preserved crash log.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 仅开发构建：检查桌面窗口 DevTools 可用状态并打开或关闭调试器
+  - Development builds only: check desktop DevTools availability and open or close them
+  - 说明：专为本地开发调试 OpenBitFun 客户端准备的内部入口，正式发布版客户端默认隐藏该能力，普通日常使用无需关心。
+  - Why & how: Internal debugging hook available only when running a development build of OpenBitFun; hidden in standard release builds.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 仅开发构建：启用主窗口界面元素拾取器并回传选中组件信息
+  - Development builds only: inspect main-window UI elements and report the selected element
+  - 说明：同样仅在开发构建中启用，用于在联调桌面界面时点选主窗口 DOM 元素获取组件定位，正式版不会暴露此调试钩子。
+  - Why & how: Also restricted to development builds for picking and inspecting main-window DOM elements during UI development; not exposed in release builds.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“数据 > 日志与诊断”
-   Go to Data > Logs & Diagnostics
-3. 选择日志级别，或按需导出诊断包
-   Choose a log level or export a bundle when needed
+1. 打开设置（⌘, / Ctrl+,），进入“数据与维护 → 日志与诊断”
+   Open Settings (⌘, / Ctrl+,) and go to Data & Maintenance → Logs & Diagnostics
+2. 遇到问题复现前可确认日志级别为 Debug（或临时调为 Trace），修改即时生效无需重启
+   Confirm Log Level is set to Debug (or temporarily switch to Trace before reproducing an issue) — no restart needed
+3. 点击“打开文件夹”查阅实时日志，或点击“导出诊断包”并在弹窗点“继续导出”，系统会在 `<logs>/diagnostics/` 生成 ZIP 并自动打开文件夹定位
+   Click Open Folder to inspect live log files, or click Export Diagnostics → Continue export to generate a `.zip` in `<logs>/diagnostics/` and reveal it automatically in Finder / Explorer
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 数据与维护 → 日志与诊断 / Settings (⌘, / Ctrl+,) → Data & Maintenance → Logs & Diagnostics (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -53,17 +74,28 @@ Adjust logging level, inspect runtime log locations, and export diagnostic bundl
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 日志级别 / Log level | `error` / `warn` / `info` / `debug` / `trace` / `off` | 设置后端运行日志的详细程度。 | Set the verbosity of backend runtime logs. |
-| 诊断包包含敏感信息 / Include sensitive diagnostics | `boolean` | 仅在明确需要并理解隐私风险时启用。 | Enable only when explicitly needed and after reviewing the privacy risk. |
+| 日志级别 / Log level | `error` / `warn` / `info` / `debug` / `trace` / `off` | 设置后端运行日志详细程度（`trace` / `debug`［默认］/ `info` / `warn` / `error` / `off`），修改后即时生效无需重启。 | Set backend runtime log verbosity (`trace`, `debug` [default], `info`, `warn`, `error`, or `off`), applied live without restarting. |
+| 包含敏感调试信息 / Include sensitive debug info | `boolean` | 控制本地日志与导出的诊断包是否允许记录提示词、工具参数等敏感上下文（默认关闭，仅建议排障时临时启用）。 | Allow prompts, tool arguments, and raw payloads in local logs and exported bundles (off by default; enable only temporarily when debugging). |
 
 ## 可以直接对智能体说 / Try saying
 
-- “把日志级别改成 debug”
-  - “Set the log level to debug”
-- “打开诊断设置”
-  - “Open diagnostics settings”
-- “带我导出诊断包”
-  - “Take me to export a diagnostic bundle”
+- “把日志级别改成 info”
+  - “Set the backend log level to info”
+- “打开日志与诊断设置，我要导出诊断包”
+  - “Open Logs & Diagnostics so I can export a diagnostic bundle”
+- “帮我关闭敏感调试信息记录”
+  - “Turn off sensitive debug logging”
+
+## 实用贴士 / Good to know
+
+- 安心承诺：**“导出诊断包”100% 在你本机日志目录下打包生成 `.zip` 文件并自动打开文件夹高亮，绝不会自动上传网络**；你可以先解压看看里面有哪些文本文件，确认放心后再分享。
+  - Privacy guarantee: **Export Diagnostics writes a local `.zip` inside `<logs>/diagnostics/`, reveals it in your file manager, and never uploads anything automatically** — unzip and review every file before sharing.
+- 如果你在正式版界面里没看到 DevTools 或元素检查按钮，这是完全正常的——那两项仅对源码开发构建开放。
+  - Not seeing DevTools or Element Inspector controls? That is expected in normal release builds — those hooks appear only in local development builds.
+- 命令行环境下也可以直接运行 `openbitfun doctor` 快速做一轮运行环境与配置健康自检。
+  - Working from a terminal? You can also run `openbitfun doctor` in the CLI to check runtime health and configuration.
+
+关联条目 / Related: `setting.application.general`, `setting.data.usage`, `feature.terminal`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

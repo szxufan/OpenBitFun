@@ -426,6 +426,64 @@ describe('interaction refresh work', () => {
       expect(entry(runtime, 'components[0].slots.root')?.status).toBe('unresolved');
     } finally { query.mockRestore(); }
   });
+
+  it('skips DOM rescans, style recompiles, and projection reports during virtualized transcript scrolling without watchers', async () => {
+    const storage = new TestStorage(), skin = source('a');
+    skin.assets = { art: { mimeType: 'image/svg+xml', source: { kind: 'data', data: 'data:image/svg+xml;base64,PHN2Zy8+' } } };
+    skin.surfaces = [{ surface: 'shell', backgroundAssetId: 'art' }, { surface: 'chat', backgroundSource: 'shell', baseOpacity: 0.3 }];
+    skin.components = [
+      { component: 'navigation-panel', slots: { root: { assetId: 'art', backgroundPosition: '15% 25%' } } },
+      { component: 'icon-button', tokens: { 'color.content.primary': '#444444' } },
+    ];
+    await install(storage, skin);
+    document.body.innerHTML = '<main data-openbitfun-surface="shell"><aside data-openbitfun-component="navigation-panel" data-openbitfun-part="root"></aside><section id="chat" data-openbitfun-surface="chat"><div id="scroller"></div></section></main>';
+    const runtime = new VisualSkinRuntime(storage); runtimes.push(runtime);
+    await runtime.activate('a'); await tick();
+    const scroller = document.getElementById('scroller')!;
+    const style = document.querySelector('style[data-openbitfun-skin-runtime]')!;
+    const initialCss = style.textContent;
+    const snapshots: number[] = [];
+    const unsubscribe = runtime.subscribe(() => snapshots.push(1));
+    const query = vi.spyOn(document, 'querySelectorAll');
+    try {
+      for (let i = 0; i < 12; i++) {
+        const row = document.createElement('div');
+        row.setAttribute('data-openbitfun-component', 'virtual-item');
+        row.setAttribute('data-openbitfun-part', 'root');
+        row.innerHTML = '<div data-openbitfun-product-component="user-message-item" data-openbitfun-product-part="root"><button data-openbitfun-component="icon-button" data-openbitfun-part="root">Copy</button></div>';
+        scroller.append(row);
+        row.dispatchEvent(new Event('pointerover', { bubbles: true }));
+        if (scroller.childElementCount > 4) scroller.firstElementChild?.remove();
+      }
+      await tick();
+      expect(query).not.toHaveBeenCalled();
+      expect(style.textContent).toBe(initialCss);
+      expect(snapshots).toHaveLength(0);
+
+      // Subscribing a visible projection watcher later reconciles current DOM state on demand.
+      const stopWatching = runtime.watchProjection(() => true);
+      await tick();
+      expect(entry(runtime, 'components[1]')?.message).toContain('4 mounted component(s)');
+      stopWatching();
+    } finally { unsubscribe(); query.mockRestore(); }
+  });
+
+  it('recompiles part rules when a child part mounts inside an already-mounted component owner', async () => {
+    const storage = new TestStorage(), skin = source('a');
+    skin.assets = { art: { mimeType: 'image/svg+xml', source: { kind: 'data', data: 'data:image/svg+xml;base64,PHN2Zy8+' } } };
+    skin.components = [{ component: 'button', slots: { 'leading-icon': { assetId: 'art', backgroundPosition: '25% 75%' } } }];
+    await install(storage, skin);
+    document.body.innerHTML = '<button id="owner" data-openbitfun-component="button" data-openbitfun-part="root"><span>Wrap</span></button>';
+    const runtime = new VisualSkinRuntime(storage); runtimes.push(runtime);
+    await runtime.activate('a'); await tick();
+    const wrap = document.querySelector('#owner > span')!;
+    const icon = document.createElement('span');
+    icon.id = 'late-icon';
+    icon.setAttribute('data-openbitfun-part', 'leading-icon');
+    wrap.append(icon);
+    await tick();
+    expect(paintPosition('late-icon')).toBe('25% 75%');
+  });
 });
 
 describe('current mode diagnostics', () => {

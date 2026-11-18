@@ -42,7 +42,18 @@
     "subagentModelSettings": "前往智慧體頁面為子智慧體個別設定模型",
     "subagentModelInherit": "繼承父會話",
     "subagentDefaultModel": "子智能體預設模型",
-    "subagentDefaultModelDesc": "未個別指定模型的子智慧體使用此設定。"
+    "subagentDefaultModelDesc": "未個別指定模型的子智慧體使用此設定。",
+    "forkSubagentDefaultModel": "Fork 子智慧體預設模型",
+    "forkSubagentDefaultModelDesc": "啟動繼承父會話上下文的子智慧體時，若未指定模型，則使用此設定。",
+    "subagentModelOverride": {
+      "label": "允許 Agent 指定子 Agent 模型",
+      "hint": "關閉後，子 Agent 使用已設定的模型，Agent 無法在啟動或繼續執行時指定其他模型。",
+      "unsupported": "目前主機不支援控制子 Agent 模型選擇，請更新主機後修改此設定。",
+      "loadFailed": "無法載入子 Agent 模型設定。",
+      "saveFailed": "無法儲存子 Agent 模型設定。",
+      "loading": "正在載入子 Agent 模型設定…",
+      "retry": "重試"
+    }
   },
   "filters": {
     "all": "全部",

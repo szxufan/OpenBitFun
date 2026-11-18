@@ -109,10 +109,18 @@
     height: 4px;
     border-radius: 999px;
     background: var(--openbitfun-color-status-success-emphasis);
-    box-shadow:
-      0 0 0 1px var(--openbitfun-color-surface-raised),
-      0 0 0 0 color-mix(in srgb, var(--openbitfun-color-status-success-emphasis) 42%, transparent);
+    box-shadow: 0 0 0 1px var(--openbitfun-color-surface-raised);
     animation: flowchat-header-session-overview-pulse 1.45s ease-out infinite;
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: inherit;
+      pointer-events: none;
+      animation: flowchat-header-session-overview-halo 1.45s ease-out infinite;
+    }
   }
 
   @keyframes flowchat-header-session-overview-pulse {
@@ -120,22 +128,30 @@
     100% {
       transform: scale(1);
       opacity: 0.9;
-      box-shadow:
-        0 0 0 1px var(--openbitfun-color-surface-raised),
-        0 0 0 0 color-mix(in srgb, var(--openbitfun-color-status-success-emphasis) 40%, transparent);
     }
 
     50% {
       transform: scale(1.22);
       opacity: 1;
-      box-shadow:
-        0 0 0 1px var(--openbitfun-color-surface-raised),
-        0 0 0 5px color-mix(in srgb, var(--openbitfun-color-status-success-emphasis) 0%, transparent);
+    }
+  }
+
+  @keyframes flowchat-header-session-overview-halo {
+    0% {
+      transform: scale(1);
+      opacity: 0.42;
+    }
+
+    50%,
+    100% {
+      transform: scale(3.5);
+      opacity: 0;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    &__session-overview-status-dot {
+    &__session-overview-status-dot,
+    &__session-overview-status-dot::after {
       animation: none;
     }
   }

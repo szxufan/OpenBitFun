@@ -3,37 +3,68 @@
 id: setting.application.appearance
 kind: setting
 category: application
-title_zh: "外观与语言"
-title_en: "Appearance & language"
+title_zh: "外观"
+title_en: "Appearance"
 ---
 
-# 外观与语言 / Appearance & language
+# 外观 / Appearance
 
 > 设置 / Setting
 
-切换内置主题与语言，调整字体。
+自由切换跟随系统与 9 套内置主题、导入动态视觉皮肤包，并定制全局字号、左侧导航栏、对话宽度与侧边面板布局。
 
-Switch built-in themes and languages, and tune typography.
+Switch between system mode and all 9 built-in themes, import visual skin packs with video backdrops, and customize UI font size, left sidebar items, chat width, and Side by side / Overlay session panels.
+
+## 适用场景 / When to use it
+
+- 白天在明亮屏幕下用“浅色”或国风“墨韵”，晚上切到低眩光的“东京夜”“午夜”或直接选“跟随系统”自动日夜切换。
+  - Use Light or Ink Charm during bright daytime hours, switch to low-glare Tokyo Night or Midnight at night, or let Follow System match your OS automatically.
+- 换上大尺寸高分屏后觉得聊天气泡太窄或界面字偏小，把全局字号调到“中等 / 16 px”并拉宽对话内容区，长段代码与方案对照更舒展。
+  - On an ultrawide or high-DPI monitor, bump UI font size to Medium or a custom 16 px value and widen the chat column so code blocks and tables have room to breathe.
+- 想精简工作台左侧图标栏，把不常用的入口取消固定、把高频场景挪到顺手位置，并在小屏笔记本上将会话侧边面板改为“覆盖”模式节省横向空间。
+  - Declutter the left navigation bar by unpinning scenes you rarely touch, reordering favorites, and switching the session side panel from Side by side to Overlay on smaller laptop screens.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 选择跟随系统、浅色、深色、单色、Midnight、中国风、Cyber、Slate 或 Tokyo Night 等内置外观
-  - Choose system, light, dark, monochrome, Midnight, China, Cyber, Slate, Tokyo Night, and other built-in appearances
-- **智能体可直接控制 / Direct Agent control** · 切换简体中文、繁体中文、英文等受支持界面语言
-  - Switch among Simplified Chinese, Traditional Chinese, English, and other supported UI languages
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 调整全局界面字号，并支持自定义像素值
-  - Adjust the global UI font size, including custom pixel values
+- **智能体可直接控制 / Direct Agent control** · 选择跟随系统或暗色、浅色、黑白撞色、午夜、墨韵、墨夜、赛博、石板灰、东京夜等内置主题
+  - Choose Follow System or Dark, Light, Black & White, Midnight, Ink Charm, Ink Night, Cyber, Slate, or Tokyo Night built-in theme appearance
+  - 说明：提供“跟随系统”及全部 9 套官方调校主题，涵盖经典深浅色、高对比黑白撞色、东方水墨质感（墨韵 / 墨夜）与夜间编程配色（午夜 / 赛博 / 石板灰 / 东京夜），点击即刻生效。
+  - Why & how: Includes Follow System plus all 9 crafted built-in themes — Dark, Light, high-contrast Black & White, Ink Charm, Ink Night, Midnight, Cyber, Slate, and Tokyo Night — applied instantaneously.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 导入、预览、启用或停用自定义视觉皮肤包（支持动态视频背景）
+  - Import, preview, activate, or deactivate custom visual skin packs (including video backdrops)
+  - 说明：支持导入 `.openbitfun-skin`、`.zip` 或 `.json` 格式的声明式皮肤包，先预览静态或循环视频背景效果再正式启用，也可随时一键停用回退到内置主题。
+  - Why & how: Import `.openbitfun-skin`, `.zip`, or `.json` skin packages, preview static imagery or looping video backdrops before activating, and deactivate or clean up invalid packs anytime.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 调整全局界面字号档位，或按 12–20 px 自定义像素大小并实时预览
+  - Adjust global UI font-size presets or set a custom 12–20 px size with live preview
+  - 说明：内置紧凑、小、默认、中等、大 5 个档位，并支持 12–20 px 精确自定义。这里控制的是界面与对话字号，代码字号可在“编程与开发 → 编辑器”中独立调节。
+  - Why & how: Offers Compact, Small, Default, Medium, and Large presets plus custom 12–20 px sizing with a live preview box. Controls UI and chat text independently from code editor font size.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 固定、取消固定或调整左侧导航栏场景入口顺序
+  - Pin, unpin, reorder, or reset left sidebar navigation entries
+  - 说明：“个人总览”始终固定置顶，其余场景可按你的日常动线自由增减或上下移动顺序，改乱了也能一键重置回默认布局。
+  - Why & how: Personal Overview stays pinned at the top while you freely pin, unpin, or move other scenes up and down — with a one-click Reset button whenever you want defaults back.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 微调或重置对话流内容区的首选像素宽度
+  - Adjust or reset the preferred pixel width of the conversation stream
+  - 说明：可按 10 px 步进精细调节，也可以直接在会话界面拖拽对话内容区边缘调整宽度，满足窄栏沉浸阅读或宽屏大表格展示，随时可恢复默认值。
+  - Why & how: Fine-tune chat column width in 10 px steps here or drag the edge of the conversation stream directly in chat, with one-click reset to the default width.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在“并排”与“覆盖”之间切换会话侧边面板展示模式
+  - Switch the session side-panel display mode between Side by side and Overlay
+  - 说明：宽屏下选“并排”方便一边对话一边对照文件或预览；笔记本小窗口下选“覆盖”让侧边面板浮层展开，不挤压主对话区宽度。
+  - Why & how: Choose Side by side (`split`) on wide monitors to inspect files and previews next to chat, or Overlay on compact windows so side panels float over the workspace without squeezing the conversation.
+- **智能体可直接控制 / Direct Agent control** · 通过智能体直接切换简体中文、English 或繁體中文界面语言
+  - Switch the interface language among Simplified Chinese, English, and Traditional Chinese
+  - 说明：支持 `zh-CN`（简体中文）、`en-US`（English）与 `zh-TW`（繁體中文）三种界面语言；在图形设置中，语言下拉框位于“应用与界面 → 通用”顶部。
+  - Why & how: Supports Simplified Chinese (`zh-CN`), English (`en-US`), and Traditional Chinese (`zh-TW`); in the graphical Settings UI, the language dropdown is located at the top of Application & Interface → General.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“应用 > 外观”
-   Go to Application > Appearance
-3. 选择内置主题或语言
-   Choose a built-in theme or language
+1. 打开设置（⌘, / Ctrl+,），进入“应用与界面 → 外观”
+   Open Settings (⌘, / Ctrl+,) and go to Application & Interface → Appearance
+2. 在顶部主题卡片中点选“跟随系统”或任意 9 套内置主题，或在“视觉皮肤”中导入自定义皮肤包
+   Click Follow System or any of the 9 built-in theme cards, or import a custom pack under Visual Skins
+3. 向下滚动调节全局界面字号、左侧导航栏顺序、对话内容宽度与会话侧边面板（并排 / 覆盖）模式
+   Scroll down to tune global UI font size, left sidebar pinned entries, chat content width, and Side by side vs Overlay session panel mode
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 应用与界面 → 外观 / Settings (⌘, / Ctrl+,) → Application & Interface → Appearance (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -45,17 +76,28 @@ Switch built-in themes and languages, and tune typography.
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 主题 / Theme | `system` / `openbitfun-light` / `openbitfun-monochrome` / `openbitfun-slate` / `openbitfun-dark` / `openbitfun-midnight` / `openbitfun-china-style` / `openbitfun-china-night` / `openbitfun-cyber` / `openbitfun-tokyo-night` | 使用系统、OpenBitFun 深色或 OpenBitFun 浅色外观。 | Use the system, OpenBitFun dark, or OpenBitFun light appearance. |
-| 界面语言 / Interface language | `zh-CN` / `en-US` / `zh-TW` | 设置 OpenBitFun 的界面语言。 | Set the OpenBitFun interface language. |
+| 主题 / Theme | `system` / `openbitfun-light` / `openbitfun-monochrome` / `openbitfun-slate` / `openbitfun-dark` / `openbitfun-midnight` / `openbitfun-china-style` / `openbitfun-china-night` / `openbitfun-cyber` / `openbitfun-tokyo-night` | 选择跟随系统（system）或 9 套内置主题：暗色、浅色、黑白撞色、午夜、墨韵、墨夜、赛博、石板灰、东京夜。 | Choose Follow System (`system`) or any of the 9 built-in themes: Dark, Light, Black & White, Midnight, Ink Charm, Ink Night, Cyber, Slate, or Tokyo Night. |
+| 界面语言 / Interface language | `zh-CN` / `en-US` / `zh-TW` | 在简体中文（zh-CN）、English（en-US）与繁體中文（zh-TW）之间切换界面语言（图形界面入口位于“应用与界面 → 通用”）。 | Switch UI language among Simplified Chinese (`zh-CN`), English (`en-US`), and Traditional Chinese (`zh-TW`) (graphical selector lives in Application & Interface → General). |
 
 ## 可以直接对智能体说 / Try saying
 
-- “切换成深色主题”
-  - “Switch to the dark theme”
-- “把界面语言改成英文”
+- “帮我切换成东京夜主题”
+  - “Switch to the Tokyo Night theme”
+- “把外观主题改成跟随系统”
+  - “Set the theme to follow system appearance”
+- “把界面语言切成英文”
   - “Change the interface language to English”
-- “打开外观设置”
-  - “Open Appearance settings”
+
+## 实用贴士 / Good to know
+
+- 如果在外观页没找到“界面语言”下拉框：它现在搬到了隔壁“应用与界面 → 通用”页最上方，或者直接让智能体替你切换即可。
+  - Looking for the UI Language dropdown? In the graphical Settings UI it now lives at the top of Application & Interface → General, or you can ask the Agent to switch it directly.
+- 调整这里“界面字号”不会改变代码编辑区字体大小；想单独放大代码字号请前往“编程与开发 → 编辑器”。
+  - UI Font Size scales menus and chat without altering code text — tune code font size independently under Programming & Development → Editor.
+- 开启视觉皮肤包后会覆盖底层配色与背景，想纯粹对比内置主题效果时，先在“视觉皮肤”里点停用即可。
+  - An active Visual Skin overrides theme surfaces and backdrops; click Deactivate in Visual Skins anytime to return cleanly to your selected built-in theme.
+
+关联条目 / Related: `setting.application.general`, `setting.application.development`, `feature.ai-assistant`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

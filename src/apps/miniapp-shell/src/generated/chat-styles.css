@@ -327,8 +327,11 @@
 
   .miniapp-ChatComposer-root[data-has-context="true"] {
     background: var(--openbitfun-color-composer-context-background);
-    backdrop-filter: blur(var(--openbitfun-control-composer-context-blur));
-    -webkit-backdrop-filter: blur(var(--openbitfun-control-composer-context-blur));
+    /* A transparent composer must not blur a rectangular patch of the shared
+       wallpaper. The patch becomes especially visible while reading older
+       messages and looks like an unintended shadow beside the input. */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .miniapp-ChatComposer-context {

@@ -198,7 +198,7 @@ pub fn tool_call_concurrency_safe_for_batch(
     same_batch_subagent_call_count: usize,
     subagent_batch_execution_policy: SubagentBatchExecutionPolicy,
 ) -> bool {
-    if tool_name != "AgentSpawn" {
+    if !matches!(tool_name, "AgentSpawn" | "AgentFork") {
         return tool_is_concurrency_safe;
     }
 

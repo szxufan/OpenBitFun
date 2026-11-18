@@ -3,43 +3,68 @@
 id: setting.data.usage
 kind: setting
 category: data
-title_zh: "Token 用量"
-title_en: "Token usage"
+title_zh: "调用统计"
+title_en: "Call Statistics"
 ---
 
-# Token 用量 / Token usage
+# 调用统计 / Call Statistics
 
 > 设置 / Setting
 
-查看请求、输入输出 Token、缓存命中和估算成本等使用统计。
+通过活跃度热力图、时间范围汇总卡片、输入/输出 Token 趋势图与按模型/按服务商/按端点分布明细，清晰掌握本机 AI 调用情况与缓存命中效率。
 
-Inspect request counts, input and output tokens, cache hits, and estimated cost statistics.
+Review your local AI usage through an activity heatmap, summary cards, Input + Output token trend bars, cache hit-rate metrics, and breakdowns by model, provider, and endpoint.
+
+## 适用场景 / When to use it
+
+- 月底复盘主力模型与快速模型各自消耗了多少输入/输出 Token，切到“本月”在“按模型”分布里一眼看出谁是消耗大户。
+  - Check how much traffic went to your primary reasoning model versus your fast lightweight model this month using the By Model distribution tab.
+- 排查长会话上下文缓存有没有真正省到开销，展开详情核对缓存命中率（Cache Hit Rate）与缓存读取 Token 占比。
+  - Verify whether prompt caching is working effectively on long coding sessions by checking Cache Hit Rate and Cached Tokens in the details section.
+- 配置了多个中转或直连 API 端点后想确认流量落到了哪个地址，在详情分布里查看按请求端点（Endpoint）统计与关键词过滤。
+  - Audit multi-provider or custom relay setups by filtering the Provider tab and inspecting per-endpoint (`byEndpoint`) request counts.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按最近 24 小时、今天、本周、本月或全部时间查看用量
-  - Review usage for the last 24 hours, today, this week, this month, or all time
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按小时或天切换趋势粒度
-  - Switch trend granularity between hourly and daily views
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按供应商、模型或搜索关键词筛选用量
-  - Filter usage by provider, model, or search text
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看请求数、总 Token、缓存 Token 与缓存命中率
-  - View request count, total tokens, cached tokens, and cache-hit rate
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按模型、供应商组和请求端点比较分布
-  - Compare distributions by model, provider group, and request endpoint
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 分别查看输入、输出、缓存创建、缓存读取和命中率趋势
-  - Track input, output, cache creation, cache read, and hit-rate trends separately
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 通过顶部使用活跃度热力图回顾每日 AI 协作密度
+  - Review daily AI collaboration intensity on the top Activity Heatmap
+  - 说明：在调用统计页顶部按日历网格展示长期调用活跃度，哪几天高强度编码冲刺、哪几天空闲一目了然。
+  - Why & how: Displays a calendar-style heatmap at the top of Call Statistics so you can spot high-intensity coding streaks and usage patterns over time.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按最近 24 小时、今天、本周、本月（默认）或全部时间切换统计窗口
+  - Switch the time window among Last 24 Hours, Today, This Week, This Month (default), or All Time
+  - 说明：打开页面默认展示“本月”数据，切换时间窗口后下方的汇总指标、分布排行与趋势柱状图会同步刷新。
+  - Why & how: Defaults to This Month on open; switching the range updates summary cards, model/provider rankings, and trend bars together.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 随时间范围自动适配小时级或天级趋势柱状图粒度
+  - Automatically match hourly or daily trend granularity to the selected time range
+  - 说明：查看“最近 24 小时”与“今天”时趋势图自动按小时聚合；切换到“本周、本月、全部时间”时自动改为按天聚合，省去手动来回切换。
+  - Why & how: Last 24 Hours and Today automatically plot hourly buckets, while This Week, This Month, and All Time automatically aggregate by day.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看总 Token、输入/输出 Token、请求次数以及缓存 Token 与缓存命中率
+  - Inspect total tokens, input/output tokens, request count, cached tokens, and cache-hit rate
+  - 说明：顶部主卡片直观汇总总消耗、输入输出结构与请求数，并在详情区列出缓存命中率与缓存读取 Token，帮你判断长上下文复用效果。
+  - Why & how: Top cards summarize total tokens, input/output split, and total requests, while the details section surfaces Cached Tokens and Cache Hit Rate.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 切换“按模型”与“按服务商”分布排行，并在详情查看按请求端点明细
+  - Compare usage across Model and Provider tabs and inspect per-endpoint details
+  - 说明：清晰对比各模型或各供应商分组的请求占比与 Token 用量，详情区同时提供按请求端点（Endpoint）维度的拆分；即使某个旧模型配置已被删除，历史记录仍会保留可读的模型与服务商名称。
+  - Why & how: Compare share of requests and tokens across Model and Provider tabs plus per-endpoint (`byEndpoint`) detail rows — historical attribution labels remain intact even if an old model config was later deleted.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 输入关键词筛选模型、服务商或请求端点的调用明细
+  - Filter model, provider, or endpoint usage rows by search keyword
+  - 说明：当接入了很多模型或网关时，直接在搜索框输入模型名、供应商名或接口片段即可快速定位目标行的调用数字。
+  - Why & how: Type any part of a model ID, provider name, or endpoint URL into the search box to narrow long distribution tables immediately.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 通过堆叠柱状图查看输入与输出 Token 随时间的变化趋势
+  - Track Input and Output token volume over time in the stacked bar chart
+  - 说明：趋势图按时间桶堆叠绘制输入（Input）与输出（Output）Token 用量，鼠标悬停在任意柱体上可查看该时间段的精确数字。
+  - Why & how: Plots stacked Input and Output token bars across each hourly or daily bucket, with hover tooltips showing exact per-bucket counts.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“数据 > 用量”
-   Go to Data > Usage
-3. 选择时间范围并查看统计
-   Choose a time range and inspect statistics
+1. 打开设置（⌘, / Ctrl+,），进入“数据与维护 → 调用统计”
+   Open Settings (⌘, / Ctrl+,) and go to Data & Maintenance → Call Statistics
+2. 先看顶部活跃度热力图与默认“本月”汇总卡片，或切换为“今天 / 最近 24 小时 / 本周 / 全部时间”
+   Scan the top Activity Heatmap and This Month summary cards, or switch to Last 24 Hours, Today, This Week, or All Time
+3. 在下方切换“按模型 / 按服务商”标签、输入关键词过滤，或悬停趋势柱状图查看输入与输出明细
+   Toggle between Model and Provider tabs, filter by keyword, or hover trend bars to inspect Input and Output counts
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 数据与维护 → 调用统计 / Settings (⌘, / Ctrl+,) → Data & Maintenance → Call Statistics (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -55,10 +80,21 @@ Inspect request counts, input and output tokens, cache hits, and estimated cost 
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开 Token 用量”
-  - “Open Token usage”
-- “带我查看使用统计”
-  - “Show me usage statistics”
+- “打开调用统计看看这周的 Token 用量”
+  - “Open Call Statistics so I can check this week’s token usage”
+- “带我查看各模型的调用统计”
+  - “Take me to model call statistics”
+
+## 实用贴士 / Good to know
+
+- 调用统计只诚实记录客观的请求数与 Token 数量（含缓存 Token），**不做虚估的美元/人民币账单换算**——因为不同渠道套餐、订阅额度、阶梯折扣差异巨大，实际扣费请以供应商后台账单为准。
+  - Call Statistics reports exact request and token counts (including cached tokens) rather than guessing dollar costs — subscription tiers, credits, and custom gateway pricing vary widely, so check your provider dashboard for billing.
+- 如果你只是在单次对话里想看“当前这个会话窗口已经占了多少上下文 Token”，直接看聊天输入框附近的实时上下文指示器或输入 `/usage` 更直观。
+  - Want to check context usage for the single conversation you are currently in? Check the live context indicator near the chat composer or run `/usage` right in chat.
+- 刚跑完大任务想马上看最新数字，点页面右上角刷新按钮即可重新拉取最新统计。
+  - Click the Refresh button in the top-right corner of Call Statistics anytime to pull in turns that just finished.
+
+关联条目 / Related: `setting.ai.models`, `feature.insights`, `setting.data.diagnostics`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

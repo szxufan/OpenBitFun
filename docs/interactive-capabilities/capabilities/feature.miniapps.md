@@ -11,49 +11,86 @@ title_en: "Mini Apps"
 
 > 功能 / Feature
 
-在 OpenBitFun 内安装、创建和运行轻量应用，让界面、数据与智能体工作流组合在一起。
+在 OpenBitFun 内逛市场安装现成效率小工具，或用自然语言让智能体直接为你写一个带独立界面、本地持久存储、Node/JS 后台 Worker 和内置 AI 对话能力的小应用——支持草稿实时改版、版本回滚，还能发布分享到市场。
 
-Install, create, and run lightweight apps inside OpenBitFun, combining UI, data, and agent workflows.
+Install ready-made tools from the Mini App Market, or ask an agent in plain language to build a lightweight app with its own UI, persistent storage, background Worker, and embedded AI—complete with live customization drafts, version rollback, and market publishing.
+
+## 适用场景 / When to use it
+
+- 需要一个顺手的正则调试器、日志可视化面板、番茄钟或每日站会记录板，在聊天里说清楚需求，几十秒就能生成并固定到侧边栏天天用
+  - Need a custom regex workbench, log viewer, Pomodoro timer, or personal CRM? Describe it in chat and launch it as a permanent tool in seconds
+- 从市场装了一个开源小应用，想把界面改成符合自己习惯的布局——让 AI 读取源码更新字段，同时完整保留你之前存好的业务数据
+  - Tweak an installed app’s layout or add an export button—patch it cleanly or test in a customization draft without losing your saved data
+- 让智能体通过 MiniAppBrowser 直接操作你当前打开的小应用界面，帮你批量录入或整理里面的内容
+  - Ask the agent to inspect and operate an open Mini App on screen for you while preserving your in-progress drafts
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 查看、创建、编辑和删除已安装 Mini App
-  - Inspect, create, update, and delete installed MiniApps
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 浏览市场、查看详情并安装或更新发布版本
-  - Browse the market, inspect listings, and install or update releases
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 登录市场账户并收藏、评分和查看已安装来源
-  - Sign in to the market, favorite and rate apps, and inspect installed origins
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按路径或工作区授予权限，并在定制前审查权限差异
-  - Grant path or workspace access and review permission changes before customization
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 运行 Mini App Host 与 Worker，查看状态并停止后台 Worker
-  - Run Mini App host and worker calls, inspect status, and stop background workers
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为正式应用和定制草稿分别读取与保存持久状态
-  - Read and save persistent state separately for installed apps and customization drafts
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在 Mini App 中调用模型补全、聊天和专属智能体会话
-  - Use model completion, chat, and dedicated agent sessions inside Mini Apps
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 创建定制草稿、实时预览，并应用、同步或丢弃修改
-  - Create customization drafts, preview them live, and apply, sync, or discard changes
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看版本历史并回滚到旧版本
-  - Inspect version history and roll back to an earlier release
-- **由专用智能体工具控制 / Delegated Agent tool** · `InitMiniApp` / `Read` / `Write` / `Edit` / `FinalizeMiniApp` · 让智能体初始化、编写并校验一个 Mini App
-  - Let an agent initialize, author, and validate a Mini App
-- **由专用智能体工具控制 / Delegated Agent tool** · `PublishMiniApp` · 在用户明确要求时由智能体提交已完成的 Mini App 到市场审核
-  - Let an agent submit a completed Mini App for market review when explicitly requested
-- **由专用智能体工具控制 / Delegated Agent tool** · `MiniAppBrowser` · 由智能体结合源码控制 Mini App
-  - Let an agent control a Mini App using its source and live interface
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 撤回和审查市场发布，并可渲染幻灯片页面
-  - Withdraw and review market releases, and render slide pages
+- **智能体可直接控制 / Direct Agent control** · 列出、查看源码、直接创建、增量更新或删除已安装小应用
+  - List, inspect source, create, update, or delete installed Mini Apps
+  - 说明：既能在应用库可视化管理、从本地目录导入，也能在聊天里直接让 AI 创建新应用或无损升级已有应用。
+  - Why & how: Manage apps visually or let the agent list, inspect, compile, patch, and remove installed Mini Apps directly.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 浏览小应用市场、查看应用详情与包信息，一键安装或升级版本
+  - Browse the Mini App Market, inspect listings, and install or update releases
+  - 说明：探索社区分享的各类效率与创意应用，查看截图、权限说明与更新日志，有新版本时一键升级。
+  - Why & how: Explore community-built tools, check screenshots, permissions, and release notes, and install or update with one click.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 登录市场账号，收藏喜欢的小应用、打分评价并查看安装来源
+  - Sign in to favorite and rate Market apps and track installed origins
+  - 说明：登录 OpenBitFun 账号后即可同步收藏夹、为好用的作品点赞评分，并清晰区分本地自建与市场安装来源。
+  - Why & how: Sign in to bookmark favorites, rate helpful community apps, and distinguish local creations from Market installs.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按具体文件夹或工作区精细授权，并在应用定制前审查权限变更
+  - Grant scoped folder or workspace access and review permission diffs before applying
+  - 说明：小应用默认受沙盒约束，只有经过你点头授权的路径或工作区才能读写；草稿若新增了权限要求会高亮提醒你审查。
+  - Why & how: Mini Apps stay sandboxed by default—grant access only to chosen paths or workspaces, and review clear diffs whenever a draft requests new permissions.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 运行小应用前端与后台 Worker、自动安装依赖并管理运行状态
+  - Run Mini App UI and background Workers, manage dependencies, and stop workers
+  - 说明：不仅能画前端界面，还支持运行后台 Worker 处理数据、安装声明的依赖包、从文件同步重编译或随时停止后台任务。
+  - Why & how: Beyond static UI, Mini Apps can run background JS Workers, install declared dependencies, recompile on sync, and stop workers cleanly.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为正式版小应用与定制草稿分别提供互不干扰的持久化存储
+  - Persist app state separately for installed Mini Apps and customization drafts
+  - 说明：你在小应用里记的笔记、配好的参数都会稳妥保存在本地，关掉重开甚至编辑草稿都不会冲掉正式数据。
+  - Why & how: Notes, settings, and state inside each Mini App persist across restarts while draft experiments use isolated storage.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在小应用内部直接调用大模型补全、流式对话与专属智能体会话
+  - Power Mini Apps with built-in model completions, chat streams, and agent sessions
+  - 说明：无需在小应用里重复配置 API Key，应用可直接复用客户端已配好的模型能力，打造真正的 AI 原生小工具。
+  - Why & how: Build true AI-native tools without hardcoding API keys—Mini Apps can call your configured models and run dedicated agent turns.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 开启定制草稿边改边实时预览，满意后再应用或随时丢弃草稿
+  - Create live customization drafts to preview edits before applying or discarding
+  - 说明：想给现有小应用大改版？先拉一份草稿实时看效果，改满意了一键合并上线，不满意直接丢弃，零风险试错。
+  - Why & how: Experiment freely in a live preview draft—apply changes when they feel right, or discard the draft with zero impact on your installed version.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 浏览小应用的每次修改版本历史，随时一键回滚到旧版本
+  - Browse Mini App version history and roll back to an earlier release anytime
+  - 说明：每次升级或定制都会留下清晰足迹，遇到新版本不顺手或内置应用更新不想接受时，随时退回熟悉的旧版。
+  - Why & how: Every update keeps a version checkpoint so you can revert to a known-good release in seconds if an edit misses the mark.
+- **由专用智能体工具控制 / Delegated Agent tool** · `InitMiniApp` / `Read` / `Write` / `Edit` / `FinalizeMiniApp` · 由智能体包办受管草稿初始化、前后端编写与构建清单校验
+  - Let an agent scaffold, author, compile, and validate a complete Mini App
+  - 说明：针对复杂多文件应用，AI 会通过专用开发工具走完草稿初始化、编写代码、清单与权限校验全流程，确保交付即可用。
+  - Why & how: For richer apps, the agent initializes a managed workspace, writes UI and worker code, and validates manifests and builds end to end.
+- **由专用智能体工具控制 / Delegated Agent tool** · `PublishMiniApp` · 在你的明确要求下，由智能体整理发布说明并提交小应用到市场审核
+  - Ask an agent to package release notes and submit your Mini App for Market review
+  - 说明：写完好用的工具想分享出去？告诉 AI 许可证与更新亮点，它会帮你校验打包并提交审核，缺登录态时清晰引导你下一步。
+  - Why & how: Ready to share your creation? Tell the agent your license and release notes to validate and submit it, with clear guidance if sign-in is needed.
+- **由专用智能体工具控制 / Delegated Agent tool** · `MiniAppBrowser` · 让智能体读懂小应用源码并直接在当前窗口帮你交互操作
+  - Let an agent understand a Mini App’s source and operate its live UI for you
+  - 说明：AI 能先看懂小应用的业务接口与数据结构，再直接在你眼前打开的实例里读取状态、填写或触发动作，且不会弄丢你的未保存草稿。
+  - Why & how: The agent inspects the app’s semantic bridge and source, then operates the live open instance right in front of you without clobbering drafts.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看我的市场投稿审核进度、撤回发布申请与预览展示页
+  - Track your Market submissions, withdraw pending releases, and render showcase slides
+  - 说明：提交市场后可随时查看审核队列状态，发现疏漏支持主动撤回重提，并可渲染应用展示幻灯片。
+  - Why & how: Check where your submitted releases stand in review, withdraw a pending submission if you spot a bug, and render presentation slides.
 
 ## 怎么用 / How to use it
 
-1. 打开 Mini Apps
-   Open Mini Apps
-2. 选择市场、已安装或创建
-   Choose Market, Installed, or Create
-3. 打开应用并按页面提示使用
-   Launch the app and follow its interface
+1. 从「首页 → 小应用」区域（或按 ⌘K / Ctrl+K 搜索「打开 Mini Apps」）进入小应用中心，浏览「已安装」或「市场」
+   Open Home → Mini Apps (or press ⌘K / Ctrl+K → Open Mini Apps) to browse Installed apps or explore the Market
+2. 想装现成的可在市场点安装，或点击「导入小应用」加载本地包；想从零自己做，在首页点「创建小应用」、在小应用页点「使用创造模式创建」，或直接在任意会话里告诉智能体你想做什么工具
+   Install any Market listing in one click or click Import mini app for a local package; to build your own, click Create Mini App on Home, Create with Creation Mode in the gallery, or simply ask an agent in chat
+3. 点击应用图标即可在独立标签页启动使用（也可从「首页」小应用图标栏一键秒开）；若应用请求访问本地目录，按提示审查授权
+   Launch any installed app in its own tab (or straight from the Home app strip) and review path/workspace permissions if requested
+4. 需要二次改造时，既可直接让智能体修改指定小应用，也可开启定制草稿边改边预览，不满意随时回滚旧版本
+   Iterate anytime by asking the agent to update the app, opening a live customization draft, or rolling back in version history
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 左侧边栏「首页」→ 小应用（创建小应用 / 管理小应用），或按 ⌘K / Ctrl+K → 打开 Mini Apps（常用小应用可固定到左侧边栏） / Home → Mini Apps (Create Mini App / Manage Mini Apps), or press ⌘K / Ctrl+K → Open Mini Apps (favorite apps can also be pinned to the left sidebar) (`⌘K / Ctrl+K`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -73,16 +110,25 @@ Install, create, and run lightweight apps inside OpenBitFun, combining UI, data,
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开 Mini Apps”
-  - “Open Mini Apps”
-- “带我去小应用市场”
-  - “Take me to the Mini App market”
-- “创建一个番茄钟小应用”
-  - “Create a Pomodoro MiniApp”
-- “把已有小应用的按钮改成圆角”
-  - “Round the buttons in an existing MiniApp”
-- “删除我指定的小应用”
-  - “Delete the MiniApp I specify”
+- “帮我创建一个带任务统计和声音提醒的番茄钟小应用”
+  - “Create a Pomodoro MiniApp with daily stats and custom break lengths”
+- “列出我目前已安装的所有小应用”
+  - “List all the MiniApps installed on this machine”
+- “把「每日清单」小应用里的按钮改成圆角并加上按标签筛选功能”
+  - “Update my Daily Notes MiniApp with tag filtering while keeping my saved notes”
+- “打开小应用市场，我想找找效率工具”
+  - “Open the Mini App market so I can browse productivity tools”
+
+## 实用贴士 / Good to know
+
+- 修改应用不丢数据：让智能体直接修改升级小应用的界面或逻辑时，会自动保留你已经保存在该应用里的用户数据，并通知已打开的窗口实时刷新。
+  - Updates preserve your data: patching an installed Mini App updates its code and refreshes open tabs without wiping your stored app data.
+- 草稿沙盒放心试错：大改功能时使用定制草稿，草稿拥有独立的存储和权限对比提示，确认应用前完全不影响正式版。
+  - Safe customization drafts: drafts keep separate storage and show permission diffs upfront so experiments never break your live app.
+- 对外发布由你把关：只有当你明确要求提交到市场时，智能体才会发起发布流程，且待登录或待审核状态会如实提示下一步。
+  - Explicit market publishing: agents only submit a Mini App to the Market when you explicitly ask, surfacing clear sign-in or review steps.
+
+关联条目 / Related: `feature.generative-ui`, `feature.pages`, `setting.application.appearance`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

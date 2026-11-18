@@ -24,7 +24,7 @@ function isActiveSubagentTask(item: unknown): item is FlowToolItem {
   const toolItem = item as FlowToolItem;
   if (
     toolItem.type !== 'tool' ||
-    !['Task', 'AgentSpawn', 'LaunchReviewAgent'].includes(getEffectiveToolName(toolItem)) ||
+    !['Task', 'AgentSpawn', 'AgentFork', 'LaunchReviewAgent'].includes(getEffectiveToolName(toolItem)) ||
     !ACTIVE_TOOL_STATUSES.has(toolItem.status)
   ) {
     return false;

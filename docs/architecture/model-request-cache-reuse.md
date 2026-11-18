@@ -146,7 +146,7 @@ Relevant code:
 - snapshot model:
   `src/crates/assembly/core/src/agentic/fork_agent/mod.rs`
 - request validation and tool contract:
-  `src/crates/assembly/core/src/agentic/tools/implementations/task/mod.rs`
+  `src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/mod.rs`
 - execution and prompt-cache cloning:
   `src/crates/assembly/core/src/agentic/coordination/coordinator.rs`
 

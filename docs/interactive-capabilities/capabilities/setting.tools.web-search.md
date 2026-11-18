@@ -11,31 +11,50 @@ title_en: "Web Search"
 
 > 设置 / Setting
 
-选择 WebSearch 工具运行时使用的搜索服务，并配置自建 HTTP 端点与当前执行主机的设备凭据。
+为智能体的 WebSearch 工具选择运行时搜索服务（开箱即用的“Exa MCP（免费）”、Exa Search API、Tavily Search API、DeepSeek Search API、Keenable Search API 或自定义 HTTP 服务），并在当前执行主机加密管理搜索凭据。
 
-Choose the search provider used by the WebSearch tool at runtime and configure custom HTTP endpoints and credentials on the current execution host.
+Choose the runtime search provider backing the agent WebSearch tool—from zero-setup Exa MCP (free) to Exa Search API, Tavily Search API, DeepSeek Search API, Keenable Search API, or Custom HTTP service—with host-encrypted credential storage.
+
+## 适用场景 / When to use it
+
+- 让智能体查阅今天刚发布的框架版本变更或线上罕见报错：保持默认的“Exa MCP（免费）”或免密可用的“Keenable Search API”，无需任何前置注册即可直接触发 `WebSearch`。
+  - Checking brand-new library docs or obscure error messages right away: leave the default Exa MCP (free) (or keyless Keenable Search API) selected so agents can call `WebSearch` with zero setup.
+- 重度调研任务遇到公共免费通道限流：填入你自己的 Tavily、Exa Search API、DeepSeek 或 Keenable API Key 并点击“保存更改”，获得更高并发配额。
+  - Running heavy research workflows without hitting public rate limits: switch to Tavily Search API, Exa Search API, DeepSeek Search API, or Keenable Search API with your own API key and click Save changes.
+- 公司内网环境无法访问公网搜索引擎，但有自建检索服务：选择“自定义 HTTP 服务”，复制页面底部的 OpenBitFun Search HTTP Protocol v1 请求/响应 JSON 契约完成轻量适配并配置内网端点。
+  - Operating inside an enterprise network with an internal search gateway: pick Custom HTTP service, copy the built-in OpenBitFun Search HTTP Protocol v1 JSON contract, and point to your internal endpoint.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在免费 Exa MCP、Exa Search API、Tavily、DeepSeek、Keenable 与 OpenBitFun Search HTTP Protocol 之间选择运行时服务
-  - Choose free Exa MCP, Exa Search API, Tavily, DeepSeek, Keenable, or OpenBitFun Search HTTP Protocol as the runtime provider
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为 OpenBitFun Search HTTP Protocol 配置端点、认证方式和受限凭据 Header
-  - Configure the endpoint, authentication mode, and restricted credential header for OpenBitFun Search HTTP Protocol
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看当前执行主机的凭据状态，并保存、替换或清除 API Key/Secret
-  - Inspect credential status on the current execution host and save, replace, or clear an API key or secret
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看并复制 OpenBitFun Search HTTP Protocol v1 的请求、响应和传输限制
-  - Inspect and copy the request, response, and transport limits for OpenBitFun Search HTTP Protocol v1
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在 Exa MCP（免费）、Exa Search API、Tavily、DeepSeek、Keenable 与自定义 HTTP 服务间选择搜索服务
+  - Choose Exa MCP (free), Exa Search API, Tavily, DeepSeek, Keenable, or Custom HTTP service
+  - 说明：当智能体判断本地仓库信息不足、需要核实最新外部文档或网页事实时会自动调用所选服务；切换后记得点击页面上的“保存更改”。
+  - Why & how: Powers the `WebSearch` tool whenever an agent needs fresh documentation, release notes, or online facts; remember to click Save changes after switching.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看当前执行主机的搜索凭据状态，并加密保存、替换或清除 API Key / Secret
+  - Inspect search credential status on the current execution host and save, replace, or clear API keys
+  - 说明：凭据严格绑定在当前执行智能体轮次的主机上加密保存（对端或远程主机拥有各自独立的设备凭据状态），智能体永远无法读取明文密钥。
+  - Why & how: Credentials are stored encrypted on the host that executes agent turns (peer/remote hosts maintain their own vault state) and are never readable in plaintext by agents.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为 OpenBitFun Search HTTP Protocol 配置请求端点、鉴权方式与安全受限 Header 名
+  - Configure the endpoint URL, auth mode, and validated header name for OpenBitFun Search HTTP Protocol
+  - 说明：支持无需认证、Bearer Token 或自定义请求头（自动拦截覆盖 Host / Content-Length 等危险保留头），确保自建搜索网关接入规范安全。
+  - Why & how: Supports unauthenticated, Bearer token, or custom header auth (automatically blocking unsafe reserved HTTP headers) for custom search gateways.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看并一键复制 OpenBitFun Search HTTP Protocol v1 的请求、响应与传输限制说明
+  - Inspect and copy the OpenBitFun Search HTTP Protocol v1 request, response, and transport spec
+  - 说明：选中自建协议模式后页面会展开完整的 JSON 示例与超时/体积约束说明，可直接复制给智能体让它帮你快速写出适配包装服务。
+  - Why & how: Displays the full copyable v1 JSON request/response schema and transport limits when selected—handy to paste into a chat so an agent can scaffold your adapter.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“工具 > 网页搜索”
-   Go to Tools > Web Search
-3. 选择搜索服务，完成所需配置并保存
-   Choose a provider, complete its required configuration, and save
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“工具与集成 → 网页搜索”
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Tools & Integrations → Web Search
+2. 在服务商下拉框中选择目标搜索服务（日常轻度使用保持默认“Exa MCP（免费）”即可即开即用）
+   Select your preferred runtime search provider (Exa MCP (free) works immediately with no key required)
+3. 若所选服务需要密钥（或想为 Keenable Search API 提升速率上限），在设备凭据区输入并保存 API Key；若选“自定义 HTTP 服务”则补齐端点与鉴权方式
+   Enter and save an API key in the device credential box if required (or optional for higher Keenable Search API limits), or fill in your Custom HTTP service endpoint details
+4. 点击“保存更改”使新的运行时搜索服务立即生效
+   Click Save changes so subsequent `WebSearch` tool calls use the new provider
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 工具与集成 → 网页搜索 / Settings (⌘, / Ctrl+,) → Tools & Integrations → Web Search (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -51,10 +70,21 @@ Choose the search provider used by the WebSearch tool at runtime and configure c
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开网页搜索设置”
-  - “Open Web Search settings”
-- “带我配置 WebSearch 搜索服务”
-  - “Take me to WebSearch provider setup”
+- “打开网页搜索设置，我想换成 Tavily 搜索”
+  - “Open Web Search settings so I can switch to Tavily”
+- “带我看看自建网页搜索 HTTP 协议的接口格式”
+  - “Take me to the OpenBitFun Search HTTP Protocol specification”
+
+## 实用贴士 / Good to know
+
+- 切换服务商或修改自建端点参数后，别忘了点击页面上的“保存更改”按钮；未保存前智能体的 `WebSearch` 仍会沿用上一次已保存的配置。
+  - Remember to click Save changes after switching providers or editing endpoint settings so active `WebSearch` calls pick up the new configuration.
+- `Keenable Search API` 在未填写 API Key 时也能正常使用基础配额，需要更高请求频率时再填入密钥即可；而 `Exa Search API`、`Tavily Search API` 与 `DeepSeek Search API` 则必须先配置有效 API Key。
+  - `Keenable Search API` works without an API key at baseline limits (add a key anytime for higher throughput), whereas `Exa Search API`, `Tavily Search API`, and `DeepSeek Search API` require a configured key.
+- 在 Peer Device 对端设备模式下，搜索凭据保存在实际执行任务的对端主机上，不会把你本机控制端的密钥暗中拷贝过去。
+  - In Peer Device Mode, search credentials belong to the peer execution host vault rather than silently reusing keys from your local controller.
+
+关联条目 / Related: `feature.browser`, `feature.ai-assistant`, `setting.tools.mcp`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

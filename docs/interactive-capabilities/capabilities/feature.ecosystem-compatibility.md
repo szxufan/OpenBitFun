@@ -4,56 +4,87 @@ id: feature.ecosystem-compatibility
 kind: setting
 category: automation
 title_zh: "外部导入"
-title_en: "External Import"
+title_en: "External import"
 ---
 
-# 外部导入 / External Import
+# 外部导入 / External import
 
 > 设置 / Setting
 
-查看外部 AI 生态的内容与状态，导入受支持的 Skill、MCP、Hook，以及 Codex、Zcode 会话，并在 OpenBitFun 中继续对话。
+集中扫描本机或当前工作区中 Claude Code、Codex、OpenCode、ZCode 等外部 AI 工具的配置与历史记录，安全续聊 Codex / ZCode 会话（自动切出独立分支），并按冲突审阅导入受支持的 Skills、MCP 与 Hooks。
 
-Inspect external AI content and status, import supported Skills, MCP, Hooks, and Codex or Zcode sessions, and continue conversations in OpenBitFun.
+Discover existing configurations and histories from Claude Code, Codex, OpenCode, ZCode, and other AI tools—continue Codex or ZCode sessions safely on independent branches, and import supported Skills, MCP servers, and Hooks after conflict review.
+
+## 适用场景 / When to use it
+
+- 从 Claude Code 或 Codex 换到 OpenBitFun，不想把攒了好久的 Skills、MCP 服务器和 Hooks 重新手配一遍：打开“外部导入”点开对应应用，勾选想要的条目审阅冲突后一键保存副本，再去对应设置页开启即可。
+  - Moving over from Claude Code, Codex, or OpenCode without rebuilding your setup from scratch: open External import, pick the source app, review any naming conflicts, and import copies of your Skills, MCP servers, and Hooks.
+- 刚才在终端用 Codex 或 ZCode 排查问题聊到一半，想切到 OpenBitFun 结合图形 Diff 和内置浏览器接着改：开启自动发现后直接在工作区会话列表点开那条外部会话，接着往下发消息就会自动新建独立分支续聊。
+  - Picking up a debugging thread you started in Codex or ZCode CLI: open the discovered external session in your workspace—OpenBitFun refreshes the latest turns and automatically forks an independent branch as soon as you send a new message.
+- 不想在侧栏看到某个外部工具的只读跟随会话：在“外部导入”关闭自动发现或单独移除该来源会话（随时可从已移除列表恢复），原工具里的历史文件毫发无损。
+  - Cleaning up sidebar clutter without losing data: hide or remove external source sessions (and restore them anytime later) or turn off Automatic discovery while keeping every branch you already forked.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现 OpenCode、Claude Code、Codex 等外部 AI 来源与可用内容
-  - Discover OpenCode, Claude Code, Codex, and other external AI sources and content
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按来源启用或停用集成，并选择管理、预览或只读策略
-  - Enable or disable each source and choose managed, preview, or read-only policy
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现、移除和重新添加 Codex 来源会话，并在 OpenBitFun 分支中续聊
-  - Discover, remove and restore Codex source sessions, then continue in OpenBitFun branches
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现、移除和重新添加 Zcode 来源会话，并在 OpenBitFun 分支中续聊
-  - Discover, remove and restore Zcode source sessions, then continue in OpenBitFun branches
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 展开外部 Prompt/Command 内容并处理与原生命令的冲突
-  - Expand external prompt/command content and resolve conflicts with native commands
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 启用外部智能体，处理同名冲突并绑定模型
-  - Enable external agents, resolve naming conflicts, and bind models
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 预览 MCP 导入计划，逐个处理服务器冲突并应用
-  - Preview MCP import plans, resolve server conflicts individually, and apply them
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择外部工具目标、解决冲突并控制是否启用
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 自动扫描并发现 Claude Code、Codex、OpenCode、ZCode 等外部来源与可用内容
+  - Discover Claude Code, Codex, OpenCode, ZCode, and other external AI sources and assets
+  - 说明：汇总展示本机及当前工作区已识别到的外部 AI 工具，并可通过标题旁的“自动发现”开关随时暂停或恢复扫描。
+  - Why & how: Lists detected external AI tools across user and workspace paths, with an Automatic discovery toggle right beside the External apps heading.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现、移除与恢复 Codex 来源会话，并在 OpenBitFun 独立分支中安全续聊
+  - Discover, remove, and restore Codex source sessions, then continue in independent OpenBitFun branches
+  - 说明：按工作区自动匹配 Codex 历史会话；点开时同步最新上下文，首次发送消息自动创建互不干扰的 OpenBitFun 分支，归档或删除分支均不影响原 Codex 记录。
+  - Why & how: Matches Codex sessions by workspace, refreshes history on open, and forks a clean OpenBitFun branch on your first message so original Codex transcripts stay untouched.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现、移除与恢复 ZCode 来源会话，并在 OpenBitFun 独立分支中安全续聊
+  - Discover, remove, and restore ZCode source sessions, then continue in independent OpenBitFun branches
+  - 说明：同样按当前工作区自动发现 ZCode 会话，支持随时移除列表视图或重新找回，并在发送新消息时自动切出独立续聊分支。
+  - Why & how: Discovers ZCode sessions for the active workspace, supports hiding or restoring source entries anytime, and forks an independent branch when you reply.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 预览外部 MCP 服务器导入计划，逐个解决同名冲突并保存副本
+  - Preview external MCP import plans, resolve server conflicts individually, and save copies
+  - 说明：清晰展示待导入的 MCP 服务定义与同名冲突选项；导入后请前往“工具与集成 → MCP”补齐密钥认证并确认连接状态。
+  - Why & how: Shows candidate MCP server definitions and per-server conflict choices; after importing, visit Tools & Integrations → MCP to verify credentials and connectivity.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 浏览外部 Hooks 目录，制定、调整并应用 Hook 导入计划
+  - Inspect external Hook catalogs and plan, edit, and apply Hook imports
+  - 说明：将受支持的外部生命周期 Hooks 导入为本地配置副本，导入后可在“工具与集成 → 自动化”中查看与管理开关。
+  - Why & how: Imports supported external lifecycle hooks as local copies that you can review and toggle under Tools & Integrations → Automation.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按外部来源启用或停用兼容集成，并选择管理、预览或只读策略
+  - Enable or disable integration per source and choose managed, preview, or read-only policy
+  - 说明：决定每个外部工具来源在当前环境中的参与级别与同名优先级策略，避免多套配置互相覆盖。
+  - Why & how: Control each external tool source’s integration posture and conflict precedence without overwriting external configs.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看展开外部 Prompt / Command 内容并处理与原生命令的同名冲突
+  - Expand external Prompt/Command content and resolve naming conflicts with native commands
+  - 说明：检视外部快捷指令模板正文，并在与 OpenBitFun 内置命令重名时明确指定保留哪一方（注：Command 暂不提供独立副本导入，按兼容策略直接使用）。
+  - Why & how: Inspect external prompt/command templates and resolve collisions with built-in commands cleanly.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 管理外部子智能体兼容启用状态、解决同名冲突并绑定运行模型
+  - Enable external subagents, resolve naming conflicts, and bind OpenBitFun models
+  - 说明：让外部定义的角色子智能体映射到你当前在 OpenBitFun 中已配置的可用模型上协同工作。
+  - Why & how: Map discovered external subagent roles onto your configured OpenBitFun models and resolve duplicate names.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择外部工具目标、处理同名冲突并控制激活范围
   - Choose external tool targets, resolve conflicts, and control activation
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看外部 Hooks 目录、规划导入、修改选择并应用
-  - Inspect external hook catalogs, plan imports, edit selections, and apply
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在迁移前查看冲突、安全影响和来源控制快照
-  - Review conflicts, security impact, and source-control snapshots before migration
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在文件管理器或远程环境中定位外部配置来源
-  - Reveal external configuration sources in the file manager or remote environment
+  - 说明：查看外部生态声明的工具映射状态并处理冲突，确保智能体调用预期实现。
+  - Why & how: Inspect external tool target mappings and resolve conflicts cleanly.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在导入前集中审查配置冲突、执行安全影响与来源控制快照
+  - Review configuration conflicts, security impact, and source-control snapshots before importing
+  - 说明：迁移外部脚本、MCP 命令或 Hooks 前先看清潜在权限面，避免把不熟悉的第三方可执行命令盲目带入环境。
+  - Why & how: Check security implications and conflict summaries before bringing external MCP commands or Hook scripts into your setup.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在系统文件管理器或远程环境中直接定位外部配置文件来源路径
+  - Reveal external configuration source files in your file manager or remote environment
+  - 说明：不确定某条外部规则或会话是从哪个目录扫出来的？一键定位原文件路径核查真身。
+  - Why & how: Jump straight to the underlying directory or file where an external skill, MCP config, or session was discovered.
 
 ## 怎么用 / How to use it
 
-1. 打开“设置 → 工具与集成 → 外部导入”并选择应用
-   Open Settings → Tools & integrations → External import and choose an app
-2. 在外部应用标题旁切换自动发现，悬停查看说明；关闭后立即隐藏对应来源的跟随会话，已分叉副本继续保留
-   Toggle automatic discovery beside the External apps heading and hover for details; disabling immediately hides source-following sessions while local forks remain visible
-3. 查看分类状态，打开分类弹窗浏览、搜索并选择内容
-   Inspect category status, then open a category dialog to browse, search, and select content
-4. 审阅可导入项目并确认创建副本；Command、Tool、子智能体按已有兼容功能使用
-   Review importable items and confirm copies; use commands, tools and subagents through existing compatibility features
-5. 前往对应管理页确认副本启用或连接；当前页不将“已导入”视为可用
-   Confirm copy activation or connection in the relevant settings; Imported does not mean available
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“工具与集成 → 外部导入”
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Tools & Integrations → External import
+2. 确认“外部应用”标题旁的“自动发现”开关已开启，从“已识别”列表中点选 Claude Code、Codex、OpenCode 或 ZCode
+   Ensure Automatic discovery is enabled beside External apps, then pick a detected source such as Claude Code, Codex, OpenCode, or ZCode
+3. 想要导入配置：点开对应的 Skill、MCP 或 Hook 分类弹窗，搜索勾选目标条目、处理同名冲突并确认保存副本
+   To migrate assets: open the Skill, MCP, or Hook category dialog, select items, resolve any naming conflicts, and confirm saving copies
+4. 前往对应的“Skills”、“MCP”或“自动化”设置页确认副本已启用、凭据或服务连接已就绪
+   Visit the matching Skills, MCP, or Automation settings page to enable imported copies and verify connections or credentials
+5. 想要续聊外部会话：直接在对应工作区打开已发现的 Codex / ZCode 会话查看最新历史，发送第一条消息即自动切出独立分支续聊
+   To continue past chats: open a discovered Codex or ZCode session in your workspace—sending your first message automatically forks a clean branch
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 工具与集成 → 外部导入 / Settings (⌘, / Ctrl+,) → Tools & Integrations → External import (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -69,10 +100,21 @@ Inspect external AI content and status, import supported Skills, MCP, Hooks, and
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开外部导入”
-  - “Open External Import”
-- “我想迁移 Claude Code 的配置”
-  - “I want to migrate my Claude Code configuration”
+- “打开外部导入，我想把 Claude Code 的 Skills 和 MCP 迁过来”
+  - “Open External import so I can migrate my Claude Code Skills and MCP servers”
+- “怎么在 OpenBitFun 里接着聊之前的 Codex 会话？带我去设置”
+  - “Take me to External import so I can continue my Codex sessions here”
+
+## 实用贴士 / Good to know
+
+- 重要提示：在“外部导入”页看到状态变为“已导入”，仅代表配置文件副本已安全写入本地，不等于已经生效运行！请务必去对应的 Skills、MCP 或自动化（Hooks）管理页确认开启与连接。
+  - Important: "Imported" on the External import page means a local copy was saved—it does not mean the item is active or connected yet. Confirm activation and credentials on the Skills, MCP, or Automation pages.
+- 目前支持创建本地副本导入的资产类型为 Skill、MCP 与 Hook；外部 Command、Tool 与子智能体则通过兼容策略直接关联管理。
+  - Copy-import currently covers Skills, MCP servers, and Hooks, whereas external Commands, Tools, and Subagents operate through live compatibility policies.
+- 关闭“自动发现”会立即隐藏侧栏里跟随外部源文件实时刷新的只读会话入口，但你之前已经发过消息分叉出来的 OpenBitFun 本地会话会完整保留。
+  - Turning off Automatic discovery immediately hides source-following external session entries, while any OpenBitFun branches you already forked remain safely in your workspace.
+
+关联条目 / Related: `feature.skills`, `setting.tools.mcp`, `setting.tools.automation`, `setting.tools.acp`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

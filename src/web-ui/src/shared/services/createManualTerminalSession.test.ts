@@ -6,12 +6,13 @@ const mocks = vi.hoisted(() => ({
   getAvailableShells: vi.fn(),
   createSession: vi.fn(),
   getConfig: vi.fn(),
+  remoteWorkspace: { id: 'workspace-remote', workspaceKind: 'remote', connectionId: 'ssh-1', rootPath: '/ssh/repo' },
 }));
 
 vi.mock('@/infrastructure/services/business/workspaceManager', () => ({ workspaceManager: { getState: () => ({
   openedWorkspaces: new Map([
     ['workspace-main', { id: 'workspace-main', workspaceKind: 'normal', connectionId: 'dirty-legacy-hint' }],
-    ['workspace-remote', { id: 'workspace-remote', workspaceKind: 'remote', connectionId: 'ssh-1' }],
+    ['workspace-remote', mocks.remoteWorkspace],
   ]), recentWorkspaces: [],
 }) } }));
 
@@ -33,6 +34,7 @@ import { createManualTerminalSession } from './createManualTerminalSession';
 describe('createManualTerminalSession', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.remoteWorkspace.connectionId = 'ssh-1';
     mocks.connect.mockResolvedValue(undefined);
     mocks.getConfig.mockResolvedValue({ default_shell: 'C:\\Program Files\\Git\\bin\\bash.exe' });
     mocks.getAvailableShells.mockResolvedValue([
@@ -78,6 +80,36 @@ describe('createManualTerminalSession', () => {
       name: 'Shell 2',
       source: 'manual',
     });
+  });
+
+  it('uses the host shell and omits the SSH working directory for a host terminal', async () => {
+    const hostWorkspaceTarget = { rootPath: '/ssh/repo', connectionId: 'ssh-1' };
+    await createManualTerminalSession({ workspaceId: 'workspace-remote', workspacePath: '/ssh/repo', hostWorkspaceTarget });
+
+    expect(mocks.createSession).toHaveBeenCalledExactlyOnceWith({
+      workspaceId: 'workspace-remote',
+      hostWorkspaceTarget,
+      workingDirectory: undefined,
+      name: 'Shell 2',
+      shellId: 'bash:c:/program files/git/bin/bash.exe',
+      shellType: 'Bash',
+      source: 'manual',
+    });
+  });
+
+  it('does not dispatch PTY creation if the workspace rebinds while listing sessions', async () => {
+    const sessions = Promise.withResolvers<[]>();
+    mocks.listSessions.mockReturnValueOnce(sessions.promise);
+    const creation = createManualTerminalSession({
+      workspaceId: 'workspace-remote',
+      hostWorkspaceTarget: { rootPath: '/ssh/repo', connectionId: 'ssh-1' },
+    });
+    await vi.waitFor(() => expect(mocks.listSessions).toHaveBeenCalledOnce());
+    mocks.remoteWorkspace.connectionId = 'ssh-2';
+    sessions.resolve([]);
+
+    await expect(creation).rejects.toThrow('Terminal owner workspace changed');
+    expect(mocks.createSession).not.toHaveBeenCalled();
   });
 
   it('uses automatic shell selection when no default shell is configured', async () => {

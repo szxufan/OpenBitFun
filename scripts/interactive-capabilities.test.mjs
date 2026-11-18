@@ -530,3 +530,80 @@ test('the remote surface bindings are a projection of the compiled Product Opera
   }
   assert.ok(rendered.includes('"lsp_",'));
 });
+
+test('public playbook metadata enriches docs and website while keeping runtime catalogs lean', async () => {
+  const publicCatalog = JSON.parse(await read('docs/interactive-capabilities/capabilities.json'));
+  const frontendCatalog = JSON.parse(await read(
+    'src/web-ui/src/app/global-search/generated/interactive-capabilities.json',
+  ));
+  const productControlCatalog = JSON.parse(await read(
+    'src/crates/contracts/product-domains/src/generated/product-control-catalog.json',
+  ));
+
+  assert.ok(publicCatalog.playbook, 'public catalog must carry top-level playbook metadata');
+  assert.equal(Object.hasOwn(frontendCatalog, 'playbook'), false);
+  assert.equal(Object.hasOwn(productControlCatalog, 'playbook'), false);
+  assert.equal(publicCatalog.playbook.directoryGroups.length, 11);
+  assert.deepEqual(
+    publicCatalog.playbook.directoryGroups.filter(({ kind }) => kind === 'feature').map(({ id }) => id),
+    [
+      'start-workspace',
+      'ai-collaboration',
+      'coding-workbench',
+      'remote-devices',
+      'skills-automation',
+      'creative-companion',
+    ],
+  );
+  assert.deepEqual(
+    publicCatalog.playbook.directoryGroups.filter(({ kind }) => kind === 'setting').map(({ id }) => id),
+    [
+      'settings-ai',
+      'settings-tools',
+      'settings-dev',
+      'settings-app',
+      'settings-data',
+    ],
+  );
+  assert.ok(publicCatalog.playbook.gettingStarted.length >= 4);
+  assert.ok(publicCatalog.playbook.scenarios.length >= 5);
+
+  const publicById = new Map(publicCatalog.capabilities.map((cap) => [cap.id, cap]));
+  const frontendById = new Map(frontendCatalog.capabilities.map((cap) => [cap.id, cap]));
+  for (const id of [
+    'feature.home-search',
+    'feature.projects',
+    'feature.ai-assistant',
+    'feature.agents',
+    'feature.personal-assistants',
+    'feature.files-editor',
+    'feature.terminal',
+    'feature.cli-tui',
+    'feature.git',
+    'feature.code-review',
+    'feature.browser',
+  ]) {
+    const pub = publicById.get(id);
+    const lean = frontendById.get(id);
+    assert.ok(pub, `${id} exists in publicCatalog`);
+    assert.ok(pub.directoryGroupId, `${id} carries directoryGroupId`);
+    assert.equal(typeof pub.order, 'number');
+    assert.ok(pub.entryPathZh && pub.entryPathEn, `${id} carries bilingual entryPath`);
+    assert.ok(pub.scenariosZh?.length >= 2 && pub.scenariosZh.length === pub.scenariosEn?.length);
+    assert.ok(pub.tipsZh?.length >= 2 && pub.tipsZh.length === pub.tipsEn?.length);
+    assert.ok(pub.relatedIds?.length >= 2);
+    assert.ok(pub.items.every((item) => item.descriptionZh && item.descriptionEn));
+    assert.equal(pub.searchTerms.includes(pub.scenariosZh[0]), false);
+    assert.equal(pub.searchTerms.includes(pub.tipsZh[0]), false);
+
+    assert.equal(Object.hasOwn(lean, 'scenariosZh'), false);
+    assert.equal(Object.hasOwn(lean, 'tipsZh'), false);
+    assert.equal(Object.hasOwn(lean, 'entryPathZh'), false);
+    assert.ok(lean.items.every((item) => !Object.hasOwn(item, 'descriptionZh')));
+  }
+
+  const cliDoc = await read('docs/interactive-capabilities/capabilities/feature.cli-tui.md');
+  assert.match(cliDoc, /## 适用场景 \/ When to use it/u);
+  assert.match(cliDoc, /## 实用贴士 \/ Good to know/u);
+  assert.match(cliDoc, /说明：/u);
+});

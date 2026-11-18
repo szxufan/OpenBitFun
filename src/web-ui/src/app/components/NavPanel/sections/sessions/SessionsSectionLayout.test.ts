@@ -59,7 +59,10 @@ describe('SessionsSection layout styles', () => {
     const trailingBlock = extractInlineItemBlock(stylesheet, 'trailing');
     expect(trailingBlock).toContain('display: grid;');
     expect(trailingBlock).toContain('flex: 0 0 var(--openbitfun-space-5);');
+    expect(trailingBlock).toContain('grid-template-rows: minmax(0, 1fr);');
+    expect(trailingBlock).toContain('place-content: center;');
     const statusBlock = extractInlineItemBlock(stylesheet, 'status');
+    expect(statusBlock).toContain('line-height: 0;');
     expect(statusBlock).toContain('grid-area: 1 / 1;');
     expect(statusBlock).not.toContain('margin-inline-end');
     expect(statusBlock).toContain('.openbitfun-nav-panel__inline-item:hover &');

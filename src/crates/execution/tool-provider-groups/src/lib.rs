@@ -118,9 +118,9 @@ pub fn tool_feature_group(tool_name: &str) -> Option<ToolPackFeatureGroup> {
         | "MiniAppBrowser" | "Playbook" => Some(ToolPackFeatureGroup::MiniApp),
         "PageManage" | "PageDeploy" | "PagePublish" => Some(ToolPackFeatureGroup::Pages),
         "FrontendWorkbench" => Some(ToolPackFeatureGroup::Creation),
-        "Task" | "AgentSpawn" | "AgentSendInput" | "AgentControl" | "AgentList" | "AgentWait"
-        | "LaunchReviewAgent" | "Skill" | "AskUserQuestion" | "TodoWrite" | "get_goal"
-        | "create_goal" | "update_goal" | "submit_code_review" | "GetToolSpec"
+        "Task" | "AgentSpawn" | "AgentFork" | "AgentSendInput" | "AgentControl" | "AgentList"
+        | "AgentWait" | "LaunchReviewAgent" | "Skill" | "AskUserQuestion" | "TodoWrite"
+        | "get_goal" | "create_goal" | "update_goal" | "submit_code_review" | "GetToolSpec"
         | "CallDeferredTool" | "ListWorkspaces" | "SessionControl" | "SessionMessage"
         | "SessionHistory" | "Cron" | "PortForward" | "DesktopCard" | "OpenBitFunControl" => {
             Some(ToolPackFeatureGroup::AgentControl)
@@ -208,6 +208,7 @@ const PRODUCT_TOOL_PROVIDER_GROUP_PLAN: &[ToolProviderGroupPlan] = &[
         tool_names: &[
             "Task",
             "AgentSpawn",
+            "AgentFork",
             "AgentSendInput",
             "AgentControl",
             "AgentList",
@@ -572,6 +573,7 @@ mod tests {
                 "ListModels",
                 "Task",
                 "AgentSpawn",
+                "AgentFork",
                 "AgentSendInput",
                 "AgentControl",
                 "AgentList",

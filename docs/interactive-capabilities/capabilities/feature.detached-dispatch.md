@@ -11,41 +11,70 @@ title_en: "Detached Dispatch"
 
 > 功能 / Feature
 
-把可持续运行的任务派发到另一台 OpenBitFun 主机；控制端可以断开，目标主机继续执行并保留记录。
+把耗时的编码、测试或重构任务从当前 Git 工作区派发到另一台同账号设备或 SSH 主机执行。提交后你可以直接合上电脑离开——目标机器在独立 Worktree 中持续跑完并保存完整事件流，重连后随时回看进度、远程批复权限或把代码同步回来。
 
-Dispatch durable work to another OpenBitFun host; the controller may disconnect while the target continues and keeps the record.
+Send long-running coding, test, or refactoring jobs from your current Git workspace to another same-account device or SSH host. Close your laptop right after submitting—the target runs in an isolated Git worktree, records every event, and lets you answer permissions or sync changes back whenever you reconnect.
+
+## 适用场景 / When to use it
+
+- 临近下班要把全量测试修绿：在输入框切到办公室常开主机一键派发，直接合上笔记本去坐地铁，到家打开就能验收改动
+  - Heading out for the evening? Dispatch a full test-and-fix run to your always-on office workstation, shut your laptop lid, and review the finished diff from home
+- 本机正在录制演示或跑高负载构建，把另一个耗时的模块迁移任务派发给空闲的 Mac Studio 或远程 Linux 主机并行处理
+  - Keep your primary machine responsive during demos or heavy builds by offloading a parallel module migration to a spare Mac or Linux server
+- 在命令行用 `openbitfun dispatch outbound submit` 批量向远端机器投递巡检或修复任务，随时按 Job ID 查询增量状态
+  - Use `openbitfun dispatch outbound submit` in scripts or terminal workflows to queue durable jobs and poll incremental JSON status by job ID
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 列出同账户设备与已保存的 SSH 目标
-  - List same-account devices and saved SSH targets
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为目标主机配置运行环境并安装或更新 OpenBitFun CLI
-  - Provision the target runtime and install or update the OpenBitFun CLI
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在提交任务前同步目标所需的模型配置
-  - Synchronize required model configuration before submitting a job
-- **智能体可直接控制 / Direct Agent control** · 从当前 Git 工作区把持久任务提交到同账户设备或 SSH 目标
-  - Submit a durable job from the current Git workspace to a same-account device or SSH target
-- **智能体可直接控制 / Direct Agent control** · 列出派发任务并查询运行状态、结果和错误
-  - List dispatched jobs and query their status, result, and errors
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 保存、追加和重新加载可断线恢复的执行记录
-  - Save, append, and reload reconnectable execution transcripts
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 远程回答权限请求并继续目标端任务
-  - Answer permission requests remotely and continue target-side work
-- **智能体可直接控制 / Direct Agent control** · 取消本机派发的任务
-  - Cancel a job submitted from this host
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 将目标端结果同步回控制端，而不把控制端当作远程文件系统代理
-  - Synchronize target-side results back without treating the controller as a remote-filesystem proxy
+- **智能体可直接控制 / Direct Agent control** · 列出同账号下的所有设备与本机已保存的 SSH 目标
+  - List same-account devices and saved SSH dispatch targets
+  - 说明：一次看清哪些同账号电脑当前在线（含系统与机型信息）以及哪些 SSH 主机可直接投递任务。
+  - Why & how: See every device on your account—with live online status, OS, and model info—alongside saved SSH hosts ready to accept jobs.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为目标主机自动检测、安装或更新 OpenBitFun CLI 运行环境
+  - Provision the target host and install or update the OpenBitFun CLI
+  - 说明：首次向全新的 SSH 服务器派发时，可在向导中一键检测并在远端部署匹配的 CLI 执行端，省去手工登录装环境。
+  - Why & how: Preparing a fresh SSH server? Detect its environment and install or update the matching OpenBitFun CLI right from the setup flow.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在派发前按需将任务所选的模型配置同步给目标主机
+  - Sync required model configuration to the target before job submission
+  - 说明：确保远端机器拥有执行本次任务所需的模型通道配置，避免任务启动后才发现远端没配模型。
+  - Why & how: Ensure the target host has the model configuration needed for your task before the run begins.
+- **智能体可直接控制 / Direct Agent control** · 从当前 Git 工作区向设备或 SSH 目标提交可离线运行的持久任务
+  - Submit a durable Git-worktree job to a same-account device or SSH target
+  - 说明：基于当前仓库基准提交在目标机创建隔离 Worktree 启动任务，明确指定审批策略后即可放心断线。
+  - Why & how: Branch an isolated Git worktree from your current base ref on the target host, set an explicit approval policy, and let the job run unattended.
+- **智能体可直接控制 / Direct Agent control** · 查看本机或目标机持有的派发任务列表、实时进度与错误详情
+  - List dispatched jobs and inspect live status, incremental events, and errors
+  - 说明：既能查本机投递出去的所有任务，也能直接询问目标机器当前正在跑哪些任务及其最新增量输出。
+  - Why & how: Check all jobs submitted from this machine or query a target directly for the jobs it owns, including cursor-based event updates.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 断线重连后自动保存、追加并完整恢复任务对话记录
+  - Save, append, and reload reconnectable job execution transcripts
+  - 说明：控制端关机或切网期间产生的每一轮思考与工具输出都会由目标端持久记录，重连后无缝回填到会话界面。
+  - Why & how: Every model turn and tool output produced while you were offline stays persisted on the target and streams back cleanly when you reopen the session.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 远程批复目标端等待中的权限请求并继续推进任务
+  - Answer pending target-side permission requests remotely and continue work
+  - 说明：当远程任务遇到需要人工确认的高风险命令时，会在权限信箱中挂起等待，你在本机点一下允许即可让远端接着往下跑。
+  - Why & how: When a remote job pauses on a guarded action in Remote approval mode, review and approve it from your controller to resume execution immediately.
+- **智能体可直接控制 / Direct Agent control** · 随时远程取消本机派发的正在运行任务
+  - Cancel an active dispatch job submitted from this host
+  - 说明：发现方向不对或不再需要时一键叫停，目标端会安全终止进程并保留已产生的执行记录供排查。
+  - Why & how: Stop a dispatched run cleanly whenever plans change—the target halts execution while keeping the recorded history intact.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 将目标机完成的代码改动安全同步回本机工作区
+  - Sync completed target-side code changes back to your local workspace
+  - 说明：目标机全程在自己的本地磁盘高速编译读写，完工后再按需把分支或改动同步回你的电脑审阅合并。
+  - Why & how: Let the target machine compile and edit at full native disk speed, then bring the resulting changes back to your local repo when ready.
 
 ## 怎么用 / How to use it
 
-1. 先在 Remote Connect 中登录并连接设备
-   Sign in and connect devices through Remote Connect
-2. 从会话的派发入口选择目标
-   Choose a target from the session dispatch flow
-3. 提交任务后在任务状态中跟踪
-   Submit the work and follow its job status
+1. 确保目标机器已登录同一账号在线，或已在本地保存好可用的 SSH 连接配置
+   Make sure your target device is signed in to the same account and online, or save an SSH connection profile first
+2. 在当前 Git 项目的聊天输入框底部点击「本机」芯片打开「这个任务在哪运行」菜单（或直接对智能体说明要派发到哪台设备），选定目标与权限审批策略
+   Click the "This computer" chip at the bottom of the chat input to open the "Where this task runs" menu (or ask the agent explicitly to dispatch to a named device), and pick your target and approval policy
+3. 发送任务提示词；目标主机会自动准备环境、同步所需模型配置并在独立 Git Worktree 中启动执行
+   Submit your prompt; the target provisions its runtime if needed, syncs model settings, and starts working in a dedicated Git worktree
+4. 执行期间可随时离线；重新打开会话即可查看最新进度、批复等待中的权限，完成后一键将结果同步回本机工作区
+   Disconnect anytime; reopen the session later to catch up on streamed events, approve pending permissions, or sync finished changes back locally
 
-入口 / Entry: OpenBitFun 内的对应控制界面
+入口 / Entry: 聊天输入框底部「这个任务在哪运行」目标菜单（默认显示「本机」芯片），或左下角设备状态按钮 → 管理设备 / Run-target menu ("Where this task runs", default chip "This computer") at the bottom of the chat input, or Bottom-left Device Menu → Manage devices
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -65,14 +94,25 @@ Dispatch durable work to another OpenBitFun host; the controller may disconnect 
 
 ## 可以直接对智能体说 / Try saying
 
-- “我有几台设备？”
-  - “How many devices do I have?”
-- “把这个任务派发到我的 MacBook 上跑”
-  - “Dispatch this task to my MacBook”
-- “看看刚才派发的任务跑完没有”
-  - “Check whether the job I dispatched has finished”
-- “打开设备管理，我想把任务派发到另一台机器”
-  - “Open device management so I can dispatch work to another machine”
+- “帮我看看现在有哪些在线设备和 SSH 主机可以派发任务？”
+  - “Which of my devices and SSH hosts are available for dispatching tasks right now?”
+- “把“跑通集成测试并修复报错”派发到我的办公室 Mac 上运行”
+  - “Dispatch "run the integration tests and fix any failures" to my office Mac”
+- “查一下刚才派发的任务跑到哪一步了”
+  - “Check the latest status of the job I just dispatched”
+- “取消刚才派发出去的那个远程任务”
+  - “Cancel the dispatch job I submitted earlier”
+
+## 实用贴士 / Good to know
+
+- 目标离线会明确报错：当指定设备不在线时，OpenBitFun 会立即提示不可达，绝不会静默改在本机偷偷运行。
+  - Explicit offline errors: if the chosen target is offline, OpenBitFun fails clearly instead of silently running the job on your local machine.
+- 提示词尽量一次说清：后台派发运行在无交互宿主上，不支持中途弹出多选追问（AskUserQuestion），把约束和偏好写在开头最稳妥。
+  - Front-load key decisions: headless dispatch jobs disable interactive AskUserQuestion prompts, so include branch, scope, and constraints right in your prompt.
+- 防无限套娃保护：已经由远程派发启动的任务可以查询状态，但不会再次向外层层派发新任务。
+  - No nested fan-out loops: a running dispatch worker can report status cleanly but is prevented from recursively dispatching further jobs.
+
+关联条目 / Related: `feature.remote-connect`, `feature.remote-workspaces`, `feature.git`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

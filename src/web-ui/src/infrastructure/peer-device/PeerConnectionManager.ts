@@ -84,6 +84,7 @@ export interface PeerHostCapabilities {
   readonly sessionTrajectoryV1?: boolean;
   readonly modelRoutingV1?: boolean;
   readonly modelPoolSelectionV1?: boolean;
+  readonly subagentModelOverridePolicyV1?: boolean;
   readonly magpieDiscoveryV1?: boolean;
   readonly computerUseSharingV1?: boolean;
   /** Typed ProductControl HostInvoke, including shared config read-back. */
@@ -116,6 +117,7 @@ export interface PeerHostCapabilities {
   readonly toolCatalog: boolean | null;
   /** Missing on older hosts: Desktop implements PR details, CLI does not. */
   readonly reviewPlatformV1?: boolean | null;
+  readonly hostTerminalWorkspaceV1?: boolean;
   /** Scoped MCP choices must be explicitly advertised by the host. */
   readonly chatMcpCatalogV1?: boolean;
   readonly sessionReferenceBrowseV1?: boolean;
@@ -264,6 +266,7 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   sessionTrajectoryV1: false,
   modelRoutingV1: false,
   modelPoolSelectionV1: false,
+  subagentModelOverridePolicyV1: false,
   magpieDiscoveryV1: false,
   computerUseSharingV1: false,
   productControlV1: false,
@@ -275,6 +278,7 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   cancelTool: null,
   toolCatalog: null,
   reviewPlatformV1: null,
+  hostTerminalWorkspaceV1: false,
   chatMcpCatalogV1: false,
   sessionReferenceBrowseV1: false,
   workspaceIconV1: false,
@@ -740,6 +744,7 @@ export class PeerConnectionManager {
       genUiLibrariesV1: caps?.gen_ui_libraries_v1 === true,
       modelRoutingV1: caps?.model_routing_v1 === true,
       modelPoolSelectionV1: caps?.model_pool_selection_v1 === true,
+      subagentModelOverridePolicyV1: caps?.subagent_model_override_policy_v1 === true,
       magpieDiscoveryV1: caps?.magpie_discovery_v1 === true,
       computerUseSharingV1: caps?.computer_use_sharing_v1 === true,
       productControlV1: caps?.product_control_v1 === true,
@@ -750,6 +755,7 @@ export class PeerConnectionManager {
       cancelTool,
       toolCatalog,
       reviewPlatformV1: caps?.review_platform_v1 === undefined ? null : caps.review_platform_v1 === true,
+      hostTerminalWorkspaceV1: caps?.host_terminal_workspace_v1 === true,
       chatMcpCatalogV1: caps?.chat_mcp_catalog_v1 === true,
       sessionReferenceBrowseV1: caps?.session_reference_browse_v1 === true,
       workspaceIconV1: caps?.workspace_icon_v1 === true,

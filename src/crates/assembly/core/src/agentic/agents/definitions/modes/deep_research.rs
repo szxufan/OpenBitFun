@@ -16,6 +16,7 @@ impl DeepResearchMode {
         Self {
             default_tools: vec![
                 "AgentSpawn".to_string(),
+                "AgentFork".to_string(),
                 "AgentSendInput".to_string(),
                 "AgentControl".to_string(),
                 "AgentList".to_string(),
@@ -100,6 +101,7 @@ mod tests {
         let tools = agent.default_tools();
         for tool in [
             "AgentSpawn",
+            "AgentFork",
             "AgentSendInput",
             "AgentControl",
             "AgentList",

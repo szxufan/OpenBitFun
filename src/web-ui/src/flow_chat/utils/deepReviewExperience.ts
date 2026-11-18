@@ -204,7 +204,7 @@ export function extractPartialReviewData(
   for (const turn of session.dialogTurns) {
     for (const round of turn.modelRounds) {
       for (const item of round.items) {
-        if (item.type !== 'tool' || !['Task', 'AgentSpawn', 'LaunchReviewAgent'].includes(getEffectiveToolName(item))) {
+        if (item.type !== 'tool' || !['Task', 'AgentSpawn', 'AgentFork', 'LaunchReviewAgent'].includes(getEffectiveToolName(item))) {
           continue;
         }
         const reviewer = String(

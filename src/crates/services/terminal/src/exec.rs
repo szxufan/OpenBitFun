@@ -69,6 +69,8 @@ pub struct WriteStdinRequest {
     pub append_enter: bool,
     pub yield_time_ms: Option<u64>,
     pub max_output_chars: Option<usize>,
+    /// End only this output wait; submitted input and the process remain active.
+    pub wait_interrupt: Option<tokio_util::sync::CancellationToken>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +130,8 @@ pub struct ExecCommandResponse {
     pub exit_code: Option<i32>,
     pub original_output_chars: usize,
     pub completion: Option<ExecSessionCompletion>,
+    /// The output wait yielded cooperatively, independently of process completion.
+    pub wait_interrupted: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -356,6 +360,7 @@ impl ExecProcessManager {
         }
 
         Ok(ExecCommandResponse {
+            wait_interrupted: false,
             chunk_id: new_chunk_id(),
             wall_time_seconds: started_at.elapsed().as_secs_f64(),
             output: collected.output,
@@ -416,6 +421,7 @@ impl ExecProcessManager {
                 if request.chars.is_empty() {
                     if let Some(completed) = self.take_completed_session(request.session_id).await {
                         return Ok(ExecCommandResponse {
+                            wait_interrupted: false,
                             chunk_id: new_chunk_id(),
                             wall_time_seconds: 0.0,
                             output: completed.output,
@@ -454,16 +460,23 @@ impl ExecProcessManager {
         let started_at = tokio::time::Instant::now();
         let collected = process
             .output
-            .collect_until(
+            .collect_until_interruptible(
                 cursor,
                 deadline_from_now(request.yield_time_ms),
                 request.max_output_chars.unwrap_or(usize::MAX),
                 output_tx.as_ref(),
+                request.wait_interrupt.as_ref(),
             )
             .await;
 
-        let closed = process.output.is_closed().await;
-        let exit_code = process.output.exit_code().await;
+        // Use the same closure snapshot as the final drain. A later exit must
+        // remain pollable so its final bytes cannot be lost during cleanup.
+        let closed = collected.closed;
+        let exit_code = if closed {
+            process.output.exit_code().await
+        } else {
+            None
+        };
         let completion = if closed {
             Some(completion_for_closed_process(
                 process.out_of_band_control_action(),
@@ -493,6 +506,7 @@ impl ExecProcessManager {
         }
 
         Ok(ExecCommandResponse {
+            wait_interrupted: collected.wait_interrupted,
             chunk_id: new_chunk_id(),
             wall_time_seconds: started_at.elapsed().as_secs_f64(),
             output: collected.output,
@@ -591,6 +605,7 @@ impl ExecProcessManager {
         }
 
         Ok(ExecCommandResponse {
+            wait_interrupted: false,
             chunk_id: new_chunk_id(),
             wall_time_seconds: started_at.elapsed().as_secs_f64(),
             output: collected.output,
@@ -867,27 +882,53 @@ impl OutputState {
 
     async fn collect_until(
         &self,
-        mut cursor: OutputCursor,
+        cursor: OutputCursor,
         deadline: tokio::time::Instant,
         max_output_chars: usize,
         output_tx: Option<&mpsc::Sender<String>>,
     ) -> CollectedOutput {
+        self.collect_until_interruptible(cursor, deadline, max_output_chars, output_tx, None)
+            .await
+    }
+
+    async fn collect_until_interruptible(
+        &self,
+        mut cursor: OutputCursor,
+        deadline: tokio::time::Instant,
+        max_output_chars: usize,
+        output_tx: Option<&mpsc::Sender<String>>,
+        wait_interrupt: Option<&tokio_util::sync::CancellationToken>,
+    ) -> CollectedOutput {
         let mut sink = HeadTailText::new(max_output_chars);
         let initial_output_chars = cursor.observed_output_chars;
 
-        loop {
+        let (closed, wait_interrupted) = loop {
+            // Register before draining so output/exit notifications cannot be
+            // lost between inspecting the buffer and going to sleep.
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            let interrupted = wait_interrupt.is_some_and(|token| token.is_cancelled());
             let closed = self
                 .drain_since_with_output(&mut cursor, &mut sink, output_tx)
                 .await;
-            if closed || tokio::time::Instant::now() >= deadline {
-                break;
+            if closed || interrupted || tokio::time::Instant::now() >= deadline {
+                // A fully drained process exit wins over a simultaneous yield.
+                break (closed, interrupted && !closed);
             }
 
             tokio::select! {
-                _ = self.notify.notified() => {}
-                _ = tokio::time::sleep_until(deadline) => break,
+                _ = &mut notified => {}
+                _ = tokio::time::sleep_until(deadline) => {}
+                _ = async {
+                    match wait_interrupt {
+                        Some(token) => token.cancelled().await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {}
             }
-        }
+            // Every wake, including interruption/timeout, gets a final drain.
+        };
 
         let original_output_chars = cursor
             .observed_output_chars
@@ -896,6 +937,8 @@ impl OutputState {
             output: sink.render(),
             original_output_chars,
             cursor,
+            closed,
+            wait_interrupted,
         }
     }
 }
@@ -970,6 +1013,8 @@ struct CollectedOutput {
     output: String,
     original_output_chars: usize,
     cursor: OutputCursor,
+    closed: bool,
+    wait_interrupted: bool,
 }
 
 impl HeadTailText {
@@ -2003,6 +2048,7 @@ mod tests {
 
         let second = manager
             .write_stdin(WriteStdinRequest {
+                wait_interrupt: None,
                 session_id,
                 chars: String::new(),
                 append_enter: false,
@@ -2151,6 +2197,7 @@ mod tests {
 
         let second = manager
             .write_stdin(WriteStdinRequest {
+                wait_interrupt: None,
                 session_id,
                 chars: String::new(),
                 append_enter: false,
@@ -2166,6 +2213,7 @@ mod tests {
 
         let missing = manager
             .write_stdin(WriteStdinRequest {
+                wait_interrupt: None,
                 session_id,
                 chars: String::new(),
                 append_enter: false,
@@ -2204,6 +2252,7 @@ mod tests {
 
         let second = manager
             .write_stdin(WriteStdinRequest {
+                wait_interrupt: None,
                 session_id,
                 chars: "hello".to_string(),
                 append_enter: true,
@@ -2254,6 +2303,7 @@ mod tests {
 
         let poll = manager
             .write_stdin(WriteStdinRequest {
+                wait_interrupt: None,
                 session_id,
                 chars: String::new(),
                 append_enter: false,
@@ -2717,6 +2767,7 @@ print("parent_exit", flush=True)"#;
 
         let poll = manager
             .write_stdin(WriteStdinRequest {
+                wait_interrupt: None,
                 session_id,
                 chars: String::new(),
                 append_enter: false,
@@ -2739,6 +2790,7 @@ print("parent_exit", flush=True)"#;
 
         let missing = manager
             .write_stdin(WriteStdinRequest {
+                wait_interrupt: None,
                 session_id,
                 chars: String::new(),
                 append_enter: false,
@@ -2898,5 +2950,156 @@ print("parent_exit", flush=True)"#;
         std::fs::read_to_string(path)
             .map(|contents| contents.lines().count())
             .unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod wait_interrupt_tests {
+    use super::*;
+    use tokio_util::sync::CancellationToken;
+
+    async fn session() -> (
+        Arc<ExecProcessManager>,
+        Arc<OutputState>,
+        mpsc::Receiver<Vec<u8>>,
+    ) {
+        let manager = Arc::new(ExecProcessManager::default());
+        let output = Arc::new(OutputState::new(None));
+        let (writer, rx) = mpsc::channel(8);
+        manager.sessions.lock().await.insert(
+            42,
+            ExecSessionEntry {
+                process: Arc::new(ExecProcess {
+                    output: output.clone(),
+                    writer: Some(writer),
+                    terminator: StdMutex::new(None),
+                    out_of_band_control_action: StdMutex::new(None),
+                    helper_tasks: StdMutex::new(Vec::new()),
+                    pty_handles: Arc::new(StdMutex::new(None)),
+                    #[cfg(windows)]
+                    pipe_job: None,
+                }),
+                tty: true,
+                cursor: OutputCursor {
+                    next_seq: 0,
+                    observed_output_chars: 0,
+                },
+                last_used: tokio::time::Instant::now(),
+                lifecycle_tx: None,
+            },
+        );
+        (manager, output, rx)
+    }
+
+    fn poll(wait_interrupt: Option<CancellationToken>) -> WriteStdinRequest {
+        WriteStdinRequest {
+            session_id: 42,
+            chars: String::new(),
+            append_enter: false,
+            yield_time_ms: Some(600_000),
+            max_output_chars: None,
+            wait_interrupt,
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_interrupt_returns_partial_output_and_resumes_at_committed_cursor() {
+        let (manager, output, mut input) = session().await;
+        output.push_text("before".into()).await;
+        let token = CancellationToken::new();
+        let (tx, mut rx) = mpsc::channel(8);
+        let waiting_manager = manager.clone();
+        let request = poll(Some(token.clone()));
+        let wait =
+            tokio::spawn(async move { waiting_manager.write_stdin_streaming(request, tx).await });
+        assert_eq!(rx.recv().await.as_deref(), Some("before"));
+        output.push_text("-tail".into()).await;
+        token.cancel();
+        let response = tokio::time::timeout(Duration::from_secs(2), wait)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(response.output, "before-tail");
+        assert_eq!(response.original_output_chars, 11);
+        assert!(response.wait_interrupted);
+        assert_eq!(response.session_id, Some(42));
+        assert_eq!(response.exit_code, None);
+        assert_eq!(response.completion, None);
+        assert!(manager.is_session_active(42).await);
+        assert!(input.try_recv().is_err());
+        assert_eq!(rx.recv().await.as_deref(), Some("-tail"));
+        assert!(rx.recv().await.is_none());
+
+        output.push_text("after".into()).await;
+        output.close(Some(0)).await;
+        let next = manager.write_stdin(poll(None)).await.unwrap();
+        assert_eq!(next.output, "after");
+        assert_eq!(next.original_output_chars, 5);
+        assert!(!next.wait_interrupted);
+        assert_eq!(next.session_id, None);
+        assert_eq!(next.exit_code, Some(0));
+        assert_eq!(
+            next.completion.unwrap().status,
+            ExecSessionCompletionStatus::Exited
+        );
+        assert!(!manager.sessions.lock().await.contains_key(&42));
+    }
+
+    #[tokio::test]
+    async fn wait_interrupt_wakes_without_output() {
+        let (manager, _, _input) = session().await;
+        let token = CancellationToken::new();
+        let request = poll(Some(token.clone()));
+        let (response, ()) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(manager.write_stdin(request), async {
+                tokio::task::yield_now().await;
+                token.cancel();
+            })
+        })
+        .await
+        .unwrap();
+        let response = response.unwrap();
+        assert!(response.wait_interrupted);
+        assert!(response.output.is_empty());
+        assert!(manager.is_session_active(42).await);
+    }
+
+    #[tokio::test]
+    async fn wait_interrupt_keeps_submitted_input_exactly_once_including_enter_only() {
+        for chars in ["answer", ""] {
+            let (manager, _, mut input) = session().await;
+            let token = CancellationToken::new();
+            token.cancel();
+            let mut request = poll(Some(token));
+            request.chars = chars.into();
+            request.append_enter = true;
+            let response = manager.write_stdin(request).await.unwrap();
+            assert!(response.wait_interrupted);
+            assert_eq!(input.recv().await.unwrap(), format!("{chars}\n").as_bytes());
+            let mut next = poll(None);
+            next.yield_time_ms = Some(0);
+            assert!(!manager.write_stdin(next).await.unwrap().wait_interrupted);
+            assert!(input.try_recv().is_err());
+            assert!(manager.is_session_active(42).await);
+        }
+    }
+
+    #[tokio::test]
+    async fn wait_interrupt_does_not_override_drained_process_exit() {
+        let (manager, output, _input) = session().await;
+        output.push_text("final".into()).await;
+        output.close(Some(7)).await;
+        let token = CancellationToken::new();
+        token.cancel();
+        let response = manager.write_stdin(poll(Some(token))).await.unwrap();
+        assert!(!response.wait_interrupted);
+        assert_eq!(response.output, "final");
+        assert_eq!(response.exit_code, Some(7));
+        assert_eq!(response.session_id, None);
+        assert_eq!(
+            response.completion.unwrap().status,
+            ExecSessionCompletionStatus::Exited
+        );
     }
 }

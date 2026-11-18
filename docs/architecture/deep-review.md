@@ -345,8 +345,8 @@ Packet support is not a general fan-out policy. New packets are admitted only wh
 
 The generic `Task` tool is adapted for DeepReview across:
 
-- `src/crates/assembly/core/src/agentic/tools/implementations/task/mod.rs`
-- `src/crates/assembly/core/src/agentic/tools/implementations/task/deep_review.rs`
+- `src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/mod.rs`
+- `src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/deep_review.rs`
 - `src/crates/assembly/core/src/agentic/deep_review/task_adapter.rs`
 - `src/crates/execution/agent-runtime/src/deep_review/task_execution.rs`
 - `src/crates/execution/agent-runtime/src/deep_review/queue.rs`

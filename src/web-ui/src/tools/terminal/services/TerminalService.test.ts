@@ -142,6 +142,44 @@ describe('TerminalService device surface switching', () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
+  describe('host terminal for a workspace', () => {
+    const request = {
+      workspaceId: 'workspace-1',
+      hostWorkspaceTarget: { rootPath: '/ssh/repo', connectionId: 'ssh-1' },
+      workingDirectory: '/ssh/repo',
+    };
+
+    it('sends the expected workspace to a peer that supports guarded host terminals', async () => {
+      activateSurface('peer-host');
+      hostMock.capabilities = { hostKind: 'desktop', hostTerminalWorkspaceV1: true };
+      invokeMock.mockResolvedValueOnce({ id: 'pty-1', workspaceId: 'workspace-1' });
+
+      await freshTerminalService().createSession(request);
+
+      expect(invokeMock).toHaveBeenCalledExactlyOnceWith('terminal_create', { request });
+    });
+
+    it('uses the explicit host route on older desktop peers', async () => {
+      activateSurface('peer-host');
+      hostMock.capabilities = { hostKind: 'desktop', workspaceIdReferencesV1: true };
+      invokeMock.mockResolvedValueOnce({ id: 'pty-1', cwd: '/home/host' });
+
+      const session = await freshTerminalService().createSession(request);
+
+      expect(invokeMock).toHaveBeenCalledExactlyOnceWith('terminal_create', { request: { connectionId: '' } });
+      expect(session.workspaceId).toBe('workspace-1');
+      expect(session.initialCwd).toBe('/home/host');
+    });
+
+    it('refuses the desktop-only legacy request on CLI peers', async () => {
+      activateSurface('peer-host');
+      hostMock.capabilities = { hostKind: 'cli' };
+
+      await expect(freshTerminalService().createSession(request)).rejects.toThrow('unavailable on this device');
+      expect(invokeMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('terminal cursor replay', () => {
     async function connectToHost(capabilities: Record<string, unknown> | null = { terminalCursorReplayV1: true }): Promise<TerminalService> {
       hostMock.capabilities = capabilities;

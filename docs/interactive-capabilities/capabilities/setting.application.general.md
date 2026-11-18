@@ -3,43 +3,68 @@
 id: setting.application.general
 kind: setting
 category: application
-title_zh: "常规设置"
+title_zh: "通用设置"
 title_en: "General settings"
 ---
 
-# 常规设置 / General settings
+# 通用设置 / General settings
 
 > 设置 / Setting
 
-管理启动、更新、关闭行为、通知与睡眠保持等应用级偏好。
+一站式调整界面语言、开机自启、长任务防休眠、窗口关闭回托盘、系统通知与应用更新。
 
-Manage app-level preferences for startup, updates, close behavior, notifications, and sleep prevention.
+Configure interface language, launch at login, sleep prevention during active runs, close-to-tray behavior, notifications, and app updates.
+
+## 适用场景 / When to use it
+
+- 把长耗时重构或批量测试交给智能体后离开工位，开启“阻止电脑睡眠”与系统通知，不怕机器中途休眠断连，需要审批时也能第一时间看到提醒。
+  - Leave a long refactor or test suite running while you step away: turn on Prevent System Sleep and desktop notifications so your machine stays awake and alerts you if an approval is needed.
+- 习惯随手点右上角关闭窗口，但希望后台定时任务、远程中继或桌面小卡片继续在线时，确认关闭按钮保持“最小化到托盘”。
+  - Keep scheduled automations, Remote Connect, or desktop cards alive when you click the window close button by setting Close Behavior to Minimize to Tray.
+- 刚安装好客户端想把界面切换成英文或繁體中文，直接在“通用”页顶部下拉框一键切换，无需重启应用。
+  - Switch the entire interface among Simplified Chinese, English, and Traditional Chinese right at the top of General without restarting OpenBitFun.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 启用或停用自动检查更新
-  - Enable or disable automatic update checks
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在通用页切换简体中文、English 或繁體中文界面语言
+  - Switch the UI language among Simplified Chinese, English, and Traditional Chinese in General
+  - 说明：位于“通用”页最上方，切换后立即刷新全局菜单、设置文案与提示语，无需重启；你也可以直接让智能体帮你切换语言。
+  - Why & how: Located right at the top of General; switching updates menus, settings labels, and prompts immediately without a restart, or you can ask the Agent to switch it directly.
+- **智能体可直接控制 / Direct Agent control** · 启用或停用启动后自动检查更新
+  - Enable or disable automatic update checks on startup
+  - 说明：默认开启。启动后会静默检查新版本并在有更新时温和提醒，不会在你写代码或跑任务中途强行重启。
+  - Why & how: Enabled by default. OpenBitFun quietly checks for new releases after startup and notifies you when one is ready without interrupting active work.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 手动检查并后台下载更新，确认后安装并重启，或稍后从关于页面安装
   - Check and download updates in the background, then confirm installation and restart or install later from About
-- **智能体可直接控制 / Direct Agent control** · 控制 OpenBitFun 是否在登录系统后自动启动
-  - Choose whether OpenBitFun launches automatically after system sign-in
-- **智能体可直接控制 / Direct Agent control** · 控制 OpenBitFun 运行期间是否阻止电脑自动睡眠
-  - Choose whether OpenBitFun prevents the computer from sleeping while it runs
-- **智能体可直接控制 / Direct Agent control** · 选择关闭主窗口时退出、最小化到托盘或每次询问
-  - Choose whether closing the main window quits, minimizes to tray, or asks each time
-- **智能体可直接控制 / Direct Agent control** · 分别控制任务完成和权限请求通知
-  - Control completion and permission-request notifications independently
+  - 说明：想立即尝鲜新功能时可手动触发检查，安装包在后台下载完成后由你决定何时重启安装，手头未收尾的会话不会被直接打断。
+  - Why & how: Check for a new release on demand, let the installer download in the background, and decide when to restart so active sessions are never cut off unexpectedly.
+- **智能体可直接控制 / Direct Agent control** · 控制登录桌面系统后是否自动启动 OpenBitFun
+  - Choose whether OpenBitFun launches automatically after desktop sign-in
+  - 说明：默认关闭。若你常把本机作为手机远程连接宿主或跑早间定时任务，开启后开机即可就绪。
+  - Why & how: Off by default. Useful when you rely on morning scheduled tasks or connect to this computer from your phone via Remote Connect.
+- **智能体可直接控制 / Direct Agent control** · 开启或关闭运行期间阻止电脑空闲自动睡眠
+  - Prevent idle system sleep while OpenBitFun is running
+  - 说明：默认关闭。开启后可防止系统因无人操作而自动休眠中断长任务，但不会阻止你手动睡眠、合上笔记本盖子或系统自动息屏。
+  - Why & how: Off by default. Prevents idle OS sleep from dropping long tasks, while still respecting manual sleep, closing the laptop lid, and normal display turn-off.
+- **智能体可直接控制 / Direct Agent control** · 选择点击主窗口关闭按钮时最小化到托盘、直接退出或每次询问
+  - Choose whether clicking the window close button minimizes to tray, quits, or asks each time
+  - 说明：默认设为“最小化到托盘”，避免随手关窗把正在跑的智能体回合或远程连接一起掐断；偏爱彻底退出的用户可改为“退出”或“每次询问”。
+  - Why & how: Defaults to Minimize to Tray so closing the window does not kill running turns or remote connections; switch to Quit or Ask Each Time if you prefer.
+- **智能体可直接控制 / Direct Agent control** · 分别开启或关闭任务完成通知与权限请求通知
+  - Independently toggle turn-completion and permission-request notifications
+  - 说明：两项默认均开启。当你切到浏览器或终端干别的事时，智能体跑完任务或卡在权限审批上都会发系统通知提醒你，避免干等。
+  - Why & how: Both are enabled by default. When OpenBitFun is in the background, you get a native OS notification as soon as a turn finishes or an agent needs approval.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“应用 > 常规”
-   Go to Application > General
-3. 修改开关；变更会自动保存
-   Change a control; updates are saved automatically
+1. 按 ⌘,（macOS）或 Ctrl+,（Windows / Linux）打开设置，进入“应用与界面 → 通用”
+   Press ⌘, (macOS) or Ctrl+, (Windows / Linux) to open Settings, then go to Application & Interface → General
+2. 在顶部选择界面语言，或按需切换开机启动、防睡眠与自动更新开关
+   Pick your UI language at the top, or toggle launch at login, sleep prevention, and automatic update checks
+3. 在“窗口与通知”区设定关闭按钮默认动作与两类系统通知，所有修改即时自动保存
+   Choose close-button behavior and notification preferences under Window & Notifications — changes save automatically
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 应用与界面 → 通用 / Settings (⌘, / Ctrl+,) → Application & Interface → General (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -51,21 +76,32 @@ Manage app-level preferences for startup, updates, close behavior, notifications
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 登录后自动启动 / Launch at login | `boolean` | 在当前桌面系统登录后自动启动 OpenBitFun。 | Launch OpenBitFun automatically after signing in to this desktop system. |
-| 阻止系统睡眠 / Prevent system sleep | `boolean` | 在 OpenBitFun 运行期间持有本机睡眠抑制器。 | Hold a local sleep inhibitor while OpenBitFun is running. |
-| 自动检查更新 / Automatic updates | `boolean` | 启动后自动检查可用更新。 | Check for available updates automatically after startup. |
-| 关闭按钮行为 / Close button behavior | `ask` / `minimize_to_tray` / `quit` | 选择退出应用或最小化到托盘。 | Choose whether closing quits the app or minimizes it to the tray. |
-| 任务完成通知 / Completion notifications | `boolean` | 会话任务完成时发送系统通知。 | Send an OS notification when session work completes. |
-| 权限请求通知 / Permission request notifications | `boolean` | 智能体等待权限确认时发送系统通知。 | Send an OS notification when an agent waits for permission. |
+| 登录时自动启动 / Launch at login | `boolean` | 登录当前桌面系统后自动在后台启动 OpenBitFun（默认关闭）。 | Automatically start OpenBitFun after signing in to your desktop OS (off by default). |
+| 阻止电脑睡眠 / Prevent system sleep | `boolean` | 在 OpenBitFun 运行期间抑制系统空闲自动睡眠，适合长耗时任务或远程宿主场景（默认关闭）。 | Prevent idle system sleep while OpenBitFun is running — ideal for long tasks or remote hosts (off by default). |
+| 自动检查更新 / Automatic update checks | `boolean` | 应用启动后自动检查新版本提醒，安装与重启仍需你确认（默认开启）。 | Automatically check for new versions after startup while keeping install and restart under your confirmation (on by default). |
+| 关闭按钮行为 / Close button behavior | `ask` / `minimize_to_tray` / `quit` | 控制点击主窗口关闭按钮时是最小化到托盘（默认）、直接退出应用，还是每次弹窗询问。 | Choose whether clicking the window close button minimizes to tray (default), quits the app, or asks each time. |
+| 任务完成通知 / Completion notifications | `boolean` | 当窗口不在前台且智能体完成当前回合时发送系统通知（默认开启）。 | Send a desktop notification when a session turn finishes while the window is unfocused (on by default). |
+| 权限请求通知 / Permission request notifications | `boolean` | 当智能体暂停等待你批准工具或命令权限时发送系统通知（默认开启）。 | Send a desktop notification when an agent is waiting for your permission approval (on by default). |
 
 ## 可以直接对智能体说 / Try saying
 
-- “关闭自动更新”
-  - “Turn off automatic updates”
-- “以后关闭窗口时最小化到托盘”
-  - “Minimize to tray when I close the window”
-- “打开常规设置”
-  - “Open General settings”
+- “帮我开启阻止电脑自动睡眠”
+  - “Keep my computer from sleeping while OpenBitFun is running”
+- “把关闭窗口行为改成最小化到托盘”
+  - “Set the close button to minimize to tray”
+- “关闭自动检查更新，只保留权限请求通知”
+  - “Turn off automatic update checks and keep permission notifications on”
+
+## 实用贴士 / Good to know
+
+- 界面语言选择器现已放在“应用与界面 → 通用”顶部，不再藏在外观页里；你也可以直接对智能体说“把界面语言切成英文”。
+  - The UI language dropdown now lives right at the top of Application & Interface → General rather than Appearance — or simply ask the Agent to switch languages for you.
+- “阻止电脑睡眠”只抑制系统空闲休眠，允许屏幕正常熄灭省电；若合上笔记本盖子，系统仍会按硬件策略休眠。
+  - Prevent System Sleep only blocks idle sleep so your display can still dim or turn off normally; closing a laptop lid still follows OS hardware sleep rules.
+- 如果没收到桌面通知，请检查操作系统的“通知 / 专注模式（勿扰模式）”是否允许 OpenBitFun 发送提醒。
+  - If notifications do not appear, check macOS Focus / Windows Do Not Disturb and confirm OpenBitFun is allowed in OS notification settings.
+
+关联条目 / Related: `setting.application.appearance`, `setting.application.shortcuts`, `feature.tasks-automation`, `feature.remote-connect`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

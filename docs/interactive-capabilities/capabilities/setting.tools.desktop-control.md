@@ -3,33 +3,46 @@
 id: setting.tools.desktop-control
 kind: setting
 category: assistant
-title_zh: "桌面控制"
-title_en: "Desktop control"
+title_zh: "桌面控制（Computer Use）"
+title_en: "Desktop control (Computer Use)"
 ---
 
-# 桌面控制 / Desktop control
+# 桌面控制（Computer Use） / Desktop control (Computer Use)
 
 > 设置 / Setting
 
-管理 Computer Use 开关，并检查辅助功能与屏幕录制授权。
+管理智能体操作原生桌面应用界面的“允许桌面控制”总开关，清晰核查并引导授予系统“辅助功能”与“屏幕录制”权限，在可控安全边界内完成跨应用自动化。
 
-Manage Computer Use and inspect accessibility and screen-recording permissions.
+Manage the Allow desktop control master switch for native desktop GUI automation, inspect Accessibility and Screen Recording OS grants, and jump straight to system privacy settings.
+
+## 适用场景 / When to use it
+
+- 需要智能体帮你点击验证原生桌面客户端、模拟器或无法通过命令行驱动的图形软件：先在本页确认“辅助功能”与“屏幕录制”两项均显示已授权，再开启“允许桌面控制”。
+  - Testing a native desktop app, mobile simulator, or GUI tool that has no CLI or web port: verify both Accessibility and Screen Recording show Granted here, then turn on Allow desktop control.
+- 平时只写代码、希望彻底杜绝智能体触碰鼠标键盘：直接关闭本页的“允许桌面控制”开关，即使系统层面曾经授过权，智能体也无法发起桌面控制。
+  - Locking down desktop input during regular coding: turn off Allow desktop control on this page—agents immediately lose desktop control even if OS permissions remain granted.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看 Computer Use、辅助功能与屏幕录制状态并完成系统授权
-  - Inspect Computer Use, accessibility, and screen-recording status and complete system authorization
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看“允许桌面控制”开关及“辅助功能”、“屏幕录制”系统授权状态并完成授权
+  - Inspect Allow desktop control plus Accessibility and Screen Recording grants and authorize in OS settings
+  - 说明：在 macOS 上需同时授予“辅助功能”（用于模拟点击与键盘输入）和“屏幕录制”（用于截取目标画面）才能完整运行桌面自动化；未就绪时可直接点击“系统设置”跳转授权。
+  - Why & how: macOS requires both Accessibility (to send clicks and keystrokes) and Screen Recording (to see the target window or screen); click System settings whenever either grant is missing.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 结合应用级总开关、单窗口共享与主机边界安全管控桌面操作
+  - Keep desktop automation bounded with the in-app toggle, per-window sharing, and host isolation
+  - 说明：Computer Use 仅在拥有图形界面的桌面执行宿主上可用；无头 CLI 或远程不支持环境会明确显示不可用，绝不会暗中回退去操作你本机控制端的屏幕。
+  - Why & how: Computer Use runs only on Desktop hosts with a real GUI session; headless CLI or unsupported remote hosts report explicit unavailability instead of touching your local controller screen.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“工具 > 桌面控制”
-   Go to Tools > Desktop Control
-3. 检查开关和系统授权状态
-   Inspect the toggle and operating-system grants
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“工具与集成 → 浏览器与桌面控制”并查看“桌面控制”区块
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, go to Tools & Integrations → Browser & Desktop Control, and locate Desktop control
+2. 检查“辅助功能”与“屏幕录制”两项状态；若有未授权项，点击“系统设置”在“隐私与安全性”中勾选允许 OpenBitFun（macOS 修改屏幕录制权限后按提示重新打开应用生效）
+   Check Accessibility and Screen Recording status; if either is missing, click System settings to enable OpenBitFun under Privacy & Security (reopening the app if macOS prompts after granting Screen Recording)
+3. 返回本页开启“允许桌面控制”开关；实际会话中优先共享单个目标应用窗口（App Sharing），并在用完后随时关闭
+   Turn on Allow desktop control here; during tasks, prefer single-window App Sharing over full-screen control and switch Allow desktop control off anytime you finish
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 工具与集成 → 浏览器与桌面控制 / Settings (⌘, / Ctrl+,) → Tools & Integrations → Browser & Desktop Control (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -45,10 +58,21 @@ Manage Computer Use and inspect accessibility and screen-recording permissions.
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开桌面控制设置”
-  - “Open Desktop Control settings”
-- “检查 Computer Use 权限”
-  - “Check Computer Use permissions”
+- “打开桌面控制设置，帮我检查辅助功能和屏幕录制权限齐了没”
+  - “Open Desktop control settings so I can check Accessibility and Screen Recording permissions”
+- “暂时关闭允许桌面控制开关”
+  - “Turn off Allow desktop control for now”
+
+## 实用贴士 / Good to know
+
+- macOS 常见卡点：在“系统设置 → 隐私与安全性 → 屏幕录制”里勾选 OpenBitFun 后，macOS 通常要求退出并重新打开应用，状态卡片才会更新为“已授权”；开发调试模式下实际授权主体可能是启动它的终端应用。
+  - macOS tip: after enabling OpenBitFun under System Settings → Privacy & Security → Screen Recording, macOS typically requires quitting and reopening the app before Screen Recording shows as Granted.
+- 不想把整块桌面暴露给智能体？发起任务时优先使用“共享单个应用窗口（App Sharing）”，把视觉捕获和点击严格限定在目标窗口内，配合默认“需要确认”权限模式更安心。
+  - Prefer sharing a single application window (App Sharing) rather than the entire screen whenever possible so visual capture and clicks stay scoped to that app.
+- 如果只是操作网页或本地前端项目，优先使用内置浏览器或 CDP 浏览器控制——基于 DOM 元素的自动化比桌面截图像素点击更快、更稳且不占用你的鼠标焦点。
+  - If your target is a website or localhost web app, use the Built-in browser or Chrome/Edge CDP instead—DOM-level browser actions are faster, sharper, and do not steal your mouse cursor.
+
+关联条目 / Related: `feature.computer-use`, `setting.tools.browser-control`, `setting.ai.permissions`, `setting.tools.execution`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

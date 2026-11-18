@@ -52,6 +52,7 @@ const PROMINENT_TOOL_CARD_NAMES = new Set([
   'Task',
   'LaunchReviewAgent',
   'AgentSpawn',
+  'AgentFork',
   'submit_code_review',
   'ContextCompression',
   'ReviewSessionSummary',
@@ -225,6 +226,16 @@ const TOOL_CARD_DEFINITIONS: Record<string, ToolCardDefinition> = {
   },
   'AgentSpawn': {
     toolName: 'AgentSpawn',
+    displayName: 'Launch Agent',
+    icon: '',
+    requiresConfirmation: false,
+    resultDisplayType: 'detailed',
+    description: 'Launch a background agent',
+    displayMode: 'detailed',
+    primaryColor: APPEARANCE_DOMAIN_TOKENS.toolIdentity.assistantAction
+  },
+  'AgentFork': {
+    toolName: 'AgentFork',
     displayName: 'Launch Agent',
     icon: '',
     requiresConfirmation: false,

@@ -11,33 +11,64 @@ title_en: "Input & interaction"
 
 > 设置 / Setting
 
-配置对话文本选择操作、语音输入、麦克风、识别语言与本地模型。
+配置本地离线语音输入（SenseVoice / Qwen3-ASR 双模型）、执行中的消息发送策略（立即纠偏 vs 排队）、侧问关闭保护与划词操作栏。
 
-Configure conversation text selection actions, voice input, microphones, recognition language, and local models.
+Configure on-device speech-to-text dictation (SenseVoice & Qwen3-ASR local models), mid-turn message sending (immediate steering vs queueing), /btw close confirmation, and text-selection actions.
+
+## 适用场景 / When to use it
+
+- 口述一段复杂需求草稿：日常中英混说选轻快的 `SenseVoice Small INT8` 秒级出字，需要多语种或更高识别率时换上 `Qwen3-ASR 0.6B INT8`，全程离线不出本机。
+  - Dictate complex prompts completely offline: pick lightweight `SenseVoice Small INT8` for snappy everyday speech or `Qwen3-ASR 0.6B INT8` when you want higher accuracy or 30+ languages.
+- 看着智能体正在跑任务时突然想起漏提了一个边界条件：保持默认“立即发送”可当场插话纠偏；如果你更习惯先把下一件事写好放着、不打断当前推理，切成“排队发送”更顺手。
+  - Spot a missing constraint while an agent is mid-run: keep Send Immediately to steer the active turn on the fly, or switch to Queue if you prefer jotting down the next task without interrupting.
+- 阅读智能体的长篇方案时划选几段关键结论，借自动弹出的操作栏一键攒批注或开侧问追问细节；若平时纯复制代码嫌浮条抢眼，也可关掉自动弹出改用右键触发。
+  - Highlight paragraphs in a long agent proposal to annotate or spin up a quick side question from the selection toolbar — or turn off auto-popup and trigger it via right-click whenever you want.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 开启或关闭选中对话文本后的自动操作栏
-  - Enable or disable automatic actions after selecting conversation text
-- **智能体可直接控制 / Direct Agent control** · 在聊天输入框启用或停用语音输入
-  - Enable or disable voice input in the chat composer
-- **智能体可直接控制 / Direct Agent control** · 选择自动检测或中文、粤语、英文、日文等识别语言
-  - Choose automatic detection or Chinese, Cantonese, English, Japanese, and other recognition languages
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择麦克风并执行语音识别测试
-  - Choose a microphone and run a speech-recognition test
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 下载、选择、验证、修复或删除本地语音模型
-  - Download, select, verify, repair, or delete local speech models
-- **智能体可直接控制 / Direct Agent control** · 设置单次语音输入的最长录音时间
-  - Set the maximum duration of one voice-input recording
+- **智能体可直接控制 / Direct Agent control** · 在聊天输入框启用或停用语音输入按钮
+  - Enable or disable the voice-input button in the chat composer
+  - 说明：开启后聊天输入框会显示麦克风录音入口，录音在本机离线转成可编辑文本放回输入框，确认无误再发送。
+  - Why & how: Shows the microphone button in the chat composer so spoken audio is transcribed locally into editable text before you send.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 下载、选择、验证、修复或删除本地语音模型（SenseVoice Small 与 Qwen3-ASR）
+  - Download, select, verify, repair, or delete local speech models (SenseVoice Small & Qwen3-ASR)
+  - 说明：提供两款纯本地模型：默认轻量的 `SenseVoice Small INT8`（支持自动检测及中、粤、英、日、韩）与更高精度的 `Qwen3-ASR 0.6B INT8`（支持 30+ 语言），均可在此一键校验修复或删除释放空间。
+  - Why & how: Choose between lightweight `SenseVoice Small INT8` (default: `auto`, Chinese, Cantonese, English, Japanese, Korean) and higher-accuracy `Qwen3-ASR 0.6B INT8` (unlocking 30+ languages), with built-in verify, repair, and delete controls.
+- **智能体可直接控制 / Direct Agent control** · 设置默认语音识别语言（自动检测或按所选模型指定语种）
+  - Choose automatic language detection or a fixed recognition language supported by the active model
+  - 说明：默认“自动检测（auto）”省心应对中英混说；固定单一语种时，`SenseVoice Small` 支持中/粤/英/日/韩，切换为 `Qwen3-ASR 0.6B` 则可在设置界面中选择 30+ 种细分语言。
+  - Why & how: Defaults to Auto-Detect (`auto`) for mixed speech; pinning a language offers Chinese, Cantonese, English, Japanese, and Korean on `SenseVoice Small`, or 30+ selectable languages in the UI when `Qwen3-ASR 0.6B` is selected (Agent direct control supports `auto`/`zh`/`en`/`ja`/`yue`).
+- **智能体可直接控制 / Direct Agent control** · 设置单次语音输入允许的最长录音秒数（10–600 秒）
+  - Set the maximum duration of a single voice recording (10–600 seconds)
+  - 说明：默认上限为 60 秒，既防忘关麦克风空录太久，也允许你在口述长段背景思路时调高到最多 600 秒（10 分钟）。
+  - Why & how: Defaults to 60 seconds to prevent accidental open-mic recordings, and can be raised up to 600 seconds (10 minutes) when dictating detailed specs.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择输入麦克风设备并现场测试语音转写效果与耗时
+  - Select a microphone device and run a live speech-recognition test
+  - 说明：外接了耳机、声卡或会议麦时，可在此指定录音设备并当场录几秒话验证收音音量、转写文本和本地推理耗时。
+  - Why & how: Pick the right input device when headsets or USB mics are connected, then record a short sample to check transcript quality and local inference latency.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置智能体执行期间发送消息的默认行为（立即发送纠偏 vs 排队等待）
+  - Choose whether messages sent during an active turn steer immediately or wait in queue
+  - 说明：默认“立即发送”会把新消息实时注入当前原生智能体回合，方便中途纠偏或补充条件；改为“排队发送”则会暂存消息等本轮结束后再发出（注：ACP 外部智能体会话始终等待当前回合完成）。
+  - Why & how: Defaults to Send Immediately so new messages steer or supplement the running native Agent turn in real time; switch to Queue to hold messages until the current turn finishes (note: ACP external-agent sessions always wait for turn completion).
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 开启或关闭侧问（/btw）面板关闭前的丢弃确认提示
+  - Enable or disable the confirmation prompt before closing a /btw side conversation
+  - 说明：侧问（`/btw`）专为不污染主会话上下文的临时追问设计，关闭后对话内容不会落盘保存；开启确认可避免误点关闭丢掉刚问出的参考答案。
+  - Why & how: `/btw` side conversations keep quick tangents out of your main session context and discard their messages on close; keeping this confirmation on prevents accidental loss.
+- **智能体可直接控制 / Direct Agent control** · 开启或关闭在对话中划选文字后自动弹出快捷操作栏
+  - Enable or disable the automatic floating toolbar when selecting conversation text
+  - 说明：默认开启，选中智能体回复即可一键“添加批注”或“侧边提问”；若关闭自动弹出，依然能随时通过右键菜单或提问快捷键调用同样能力。
+  - Why & how: Enabled by default so selecting agent replies surfaces Annotate and Side Question actions right away; if turned off, both remain accessible via right-click and keyboard shortcut.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“应用与界面 > 输入与交互”
-   Go to App & Interface > Input & Interaction
+1. 打开设置（⌘, / Ctrl+,），进入“应用与界面 → 输入与交互”
+   Open Settings (⌘, / Ctrl+,) and go to Application & Interface → Input & Interaction
+2. 按需设定划词操作栏、执行中“立即发送 / 排队发送”策略与侧问关闭确认
+   Set your preferences for text-selection actions, mid-turn message sending (Immediate vs Queue), and `/btw` close confirmation
+3. 在“语音”区下载本地语音模型（SenseVoice Small 或 Qwen3-ASR）并用麦克风试录一句话；继续向下滚动即同页的“快捷键”分区
+   Under Voice, download a local model (`SenseVoice Small` or `Qwen3-ASR`) and run a quick microphone test; scroll to the bottom of the same page for Keyboard Shortcuts
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 应用与界面 → 输入与交互 / Settings (⌘, / Ctrl+,) → Application & Interface → Input & Interaction (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -49,17 +80,32 @@ Configure conversation text selection actions, voice input, microphones, recogni
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 自动显示选中文字操作栏 / Automatically show text selection actions | `boolean` | 选中对话文本后自动显示批注和提问操作；关闭后仍可使用右键菜单和提问快捷键。 | Automatically show annotation and question actions after selecting conversation text; right-click actions and the question shortcut remain available when disabled. |
-| 启用语音输入 / Enable voice input | `boolean` | 在聊天输入框显示并启用录音入口。 | Show and enable recording in the chat composer. |
-| 默认识别语言 / Default recognition language | `auto` / `zh` / `en` / `ja` / `yue` | 选择自动检测、中文、英文、日文或粤语。 | Choose automatic detection, Chinese, English, Japanese, or Cantonese. |
-| 最长录音时间 / Maximum recording duration | `integer` (10–600) | 单次语音输入允许的最长秒数。 | Maximum seconds allowed for one voice input. |
+| 自动显示选中文字操作栏 / Automatically show text-selection toolbar | `boolean` | 划选对话文本后自动浮现批注和侧问按钮；关闭后仍可通过右键菜单与快捷键使用（默认开启）。 | Automatically show annotation and side-question actions when selecting chat text; right-click and shortcut access remain available when off (on by default). |
+| 启用语音输入 / Enable voice input | `boolean` | 在聊天输入框显示麦克风按钮并启用本机离线语音转文字。 | Show the microphone button in the chat composer for local speech-to-text dictation. |
+| 默认识别语言 / Default recognition language | `auto` / `zh` / `en` / `ja` / `yue` | 通过智能体快速设为自动检测（auto）或中文（zh）、英文（en）、日文（ja）、粤语（yue）；若在界面启用 Qwen3-ASR 模型还可选 30+ 种语言。 | Set via Agent to `auto`, Chinese (`zh`), English (`en`), Japanese (`ja`), or Cantonese (`yue`), with 30+ languages selectable in the UI when using `Qwen3-ASR`. |
+| 最长录音时间 / Maximum recording duration | `integer` (10–600) | 单次语音输入允许录音的最长秒数（10–600 秒，默认 60 秒）。 | Maximum seconds allowed for a single voice-input recording (10–600 s, default 60 s). |
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开语音输入设置”
-  - “Open voice-input settings”
-- “把语音输入的默认语言设为中文”
-  - “Set the voice-input language to Chinese”
+- “启用聊天框语音输入，把识别语言设为中文”
+  - “Enable voice input and set the recognition language to Chinese”
+- “把单次最长录音时间改成 180 秒”
+  - “Set the maximum voice recording duration to 180 seconds”
+- “关掉选中文字后自动弹出的操作栏”
+  - “Turn off the automatic text-selection toolbar in chat”
+- “打开消息发送策略设置”
+  - “Open mid-turn message sending settings”
+
+## 实用贴士 / Good to know
+
+- 两款语音模型都在本机离线推理、录音绝不上传：追求响应轻快选中英粤日韩够用的 `SenseVoice Small INT8`，需要小语种或更强抗噪识别则下载 `Qwen3-ASR 0.6B INT8`。想找免提双向对话的“实时语音通话”，请前往“应用与界面 → 宠物与助手”。
+  - Both speech models run 100% offline on your machine: pick `SenseVoice Small INT8` for fast everyday dictation or `Qwen3-ASR 0.6B INT8` to unlock 30+ languages and higher accuracy. For two-way hands-free Realtime Voice Calls, visit Application & Interface → Pet & assistant.
+- 经常给智能体回复做逐段评审时，强烈建议保留“选中文字操作栏”：多选几处加上批注再一次性发给智能体修改，比来回打字高效得多。
+  - Keep the Text Selection Toolbar on when reviewing long plans — collecting several inline annotations and sending them in one batch beats typing line references by hand.
+- “快捷键”就集成在本页最下方分区，滚动到底部或在设置左上角“搜索设置…”输入“快捷键”即可一键直达。
+  - Keyboard Shortcuts sits right at the bottom section of this same Input & Interaction page — scroll down or type “shortcuts” into the top-left Search settings box to jump straight there.
+
+关联条目 / Related: `feature.voice-input`, `feature.ai-assistant`, `setting.application.shortcuts`, `setting.application.pet`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

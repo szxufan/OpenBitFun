@@ -45,6 +45,10 @@ facts. It is an interface crate, not a runtime implementation crate.
   concrete behavior, product policy, permission decisions, audit outcomes, UI
   extension behavior, UI implementation, or UI command logic here.
 - Preserve serialization compatibility for persisted or cross-process DTOs.
+- Terminal/remote stdin requests carry an optional in-process output-wait
+  interrupt token (`tokio-util`, selected by those two port features). It must
+  not cancel the process or cross a wire/persistence boundary. Responses
+  acknowledge wait interruption independently from process completion.
 - Keep `default = []`. Select `agent-api`, `workspace-ports`,
   `terminal-port`, `remote-exec-port`, `remote-workspace-ports`, `git-port`,
   `runtime-event-port`, `plugin-runtime`, or `script-tool-runtime` only from

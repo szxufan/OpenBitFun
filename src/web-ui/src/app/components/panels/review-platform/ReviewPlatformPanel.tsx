@@ -317,7 +317,7 @@ function ownerWorkspaceRecord(workspaceId?: string) {
     ?? null;
 }
 
-function resolveAuthTerminalOwner(surfaceId: DeviceSurfaceId, workspaceId: string): ContentResourceScope {
+function resolveAuthTerminalOwner(surfaceId: DeviceSurfaceId, workspaceId: string) {
   const owner = ownerWorkspaceRecord(workspaceId);
   if (!owner) throw new Error('Terminal owner workspace is unavailable');
   const remote = owner.workspaceKind === 'remote';
@@ -331,14 +331,13 @@ function resolveAuthTerminalOwner(surfaceId: DeviceSurfaceId, workspaceId: strin
 }
 
 /**
- * A restored `review-platform` panel can carry the canvas fallback path rather
- * than its owner's, so only a cwd inside the owner root is kept as the terminal
- * directory; anything else starts at the root instead of another workspace.
+ * Local owners can keep a cwd inside their root. SSH owners use the host shell's
+ * default directory because their repository path belongs to another machine.
  */
-function ownerTerminalDirectory(scope: ContentResourceScope, workspacePath?: string): string {
-  const root = scope.workspacePath ?? '';
-  const remote = Boolean(scope.remoteConnectionId);
-  return workspacePath && isTerminalPathInside(workspacePath, root, remote) ? workspacePath : root;
+function ownerTerminalDirectory(scope: ReturnType<typeof resolveAuthTerminalOwner>, workspacePath?: string): string | undefined {
+  if (scope.remoteConnectionId) return undefined;
+  const root = scope.workspacePath;
+  return workspacePath && isTerminalPathInside(workspacePath, root) ? workspacePath : root;
 }
 
 /** A created PTY stays with its host; this only decides whether its tab opens here. */
@@ -1937,12 +1936,16 @@ function ReviewPlatformContent({
       const workingDirectory = ownerTerminalDirectory(ownerScope, workspacePath);
       await systemAPI.setClipboard(command);
       if (!isPanelCurrent()) return;
-      // The clipboard write is already an await: an owner that moved to another
-      // connection meanwhile must fail before the PTY is created on the new one.
       assertAuthTerminalOwner(ownerScope);
-      // The host owns the PTY, so it is created once here and never killed when
-      // this panel goes away; only opening its tab belongs to this panel.
-      const session = await createManualTerminalSession({ workspaceId, workspacePath: workingDirectory });
+      // The review backend runs gh on the OpenBitFun host, even when Git runs over SSH.
+      const session = await createManualTerminalSession({
+        workspaceId,
+        workspacePath: workingDirectory,
+        hostWorkspaceTarget: {
+          rootPath: ownerScope.workspacePath,
+          connectionId: ownerScope.remoteConnectionId,
+        },
+      });
       if (!isPanelCurrent()) return;
       // Creation awaits again, so the owner is re-checked before its PTY is shown.
       assertAuthTerminalOwner(ownerScope);
@@ -2742,7 +2745,7 @@ function ReviewPlatformContent({
               } />
               {selectedRemote?.platform === 'github' ? (
                 <Stack gap="3">
-                  <Alert role="status" message="Run this command in the integrated terminal, finish the GitHub CLI flow, then retry." />
+                  <Alert role="status" message={t('common:reviewPlatform.messages.ghAuthHostTerminal')} />
                   <pre tabIndex={0} className="review-platform__ci-log-block">{`gh auth login --hostname ${selectedRemote.host}`}</pre>
                   {authError && <Alert tone="error" message={authError} />}
                 </Stack>

@@ -4,48 +4,75 @@ id: feature.voice-input
 kind: feature
 category: application
 title_zh: "语音输入与实时通话"
-title_en: "Voice input and realtime calls"
+title_en: "Voice Input & Realtime Calls"
 ---
 
-# 语音输入与实时通话 / Voice input and realtime calls
+# 语音输入与实时通话 / Voice Input & Realtime Calls
 
 > 功能 / Feature
 
-将录音转成文字，或在客户端持续进行实时语音通话，让助手进入项目执行任务并播报简要进展。
+提供两套互补的语音体验：平时在聊天框点一下麦克风，用本机离线模型（轻量默认的 SenseVoice 支持自动识别中英粤日韩，或下载 Qwen3-ASR 解锁 30+ 语言，录音不上传）快速把口述转成可编辑文字；想彻底解放双手时，在非会话视图点右下角 Hi 打开悬浮对话窗（或开启悬浮窗模式）并点顶部电话图标「切换到实时语音」，像打电话一样让助手跨项目跑任务并播报进展。
 
-Transcribe recordings or hold a client-wide realtime voice call that can enter projects, run tasks, and speak concise progress updates.
+Two complementary ways to work by voice: click the composer mic for fast, private on-device dictation (lightweight SenseVoice for Auto/ZH/Yue/EN/JA/KO, or Qwen3-ASR for 30+ languages—audio never leaves your machine), or open the floating conversation dock from the bottom-right Hi launcher on non-session views (or Floating Window mode) and click the header phone icon (Switch to realtime voice) to run project tasks hands-free.
+
+## 适用场景 / When to use it
+
+- 要给 AI 交代一大段业务背景、复现步骤或架构想法时，懒得敲几百字——点聊天框麦克风口述完再顺手补个 `@文件` 发送，省时省力
+  - Explain a long bug reproduction or architecture idea out loud with the composer mic, attach an `@file` reference, and send in half the time
+- 在首页翻看资料、画白板或站着走动思考时，点开右下角 `Hi` 打开悬浮对话窗（或切到悬浮窗模式），点顶部电话图标切换到实时语音，动嘴指挥助手去跑检查并听它汇报结论
+  - Step back from the keyboard—click `Hi` in the bottom-right corner on Home or Settings (or use Floating Window mode), tap the header phone icon to switch to realtime voice, and let the assistant run checks hands-free
+- 换了外接耳机或会议麦不确定收音正不正常，去「输入与交互 → 语音」点「开始测试」说句话，一秒验证麦克风与识别速度
+  - Switched headsets? Run a quick 3-second test in Input & Interaction → Voice to verify your mic and see local inference latency in milliseconds
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 从聊天输入框开始、结束或取消一次录音
-  - Start, finish, or cancel a recording from the chat composer
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 录音过程中分块传输音频并显示识别进度
-  - Stream audio chunks during recording and show recognition progress
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在客户端启动或结束实时语音通话，听取回复，并让助手执行或停止项目任务
-  - Start or end a client-wide realtime voice call, hear replies, and ask the assistant to run or stop project tasks
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 读取或保存实时语音服务配置
-  - Read or save realtime voice service settings
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看本地语音模型及安装、下载、验证、修复和删除状态
-  - Browse local speech models and their install, download, verify, repair, and delete states
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 取消正在进行的语音模型下载
-  - Cancel an in-progress speech-model download
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择自动检测或指定识别语言，并选择系统麦克风
-  - Use automatic language detection or choose a language and system microphone
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在设置页进行麦克风与语音识别测试并查看耗时和错误
-  - Test the microphone and speech recognition in Settings, including timing and errors
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 把转写结果放回输入框，在发送前继续编辑
-  - Return the transcript to the composer for editing before sending
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在聊天输入框一键开始、完成或取消语音听写录音
+  - Start, finish, or cancel voice dictation right from the chat composer
+  - 说明：点一下麦克风开口就说，说错了或不想发了可随时取消，不会误触发消息发送。
+  - Why & how: Click the mic icon in the chat input to speak—finish to transcribe into your draft, or cancel anytime without sending.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 录音期间实时分块采集音频并直观展示准备与识别状态
+  - Stream audio chunks during recording with live preparation and transcription status
+  - 说明：边说边处理音频流，结束录音瞬间即可快速出字，状态提示清楚不卡顿。
+  - Why & how: Audio feeds smoothly while you speak so transcription finishes briskly with clear visual status.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 从右下角 Hi 悬浮窗或悬浮窗模式切换到实时语音通话，边聊边让助手跨项目执行或停止任务
+  - Switch to a client-wide realtime voice call from the Hi dock or Floating Window mode to run or stop project tasks
+  - 说明：在非会话页点右下角 Hi（或进入悬浮窗模式）再点顶部电话图标「切换到实时语音」，助手即可读懂当前客户端状态、为你启动任务并亲口播报结果。
+  - Why & how: Open the floating dock via bottom-right Hi on non-session views (or Floating Window mode) and click the header phone icon (Switch to realtime voice)—the assistant starts sessions, flags needed approvals, and speaks concise conclusions.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在「宠物与助手」页配置实时语音开关、火山引擎 API Key 与音色角色
+  - Configure the realtime voice assistant toggle, Volcengine API Key, and voice persona
+  - 说明：填入你自己的端到端实时语音密钥与音色（默认官方 Jupiter 女声），配置自动生效且密钥仅留存在当前本机控制端。
+  - Why & how: Set your controller-local Volcengine Realtime API Key and voice ID (defaults to Jupiter, autosaved) safely in Pet & assistant settings.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 浏览、下载、校验、修复或清理 SenseVoice 与 Qwen3-ASR 本机离线语音模型
+  - Browse, download, verify, repair, or delete local SenseVoice and Qwen3-ASR speech models
+  - 说明：SenseVoice Small 轻快覆盖中英粤日韩，Qwen3-ASR 0.6B 解锁 30+ 语言；均支持完整性校验与修复，确保口述音频 100% 在本机识别。
+  - Why & how: Choose lightweight SenseVoice Small (Auto + ZH/Yue/EN/JA/KO) or Qwen3-ASR 0.6B (30+ languages), with local integrity verification so dictation stays 100% offline.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 随时取消正在下载中的本地语音模型任务
+  - Cancel an in-progress local speech-model download anytime
+  - 说明：网络慢或临时不想下了，点一下即可干净中断下载，不会留下损坏的半成品影响使用。
+  - Why & how: On a slow connection or picked the wrong model? Stop an active download cleanly in one click.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择「自动」或指定识别语言，并切换当前使用的系统麦克风
+  - Choose Auto or an explicit recognition language and pick your active system microphone
+  - 说明：SenseVoice 支持自动与中英粤日韩，安装 Qwen3-ASR 后更可指定德、法、西、阿等 30+ 种语言，外接多只麦克风时也能精准选定收音设备。
+  - Why & how: Use Auto or ZH/Yue/EN/JA/KO with SenseVoice—or unlock 30+ selectable languages with Qwen3-ASR—alongside explicit input-device selection.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在设置页直接试录一段话，测试麦克风收音并查看毫秒级推理耗时
+  - Run a quick mic and recognition test in Settings with millisecond timing feedback
+  - 说明：不用先去会话里发消息试错——在设置页说句话就能当场看到转写结果、推理耗时（ms）或设备报错。
+  - Why & how: Speak a short test phrase right in Settings to verify your mic, preview transcription accuracy, and see exact inference latency in ms.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 识别完成后将文字放回聊天输入框，方便补充修改后再发送
+  - Place transcribed text into the chat composer so you can edit before sending
+  - 说明：口述难免有口头禅或函数名大小写想微调，转写结果总是先落在输入框里等你过目确认，绝不抢跑乱发。
+  - Why & how: Transcriptions always land safely in your composer draft—tweak variable names, add `@file` tags, and send only when you’re ready.
 
 ## 怎么用 / How to use it
 
-1. 打开独立的语音设置页
-   Open the standalone Voice settings page
-2. 启用语音并准备模型
-   Enable voice and prepare a model
-3. 在聊天输入框点击麦克风开始录音
-   Use the microphone button in the chat composer
+1. 配置本地语音听写：打开「设置 (⌘, / Ctrl+,) → 应用与界面 → 输入与交互 → 语音」，按语种需求下载 SenseVoice 或 Qwen3-ASR 本地模型并开启输入框语音按钮，随后在聊天框点麦克风即可口述转文字
+   Set up local dictation: go to Settings (⌘, / Ctrl+,) → Application & Interface → Input & Interaction → Voice, download SenseVoice or Qwen3-ASR, enable the composer mic button, and click the mic in chat to dictate
+2. 配置实时语音通话：打开「设置 → 应用与界面 → 宠物与助手 → 实时语音通话」，开启客户端语音助手并填写火山引擎实时语音 API Key 与音色 ID（默认 Jupiter，修改后自动生效）
+   Set up realtime voice calls: go to Settings → Application & Interface → Pet & assistant → Real-time voice calls, enable the client voice assistant, and enter your Volcengine Realtime API Key and voice ID (defaults to Jupiter; changes save automatically)
+3. 发起实时通话：在首页、设置等非会话页面点击右下角的 `Hi` 按钮打开悬浮对话窗（或从左下角齿轮菜单进入「悬浮窗模式」），再点击窗口顶部电话图标「切换到实时语音」即可开口指挥，随时可静音或切回文字聊天
+   Start talking: on non-session views like Home or Settings, click the bottom-right `Hi` button to open the floating dock (or enter Floating window mode from the bottom-left menu), then click the header phone icon (Switch to realtime voice) to talk, trigger or stop tasks, mute, or switch back to text chat
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 语音输入：设置 (⌘, / Ctrl+,) → 应用与界面 → 输入与交互 → 语音；实时语音通话：设置 → 应用与界面 → 宠物与助手 → 实时语音通话（开启后在首页/设置等非会话页点右下角 Hi 或进入悬浮窗模式 → 顶部电话图标「切换到实时语音」） / Voice dictation: Settings (⌘, / Ctrl+,) → Application & Interface → Input & Interaction → Voice; Realtime calls: Settings → Application & Interface → Pet & assistant → Real-time voice calls (then click bottom-right Hi on non-session views or enter Floating Window mode → header phone icon "Switch to realtime voice") (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -61,10 +88,21 @@ Transcribe recordings or hold a client-wide realtime voice call that can enter p
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开语音输入设置”
-  - “Open voice-input settings”
-- “帮我配置听写功能”
-  - “Help me configure dictation”
+- “打开语音输入设置，我想下载本地听写模型”
+  - “Open voice-input settings so I can download a local dictation model”
+- “帮我打开宠物与助手设置，我想配一下实时语音通话”
+  - “Take me to Pet & assistant settings to configure realtime voice calls”
+
+## 实用贴士 / Good to know
+
+- 两个设置入口别走错：旧版的独立语音页已按场景归位——「语音转文字（输入框麦克风）」在「输入与交互 → 语音」，「实时语音通话（右下角 Hi 悬浮窗 → 顶部电话图标）」在「宠物与助手 → 实时语音通话」。
+  - Where each setting lives now: the old standalone Voice page split cleanly into Input & Interaction → Voice (for local composer dictation) and Pet & assistant → Real-time voice calls (launched via the bottom-right `Hi` dock or Floating Window mode → header phone icon).
+- 隐私与密钥边界清晰：本地听写全程离线不上传音频；实时语音通话仅在桌面端可用，且你的火山引擎 API Key 只保存在当前控制端本机，绝不会发往远程 SSH 主机或 Peer 设备。
+  - Clear privacy boundaries: local dictation never uploads audio; realtime voice calls are Desktop-only and keep your Volcengine API Key strictly on the local controller—never sent to SSH or Peer hosts.
+- 识别语言默认选「自动」即可：轻量模型 SenseVoice 覆盖自动及中、粤、英、日、韩，若需德、法、西、阿等 30+ 语种可下载本地 Qwen3-ASR 模型。
+  - SenseVoice vs Qwen3-ASR: SenseVoice Small handles Auto plus Chinese, Cantonese, English, Japanese, and Korean; download Qwen3-ASR 0.6B locally whenever you need full 30+ language dictation.
+
+关联条目 / Related: `setting.application.input`, `setting.application.pet`, `feature.desktop-pet`, `feature.ai-assistant`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

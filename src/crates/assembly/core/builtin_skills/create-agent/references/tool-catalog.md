@@ -33,6 +33,7 @@ Use these tables to select tools for the user's tasks, then put their exact name
 | Tool name | Purpose |
 | --- | --- |
 | `AgentSpawn` | Launch an agent to work independently in the background. |
+| `AgentFork` | Launch a background agent with a copy of the current conversation context. |
 | `AgentSendInput` | Send an instruction to an existing agent. |
 | `AgentWait` | Wait for selected background agent results. |
 | `AgentList` | List direct child agents and their status. |

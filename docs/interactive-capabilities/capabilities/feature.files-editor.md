@@ -3,53 +3,90 @@
 id: feature.files-editor
 kind: feature
 category: workspace
-title_zh: "文件与代码编辑"
-title_en: "Files & code editing"
+title_zh: "文件、代码编辑与多格式预览"
+title_en: "Files, code editor & rich document previews"
 ---
 
-# 文件与代码编辑 / Files & code editing
+# 文件、代码编辑与多格式预览 / Files, code editor & rich document previews
 
 > 功能 / Feature
 
-浏览、搜索和编辑项目文件，查看差异、按语言可用的编辑操作与智能体产生的改动。
+在会话旁浏览和编辑项目代码，逐文件或逐轮次审阅智能体改动并随时回滚快照，原生支持 Markdown、LaTeX 编译预览与 PDF 高亮批注审阅。
 
-Browse, search, and edit project files while inspecting diffs, language-aware editor actions, and agent changes.
+Browse and edit code right beside your chat, review or roll back AI changes by file or turn, and work natively with Markdown, LaTeX PDF compilation, and annotated PDF reviews.
+
+## 适用场景 / When to use it
+
+- 智能体一口气改了 8 个文件，你想确认其中 2 个核心文件没改歪：点开会话底部的修改文件统计条，在右侧分栏逐个对照高亮 Diff，满意的点「接受」，不满意的单文件「拒绝」或直接回滚到上一轮快照。
+  - The Agent touched eight files and you want to verify two critical ones line by line: click the modified-files bar in chat to inspect side-by-side diffs, accept good changes, and reject or roll back anything unwanted to an earlier turn.
+- 写学术论文或技术方案时：直接在工作区打开 `.tex` 文件编译预览 PDF，或在 PDF 阅读器里圈选段落打高亮与回复批注，批注以标准 PDF 注释保存，发给同事用其他阅读器也能直接看到。
+  - Drafting a paper or spec? Edit `.tex` files with workspace LaTeX compilation, or mark up PDFs with standard Highlight, comment, and Ink annotations that round-trip cleanly in external PDF readers.
+- 界面报错截了张图想让智能体帮忙定位样式文件：直接在桌面本地会话按 Ctrl+V / ⌘V 粘贴截图，或把日志与文件夹拖进聊天框即可立刻分析。
+  - Debugging a visual glitch? Paste a clipboard screenshot right into a local Desktop session or drag files and folders onto the chat input.
 
 ## 完整功能清单 / Everything included
 
-- **由专用智能体工具控制 / Delegated Agent tool** · `LS` / `Read` / `Write` / `Edit` / `Delete` / `ExecCommand` · 浏览、创建、读取、编辑、重命名和删除文件与目录
-  - Browse, create, read, edit, rename, and delete files and directories
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在系统文件管理器中显示文件或目录
-  - Reveal a file or directory in the operating-system file manager
-- **由专用智能体工具控制 / Delegated Agent tool** · `Glob` / `Grep` · 按文件名模式和全文内容搜索当前工作区
-  - Search the active workspace by filename pattern and full-text content
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 建立或重建界面搜索索引
-  - Build or rebuild the UI search index
-- **由专用智能体工具控制 / Delegated Agent tool** · `Read` / `Write` / `Edit` · 读取、编辑、保存文件并同步编辑器状态
-  - Read, edit, and save files while synchronizing editor state
-- **由专用智能体工具控制 / Delegated Agent tool** · `GetFileDiff` · 查看修改文件、会话、轮次和单次操作的差异与统计
-  - Inspect diffs and statistics by file, session, turn, or operation
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按文件、操作或整个会话接受或拒绝智能体改动
-  - Accept or reject agent changes by file, operation, or whole session
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看文件变更历史和快照，并回滚整个会话或指定轮次
-  - Review file history and snapshots, then roll back a session or selected turn
+- **由专用智能体工具控制 / Delegated Agent tool** · `LS` / `Read` / `Write` / `Edit` / `Delete` / `ExecCommand` · 在左侧「工作区资源」浏览目录树，新建、读取、重命名或删除文件与文件夹
+  - Browse the Workspace Resources file tree and create, read, rename, or delete files and folders
+  - 说明：文件树中支持快捷键操作（⌘N 新建文件、⌘Shift+N 新建文件夹、F2 重命名、Delete 删除、F5 刷新），也可直接在选定目录右键「在此新建终端」。
+  - Why & how: Use keyboard shortcuts in the file tree (⌘N new file, ⌘Shift+N new folder, F2 rename, Delete, F5 refresh) or right-click any folder to open a terminal right there.
+- **由专用智能体工具控制 / Delegated Agent tool** · `Read` / `Write` / `Edit` · 在分栏代码编辑器中编辑与保存文件，未保存关闭时自动弹出保护提醒
+  - Edit and save files in the split code editor with unsaved-change close protection
+  - 说明：支持多标签并行打开与左右分屏对照；重命名文件会自动更新已打开标签页的路径，关闭未保存标签时会明确提示保存、放弃或取消。
+  - Why & how: Open multiple tabs across split panes; file renames update open tabs seamlessly, and closing a dirty buffer always prompts to Save, Discard, or Cancel.
+- **由专用智能体工具控制 / Delegated Agent tool** · `GetFileDiff` · 按单个文件、单次工具操作、单轮对话或整个会话查看代码 Diff 与增删行数统计
+  - Inspect diffs and line-change stats by file, single tool operation, turn, or full session
+  - 说明：不管是点对话里的文件编辑卡片，还是点输入框上方的改动文件汇总条，都能立即在右侧对照修改前后的每一处差异。
+  - Why & how: Click any file-edit card in the transcript or the modified-files bar above the composer to compare exact before-and-after diffs.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按单次操作、单个文件或整个会话一键「接受」或「拒绝」智能体产生的代码改动
+  - Accept or reject AI code changes by individual operation, file, or entire session
+  - 说明：把最终拍板权留在你手里：保留改得漂亮的部分，一键撤销不符合预期的文件修改，无需手动敲 Git 恢复命令。
+  - Why & how: Stay in full control of your working tree: keep clean edits and revert unwanted file or operation changes in one click.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 基于自动变更快照查看文件修改轨迹，随时把会话与代码一起回滚到指定历史轮次
+  - Browse automatic file-change snapshots and roll back a session and its files to any earlier turn
+  - 说明：如果后面几轮尝试走偏了，直接选择「回滚到此轮」，OpenBitFun 会利用操作前自动保存的快照把代码干净还原到当时的状态。
+  - Why & how: If a multi-turn experiment goes sideways, roll back to an earlier turn and let OpenBitFun’s automatic pre-edit snapshots restore your files cleanly.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 原生编辑与预览 Markdown、实施计划、LaTeX 编译文档，并在 PDF 中添加高亮与批注审阅
+  - Edit and preview Markdown, implementation plans, and LaTeX builds, and annotate PDFs with highlights, notes, and ink
+  - 说明：打开 `.md` 享受所见即所得排版与图表渲染，打开 `.tex` 可直接调用本机环境编译预览 PDF，打开 `.pdf` 则支持添加标准高亮、批注回复与手写批改并处理多端写入冲突。
+  - Why & how: Open `.md` files in the rich Markdown editor, compile `.tex` documents in place, inspect `.openbitfun/plans` specs, and review `.pdf` files with persistent Highlight, comment, and Ink annotations.
+- **由专用智能体工具控制 / Delegated Agent tool** · `Glob` / `Grep` · 支持文件名通配与正则全文搜索，流式展示工作区匹配行与上下文
+  - Search the workspace by filename globs, plain text, or regular expressions with streaming context previews
+  - 说明：无论是你自己按关键词搜代码，还是智能体在后台定位调用链，都会直接运行在当前本地或远程工作区数据面上，绝不会把远程工作区误搜成本机目录。
+  - Why & how: Stream filename and regex content matches across local or remote workspaces without ever falling back to local files when working remotely.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 启用本地工作区加速搜索索引，实现毫秒级大仓库内容检索
+  - Maintain accelerated local workspace search indexes for instant large-repo lookups
+  - 说明：针对大型本地代码库可开启加速索引提升检索速度；连接远程工作区时会自动隐藏不适用的本地索引项。
+  - Why & how: Speeds up searches across large local repositories while automatically scoping out local-only index controls on remote workspaces.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 仅在当前语言提供器实际支持时显示格式化、定义与类型跳转、引用、重命名、快速修复和符号导航
   - Show formatting, definition and type navigation, references, rename, quick fixes, and symbol navigation only when supported by the active language provider
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在 Desktop 本地会话中粘贴或拖入本机文件、文件夹与图片
-  - Paste or drop local files, folders, and images into Desktop local sessions
-- **由专用智能体工具控制 / Delegated Agent tool** · `view_image` / `analyze_image` · 查看并分析工作区或会话中的图片
-  - View and analyze images from the workspace or session context
+  - 说明：编辑器右键菜单与面包屑符号树会根据当前文件语言的真实支持能力动态呈现，点得出来的动作就一定能用。
+  - Why & how: Context-menu actions and symbol breadcrumbs adapt dynamically to what the active file’s language provider genuinely supports.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在本地桌面会话中直接粘贴剪贴板截图，或把本机文件与文件夹拖进聊天框
+  - Paste clipboard images or drag local files and folders straight into Desktop sessions
+  - 说明：拖入文件时会显示直观的类型预览卡片，方便你在提问前核对挂载了哪些材料。
+  - Why & how: Drag files, folders, or screenshots onto the session view with live drop-preview cards before sending your prompt.
+- **由专用智能体工具控制 / Delegated Agent tool** · `view_image` / `analyze_image` · 让智能体直接查看并深度分析工作区配图、UI 截图、报错图或架构草图
+  - Let the agent inspect and analyze UI screenshots, error captures, diagrams, and workspace images
+  - 说明：即使当前选用的主对话模型是纯文本模型，只要在模型设置中配好了图像理解服务，智能体也能调用视觉分析工具读懂画面细节。
+  - Why & how: Works seamlessly with vision-capable primary models or falls back to your configured image-understanding model when using a text-only chat model.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在 Finder 或系统资源管理器中一键定位当前本机文件或文件夹
+  - Reveal any local file or folder directly in Finder or your OS file manager
+  - 说明：仅对本机桌面项目启用；当浏览远程服务器或对端设备项目时，按钮会明确置灰说明原因，绝不会误打开本机同名路径。
+  - Why & how: Available for local Desktop projects; disabled with a clear explanation on SSH or Peer workspaces so remote paths never leak into local file managers.
 
 ## 怎么用 / How to use it
 
-1. 先打开一个项目
-   Open a project first
-2. 打开“文件”
-   Open Files
-3. 选择文件进行编辑，或搜索内容与符号
-   Choose a file to edit, or search content and symbols
+1. 在左侧边栏悬停项目行并点击「文件夹」图标，左侧导航会切换为该项目的「工作区资源」（上方文件树、下方终端列表）
+   Hover a project in the left sidebar and click its folder icon to switch into Workspace Resources (file tree on top, terminals below)
+2. 点击任意文件即可在当前会话另一侧的分栏画布中打开；按 ⌘F / Ctrl+F 在文件内搜索，按 ⌘\ / Ctrl+\ 拆出并排编辑视图
+   Click any file to open it in the pane opposite your active chat; use ⌘F / Ctrl+F to find in file and ⌘\ / Ctrl+\ to split editors
+3. 智能体改完代码后，点击对话中的文件卡片或底部改动汇总条对比 Diff，按文件或操作点「接受 / 拒绝」
+   After the Agent edits code, click a file card or the modified-files bar to inspect diffs and Accept or Reject changes selectively
+4. 若想推翻最近几轮尝试，在对应历史轮次菜单中选择「回滚到此轮」即可一键恢复快照
+   Need a clean do-over? Use Roll back to turn on any earlier message to restore your files from pre-edit snapshots
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 点击左侧边栏项目行的「文件夹」图标展开「工作区资源」，或在会话右侧空白分栏点「浏览文件」（也可按 ⌘K / Ctrl+K → 打开文件） / Click the folder icon on any project row in the sidebar to open Workspace Resources, click Browse files in the right pane, or press ⌘K / Ctrl+K → Open files (`⌘F / Ctrl+F（文件内查找） · ⌘\ / Ctrl+\（分屏）`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -65,10 +102,23 @@ Browse, search, and edit project files while inspecting diffs, language-aware ed
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开项目文件”
-  - “Open the project files”
-- “带我去文件和代码编辑器”
-  - “Take me to the file and code editor”
+- “打开当前项目的文件面板”
+  - “Open the project file tree for me”
+- “帮我看看这轮会话一共改了哪些文件，把核心逻辑的 Diff 总结一下”
+  - “Show me what files changed in this session and summarize the core diffs”
+- “对照这张报错截图排查对应的前端组件样式问题”
+  - “Analyze this UI screenshot and track down the component causing the layout overflow”
+
+## 实用贴士 / Good to know
+
+- 在「工作区资源」里浏览其他项目的文件树时，不会强制打断或切换你当前正在聊的会话——想边参考老项目代码边在新项目提问非常顺手。
+  - Browsing another repo’s files in Workspace Resources does not hijack your active chat session — handy when referencing code from a second project.
+- 刚关掉一个正在看的代码标签？在右侧画布按 ⌘Shift+T / Ctrl+Shift+T 就能立刻重新打开它。
+  - Accidentally closed an editor tab? Press ⌘Shift+T / Ctrl+Shift+T inside the canvas to reopen it immediately.
+- 想调整编辑器字号、Tab 缩进、小地图（Minimap）或保存自动格式化，可前往「设置 → 编程与开发 → 编辑器」。
+  - Customize font size, tab width, minimap, and format-on-save in Settings → Programming & Development → Editor.
+
+关联条目 / Related: `setting.application.development`, `feature.git`, `feature.code-review`, `setting.workspace.session`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

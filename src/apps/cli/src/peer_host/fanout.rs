@@ -391,11 +391,12 @@ async fn handle_agentic_event(
     {
         let (tool_name, params) = effective_tool_invocation(&identity.tool_name, params);
         debug_assert_eq!(identity.effective_name(), tool_name);
-        if matches!(tool_name, "Task" | "AgentSpawn")
-            && params
-                .get("run_in_background")
-                .and_then(serde_json::Value::as_bool)
-                == Some(true)
+        if matches!(tool_name, "AgentSpawn" | "AgentFork")
+            || (tool_name == "Task"
+                && params
+                    .get("run_in_background")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true))
         {
             state.turns.record_background_task_call(
                 &PeerTurnKey::new(session_id, turn_id),
@@ -426,17 +427,27 @@ async fn handle_agentic_event(
         let terminal_task_call = match tool_event {
             ToolEventData::Completed {
                 identity, result, ..
-            } if matches!(identity.effective_name(), "Task" | "AgentSpawn") => Some((
-                identity.tool_id.as_str(),
-                result
-                    .get("background_task_id")
-                    .and_then(serde_json::Value::as_str),
-                result
-                    .get("cancelled_background_tasks")
-                    .and_then(serde_json::Value::as_u64),
-            )),
+            } if matches!(
+                identity.effective_name(),
+                "Task" | "AgentSpawn" | "AgentFork"
+            ) =>
+            {
+                Some((
+                    identity.tool_id.as_str(),
+                    result
+                        .get("bg_task_id")
+                        .or_else(|| result.get("background_task_id"))
+                        .and_then(serde_json::Value::as_str),
+                    result
+                        .get("cancelled_background_tasks")
+                        .and_then(serde_json::Value::as_u64),
+                ))
+            }
             ToolEventData::Failed { identity, .. } | ToolEventData::Cancelled { identity, .. }
-                if matches!(identity.effective_name(), "Task" | "AgentSpawn") =>
+                if matches!(
+                    identity.effective_name(),
+                    "Task" | "AgentSpawn" | "AgentFork"
+                ) =>
             {
                 Some((identity.tool_id.as_str(), None, None))
             }

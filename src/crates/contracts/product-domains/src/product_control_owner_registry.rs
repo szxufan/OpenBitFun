@@ -948,6 +948,12 @@ pub fn owner_definitions() -> Vec<ProductControlOwnerDefinition> {
         ),
         option(
             "setting.tools.execution",
+            "subagent-model-override",
+            boolean(),
+            config("ai.allow_subagent_model_override"),
+        ),
+        option(
+            "setting.tools.execution",
             "subagent-batch-policy",
             string_enum(&["safe_only", "force_parallel", "serial"]),
             config("ai.subagent_batch_execution_policy"),

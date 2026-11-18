@@ -639,7 +639,7 @@ fn escape_get_tool_spec_xml_text(value: &str) -> String {
 
 pub fn tool_manifest_sort_rank(tool_name: &str) -> usize {
     match tool_name {
-        "AgentSpawn" => 1,
+        "AgentSpawn" | "AgentFork" => 1,
         "AgentSendInput" => 1,
         "AgentControl" => 1,
         "AgentWait" => 1,
@@ -1614,6 +1614,12 @@ impl<Tool: ToolRegistryItem + ?Sized> ToolRegistry<Tool> {
         self.snapshot_generation
     }
 
+    /// Invalidate loaded specifications after an owner changes tool presentation
+    /// without replacing tool instances or their provider registrations.
+    pub fn invalidate_tool_specs(&mut self) {
+        self.snapshot_generation = self.snapshot_generation.saturating_add(1);
+    }
+
     pub async fn materialized_tool_snapshot(&self) -> Result<MaterializedToolSnapshot, String> {
         materialize_tool_snapshot(
             &self.get_all_tools(),
@@ -2455,7 +2461,7 @@ pub fn tool_restrictions_for_delegation_policy(
 ) -> ToolRuntimeRestrictions {
     let mut restrictions = ToolRuntimeRestrictions::default();
     if !delegation_policy.allow_subagent_spawn {
-        for tool_name in ["AgentSpawn"] {
+        for tool_name in ["AgentSpawn", "AgentFork"] {
             restrictions.denied_tool_names.insert(tool_name.to_string());
             restrictions.denied_tool_messages.insert(
                 tool_name.to_string(),
@@ -2745,6 +2751,11 @@ mod tests {
             tool_restrictions_for_delegation_policy(DelegationPolicy::top_level().spawn_child());
 
         assert!(!restrictions.is_tool_allowed("AgentSpawn"));
+        assert!(!restrictions.is_tool_allowed("AgentFork"));
+        assert!(
+            tool_restrictions_for_delegation_policy(DelegationPolicy::top_level())
+                .is_tool_allowed("AgentFork")
+        );
         assert!(restrictions.is_tool_allowed("Read"));
         assert_eq!(
             restrictions

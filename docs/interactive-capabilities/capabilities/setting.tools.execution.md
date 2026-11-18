@@ -3,61 +3,112 @@
 id: setting.tools.execution
 kind: setting
 category: assistant
-title_zh: "执行与权限控制"
-title_en: "Execution & permissions"
+title_zh: "执行与协作"
+title_en: "Execution & Collaboration"
 ---
 
-# 执行与权限控制 / Execution & permissions
+# 执行与协作 / Execution & Collaboration
 
 > 设置 / Setting
 
-管理智能体工具权限、呈现模式、并行度、超时、延迟加载、Computer Use 与浏览器控制。
+集中调优工具超时、向用户提问等待时间、子智能体默认模型与并发策略、按需加载工具、PTC 工具呈现、参数 JSON 修复、Deep Review 容量与 GenUI 默认组件库，并串联权限及设备控制开关。
 
-Manage agent tool permissions, presentation mode, concurrency, timeouts, deferred loading, Computer Use, and browser control.
+Tune tool call and user-question timeouts, subagent default models and concurrency, Load tools as needed, PTC presentation, JSON argument repair, Deep Review capacity, and the default GenUI library alongside linked permission and device controls.
+
+## 适用场景 / When to use it
+
+- 接入了好几个 MCP 服务后发现首轮对话上下文偏大：开启“按需加载工具”，让智能体只在真正用到某个大型工具时才按需拉取参数说明，既省 Token 又能减少选错工具。
+  - Keeping initial context lean with many MCP servers enabled: turn on Load tools as needed so large tool schemas load on demand only when an agent actually needs them.
+- 主会话用旗舰推理模型、但并行派发十几个子智能体查代码太贵或太慢：把“子智能体默认模型”设为快速模型或高吞吐模型池，并按任务性质在“尽量并行”与“安全并行”间切换。
+  - Controlling cost and speed during fan-out research: keep your flagship model on the main chat while pointing Subagent default model to your Fast model or a high-throughput model pool.
+- 本地跑全量编译或大型测试脚本经常超过默认时限被中断：调高或设为 0（不限制）单次工具调用超时；若你常离开座位思考回答，也可调大 180 秒的提问等待超时。
+  - Preventing long builds or test suites from timing out mid-run: raise or disable (0 / null) the per-tool call timeout, and lengthen the 180s user-question timeout if you often step away before answering.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择询问、自动审批或完全访问权限模式，并确认高风险警告
-  - Choose Ask, Automatic approval, or Full Access permission mode and acknowledge high-risk warnings
-- **智能体可直接控制 / Direct Agent control** · 控制权限模式选择器是否显示在聊天输入框下方
-  - Choose whether the permission-mode selector appears below the chat composer
+- **智能体可直接控制 / Direct Agent control** · 开启“按需加载工具”（延迟加载工具），减少智能体初始上下文
+  - Enable Load tools as needed (deferred tool loading) to reduce initial agent context
+  - 说明：启用后不再把所有低频大体积工具的完整 Schema 一次性塞进首轮系统提示词，而是在智能体需要时按需检索加载，显著节省输入 Token。
+  - Why & how: Keeps bulky, less-frequent tool schemas out of the initial system prompt and loads them on demand only when needed, saving input tokens.
+- **智能体可直接控制 / Direct Agent control** · 设置或取消单次工具调用超时
+  - Set or disable the per-tool call timeout
+  - 说明：限制单次命令或工具最长可持续运行的秒数；遇到耗时较长的全量构建、端到端测试时可适当调大或取消限制（界面设 0 或通过智能体设 null 表示不限时）。
+  - Why & how: Caps how many seconds a single tool or command execution may run; raise it or disable the limit (0 in UI or null via Agent) for long builds and test suites.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 设置向用户提问的最长等待响应时间（默认 180 秒）
+  - Set how long user questions wait for your reply (180s default)
+  - 说明：控制智能体发起提问卡片后等待你开始作答的秒数（默认 180 秒，设为 0 表示一直等待不超时），避免远程或后台协作时因短暂离开而提前中断。
+  - Why & how: Controls how long AskUserQuestion waits for you to start answering (180s default; set 0 for no timeout) so turns do not time out while you review options.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 指定子智能体默认模型：继承父会话、快速/主模型、指定模型或模型池
+  - Choose the default model for subagents: inherit parent, Fast/Primary, a model, or a model pool
+  - 说明：为未单独绑定模型的子智能体提供统一默认模型；设为快速模型或专用模型池可在并行检索和审查时大幅降低主模型开销与限流压力。
+  - Why & how: Sets the fallback model for any subagent without its own explicit model binding; picking Fast or a dedicated model pool speeds up parallel research and spares flagship quota.
+- **智能体可直接控制 / Direct Agent control** · 设置子智能体与 Swarm 并发上限及任务并行方式
+  - Set subagent and Swarm concurrency limits plus batch parallelism policy
+  - 说明：分别调节普通子智能体最大并发（1–20）与 Swarm 并发工作上限（1–32）；界面提供“尽量并行”（默认，尽可能同时运行多个任务）与“安全并行”（仅同时运行不会修改内容的只读任务），通过智能体或配置还可设为串行执行。
+  - Why & how: Control regular subagent concurrency (1–20) and Swarm worker concurrency (1–32) independently; choose between maximizing parallel runs (UI default) and running only non-mutating read-only tasks in parallel (with serial execution also available via Agent or config).
+- **智能体可直接控制 / Direct Agent control** · 选择模型使用原生工具调用、PTC TypeScript 或 PTC Python 模式
+  - Choose native tool calling, PTC TypeScript, or PTC Python mode for the model
+  - 说明：原生模式由模型逐次发起标准工具调用；PTC（Programmatic Tool Calling）允许强编码模型用受控脚本编排多步工具调用以减少往返轮次，切换后对新建会话生效。
+  - Why & how: Native tools issue standard per-step calls, while PTC lets capable coding models orchestrate multi-step tool calls through TypeScript or Python—changes apply to newly created sessions.
+- **智能体可直接控制 / Direct Agent control** · 控制是否在安全边界内自动修复模型生成的轻微格式错误 JSON
+  - Choose whether minor malformed tool-argument JSON from models is safely auto-repaired
+  - 说明：部分开源或中转模型偶尔在工具参数末尾多写逗号或漏闭合引号，开启后可在不猜测业务语义的前提下自动修复，减少无谓重试。
+  - Why & how: Fixes harmless syntax slips (such as trailing commas) in model-generated tool arguments without inventing missing parameters, cutting down wasted retries.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 设置 Deep Review 最大并行评审者数量与队列等待时间
+  - Set maximum parallel Deep Review reviewers and queue wait time
+  - 说明：根据当前模型供应商的并发限额调整深度代码评审同时运行的 Reviewer 数量与排队超时，避免一次性并发过高触发 429。
+  - Why & how: Match parallel Deep Review worker counts and queue wait limits to your provider rate limits so thorough reviews do not trigger 429 throttling.
+- **智能体可直接控制 / Direct Agent control** · 选择新建生成式 UI 应用默认使用的组件库（默认 openui）
+  - Select the default GenUI component library for newly generated apps (openui by default)
+  - 说明：决定后续新生成的交互式 GenUI 应用绑定哪套组件库与视觉规范（默认为 openui），已生成的应用保持原有身份不变；设置页仅提供下拉选择，实际界面渲染位于对话或 Canvas 中。
+  - Why & how: Selects which component library and design spec newly generated GenUI apps target (openui by default) while existing apps keep their original target; this setting is a dropdown selector without an inline preview widget.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择需要确认、自动审批或完全访问权限模式并确认高风险提示
+  - Choose Ask, Auto-approve, or Full access permission mode and confirm high-risk warnings
+  - 说明：点击后将自动跳转至“模型与智能体 → 权限规则”页调整全局默认权限姿态与自动审批审查器。
+  - Why & how: Routes directly to Models & Agents → Permission Rules to switch your default permission posture and tune Auto-approve.
+- **智能体可直接控制 / Direct Agent control** · 控制权限模式快捷选择器是否显示在聊天输入框下方
+  - Choose whether the permission-mode switcher appears below the chat input
+  - 说明：对应“模型与智能体 → 权限规则”中的快捷选择器显隐开关，智能体可直接按你的指令开启或隐藏。
+  - Why & how: Backed by the quick-switcher toggle in Models & Agents → Permission Rules and directly controllable by an agent on request.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 创建、排序和保存全局或项目级 Allow、Ask、Deny 规则
   - Create, reorder, and save global or project-level Allow, Ask, and Deny rules
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看、撤销或清空项目中记住的权限授权与审计记录
+  - 说明：全局规则位于“模型与智能体 → 权限规则”，项目级规则绑定在具体工作区中并可按需覆盖全局预设。
+  - Why & how: Global rules live under Models & Agents → Permission Rules, while project-scoped rules stay with the workspace and can override global defaults.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看、撤销或清空当前项目中已记住的权限授权与审计记录
   - Review, revoke, or clear remembered project permission grants and audit records
-- **智能体可直接控制 / Direct Agent control** · 按需延迟加载工具定义以减少智能体初始上下文
-  - Deferred tool loading on demand to reduce initial agent context
-- **智能体可直接控制 / Direct Agent control** · 选择模型使用原生模式、PTC TypeScript 或 PTC Python 模式
-  - Choose native, PTC TypeScript, or PTC Python mode for the model
-- **智能体可直接控制 / Direct Agent control** · 设置子智能体与 Swarm 最大并发及安全、强制并行或串行策略
-  - Set subagent and swarm concurrency plus safe-only, forced-parallel, or serial policy
-- **智能体可直接控制 / Direct Agent control** · 设置或取消单次工具调用超时
-  - Set or disable the per-tool execution timeout
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 设置 Deep Review 最大并行评审者和队列等待时间
-  - Set the maximum parallel Deep Review workers and queue wait time
-- **智能体可直接控制 / Direct Agent control** · 启用或停用已获系统授权的 Computer Use
-  - Enable or disable Computer Use after operating-system authorization
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看并请求辅助功能与屏幕录制权限
-  - Inspect and request accessibility and screen-recording permissions
-- **智能体可直接控制 / Direct Agent control** · 控制 OpenBitFun 启动时是否自动连接浏览器
-  - Choose whether OpenBitFun reconnects browser control at startup
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现并选择浏览器、配置默认 CDP 或按需重启
-  - Discover and choose a browser, configure default CDP, or restart it when needed
-- **智能体可直接控制 / Direct Agent control** · 控制是否在安全边界内修复模型生成的非法工具参数 JSON
-  - Choose whether malformed model-generated tool-argument JSON may be repaired within safety boundaries
-- **智能体可直接控制 / Direct Agent control** · 选择生成式 UI 组件库及关联 UI 规范并操作预览
-  - Select a GenUI component library, its UI specification and preview
+  - 说明：当你在会话中勾选了“记住此授权”，可随时审查或撤回单条项目授权记录，恢复每次询问。
+  - Why & how: Inspect or revoke project-scoped "remember this choice" permission grants and audit entries whenever you want prompts restored.
+- **智能体可直接控制 / Direct Agent control** · 开启或关闭已获系统授权的“允许桌面控制”开关
+  - Enable or disable the Allow desktop control switch after OS authorization
+  - 说明：界面位于“工具与集成 → 浏览器与桌面控制”，无需撤销系统隐私权限即可一键暂停或恢复桌面操作能力。
+  - Why & how: Located in Tools & Integrations → Browser & Desktop Control so you can pause or resume desktop control without revoking OS privacy grants.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看并请求辅助功能与屏幕录制系统权限
+  - Inspect and request Accessibility and Screen Recording OS permissions
+  - 说明：打开“工具与集成 → 浏览器与桌面控制”核查系统授权状态并拉起操作系统隐私设置。
+  - Why & how: Opens Tools & Integrations → Browser & Desktop Control to check OS permission status and jump to system privacy settings.
+- **智能体可直接控制 / Direct Agent control** · 控制 OpenBitFun 启动时是否自动连接外部 CDP 浏览器
+  - Choose whether OpenBitFun automatically connects to your CDP browser on startup
+  - 说明：默认关闭，避免每次启动客户端时触发外部浏览器的远程调试确认弹窗；需要高频自动化时可开启。
+  - Why & how: Off by default so launching OpenBitFun does not trigger unexpected browser remote-debugging prompts; enable it if you automate Chrome or Edge daily.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现并选择外部浏览器、开启默认 CDP 配置或按需重启连接
+  - Discover and choose an external browser, enable default CDP, or reconnect on demand
+  - 说明：前往“工具与集成 → 浏览器与桌面控制”选择 Chrome / Edge 并查看实时 CDP 端口连接状态。
+  - Why & how: Opens Tools & Integrations → Browser & Desktop Control to pick Chrome or Edge and manage live CDP connections.
+- **智能体可直接控制 / Direct Agent control** · 允许 Agent 指定子 Agent 模型
+  - Allow agents to choose subagent models
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“工具 > 执行与权限”
-   Go to Tools > Execution & Permissions
-3. 先确认安全影响，再修改权限或执行参数
-   Review the security impact before changing permissions or execution controls
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“模型与智能体 → 执行与协作”
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Models & Agents → Execution & Collaboration
+2. 在“工具运行”与“执行行为”区块按任务耗时设置“工具超时”与“提问超时”（默认 180 秒，设为 0 表示不限制）
+   Under Tool execution, adjust the per-tool timeout and user-question timeout (180s default; set 0 for no timeout)
+3. 在“子智能体”区块选择“子智能体默认模型”，并调整普通子智能体、Swarm 的并发上限与任务并行方式（“尽量并行”或“安全并行”）
+   Under Subagents, pick the subagent default model and tune regular subagent concurrency, Swarm concurrency, and batch policy
+4. 按需开启“按需加载工具”、切换“工具呈现模式”（对新会话生效）、调整 Deep Review 容量或选择新建 GenUI 应用的默认组件库
+   Toggle Load tools as needed, tool presentation mode (applies to new sessions), Deep Review capacity, or the default GenUI component library
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 模型与智能体 → 执行与协作 / Settings (⌘, / Ctrl+,) → Models & Agents → Execution & Collaboration (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -69,26 +120,38 @@ Manage agent tool permissions, presentation mode, concurrency, timeouts, deferre
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 显示权限模式选择器 / Show permission-mode selector | `boolean` | 在聊天输入框下方显示或隐藏权限模式快捷选择器。 | Show or hide the permission-mode shortcut below the chat composer. |
-| 延迟加载工具 / Deferred tool loading | `boolean` | 按需加载大型工具定义，减少智能体初始上下文。 | Load large tool definitions on demand to reduce initial agent context. |
-| 工具呈现模式 / Tool presentation mode | `native` / `ptc` / `ptc_python` | 选择模型直接调用原生工具，或通过 PTC TypeScript/Python 调用工具。 | Choose whether the model calls native tools directly or uses PTC TypeScript or Python. |
-| 子智能体批量执行策略 / Subagent batch policy | `safe_only` / `force_parallel` / `serial` | 选择仅安全任务并行、强制并行或串行执行。 | Choose safe-only parallelism, forced parallelism, or serial execution. |
-| 子智能体最大并发 / Maximum subagent concurrency | `integer` (1–32) | 限制同时运行的子智能体数量。 | Limit the number of subagents that may run at once. |
-| Swarm 最大并发 / Maximum swarm concurrency | `integer` (1–64) | 限制 Swarm 中同时执行的工作单元。 | Limit concurrent work units inside a swarm. |
-| 工具执行超时 / Tool execution timeout | `integer` (1–86400) / `null` | 单次工具调用的超时秒数。 | Timeout in seconds for one tool call. |
-| Computer Use 桌面控制 / Computer Use | `boolean` | 允许智能体使用已授权的桌面控制能力。 | Allow agents to use authorized desktop-control capabilities. |
-| 启动时连接浏览器 / Connect browser on startup | `boolean` | OpenBitFun 启动后自动尝试连接浏览器控制。 | Automatically try to connect browser control after OpenBitFun starts. |
-| 工具参数 JSON 修复 / Tool-argument JSON repair | `boolean` | 允许在安全边界内修复模型生成的轻微 JSON 格式错误。 | Allow minor model-generated JSON formatting errors to be repaired within the safety boundary. |
-| 生成式 UI 组件库及 UI 规范 / GenUI component library and UI specification | `openbitfun` / `openui` | 选择后续生成使用的组件库及其关联的设计规则、资源、视口、宿主外壳和验收检查；已有应用保留自己的目标身份。 | Choose the component library and its bound design rules, resources, viewport, host shell and acceptance checks. Existing apps retain their target identity. |
+| 显示权限模式选择器 / Show permission-mode selector | `boolean` | 在聊天输入框下方显示或隐藏权限模式快捷切换器（界面位于“模型与智能体 → 权限规则”）。 | Show or hide the quick permission-mode switcher below the chat input (configured in Models & Agents → Permission Rules). |
+| 按需加载工具 / Load tools as needed | `boolean` | 按需向模型提供大型或低频工具详情，显著减少每轮对话的初始上下文占用。 | Provide large or infrequent tool details to the model on demand to keep initial turn context compact. |
+| 工具呈现模式 / Tool presentation mode | `native` / `ptc` / `ptc_python` | 选择标准原生工具调用，或允许模型通过 PTC TypeScript / Python 脚本编排多步工具调用（对新会话生效）。 | Choose standard native tool calls or let capable models orchestrate multi-step tool pipelines via PTC TypeScript or Python (applies to new sessions). |
+| 子智能体任务并行方式 / Subagent batch policy | `safe_only` / `force_parallel` / `serial` | 在尽量并行（界面默认）、安全并行（仅并发执行不会修改内容的任务）或串行执行之间选择。 | Choose maximizing parallel execution (UI default), safe-only parallelism for read-only tasks, or serial execution. |
+| 子智能体最大并发 / Maximum subagent concurrency | `integer` (1–32) | 限制同一时刻并行运行的普通子智能体任务数（范围 1–20）。 | Maximum number of regular subagents allowed to run concurrently (1–20). |
+| Swarm 工作并发上限 / Maximum Swarm concurrency | `integer` (1–64) | 限制 Swarm 协作中同时运行的工作与审核智能体上限（范围 1–32）。 | Maximum concurrent worker and reviewer agents inside a Swarm (1–32). |
+| 单次工具调用超时 / Tool execution timeout | `integer` (1–86400) / `null` | 单次工具或命令执行允许持续的最长秒数；设为 null（或界面填 0）表示不限制。 | Timeout in seconds for a single tool execution; null (or 0 in the UI) disables the timeout. |
+| 允许桌面控制 / Allow desktop control | `boolean` | 在系统权限已授予的前提下，一键允许或暂停智能体使用桌面控制能力（界面位于“工具与集成 → 浏览器与桌面控制”）。 | Allow or pause desktop-control actions once OS permissions are granted (displayed in Tools & Integrations → Browser & Desktop Control). |
+| 启动时自动连接浏览器 / Auto-connect browser on startup | `boolean` | 控制 OpenBitFun 启动时是否自动尝试连接外部 CDP 浏览器（默认关闭）。 | Choose whether OpenBitFun automatically tries to connect external CDP browser control on launch (off by default). |
+| 工具参数 JSON 安全修复 / Safe tool-argument JSON repair | `boolean` | 在严格安全边界内自动修复模型输出的轻微 JSON 语法瑕疵，减少因格式小错导致的调用失败。 | Automatically repair minor JSON syntax glitches in model tool arguments within strict safety bounds. |
+| 默认生成式 UI 组件库 / Default GenUI component library | `openbitfun` / `openui` | 指定新建交互式 GenUI 应用默认采用的组件库与设计规范（默认 openui）；已有应用保留原有目标身份。 | Select the component library and bound design spec for newly generated GenUI apps (openui by default); existing apps keep their original target. |
+| 允许 Agent 指定子 Agent 模型 / Allow agents to choose subagent models | `boolean` | 控制 Agent 能否在启动或继续执行子 Agent 时指定模型。 | Control whether agents can override subagent models when launching or continuing work. |
 
 ## 可以直接对智能体说 / Try saying
 
-- “启用 Computer Use”
-  - “Enable Computer Use”
-- “把子智能体最大并发改为 8”
-  - “Set maximum subagent concurrency to 8”
-- “打开权限设置”
-  - “Open permission settings”
+- “开启按需加载工具帮我节省初始上下文”
+  - “Turn on Load tools as needed to save initial context”
+- “把子智能体最大并发改为 8，任务并行方式设为安全并行”
+  - “Set maximum subagent concurrency to 8 and use safe-only parallelism”
+- “单次工具调用超时改成 600 秒”
+  - “Change the tool call timeout to 600 seconds”
+
+## 实用贴士 / Good to know
+
+- 旧版“执行与权限”已拆分为三个更清晰的页面：日常运行与并发参数在本页（“模型与智能体 → 执行与协作”），审批策略与全局规则在“模型与智能体 → 权限规则”，浏览器与桌面控制则在“工具与集成 → 浏览器与桌面控制”。
+  - Settings formerly grouped under Execution & Permissions now live in three focused places: runtime and concurrency here in Execution & Collaboration, approval policy in Models & Agents → Permission Rules, and Browser/Computer Use in Tools & Integrations → Browser & Desktop Control.
+- 多个子智能体同时改写同一目录文件容易产生冲突；如果任务包含写文件，把任务并行方式切到“安全并行”可确保只有只读探索任务并发执行，写操作稳妥排队。
+  - If subagents will edit files in the same repository, switch the batch policy to safe-only parallelism so read-only exploration runs concurrently while file writes queue safely.
+- 修改“工具呈现模式”（原生工具 / PTC）只对切换之后新建的会话生效；GenUI 组件库下拉框默认使用 openui，同样仅影响新生成的交互界面，不会改动历史会话中已有的应用。
+  - Changing Tool presentation (Native vs PTC) applies only to newly created sessions; likewise, the GenUI library dropdown defaults to openui and affects only newly generated apps.
+
+关联条目 / Related: `setting.ai.permissions`, `feature.agents`, `setting.tools.browser-control`, `setting.tools.desktop-control`, `feature.generative-ui`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

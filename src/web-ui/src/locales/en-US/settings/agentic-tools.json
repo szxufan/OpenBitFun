@@ -42,7 +42,18 @@
     "subagentModelSettings": "Go to the Agents page to set models for individual subagents",
     "subagentModelInherit": "Inherit parent session",
     "subagentDefaultModel": "Default subagent model",
-    "subagentDefaultModelDesc": "Used by subagents without an individual model override."
+    "subagentDefaultModelDesc": "Used by subagents without an individual model override.",
+    "forkSubagentDefaultModel": "Default fork subagent model",
+    "forkSubagentDefaultModelDesc": "Used when launching a subagent with inherited conversation context and no model override.",
+    "subagentModelOverride": {
+      "label": "Allow agents to choose subagent models",
+      "hint": "When disabled, subagents use their configured models. Agents cannot choose a different model when launching or continuing work.",
+      "unsupported": "This host does not support controlling subagent model selection. Update the host to change this setting.",
+      "loadFailed": "Could not load the subagent model setting.",
+      "saveFailed": "Could not save the subagent model setting.",
+      "loading": "Loading subagent model setting…",
+      "retry": "Retry"
+    }
   },
   "filters": {
     "all": "All",

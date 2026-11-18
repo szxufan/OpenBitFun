@@ -5,6 +5,11 @@
   inline-size: var(--openbitfun-space-5);
   block-size: var(--openbitfun-space-5);
 
+  > [data-openbitfun-component='icon'] {
+    display: block;
+    vertical-align: middle;
+  }
+
   &[data-status='running'] > [data-openbitfun-component='icon'] {
     animation: session-status-running 1.4s linear infinite;
   }

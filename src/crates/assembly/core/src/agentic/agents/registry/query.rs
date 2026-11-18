@@ -83,7 +83,7 @@ impl AgentRegistry {
         self.get_agent_tools(agent_type, workspace_id)
             .await
             .iter()
-            .any(|tool| matches!(tool.as_str(), "AgentSpawn" | "Task"))
+            .any(|tool| matches!(tool.as_str(), "AgentSpawn" | "AgentFork" | "Task"))
     }
 
     /// Return every effective local agent definition that can participate in

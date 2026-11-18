@@ -322,4 +322,17 @@ describe('WorkspaceListSection layout styles', () => {
     expect(assistant).not.toContain('AssistantSessionHistoryDialog');
     expect(assistant).toContain('handleOpenLatestAssistantSession');
   });
+
+  it('centers assistant history trailing status and action controls on the block axis', () => {
+    const assistantHistoryStyles = readFileSync(
+      fileURLToPath(new URL('./AssistantSessionHistory.scss', import.meta.url)),
+      'utf8',
+    ).replace(/\r\n/g, '\n');
+    const trailing = extractBlock(assistantHistoryStyles, '.openbitfun-nav-panel__inline-item-trailing');
+
+    expect(trailing).toContain('block-size: var(--openbitfun-control-icon-button-xs-size);');
+    expect(trailing).toContain('grid-template-rows: minmax(0, 1fr);');
+    expect(trailing).toContain('align-content: center;');
+    expect(trailing).toContain('justify-items: end;');
+  });
 });

@@ -11,54 +11,85 @@ title_en: "MCP servers"
 
 > 设置 / Setting
 
-添加和管理 Model Context Protocol 服务器，查看工具、资源、提示词与远程授权状态。
+通过表单或 JSON 添加和管理 Model Context Protocol（MCP）服务器，支持本机 stdio 进程、Docker 容器与远程 Streamable HTTP（Bearer / OAuth），并查看健康状态、工具清单、Prompt、Resource 与交互式 MCP App。
 
-Add and manage Model Context Protocol servers, including tools, resources, prompts, and remote authorization state.
+Add and manage Model Context Protocol (MCP) servers via form or JSON across local stdio processes, Docker containers, and remote Streamable HTTP (Bearer or OAuth), while inspecting health, tools, prompts, resources, and interactive MCP Apps.
+
+## 适用场景 / When to use it
+
+- 想让智能体直接查设计稿、工单库或内部文档：优先接入官方远程 Streamable HTTP MCP 地址，点击发起浏览器 OAuth 或填入 Bearer Token，连接成功后在聊天输入框敲 @ 就能选用该服务。
+  - Connecting cloud issue trackers, docs, or design tools: add a remote Streamable HTTP MCP URL, complete browser OAuth or save a Bearer header, then type @ in chat to scope that server into your turn.
+- 接入社区开源的 npx / uvx 本地 MCP 工具包：用表单填入命令、参数与环境变量，保存后在服务器卡片上确认状态变为已连接并核对加载出的工具列表。
+  - Running an open-source npx or uvx MCP server locally: add a local stdio server with its command, arguments, and env vars, then verify its live status badge and discovered tool list.
+- 从 Claude Code 或 Cursor 迁移现成 mcpServers 配置：直接打开 JSON 配置视图粘贴（或通过“外部导入”审阅导入），再补齐需要保密的环境变量与远程认证信息。
+  - Bringing over existing mcpServers JSON: paste or edit non-secret server definitions in JSON view (or import via External import), then fill in any secret tokens or OAuth sign-ins.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 查看服务器状态并按服务器保存非秘密配置
-  - Inspect server state and save non-secret configuration per server
-- **智能体可直接控制 / Direct Agent control** · 添加本地进程、远程 HTTP/SSE 或容器 MCP 服务器
-  - Add local-process, remote HTTP/SSE, or container MCP servers
-- **智能体可直接控制 / Direct Agent control** · 启动、停止、重启和删除单个 MCP 服务器
-  - Start, stop, restart, and delete individual MCP servers
-- **智能体可直接控制 / Direct Agent control** · 查看初始化、连接、健康、重连、鉴权和失败状态
-  - Inspect initialization, connection, health, reconnecting, authentication, and failure states
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置远程 Header/环境变量认证或清除已有凭据
-  - Configure remote header/environment authentication or clear stored credentials
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发起、轮询、取消或重新连接远程 MCP OAuth
-  - Start, poll, cancel, or reconnect remote MCP OAuth
-- **由专用智能体工具控制 / Delegated Agent tool** · `ListMCPPrompts` / `GetMCPPrompt` · 列出 MCP Prompt 并读取带参数的指定 Prompt
-  - List MCP prompts and load a selected prompt with arguments
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看 MCP 工具清单并打开工具提供的 App/UI
-  - Inspect MCP tool catalogs and open tool-provided App/UI surfaces
-- **由专用智能体工具控制 / Delegated Agent tool** · `ListMCPResources` / `ReadMCPResource` · 列出并读取 MCP Resources
-  - List and read MCP resources
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 打开 MCP App/UI、双向发送消息并回答交互请求
-  - Open MCP App/UI surfaces, exchange messages, and answer interaction requests
+- **智能体可直接控制 / Direct Agent control** · 通过表单或 JSON 查看服务器状态并增量保存非秘密配置
+  - Inspect server state and save non-secret configuration via form or JSON
+  - 说明：既可用引导表单逐项添加，也可切到 JSON 视图批量维护服务器定义；智能体增量修改配置时会自动保留未改动服务器与已有加密凭据。
+  - Why & how: Manage servers through a guided dialog or raw JSON; incremental updates preserve other servers and existing stored credentials.
+- **智能体可直接控制 / Direct Agent control** · 添加本机 stdio 进程、Docker 容器或远程 Streamable HTTP MCP 服务器
+  - Add local stdio-process, Docker-container, or remote Streamable HTTP MCP servers
+  - 说明：远程服务使用标准 Streamable HTTP 协议（不支持旧版远程 SSE）；本地与容器服务通过 stdio 在当前 OpenBitFun 产品宿主本机启动，不会在 SSH 远程工作区内部运行。
+  - Why & how: Remote servers speak standard Streamable HTTP (legacy remote SSE is not supported), while local stdio and Docker servers run on the OpenBitFun product host rather than inside an SSH remote workspace.
+- **智能体可直接控制 / Direct Agent control** · 单独启动、停止、重启或删除指定的 MCP 服务器
+  - Start, stop, restart, or delete individual MCP servers
+  - 说明：临时不用的本地进程可随时停止以释放资源，环境变量或网络恢复后一键重启即可重连，无需删除重建配置。
+  - Why & how: Stop idle local processes to free memory, restart a server after network or environment changes, or remove servers you no longer use.
+- **智能体可直接控制 / Direct Agent control** · 实时查看初始化、已连接、重连中、待鉴权与失败诊断状态
+  - Inspect live initialization, connected, reconnecting, auth-required, and failure states
+  - 说明：清晰区分“配置已保存”与“运行时真正连通”，连接异常时直接展示错误原因以方便排查命令路径或认证问题。
+  - Why & how: Distinguishes saved configuration from actual runtime connectivity and surfaces actionable error messages when a binary path or token fails.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置远程 Bearer / 自定义 Header 与本地环境变量凭据，或清除已有密钥
+  - Configure remote Bearer/custom headers and local env secrets, or clear stored credentials
+  - 说明：敏感 Token 与 API 密钥在受保护的设置表单中单独写入或清除，不会暴露在智能体可读的普通列表结果中。
+  - Why & how: Secret headers and environment tokens are entered or cleared through protected settings fields without leaking raw values to agent discovery.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发起、等待、取消或重新连接远程 MCP 浏览器 OAuth 授权
+  - Start, poll, cancel, or reconnect remote MCP browser OAuth authorization
+  - 说明：针对支持 OAuth 的远程 Streamable HTTP 服务，一键拉起浏览器完成账号登录授权，令牌过期后可随时重新认证。
+  - Why & how: Launch browser OAuth for supported Streamable HTTP MCP servers and easily re-authenticate whenever an access token expires.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ListMCPPrompts` / `GetMCPPrompt` · 列出服务器提供的 MCP Prompts 并按参数渲染指定模板
+  - List server-provided MCP Prompts and load a chosen prompt with arguments
+  - 说明：智能体可查询已连接 MCP 服务器暴露的标准提示词模板，并传入所需参数获取结构化上下文。
+  - Why & how: Agents can discover standardized prompt templates exposed by a connected MCP server and render them with structured arguments.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ListMCPResources` / `ReadMCPResource` · 列出并按 URI 读取 MCP 服务器暴露的 Resources
+  - List and read MCP Resources by URI from connected servers
+  - 说明：无需复制粘贴外部资料，智能体可直接列出服务器资源目录并按真实 URI 拉取正文内容。
+  - Why & how: Agents list available resource URIs on a connected server and read their contents directly into context.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 浏览每个 MCP 服务器加载出的工具清单并识别附带的交互界面
+  - Browse discovered MCP tool inventories and identify tool-provided App/UI surfaces
+  - 说明：展开服务器详情即可核对每个工具的名称、描述与输入定义，确认智能体可见范围是否符合预期。
+  - Why & how: Expand any connected server to inspect its discovered tools, descriptions, and UI attachments.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 打开交互式 MCP App/UI 面板、双向收发消息并完成界面内确认
+  - Open interactive MCP App/UI panels, exchange messages, and complete in-app interactions
+  - 说明：当 MCP 工具返回可交互视图时，可在 OpenBitFun 内直接渲染并与服务端双向通信。
+  - Why & how: Render interactive UIs provided by MCP servers inside OpenBitFun with two-way message and confirmation support.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“工具 > MCP”
-   Go to Tools > MCP
-3. 添加服务器并确认其权限与连接状态
-   Add a server and review its permissions and connection state
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“工具与集成 → MCP”
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Tools & Integrations → MCP
+2. 点击添加服务器（或打开 JSON 配置），选择本地进程（stdio）、Docker 容器或远程 Streamable HTTP 类型
+   Click Add Server (or open JSON config) and choose Local process (stdio), Docker container, or Remote Streamable HTTP
+3. 填写启动命令/参数或远程 URL，按需配置 Bearer Header、环境变量或发起浏览器 OAuth 登录
+   Enter the command/args or remote endpoint URL, and supply any required Bearer header, env var, or browser OAuth login
+4. 保存后确认服务器卡片状态变为“已连接”，展开核对工具数，之后在对话中可用 @ 精确选用该 MCP 服务
+   Verify the server badge reaches Connected and check its tool count; you can then @-mention the server right in chat
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 工具与集成 → MCP / Settings (⌘, / Ctrl+,) → Tools & Integrations → MCP (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
 | 操作 / Action | 中文说明 | English description |
 | --- | --- | --- |
-| 列出服务器与状态 / List servers and state | 返回当前产品宿主用户级服务器 ID、连接状态和配置版本，不返回已有凭据、命令参数或 URL。 | Return user server IDs, connection state, and the configuration fingerprint on the executing product host without exposing stored credentials, command arguments, or URLs. |
-| 添加或修改服务器 / Add or update a server | 先列出服务器取得 expectedFingerprint，再按 serverId 增量保存非秘密配置；保留其他服务器、未提供字段和已有凭据。保存后检查 runtimeReconciled 和连接状态，不能把写入成功当作连接成功。 | List servers for expectedFingerprint, then patch non-secret configuration by serverId. Preserve other servers, omitted fields, and stored credentials. Check runtimeReconciled and connection state after saving; persistence is not proof of connectivity. |
-| 启动服务器 / Start a server | 按返回的用户服务器 ID 启动服务并回读状态；需要 OAuth 时保留用户授权流程。 | Start a returned user server ID and read back state; preserve the user authorization flow when OAuth is required. |
-| 停止服务器 / Stop a server | 停止指定用户服务器并保留配置。 | Stop the selected user server while preserving its configuration. |
-| 重启服务器 / Restart a server | 重启指定用户服务器并回读状态，不重新写入配置。 | Restart the selected user server and read back state without rewriting configuration. |
-| 删除服务器 / Delete a server | 仅在用户要求时，使用最新 expectedFingerprint 删除指定用户服务器并清理对应运行时。 | Only when requested, use the latest expectedFingerprint to remove the selected user server and reconcile its runtime. |
+| 列出服务器与连接状态 / List servers and connection state | 返回当前执行宿主上的用户级 MCP 服务器 ID、实时连接状态与配置版本校验摘要，不会暴露已保存的密钥、启动参数或私有地址。 | Return user-level MCP server IDs, live connection status, and the configuration version token on the executing host without exposing stored secrets, arguments, or URLs. |
+| 增量添加或更新服务器配置 / Add or update a server configuration | 基于最新配置版本按服务器 ID 增量保存非机密字段，自动保留其他服务器与已存凭据，并在保存后核实服务是否已重新加载连通。 | Incrementally save non-secret fields for a server against the latest configuration version while preserving other servers and stored secrets, then verify live connectivity. |
+| 启动服务器 / Start a server | 按用户级服务器 ID 启动指定 MCP 服务并回读实时连接状态；若需要浏览器 OAuth 则交由你完成网页确认。 | Start a user MCP server by ID and read back live status, leaving any required OAuth browser consent to you. |
+| 停止服务器 / Stop a server | 停止指定的 MCP 服务运行进程，同时完整保留其配置与凭据以便随时再次启动。 | Stop the running MCP server while keeping its saved configuration and credentials intact. |
+| 重启服务器 / Restart a server | 在不改写配置文件的前提下重启指定 MCP 服务器并回读最新健康状态。 | Restart the selected MCP server without rewriting config and read back its updated health state. |
+| 删除服务器 / Delete a server | 仅在你明确要求删除时，基于最新配置版本移除指定 MCP 服务器并清理其运行进程。 | Only when explicitly requested, remove the selected MCP server against the latest configuration version and stop its runtime. |
 
 ## 可配置选项 / Configurable options
 
@@ -68,14 +99,23 @@ Add and manage Model Context Protocol servers, including tools, resources, promp
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开 MCP 设置”
-  - “Open MCP settings”
-- “带我管理 MCP 服务器”
-  - “Take me to MCP server management”
-- “帮我配置 MCP 服务器”
-  - “Configure an MCP server for me”
-- “重启指定 MCP 服务器”
-  - “Restart a specific MCP server”
+- “列出当前所有 MCP 服务器和连接状态”
+  - “List all configured MCP servers and their connection status”
+- “帮我重启刚修改过配置的 MCP 服务器”
+  - “Restart my MCP server and check whether it reconnects cleanly”
+- “打开 MCP 设置，我要完成远程服务的 OAuth 登录”
+  - “Open MCP settings so I can sign in with remote OAuth”
+
+## 实用贴士 / Good to know
+
+- 协议避坑：OpenBitFun 远程 MCP 使用标准 Streamable HTTP 协议（常见路径以 `/mcp` 结尾），不支持旧版纯远程 SSE（`/sse`）传输；若服务端只提供旧版 SSE，可通过本地 `mcp-remote` 等 stdio 桥接包接入。
+  - Protocol tip: Remote MCP in OpenBitFun uses standard Streamable HTTP (typically `/mcp` endpoints)—legacy remote SSE (`/sse`) is not supported directly, though you can bridge legacy SSE endpoints via a local stdio wrapper if needed.
+- 执行位置说明：本地 `stdio`（`npx` / `uvx`）与 `Docker` MCP 进程运行在当前 OpenBitFun 桌面宿主本机上，而不是在 SSH 远程工作区的远端服务器内执行；对端设备模式（Peer Mode）下同样不支持直接改写本页宿主 MCP 配置。
+  - Host boundary: Local `stdio` (`npx` / `uvx`) and `Docker` MCP servers execute on the OpenBitFun Desktop product host, not inside an SSH remote workspace, and host MCP edits are disabled while controlling a Peer device.
+- 加载了较多 MCP 工具担心拖慢对话？配合开启“模型与智能体 → 执行与协作”中的“按需加载工具”，即可按需向模型提供工具详情。
+  - If you connect many MCP servers, pair them with Load tools as needed under Models & Agents → Execution & Collaboration so schemas only enter context when needed.
+
+关联条目 / Related: `feature.ai-assistant`, `setting.tools.execution`, `feature.ecosystem-compatibility`, `feature.skills`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

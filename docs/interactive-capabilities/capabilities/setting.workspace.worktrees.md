@@ -3,45 +3,76 @@
 id: setting.workspace.worktrees
 kind: setting
 category: workspace
-title_zh: "Worktree 设置"
-title_en: "Worktree settings"
+title_zh: "工作区与 Git"
+title_en: "Workspace & Git"
 ---
 
-# Worktree 设置 / Worktree settings
+# 工作区与 Git / Workspace & Git
 
 > 设置 / Setting
 
-配置 Git Worktree 的根目录、分支前缀和自动清理规则，并查看现有隔离工作区。
+管理本地加速工作区搜索、AI Git 提交联合作者署名（Co-authored-by），以及并行隔离 Worktree 的存储目录、分支前缀、自动清理与生命周期。
 
-Configure the root, branch prefix, and cleanup rules for Git worktrees, and inspect existing isolated workspaces.
+Configure local accelerated workspace search, AI Git commit co-author attribution (`Co-authored-by`), and managed Git worktree root path, branch prefix, cleanup rules, and lifecycle.
+
+## 适用场景 / When to use it
+
+- 同时让两个智能体会话试做两套不同重构方案又不想把当前工作区改乱：提前设好 Worktree 分支前缀与保留数量，新开隔离会话时各自拥有干净分支目录，互不踩踏。
+  - Run two competing refactors in parallel without dirtying your main checkout: set your preferred branch prefix and retention cap once, then launch isolated sessions in clean managed worktrees.
+- 团队仓库规范要求提交记录不带外部工具署名，进入“工作区与 Git → Git 提交署名”一键关掉 `Co-authored-by` 即可。
+  - Working in a repository whose commit hygiene policy forbids tool attribution trailers? Flip off Git Commit Attribution under Workspace & Git in one click.
+- 跑完十几轮并行实验想释放磁盘空间，在底部受管 Worktree 列表里看清哪些工作树还有未推送提交、哪些已合并完毕，放心安全删除或找回当时的关联会话。
+  - Reclaim disk space safely after parallel experiments by checking the managed Worktrees list for dirty state or unpushed commits before deleting or jumping back to a linked session.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 了解隔离 Worktree，并配置其创建与清理默认值
-  - Understand isolated worktrees and configure their creation and cleanup defaults
-- **智能体可直接控制 / Direct Agent control** · 设置受管 Worktree 的统一根目录
-  - Set the common root directory for managed worktrees
-- **智能体可直接控制 / Direct Agent control** · 设置自动创建分支使用的名称前缀
-  - Set the branch-name prefix used for automatically created branches
-- **智能体可直接控制 / Direct Agent control** · 创建隔离工作区时选择是否复制当前未提交改动
-  - Choose whether current uncommitted changes are copied into a new isolated workspace
-- **智能体可直接控制 / Direct Agent control** · 启用自动清理并设置最多保留的受管 Worktree 数量
-  - Enable automatic cleanup and set the maximum number of managed worktrees to retain
-- **由专用智能体工具控制 / Delegated Agent tool** · `Worktree` · 查看 Worktree 生命周期、脏状态、未发布提交与关联会话
-  - Inspect worktree lifecycle, dirty state, unpublished commits, and linked sessions
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 打开或恢复关联会话，并在保护检查后删除或强制删除 Worktree
-  - Open or restore linked sessions and delete or force-delete a worktree after protection checks
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为本地工作区开启或关闭加速工作区搜索
+  - Enable or disable accelerated workspace search for local projects
+  - 说明：位于本页顶部，开启后利用本地索引显著加快大仓库的文件与代码内容检索；关闭后普通搜索依然可用，连接到远程工作区时该分区会自动隐藏。
+  - Why & how: Located at the top of Workspace & Git for local projects to speed up large-repo file and content queries; standard search keeps working when off, and remote workspaces hide this local-only section.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 开启或关闭智能体创建 Git 提交时的 Co-authored-by 联合作者署名
+  - Enable or disable OpenBitFun Co-authored-by attribution on agent-created Git commits
+  - 说明：默认开启。启用时智能体生成的 Git 提交说明末尾会自动附带 OpenBitFun 联合作者署名；若团队仓库要求纯个人提交信息，随时可在此关闭。
+  - Why & how: Enabled by default. Appends an OpenBitFun `Co-authored-by` trailer when an agent creates a Git commit; turn it off anytime if your repository policy prefers plain commit messages.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 了解会话级隔离 Worktree 机制并配置创建与清理默认策略
+  - Understand per-session isolated worktrees and configure creation and cleanup defaults
+  - 说明：隔离模式在每次新建会话时按需选用，而非强制一刀切；本页负责统一设定受管 Worktree 的存放位置、命名规则与自动清理上限。
+  - Why & how: Worktree isolation is chosen per session when you need parallel branches rather than forced globally; this page sets the shared directory, naming, and retention defaults.
+- **智能体可直接控制 / Direct Agent control** · 设置受管 Worktree 的统一存放根目录（默认 ~/.openbitfun/worktrees）
+  - Set the common storage root directory for managed worktrees (`~/.openbitfun/worktrees` by default)
+  - 说明：所有由 OpenBitFun 托管创建的并行工作树都会集中放在该目录下，不会把临时副本散落在你的项目源码目录旁边；系统盘紧张时也可改到大容量分区。
+  - Why & how: Keeps managed parallel checkouts organized in one place (`~/.openbitfun/worktrees` by default) instead of cluttering sibling project folders — or point it at a larger drive.
+- **智能体可直接控制 / Direct Agent control** · 设置隔离工作树自动新建分支的名称前缀（默认 openbitfun/）
+  - Set the branch-name prefix used for automatically created worktree branches (`openbitfun/` by default)
+  - 说明：默认使用 `openbitfun/` 前缀，让你在 `git branch` 列表和代码托管平台上一眼认出哪些分支来自隔离智能体任务，也可改成团队约定的如 `ai/` 或个人缩写。
+  - Why & how: Defaults to `openbitfun/` so agent-created branches are easy to spot in `git branch` and PR lists; customize it to `ai/` or your team’s naming convention.
+- **智能体可直接控制 / Direct Agent control** · 选择新建隔离工作树时是否带上当前未提交的本地改动
+  - Choose whether uncommitted local edits are copied into newly created isolated worktrees
+  - 说明：默认关闭（从干净的 `HEAD` 起步最稳妥）；如果你经常改了一半突然想基于手头草稿分叉试验，开启它即可自动把未提交改动同步进新 Worktree。
+  - Why & how: Off by default so new worktrees start from a clean `HEAD`; enable it if you often want parallel experiments to inherit in-progress local edits.
+- **智能体可直接控制 / Direct Agent control** · 启用受管 Worktree 自动清理并设定最多保留数量（默认保留 15 个）
+  - Enable automatic worktree cleanup and set the maximum retained count (15 by default)
+  - 说明：默认开启并保留最近 15 个受管 Worktree（可设 1–100），超出上限且可安全回收的旧工作树会被自动清理，防止长期并行开发撑爆磁盘。
+  - Why & how: Enabled by default with a retention limit of 15 worktrees (configurable from 1–100) so older finished checkouts do not quietly eat disk space.
+- **由专用智能体工具控制 / Delegated Agent tool** · `Worktree` · 盘点受管 Worktree 的生命周期、未提交改动、未发布提交与关联会话
+  - Inspect managed worktree lifecycle, dirty files, unpublished commits, and linked sessions
+  - 说明：列出当前执行主机上 OpenBitFun 受管 Worktree 根目录内的工作树（按项目筛选查看，不扫描该根目录外的任意手动检出目录），清楚标记未提交改动与未推送提交，也可让智能体通过 `Worktree` 工具读取。
+  - Why & how: Lists worktrees inside OpenBitFun’s managed worktree root on the current execution host (filtered by project, without scanning arbitrary external checkouts outside that root), highlighting dirty files, unpushed commits, and linked sessions.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 一键打开或恢复关联会话，并在脏工作区/未发布提交保护检查后删除 Worktree
+  - Open or restore linked sessions and safely delete or force-delete worktrees after protection checks
+  - 说明：点击关联会话即可跳回当时的上下文；删除 Worktree 前会自动检测未提交改动与未推送分支提交，仅在你明确二次确认后才允许强制移除，严防误删心血代码。
+  - Why & how: Jump straight back into a worktree’s linked session, or remove finished worktrees safely — dirty trees and unpushed commits trigger an explicit protection prompt before force deletion.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“工作区 > Worktrees”
-   Go to Workspace > Worktrees
-3. 保存规则或管理现有 Worktree
-   Save policy or manage existing worktrees
+1. 打开设置（⌘, / Ctrl+,），进入“编程与开发 → 工作区与 Git”
+   Open Settings (⌘, / Ctrl+,) and go to Programming & Development → Workspace & Git
+2. 按需切换“加速工作区搜索”与“Git 提交署名”开关（这两项立即生效）
+   Toggle Accelerated Workspace Search or Git Commit Attribution at the top (both save immediately)
+3. 在“Worktrees”默认参数区修改根目录、分支前缀或清理上限后点击该区域底部的“保存”（右上角可“恢复默认值”），并在下方管理列表巡检或清理受管 Worktree
+   Edit root path, branch prefix, or cleanup limit under Worktrees and click Save in the action bar at the bottom of the defaults section (Reset to defaults sits in the section header), or manage existing checkouts below
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 编程与开发 → 工作区与 Git / Settings (⌘, / Ctrl+,) → Programming & Development → Workspace & Git (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -53,18 +84,31 @@ Configure the root, branch prefix, and cleanup rules for Git worktrees, and insp
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 受管 Worktree 根目录 / Managed-worktree root | `string` | 设置 OpenBitFun 创建受管 Worktree 的统一根目录。 | Set the common root where OpenBitFun creates managed worktrees. |
-| Worktree 分支前缀 / Worktree branch prefix | `string` | 设置自动创建分支使用的前缀。 | Set the prefix used for automatically created branches. |
-| 复制本地改动 / Copy local changes | `boolean` | 创建隔离 Worktree 时复制未提交改动。 | Copy uncommitted changes when creating an isolated worktree. |
-| 自动清理 Worktree / Automatic worktree cleanup | `boolean` | 允许 OpenBitFun 自动清理超过保留上限的受管 Worktree。 | Allow OpenBitFun to prune managed worktrees beyond the retention limit. |
-| Worktree 保留上限 / Worktree retention limit | `integer` (1–100) | 设置自动清理前最多保留的受管 Worktree 数量。 | Set the maximum managed worktrees retained before cleanup. |
+| 受管 Worktree 根目录 / Managed-worktree root | `string` | OpenBitFun 集中存放受管隔离 Worktree 的根目录（留空使用默认 `~/.openbitfun/worktrees`）。 | Root folder where OpenBitFun places managed isolated worktrees (defaults to `~/.openbitfun/worktrees` when left blank). |
+| Worktree 分支前缀 / Worktree branch prefix | `string` | 隔离工作树自动新建 Git 分支时使用的名称前缀（默认 `openbitfun/`）。 | Prefix prepended to branch names created automatically for isolated worktrees (`openbitfun/` by default). |
+| 复制未提交本地改动 / Copy uncommitted local changes | `boolean` | 创建隔离 Worktree 时是否把当前工作区未提交的本地修改一并复制过去（默认关闭）。 | Copy current uncommitted workspace edits into newly created isolated worktrees (off by default). |
+| 自动清理受管 Worktree / Automatic worktree cleanup | `boolean` | 超出保留上限时自动清理已完成且干净的旧受管 Worktree（默认开启）。 | Automatically prune older clean managed worktrees once the retention limit is exceeded (on by default). |
+| Worktree 保留上限 / Worktree retention limit | `integer` (1–100) | 触发自动清理前最多保留的受管 Worktree 数量（范围 1–100，默认 15）。 | Maximum number of managed worktrees retained before automatic cleanup runs (1–100, default 15). |
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开 Worktree 设置”
-  - “Open Worktree settings”
-- “带我管理并行工作区”
-  - “Take me to parallel-workspace management”
+- “打开工作区与 Git 设置”
+  - “Open Workspace & Git settings”
+- “把受管 Worktree 自动清理上限改成 25 个”
+  - “Set the managed worktree retention limit to 25”
+- “帮我看看当前项目有哪些受管 Worktree 还没清理”
+  - “List managed worktrees for this project and check if any have uncommitted changes”
+
+## 实用贴士 / Good to know
+
+- 注意页面保存差异：上方的“加速工作区搜索”和“Git 提交署名”拨动开关即刻生效；而“Worktrees”默认参数属于草稿表单，改完记得点该表单底部的 **“保存”** 按钮（标题栏右侧是“恢复默认值”）！
+  - Heads-up on saving: the Accelerated Workspace Search and Git Commit Attribution switches save on toggle, whereas edits in the Worktrees defaults form stage as a draft until you click **Save** in the bottom action bar (while **Reset to defaults** sits in the section header)!
+- 自动清理只会回收无未提交改动、无活跃运行任务的旧受管 Worktree，不会悄悄删掉你还没合并的重要改动。
+  - Automatic cleanup never silently wipes dirty worktrees or active sessions — protected checkouts stay untouched until you review them.
+- 受管 Worktree 列表仅扫描当前执行主机上受管根目录内的工作树；连接 SSH 远程工作区时不会误在本地控制端电脑上代建或误删工作树。
+  - The management list tracks checkouts inside OpenBitFun’s managed worktree root on the active host, and never creates or deletes local controller checkouts when you are on a remote SSH workspace.
+
+关联条目 / Related: `feature.git`, `feature.projects`, `setting.workspace.session`, `feature.code-review`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

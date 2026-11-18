@@ -3,45 +3,70 @@
 id: feature.code-review
 kind: feature
 category: workspace
-title_zh: "代码评审与 Pull Request"
-title_en: "Code review & pull requests"
+title_zh: "深度代码评审（Deep Review）与 Pull Request"
+title_en: "Deep Review & pull request workflows"
 ---
 
-# 代码评审与 Pull Request / Code review & pull requests
+# 深度代码评审（Deep Review）与 Pull Request / Deep Review & pull request workflows
 
 > 功能 / Feature
 
-阅读改动与 PR 上下文，查看 CI 日志，生成提交信息，并组织深度代码评审。
+一站读取 GitHub / GitLab / GitCode / Gitee 的 PR 改动、关联 Issue 与失败的 CI 运行日志，并可调度多角色评审团队对本地修改、指定提交或远端 PR 进行严格结构化审查。
 
-Review changes and pull-request context, inspect CI logs, generate commit messages, and run deeper code reviews.
+Load pull request diffs, linked issues, and failing CI logs from GitHub, GitLab, GitCode, or Gitee — and launch multi-agent Deep Review against local edits, commits, or PRs.
+
+## 适用场景 / When to use it
+
+- 准备提 PR 前心里没底，怕漏掉边界条件或并发竞态：在对话里说一句「对当前分支改动做一次 Deep Review」，专门的审查智能体团队会逐模块深挖潜在 Bug 并按严重度列给你。
+  - About to open a big PR and want a second pair of eyes? Ask for a Deep Review on your working tree or branch so specialist review agents hunt for race conditions, edge cases, and regressions before teammates see it.
+- 队友发来一个大 PR 请你帮忙把关，或者你自己的 PR 远端 CI 红了：直接说「帮我看看 PR #128 的改动重点和挂掉的 CI 日志」，智能体会拉取分页详情与失败日志给出修复建议。
+  - Your PR’s CI check just turned red? Ask the Agent to fetch the PR’s failing CI log, pinpoint the exact assertion or build error, and patch it locally.
+- 首次在 GitHub 私有仓看 PR 还没登录 `gh`？界面支持一键唤起终端会话引导完成与当前仓库域名匹配的 `gh auth login`（含 GitHub Enterprise 域名），而 GitLab、GitCode 与 Gitee 则可独立保存本机访问令牌。
+  - Working with GitHub Enterprise or a private repo? GitHub integration aligns `gh` CLI login with your PR’s exact host, while GitLab, GitCode, and Gitee tokens stay safely stored on your machine.
 
 ## 完整功能清单 / Everything included
 
-- **由专用智能体工具控制 / Delegated Agent tool** · `ReviewPlatform` · 读取仓库、分支、工作区快照和评审目标
-  - Load repository, branch, workspace snapshot, and review-target context
-- **由专用智能体工具控制 / Delegated Agent tool** · `ReviewPlatform` · 查看 Pull Request 详情、分页内容与关联改动
-  - Inspect pull-request details, paged content, and related changes
-- **由专用智能体工具控制 / Delegated Agent tool** · `ReviewPlatform` · 读取 Pull Request 的 CI 运行日志
-  - Read CI run logs for a pull request
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 读取关联 Issue 的标题、描述与上下文
-  - Read the title, body, and context of linked issues
-- **由专用智能体工具控制 / Delegated Agent tool** · `ReviewPlatform` · 保存或清除评审平台访问令牌
-  - Store or clear review-platform access tokens
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 预览、生成或快速采用提交信息
-  - Preview, generate, or quickly apply a commit message
-- **由专用智能体工具控制 / Delegated Agent tool** · `LaunchReviewAgent` / `submit_code_review` · 针对工作区、提交或 PR 发起 Deep Review 并汇总结构化评审
-  - Run Deep Review against a workspace, commit, or pull request and consolidate a structured review
+- **由专用智能体工具控制 / Delegated Agent tool** · `LaunchReviewAgent` / `submit_code_review` · 针对本地未提交改动、指定 Commit 或远端 PR 发起多角色 Deep Review 结构化审查
+  - Run multi-agent Deep Review against uncommitted workspace changes, a commit, or a pull request
+  - 说明：Deep Review 会派出评审工作组检查正确性、边界条件、架构规范与安全隐患，再通过质量门复核剔除吹毛求疵的噪音，汇总成清晰可操作的问题清单。
+  - Why & how: Dispatches specialist review workers to check correctness, edge cases, architecture boundaries, and security, then filters findings through a quality gate into actionable issues.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ReviewPlatform` · 分页读取 Pull Request / Merge Request 的描述、评论讨论与关联代码改动
+  - Read pull-request descriptions, review threads, and paged file changes directly in context
+  - 说明：即使面对包含上百个文件的大号 PR，也会按页有序读取概览与关键改动，不会一次性撑爆模型上下文窗口。
+  - Why & how: Loads PR overviews, review comments, and file diffs in clean pages so even large pull requests stay fast and within context budgets.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ReviewPlatform` · 一键拉取 PR 失败或运行中的 CI 任务日志，快速定位构建与测试报错
+  - Fetch CI run logs for a pull request to pinpoint build, lint, or test failures
+  - 说明：智能体会先列出该 PR 下的各项 CI 检查状态，再只拉取失败那一项的日志正文，迅速帮你复现并修好问题。
+  - Why & how: Lists check statuses on the PR first, then fetches the specific failing job log so the Agent can reproduce and fix the root cause.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ReviewPlatform` · 自动识别当前仓库的 Git 远端地址、分支快照与对应的评审平台目标
+  - Detect the active repository’s remotes, branch snapshot, and matching review-platform target automatically
+  - 说明：不用每次手贴完整仓库 URL，只要当前分支已经关联了远端仓库，就能自动匹配对应的 GitHub、GitLab、GitCode 或 Gitee 项目。
+  - Why & how: Resolves your current checkout’s `origin`/`upstream` remotes and branch automatically so you can refer to PRs by number.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 读取关联 Issue 的需求背景、验收标准与讨论上下文
+  - Load linked Issue titles, descriptions, acceptance criteria, and discussion context
+  - 说明：评审代码是否「漏实现了需求」时，可结合关联 Issue 原文逐项核对，确保代码实现与最初诉求严丝合缝。
+  - Why & how: Cross-check code changes against the original Issue description and acceptance criteria to catch missing requirements early.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ReviewPlatform` · 对接本机 GitHub CLI（`gh`）登录态，或安全保存/清除 GitLab、GitCode 与 Gitee 访问令牌
+  - Reuse local GitHub CLI (`gh`) login or securely store and clear GitLab, GitCode, and Gitee access tokens
+  - 说明：GitHub 仓库优先直接复用你本机已登录的 `gh` 凭据（需要时还会贴心打开终端引导对应域名的 `gh auth login`）；GitLab、GitCode 与 Gitee 则支持单独保存和随时清除私有访问令牌。
+  - Why & how: GitHub repositories reuse your local `gh` CLI authentication (and can open a terminal session for host-matched `gh auth login`), while GitLab, GitCode, and Gitee support dedicated token management.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 一键预览、生成或快速填充贴合改动的提交信息
+  - Preview, generate, or quick-fill commit messages tailored to your staged changes
+  - 说明：修复完评审指出的问题后，可快速生成符合规范的修复提交说明，保持分支提交历史清晰易读。
+  - Why & how: After addressing review findings, generate a concise, conventional commit message in one click.
 
 ## 怎么用 / How to use it
 
-1. 打开项目文件或 Git
-   Open project files or Git
-2. 选择改动或评审目标
-   Choose a change or review target
-3. 在会话中请求评审或打开对应详情
-   Ask for a review in the session or open its details
+1. 若使用 GitHub 仓库，先确保本机已安装并登录 `gh`（未登录时可按界面提示一键打开终端完成 `gh auth login`）；GitLab / GitCode / Gitee 准备好访问令牌即可
+   For GitHub repos, ensure `gh` CLI is signed in (or use the one-click terminal prompt for `gh auth login`); for GitLab, GitCode, or Gitee, provide an access token when prompted
+2. 评审本地代码：在会话中直接说「对当前未提交改动发起 Deep Review」或指定某个 Commit
+   To review local work: ask in chat to "Run Deep Review on my current uncommitted changes" (or name a specific commit)
+3. 评审或排查远端 PR：直接发送 PR 编号或链接（如「查看 PR #42 的失败 CI 日志并修复」）
+   To inspect or fix a PR: mention the PR number or URL (e.g., "Check why CI failed on PR #42 and fix the root cause")
+4. 逐条查看结构化评审结论，点击问题定位到对应代码行，或让智能体直接按评审意见完成修复与复测
+   Walk through the consolidated findings by severity, jump to files, or ask the Agent to apply fixes and re-verify
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 在 AI 会话中直接发起评审或贴入 PR 编号/链接；评审并发容量可在「设置 → 模型与智能体 → 执行与协作」调整 / Ask for a review or paste a PR number/URL in any AI session; tune review concurrency in Settings → Models & Agents → Execution & Collaboration (`会话指令 · Deep Review`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -57,10 +82,23 @@ Review changes and pull-request context, inspect CI logs, generate commit messag
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开文件面板，我要评审当前改动”
-  - “Open Files so I can review the current changes”
-- “带我查看 Pull Request 相关能力”
-  - “Take me to the pull-request workflow”
+- “对当前分支相对于 main 的全部改动做一次严格的 Deep Review”
+  - “Run a thorough Deep Review on all changes in my current branch against main”
+- “帮我看看当前分支关联的 PR 为什么 CI 挂了，把报错原因和修复方案列出来”
+  - “Check why CI failed on the PR for this branch and propose a fix”
+- “阅读 PR #86 的改动和关联 Issue，检查有没有遗漏边界情况”
+  - “Read PR #86 and its linked issue to verify whether any edge cases were missed”
+
+## 实用贴士 / Good to know
+
+- 想控制同时可以跑多少个评审任务，可在「设置 → 模型与智能体 → 执行与协作」中调整审核容量上限。
+  - Adjust how many review tasks can run concurrently in Settings → Models & Agents → Execution & Collaboration.
+- 内置的 `commit-push-pr` 技能可以把「检查改动 → 生成提交信息 → 推送分支 → 创建 PR 描述」串成丝滑的一步操作，日常提 PR 强烈推荐试试。
+  - Try the built-in `commit-push-pr` Skill when you want a smooth one-prompt flow from clean local edits to a well-written pull request.
+- 注意：CLI 无界面交付模式默认不加载桌面端的 Deep Review 专属智能体团队，完整多角色 Deep Review 建议在桌面端会话中使用。
+  - Full multi-agent Deep Review is designed for Desktop sessions; lightweight CLI runs still support standard `ReviewPlatform` PR/CI inspection.
+
+关联条目 / Related: `feature.git`, `feature.files-editor`, `setting.tools.execution`, `feature.agents`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

@@ -1,6 +1,7 @@
 use super::*;
 
 const AGENT_SPAWN_FIELDS: &[&str] = &["agent_id", "prompt", "agent_type", "model_id"];
+const AGENT_FORK_FIELDS: &[&str] = &["agent_id", "prompt", "model_id"];
 const AGENT_SEND_INPUT_FIELDS: &[&str] = &["agent_id", "prompt", "model_id"];
 
 fn input_object<'a>(
@@ -160,7 +161,7 @@ impl Tool for AgentSpawnTool {
     }
 
     async fn description(&self) -> OpenBitFunResult<String> {
-        Ok(self.render_agent_spawn_description())
+        Ok(self.render_agent_spawn_description(ModelOverridePolicy::presentation().await?.allowed))
     }
 
     fn short_description(&self) -> String {
@@ -169,6 +170,10 @@ impl Tool for AgentSpawnTool {
 
     fn input_schema(&self) -> Value {
         Self::agent_spawn_input_schema()
+    }
+
+    async fn input_schema_for_model(&self) -> Value {
+        ModelOverridePolicy::model_schema(self.input_schema()).await
     }
 
     fn output_schema(&self) -> Value {
@@ -223,6 +228,9 @@ impl Tool for AgentSpawnTool {
         input: &Value,
         _context: Option<&ToolUseContext>,
     ) -> ValidationResult {
+        if let Some(validation) = model_override_validation(input).await {
+            return validation;
+        }
         validate_task_input(Self::task_input(input), self.name())
     }
 
@@ -231,10 +239,117 @@ impl Tool for AgentSpawnTool {
         input: &Value,
         context: &ToolUseContext,
     ) -> OpenBitFunResult<Vec<ToolResult>> {
+        ModelOverridePolicy::enforce(input).await?;
         let results = AgentExecutionTool::new()
             .call_task_impl(&Self::task_input(input)?, context)
             .await?;
         Ok(Self::render_results(results))
+    }
+}
+
+impl Default for AgentForkTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AgentForkTool {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub(super) fn task_input(input: &Value) -> OpenBitFunResult<Value> {
+        let object = input_object(input, "AgentFork", AGENT_FORK_FIELDS)?;
+        let agent_id = required_string(object, "agent_id", "AgentFork")?;
+        let raw_agent_id = object["agent_id"]
+            .as_str()
+            .expect("required_string already verified agent_id is a string");
+        crate::agentic::coordination::validate_agent_id(raw_agent_id)?;
+        let prompt = required_string(object, "prompt", "AgentFork")?;
+        let model_id = optional_string(object, "model_id")?;
+        let mut task_input = json!({
+            "action": "spawn",
+            "agent_id": agent_id,
+            "prompt": prompt,
+            "fork_context": true,
+            "run_in_background": true
+        });
+        insert_optional_model_id(&mut task_input, model_id);
+        Ok(task_input)
+    }
+}
+
+#[async_trait]
+impl Tool for AgentForkTool {
+    fn name(&self) -> &str {
+        "AgentFork"
+    }
+
+    fn manages_own_execution_timeout(&self) -> bool {
+        true
+    }
+
+    async fn description(&self) -> OpenBitFunResult<String> {
+        Ok(self.render_agent_fork_description(ModelOverridePolicy::presentation().await?.allowed))
+    }
+
+    fn short_description(&self) -> String {
+        "Launch an agent with a copy of the current conversation context.".to_string()
+    }
+
+    fn input_schema(&self) -> Value {
+        Self::agent_fork_input_schema()
+    }
+
+    async fn input_schema_for_model(&self) -> Value {
+        ModelOverridePolicy::model_schema(self.input_schema()).await
+    }
+
+    fn output_schema(&self) -> Value {
+        AgentSpawnTool::new().output_schema()
+    }
+
+    fn is_readonly(&self) -> bool {
+        false
+    }
+
+    fn is_concurrency_safe(&self, _input: Option<&Value>) -> bool {
+        false
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        AgentExecutionTool::new().permission_intents(&Self::task_input(input)?, context)
+    }
+
+    fn render_tool_use_message(&self, input: &Value, options: &ToolRenderOptions) -> String {
+        AgentSpawnTool::new().render_tool_use_message(input, options)
+    }
+
+    async fn validate_input(
+        &self,
+        input: &Value,
+        _context: Option<&ToolUseContext>,
+    ) -> ValidationResult {
+        if let Some(validation) = model_override_validation(input).await {
+            return validation;
+        }
+        validate_task_input(Self::task_input(input), self.name())
+    }
+
+    async fn call_impl(
+        &self,
+        input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<ToolResult>> {
+        ModelOverridePolicy::enforce(input).await?;
+        let results = AgentExecutionTool::new()
+            .call_task_impl(&Self::task_input(input)?, context)
+            .await?;
+        Ok(AgentSpawnTool::render_results(results))
     }
 }
 
@@ -327,6 +442,10 @@ impl Tool for AgentSendInputTool {
         Self::agent_send_input_schema()
     }
 
+    async fn input_schema_for_model(&self) -> Value {
+        ModelOverridePolicy::model_schema(self.input_schema()).await
+    }
+
     fn output_schema(&self) -> Value {
         json!({
             "type": "object",
@@ -371,6 +490,9 @@ impl Tool for AgentSendInputTool {
         input: &Value,
         _context: Option<&ToolUseContext>,
     ) -> ValidationResult {
+        if let Some(validation) = model_override_validation(input).await {
+            return validation;
+        }
         validate_task_input(Self::task_input(input), self.name())
     }
 
@@ -379,6 +501,7 @@ impl Tool for AgentSendInputTool {
         input: &Value,
         context: &ToolUseContext,
     ) -> OpenBitFunResult<Vec<ToolResult>> {
+        ModelOverridePolicy::enforce(input).await?;
         let results = AgentExecutionTool::new()
             .call_task_impl(&Self::task_input(input)?, context)
             .await?;

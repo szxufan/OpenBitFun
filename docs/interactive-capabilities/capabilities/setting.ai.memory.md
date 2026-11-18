@@ -3,49 +3,78 @@
 id: setting.ai.memory
 kind: setting
 category: assistant
-title_zh: "记忆设置"
-title_en: "Memory settings"
+title_zh: "长期记忆设置"
+title_en: "Long-term memory settings"
 ---
 
-# 记忆设置 / Memory settings
+# 长期记忆设置 / Long-term memory settings
 
 > 设置 / Setting
 
-控制 OpenBitFun 是否从会话中提取和使用长期记忆，以及保留、整理和模型策略。
+控制 OpenBitFun 是否自动生成记忆并在会话中使用记忆，支持自定义外部工具隐私策略、BTW 侧问参与度、两阶段提取/整理模型、会话回溯与候选保留天数及本地记忆目录维护。
 
-Control whether OpenBitFun extracts and uses long-term memory from sessions, including retention, consolidation, and model policy.
+Control whether OpenBitFun generates memories automatically and uses memories in sessions, with fine-grained privacy rules for external tool outputs, BTW side-chat opt-in, two-stage models, lookback and candidate retention windows, and local folder access.
+
+## 适用场景 / When to use it
+
+- 长期深耕同一个仓库，不想每次新开会话都重复交代代码规范与目录习惯：开启“自动生成记忆”和“在会话中使用记忆”，让智能体在会话空闲后自动沉淀你的架构偏好与常见踩坑点。
+  - Working in the same codebase week after week: enable Generate memories automatically and Use memories in sessions so conventions, build quirks, and debugging lessons carry over naturally.
+- 会话中经常调用连接内部系统的 MCP 工具，担心敏感返回内容被写进记忆文件：将“外部上下文策略”保持为默认的“清除工具结果”或设为更严格的“跳过会话”。
+  - Using MCP tools that query internal company data: keep External context policy on Clear tool results (default) so raw external payloads are stripped before extraction, or choose Skip session for strict isolation.
+- 发现智能体记住了已经过时的旧方案：点击记忆区块右上角“⋯ → 打开记忆目录”直接修改或删除对应记忆文件，或一键清空重来。
+  - Pruning outdated project assumptions: click ⋯ → Open memory folder in the Memory header to inspect and edit the plain files directly, or erase stored memories cleanly.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 一键同时启用或停用长期记忆生成与会话召回
-  - Enable or disable long-term memory generation and session recall together
-- **智能体可直接控制 / Direct Agent control** · 决定 BTW 轻量会话是否参与记忆生成
-  - Choose whether lightweight BTW sessions contribute memories
-- **智能体可直接控制 / Direct Agent control** · 存在外部工具上下文时选择清除工具结果、允许或跳过会话
-  - When external tool context exists, clear tool results, allow it, or skip the session
-- **智能体可直接控制 / Direct Agent control** · 设置空闲时长、最大年龄、启动处理上限和扫描上限
-  - Set idle time, maximum age, startup rollout limit, and scan limit
-- **智能体可直接控制 / Direct Agent control** · 设置记忆提取并发数和单次原始候选上限
-  - Set memory-extraction concurrency and the raw-candidate limit
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 从当前可用模型中选择记忆提取模型或跟随主模型
-  - Choose the memory-extraction model from currently available models or follow the primary model
-- **智能体可直接控制 / Direct Agent control** · 设置未使用记忆的最长保留天数
-  - Set how long unused memories are retained
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择记忆整理模型并让它跟随主模型或提取模型
-  - Choose the consolidation model or make it follow the primary or extraction model
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 打开记忆目录、恢复默认设置或显式清空全部记忆
-  - Open the memory directory, restore defaults, or explicitly erase all memories
+- **智能体可直接控制 / Direct Agent control** · 启用或停用“自动生成记忆”与“在会话中使用记忆”
+  - Enable or disable Generate memories automatically and Use memories in sessions
+  - 说明：设置界面提供“自动生成记忆”与“在会话中使用记忆”两个独立开关（通过智能体控制时支持一键同时开启或关闭两项），按需控制后台经验提取与新会话注入。
+  - Why & how: Settings exposes separate Generate memories automatically and Use memories in sessions toggles (while agent control can flip both together in one step).
+- **智能体可直接控制 / Direct Agent control** · 决定 BTW 顺手侧问是否参与长期记忆提取
+  - Choose whether lightweight BTW side-questions contribute to memory
+  - 说明：默认关闭，让随手一问的临时百科或语法小问题不污染项目记忆；如果你常在 /btw 中确认关键结论，可开启纳入提取。
+  - Why & how: Off by default so quick /btw side-questions do not clutter long-term memory; turn it on if your side-chats often capture keepers.
+- **智能体可直接控制 / Direct Agent control** · 存在外部工具上下文时选择清除工具结果、允许保留或跳过整个会话
+  - Choose whether external tool context clears tool results, is allowed, or skips the session
+  - 说明：默认采用“清除工具结果”，既保留你在对话中的决策脉络，又剔除外部工具原始输出；对高敏环境可选“跳过会话”完全不提取。
+  - Why & how: Defaults to clearing raw tool outputs while keeping your reasoning; choose to skip the entire session for strict confidentiality.
+- **智能体可直接控制 / Direct Agent control** · 设置提取前最短空闲时长、会话回溯天数与启动扫描上限
+  - Set minimum idle hours, Session lookback days, and startup scan limits
+  - 说明：确保正在活跃推进的会话不会被中途打扰，同时控制回溯多少天内的历史会话以及客户端启动时最多扫描与整理的批次数量。
+  - Why & how: Waits until chats have been idle before extracting, bounds how many days of session history are eligible, and caps startup scan/processing batches.
+- **智能体可直接控制 / Direct Agent control** · 设置第一阶段记忆提取并发数与原始候选上限
+  - Set Phase 1 memory-extraction concurrency and the raw-candidate limit
+  - 说明：调节后台同时运行多少个第一阶段提取任务，以及进入第二阶段去重整理前保留多少条原始候选记忆。
+  - Why & how: Controls how many Phase 1 extraction jobs run in parallel and how many raw candidate notes feed into Phase 2 consolidation.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 从已启用模型中选择第一阶段记忆提取模型或跟随主模型
+  - Choose the Phase 1 memory-extraction model or follow the Primary model
+  - 说明：第一阶段需要批量阅读历史轮次，指定一个高性价比或快速模型能大幅节省后台 Token 消耗。
+  - Why & how: Because Phase 1 scans historical turns in batches, picking a fast or cost-effective model here saves significant background tokens.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择第二阶段记忆整理模型（跟随主模型、提取模型或指定模型）
+  - Choose the Phase 2 consolidation model (follow Primary, Extraction, or a specific model)
+  - 说明：第二阶段负责去重、消解冲突并归纳长期结论，适合跟随主模型以获得更准确的结构化整理质量。
+  - Why & how: Phase 2 deduplicates and reconciles candidates into clean long-term notes, making your Primary model a great fit for synthesis quality.
+- **智能体可直接控制 / Direct Agent control** · 设置未被使用的候选保留天数
+  - Set Candidate retention days for unused raw memories
+  - 说明：超过“候选保留天数”仍未被用到的陈旧原始候选会自动淘汰，避免过时上下文长期堆积。
+  - Why & how: Automatically expires stale, unused raw memory candidates past the Candidate retention window so old assumptions do not pile up.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 通过“⋯”菜单打开本地记忆目录、恢复默认设置或清空全部记忆
+  - Open the local memory folder, restore default settings, or erase all memories from the ⋯ menu
+  - 说明：记忆区块标题栏右侧提供透明可控的维护入口：可随时打开磁盘目录检查和手改记忆内容，也可单独重置参数或彻底清空已存记忆。
+  - Why & how: Use the ⋯ menu in the Memory section header to inspect or hand-edit memory files on disk, reset tuning parameters, or permanently clear all stored memories.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“AI > 记忆”
-   Go to AI > Memory
-3. 先启用记忆，再按需要调整高级参数
-   Enable memory first, then tune advanced controls if needed
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“模型与智能体 → 会话与记忆”并滚动到“记忆”区块
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, go to Models & Agents → Sessions & Memory, and scroll to the Memory section
+2. 按需开启“自动生成记忆”和“在会话中使用记忆”两个开关，并确认 BTW 侧问参与度与外部上下文隐私策略
+   Toggle Generate memories automatically and Use memories in sessions as needed, then review BTW side-session participation and the External context policy
+3. 需要精细调优时，分别指定第一阶段提取模型、第二阶段整理模型，以及空闲时长、“会话回溯天数”与“候选保留天数”
+   Optionally tune Phase 1 extraction and Phase 2 consolidation models along with idle hours, Session lookback days, and Candidate retention
+4. 想查看智能体到底记住了什么，点击记忆标题栏右上角的“⋯ → 打开记忆目录”直接浏览或修剪文件
+   Click ⋯ → Open memory folder in the Memory header anytime to inspect, edit, or prune what was learned
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 模型与智能体 → 会话与记忆（记忆区块） / Settings (⌘, / Ctrl+,) → Models & Agents → Sessions & Memory (Memory section) (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -57,25 +86,36 @@ Control whether OpenBitFun extracts and uses long-term memory from sessions, inc
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 启用记忆 / Enable memory | `boolean` | 同时启用记忆生成和召回。 | Enable both memory generation and recall. |
-| BTW 会话生成记忆 / Generate memory from BTW sessions | `boolean` | 允许轻量 BTW 会话参与记忆提取。 | Allow lightweight BTW sessions to contribute memories. |
-| 外部上下文策略 / External context policy | `clear_tool_results` / `allow` / `skip_session` | 决定存在外部工具上下文时如何生成记忆。 | Choose how memory generation handles external tool context. |
-| 提取前最短空闲时长 / Minimum rollout idle time | `integer` (1–48) | 会话空闲达到该小时数后才进入记忆提取候选。 | Require a session to remain idle for this many hours before extraction. |
-| 会话最大候选年龄 / Maximum rollout age | `integer` (0–90) | 只从该天数以内的会话提取记忆。 | Extract memory only from sessions no older than this many days. |
-| 每次启动整理上限 / Startup rollout limit | `integer` (1–128) | 每次启动最多处理的待整理记忆批次。 | Maximum pending memory rollouts processed after startup. |
-| 每次启动扫描上限 / Startup rollout scan limit | `integer` (1–50000) | 每次启动寻找记忆候选时最多扫描的会话数。 | Maximum sessions scanned for memory candidates after startup. |
-| 记忆提取并发数 / Memory extraction concurrency | `integer` (1–16) | 限制同时运行的第一阶段记忆提取任务。 | Limit concurrent phase-one memory extraction jobs. |
-| 原始记忆候选上限 / Raw memory candidate limit | `integer` (1–4096) | 限制进入整理阶段的第一阶段候选数量。 | Limit phase-one candidates passed to consolidation. |
-| 未使用记忆保留天数 / Unused-memory retention | `integer` (0–365) | 设置未被使用的原始记忆最多保留多少天。 | Set how many days unused raw memories are retained. |
+| 自动生成并在会话中使用记忆 / Generate and use memories | `boolean` | 一键同时开启或关闭“自动生成记忆”与“在会话中使用记忆”。 | Toggle both Generate memories automatically and Use memories in sessions together. |
+| BTW 会话生成记忆 / Generate memory from BTW sessions | `boolean` | 控制轻量 /btw 侧问对话是否纳入后台记忆提取范围（默认关闭）。 | Allow lightweight /btw side-conversations to contribute memories (off by default). |
+| 外部上下文隐私策略 / External context privacy policy | `clear_tool_results` / `allow` / `skip_session` | 会话包含外部工具上下文时，选择清除工具原始结果（默认）、允许完整保留，或直接跳过该会话不提取记忆。 | When external tool context is present, choose to strip raw tool outputs (default), keep them, or skip extracting memories from that session. |
+| 提取前最短空闲时长（小时） / Minimum rollout idle hours | `integer` (1–48) | 会话静置达到指定小时数后才进入后台提取队列，避免打断仍在进行中的工作。 | Hours a session must remain idle before becoming eligible for background extraction. |
+| 会话回溯天数 / Session lookback days | `integer` (0–90) | 仅从最近指定天数以内的历史会话提取记忆（不大于候选保留天数）。 | Extract memories only from sessions within this many days (bounded by Candidate retention). |
+| 每次启动整理批次上限 / Startup rollout limit | `integer` (1–128) | 每次启动应用后后台最多处理的待整理记忆会话数量。 | Maximum pending session rollouts processed in the background per app launch. |
+| 每次启动扫描会话上限 / Startup rollout scan limit | `integer` (1–50000) | 每次启动应用寻找记忆候选时最多扫描的历史会话总数。 | Maximum historical sessions scanned for memory candidates per app launch. |
+| 记忆提取并发数 / Memory extraction concurrency | `integer` (1–16) | 限制第一阶段同时运行的后台记忆提取任务数。 | Maximum concurrent Phase 1 background extraction tasks. |
+| 原始记忆候选上限 / Raw memory candidate limit | `integer` (1–4096) | 限制送入第二阶段去重整理的第一阶段原始候选记忆条数。 | Maximum Phase 1 raw memory candidates passed into Phase 2 consolidation. |
+| 候选保留天数 / Candidate retention | `integer` (0–365) | 设置长期未被召回使用的原始候选记忆最多保留多少天。 | Number of days unused raw memory candidates are kept before automatic cleanup. |
 
 ## 可以直接对智能体说 / Try saying
 
-- “关闭长期记忆”
-  - “Turn off long-term memory”
-- “允许 BTW 会话生成记忆”
-  - “Allow BTW sessions to generate memories”
-- “打开记忆设置”
-  - “Open Memory settings”
+- “帮我关闭长期记忆”
+  - “Turn off long-term memory for now”
+- “把外部上下文策略设为跳过会话以保护隐私”
+  - “Set memory external context policy to skip sessions for privacy”
+- “打开记忆设置，我想看看记忆目录里存了什么”
+  - “Open Memory settings so I can inspect the memory folder”
+
+## 实用贴士 / Good to know
+
+- “会话回溯天数”不能大于“候选保留天数”（否则刚从较早会话提取出的候选记忆会被立即当成过期清理），界面输入时会自动帮你联动约束这两个数值。
+  - Session lookback days cannot exceed Candidate retention (otherwise newly extracted notes from older chats would expire right away); the UI automatically keeps both bounds consistent.
+- 想省钱又想要好记忆？实用搭配是：第一阶段“记忆提取模型”选便宜轻快的快速/经济模型，第二阶段“记忆整理模型”跟随主模型。
+  - A great cost/quality pairing: assign a fast, inexpensive model to Phase 1 extraction and keep Phase 2 consolidation following your Primary model.
+- 个人长期记忆适合沉淀你的日常使用习惯；如果是整个团队共享的硬性仓库规范，推荐在会话中运行 `/init` 生成或维护仓库根目录的 `AGENTS.md`，两者配合效果最好。
+  - Personal long-term memory is great for individual habits; for shared team-wide repository rules, run `/init` in chat to generate or maintain `AGENTS.md` in Git alongside Memory.
+
+关联条目 / Related: `setting.workspace.session`, `feature.ai-assistant`, `setting.ai.models`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

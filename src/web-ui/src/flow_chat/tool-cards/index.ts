@@ -109,6 +109,7 @@ export const STANDARD_TOOL_CARD_ADAPTERS = {
   
   // Agent activity
   'AgentSpawn': AgentControlToolCard,
+  'AgentFork': AgentControlToolCard,
   'AgentSendInput': AgentControlToolCard,
   'AgentInterrupt': AgentInteractionToolCard,
   'AgentWait': AgentWaitToolCard,

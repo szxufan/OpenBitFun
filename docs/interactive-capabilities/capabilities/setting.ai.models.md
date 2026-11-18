@@ -11,49 +11,86 @@ title_en: "Models & providers"
 
 > 设置 / Setting
 
-添加 AI 供应商和模型，选择默认模型，配置网络代理、订阅与流式超时。
+一站式管理 AI 供应商与订阅账号，分配主模型、快速模型与经济模型等默认槽位，并配置智能路由、模型池、独立生图、网络代理与流式超时。
 
-Add AI providers and models, choose defaults, and configure proxy, subscription, and streaming timeouts.
+Manage AI providers and subscription accounts in one place, assign Primary, Fast, and Economy default slots, and configure Smart Mode routing, model pools, standalone image generation, proxies, and streaming timeouts.
+
+## 适用场景 / When to use it
+
+- 第一次打开 OpenBitFun 准备写代码：先登录订阅账号（如 Codex、ZCode、OpenCode、Grok）或填入供应商 API Key 测试连通，再把主力编程模型设为主模型、轻量低延迟模型设为快速模型与经济模型。
+  - Getting started on day one: sign in to a subscription account (Codex, ZCode, OpenCode, Grok) or paste a provider API key, run a quick connectivity test, and assign your flagship coder to Primary and a snappy lightweight model to Fast and Economy.
+- 接入企业内网网关或第三方中转站遇到 404：在供应商表单切换请求格式（如 OpenAI chat/completions、OpenAI responses、Anthropic messages、Gemini generateContent），直接核对输入框下方的实时派生请求地址预览。
+  - Debugging a 404 on a custom gateway or relay: switch the API format (OpenAI chat/completions, OpenAI responses, Anthropic messages, Gemini generateContent) and check the live derived request URL preview right below the Base URL field.
+- 高频并行任务容易撞上限流：将多个同平台账号加入订阅池自动轮换，或把不同供应商的同档模型编入模型池并配置备用通道路由，出现抖动时自动平滑切换。
+  - Staying productive under rate limits: combine multiple accounts in a subscription pool for automatic rotation, or group cross-provider models into a model pool with per-model fallback channel routing.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 添加、编辑和删除内置或自定义 AI 供应商
-  - Add, edit, and remove built-in or custom AI providers
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置 API Key、Base URL、请求格式和模型列表
-  - Configure API keys, base URLs, request formats, and model lists
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 登录、刷新和退出 Codex、Antigravity、OpenCode Console（Zen）、Grok、Hermes 等账户
-  - Sign in, refresh, and sign out of Codex, Antigravity, OpenCode Console (Zen), Grok, Hermes, and other accounts
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择主模型、快速模型以及图像理解、图像生成和语音识别模型
-  - Choose primary, fast, image-understanding, image-generation, and speech-recognition models
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为模型选择推理预设或自定义推理强度
-  - Choose reasoning presets or a custom reasoning effort per model
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置 AI 请求使用的网络代理与绕过规则
-  - Configure network proxies and bypass rules for AI requests
-- **智能体可直接控制 / Direct Agent control** · 设置或取消首 Token 等待和流式空闲超时
-  - Set or disable time-to-first-token and streaming idle timeouts
-- **由专用智能体工具控制 / Delegated Agent tool** · `ListModels` · 让智能体查看当前配置下可用的模型
-  - Let an agent inspect models available under the current configuration
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看 models.dev 目录状态、手动刷新并定位本地缓存
-  - Inspect models.dev catalog status, refresh it manually, and reveal its local cache
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为供应商添加自定义 Header、请求体字段与 SSL 行为
-  - Add custom headers, request-body fields, and SSL behavior per provider
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看智能模式可用状态（暂未开放）
-  - View smart-mode availability (not released)
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 测试模型连接或图像生成，并刷新运行时客户端
-  - Test model connections or image generation and refresh the runtime client
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 管理模型池、路由策略与会话模型选择
-  - Manage model pools, routing strategies, and session model selection
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 添加内置或自定义供应商、探测 Magpie 网关与配置独立生图服务
+  - Add built-in or custom providers, probe Magpie gateways, and set up standalone image services
+  - 说明：除主流厂商与兼容端点外，还支持一键探测 Magpie 网关批量导入模型，以及按 OpenAI Images 或阿里云百炼（DashScope Native）方言配置独立生图服务（含分辨率、质量、透明背景、水印与提示词扩展）。
+  - Why & how: Supports built-in vendors, custom compatible endpoints, one-click Magpie gateway discovery, and standalone image services using OpenAI Images or DashScope Native dialects (with resolution, quality, background, watermark, and prompt extension controls).
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置 API Key、Base URL、请求格式（含实时派生 URL 预览）与备用通道
+  - Configure API keys, base URLs, API formats with live derived URL preview, and fallback channels
+  - 说明：切换 chat/completions、responses、Anthropic messages、Gemini generateContent 或 Gemini Code Assist 时可实时查看最终请求路径，一键拉取远端模型清单，并为单模型绑定备用通道路由。
+  - Why & how: See the exact derived request URL update live as you switch between chat/completions, responses, Anthropic messages, Gemini generateContent, or Gemini Code Assist, fetch remote model lists, and bind fallback channel routing.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 登录 Codex、ZCode、OpenCode、Grok、Antigravity、Hermes 等订阅账号与多号订阅池
+  - Sign in to Codex, ZCode, OpenCode, Grok, Antigravity, Hermes, and multi-account subscription pools
+  - 说明：支持浏览器或设备码授权登录（含智谱国内版与 Z.ai 国际版 ZCode），可在卡片上直观查看 OpenCode 与 Grok 实时额度面板，并将多个账号编成订阅池在限流时自动故障轮换。
+  - Why & how: Sign in via browser or device code (including ZCode CN and Z.ai Intl), view live OpenCode and Grok quota panels, and group multiple accounts into a subscription pool that rotates automatically on rate limits.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择主模型、快速模型、经济模型以及图像理解、图像生成和语音识别默认模型
+  - Choose Primary, Fast, Economy, image-understanding, image-generation, and speech-recognition defaults
+  - 说明：主模型承担主力编码与推理，快速模型负责自动标题与即时交互，经济模型承接轻量后台或智能路由分流；主模型不含对应多模态能力时，可单独指定视觉、生图与语音模型。
+  - Why & how: Primary drives core coding and reasoning, Fast powers snappy helpers like session titles, and Economy handles lightweight background or routed turns, complemented by dedicated vision, image-generation, and speech slots.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按模型能力选择推理预设或自定义思考预算
+  - Choose reasoning presets or a custom thinking budget per model
+  - 说明：针对支持思考链的模型调节推理强度挡位，让复杂重构获得充分推演，或让日常简单问答更快返回首包。
+  - Why & how: Adjust reasoning effort per model so complex refactors get deep deliberation while everyday questions respond quickly.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置智能模式路由：联动主模型、经济模型与路由分类模型
+  - Configure Smart Mode routing with Primary, Economy, and router classifier models
+  - 说明：当执行宿主支持模型路由时，可在“智能模式”弹窗中绑定主模型、经济模型与路由分类模型并一键测试连通性，在会话中选择智能模式后即可按任务复杂度自动分流。
+  - Why & how: When the execution host supports model routing, open the Smart Mode dialog to pair Primary, Economy, and router classifier models with built-in connectivity checks so turns automatically route by complexity.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 管理多成员模型池、路由策略、健康状态与会话模型选择
+  - Manage multi-member model pools, routing strategies, health status, and session selection
+  - 说明：将多个已启用模型组合成池并设定按序故障转移或轮询策略，既可在会话选择器中直接选用，也能查看成员冷却状态并手动重试恢复。
+  - Why & how: Group enabled models into a pool with ordered failover or round-robin routing, select the pool in chat or for subagents, and inspect or retry cooled-down members.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 测试模型连接或实测图像生成服务，并刷新运行时客户端
+  - Test model connections or standalone image generation and refresh the runtime client
+  - 说明：随时验证供应商密钥与网络连通性；注意对独立图像生成服务点击测试会真实调用生图接口生成图片，可能消耗对应平台的额度。
+  - Why & how: Verify provider credentials and network reachability anytime; note that testing a standalone image service generates a real sample image and may consume provider quota.
+- **智能体可直接控制 / Direct Agent control** · 设置或取消首次响应超时与响应间隔超时（默认均 600 秒）
+  - Set or disable First response timeout and Response idle timeout (600s default)
+  - 说明：两项默认均为 600 秒，留空（或设为 null）表示不设超时；深度推理模型首段输出较慢时可调高“首次响应超时”，修改后分别点击“保存首次响应超时”或“保存响应超时”。
+  - Why & how: Both default to 600 seconds, and leaving a field blank (or null) disables that timeout; raise First response timeout for long-thinking models, then click Save first response timeout or Save response timeouts.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置 AI 请求使用的 HTTP / HTTPS / SOCKS5 网络代理与绕过规则
+  - Configure HTTP, HTTPS, or SOCKS5 network proxies and bypass rules for AI requests
+  - 说明：仅作用于模型请求流量，支持认证凭据与免代理域名列表（如内网网关或本地地址），在“更多设置”填写后点击代理区块的“保存”生效。
+  - Why & how: Applies specifically to AI model traffic with optional proxy credentials and bypass hosts (such as localhost or intranet gateways); click Save in the proxy section under More settings after editing.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按供应商添加自定义 Header、请求体扩展字段与 SSL 证书校验行为
+  - Add custom headers, extra request-body fields, and SSL verification behavior per provider
+  - 说明：满足企业网关自定义鉴权头、厂商特有 JSON 参数透传以及自签名内网证书跳过 SSL 校验的需求。
+  - Why & how: Pass custom gateway headers, vendor-specific request JSON fields, or self-signed SSL verification overrides per provider.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ListModels` · 让智能体读取当前已配置且可用的模型与能力清单
+  - Let an agent inspect models and capabilities available under the current configuration
+  - 说明：智能体调用 ListModels 获取当前真实启用的模型列表与多模态标签，避免编造不存在的模型名称。
+  - Why & how: Agents call ListModels to inspect enabled models and multimodal capabilities at runtime instead of guessing model IDs.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看 models.dev 目录同步状态、手动刷新并打开本地缓存目录
+  - Inspect models.dev catalog sync status, refresh manually, and reveal the local cache folder
+  - 说明：同步最新的模型上下文长度、视觉/工具支持与推理挡位元数据，无外网环境时自动沿用本地缓存。
+  - Why & how: Keep context-window sizes, vision/tool support flags, and reasoning metadata up to date while seamlessly falling back to the local cache offline.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“AI > 模型”
-   Go to AI > Models
-3. 添加供应商并测试连接，再选择默认模型
-   Add and test a provider, then choose defaults
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“模型与智能体 → 模型”
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Models & Agents → Models
+2. 登录订阅账号（或配置多号订阅池），或添加内置/自定义供应商、Magpie 网关并点击“测试”确认连通
+   Sign in to a subscription account (or pool), or add a built-in/custom provider or Magpie gateway and click Test to verify connectivity
+3. 在默认模型区指定主模型、快速模型与经济模型，按需绑定图像理解、独立图像生成或语音识别服务
+   Assign your Primary, Fast, and Economy default models, plus optional vision, standalone image-generation, or speech services
+4. 需要自动分流或高可用时，配置“智能模式”路由或新建多成员模型池；若调整了“更多设置”中的代理、首次响应超时或响应间隔超时，记得点击对应项的保存按钮（“保存”、“保存首次响应超时”或“保存响应超时”）
+   Optionally configure Smart Mode routing or a multi-member model pool; if you edited proxy or timeout fields under More settings, click each control’s save button (Save, Save first response timeout, or Save response timeouts)
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 模型与智能体 → 模型 / Settings (⌘, / Ctrl+,) → Models & Agents → Models (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -65,17 +102,30 @@ Add AI providers and models, choose defaults, and configure proxy, subscription,
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 首 Token 超时 / Time-to-first-token timeout | `integer` (1–86400) / `null` | 设置建立流式响应时等待首个有效 Token 的秒数；null 表示不限制。 | Set seconds to wait for the first effective streamed token; null disables the limit. |
-| 流式空闲超时 / Stream idle timeout | `integer` (1–86400) / `null` | 设置两个流式响应块之间允许空闲的秒数；null 表示不限制。 | Set seconds allowed between streamed response chunks; null disables the limit. |
+| 首次响应超时 / First response timeout | `integer` (1–86400) / `null` | 发出请求后等待首段有效响应的最长秒数（默认 600 秒）；设为 null（或界面留空）表示不限时，适合深度思考耗时较长的推理模型。 | Maximum seconds to wait for the first valid output after sending a request (600s default); null (or blank in UI) disables the timeout. |
+| 响应间隔超时 / Response idle timeout | `integer` (1–86400) / `null` | 响应开始后等待下一段数据块的最长秒数（默认 600 秒）；设为 null（或界面留空）表示不限时。 | Maximum seconds to wait for the next data chunk after streaming starts (600s default); null (or blank in UI) disables the timeout. |
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开模型设置”
-  - “Open model settings”
-- “带我配置默认模型”
-  - “Take me to default-model setup”
-- “我想检查代理设置”
-  - “I want to inspect proxy settings”
+- “打开模型设置帮我配置默认模型”
+  - “Open model settings so I can pick default models”
+- “深度思考模型经常断流，把首次响应超时调到 900 秒”
+  - “Raise the first response timeout to 900 seconds for reasoning models”
+- “我想查看并配置 AI 网络代理”
+  - “Take me to the AI network proxy settings”
+
+## 实用贴士 / Good to know
+
+- “更多设置”里的网络代理、“首次响应超时”和“响应间隔超时”（两项默认均为 600 秒，留空表示不限时）各自拥有独立的保存按钮——改完后记得分别点击代理的“保存”、“保存首次响应超时”或“保存响应超时”。
+  - Under More settings, the network proxy, First response timeout, and Response idle timeout (both default to 600s; leave blank for no timeout) each have their own save button—click Save, Save first response timeout, or Save response timeouts respectively so changes persist.
+- 自定义兼容端点若返回 404，优先核对“请求格式”（例如 OpenAI chat/completions 与 OpenAI responses 路径不同）以及表单底部实时显示的实际请求 URL。
+  - If a custom compatible endpoint returns 404, check the selected API format (for example OpenAI chat/completions vs OpenAI responses) against the live derived URL preview below Base URL.
+- 未单独指定快速模型或经济模型时会自动回退使用主模型；绑定一个低延迟小模型能让自动标题、候选建议和智能路由分类既快又省 Token。
+  - Fast and Economy slots fall back to your Primary model when unset, but pairing a snappy lightweight model keeps auto-titles, prompt suggestions, and Smart Mode classification fast and inexpensive.
+- 独立图像生成服务的“测试”按钮会真实生成一张校验图片并消耗对应供应商额度。
+  - Clicking Test on a standalone image-generation service produces a real sample image and may consume provider quota.
+
+关联条目 / Related: `feature.ai-assistant`, `setting.ai.permissions`, `setting.tools.execution`, `setting.data.usage`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

@@ -13,7 +13,7 @@ export function resolveBuiltinAgentSessions(toolItem: FlowToolItem, sessions: Fl
     if (candidate.id === toolItem.id) return links;
     if (candidate.type !== 'tool') continue;
     const effective = projectEffectiveToolItem(candidate);
-    if (!['Task', 'AgentSpawn', 'AgentSendInput'].includes(effective.toolName)) continue;
+    if (!['Task', 'AgentSpawn', 'AgentFork', 'AgentSendInput'].includes(effective.toolName)) continue;
     const input = runtimeToolRecord(effective.toolCall?.input);
     const data = runtimeToolRecord(effective.toolResult?.result);
     const agent = builtinText(data.agent_id, input.agent_id);
@@ -21,7 +21,7 @@ export function resolveBuiltinAgentSessions(toolItem: FlowToolItem, sessions: Fl
     const session = builtinText(effective.subagentSessionId, data.session_id)
       ?? findProjectedSession({ sessions }, { parentSessionId, parentToolIds: new Set([candidate.id, candidate.toolCall.id]) })?.sessionId;
     if (session) links[agent] = session;
-    else if (effective.toolName === 'AgentSpawn') delete links[agent];
+    else if (['AgentSpawn', 'AgentFork'].includes(effective.toolName)) delete links[agent];
   }
   // The item is outside hydrated history, so a temporal link cannot be established.
   return {};

@@ -11,25 +11,38 @@ title_en: "Terminal"
 
 > 设置 / Setting
 
-选择默认终端 Shell，并设置新终端面板在会话中的打开位置。
+为新建终端标签页与本地工作区智能体命令选择默认 Shell（支持自动检测或指定已安装的 zsh / bash / PowerShell 等）。
 
-Choose the default terminal shell and where new terminal panels open in a session.
+Choose the default shell used by newly opened terminal tabs and local workspace Agent commands (auto-detected or selected from installed shells like zsh, bash, or PowerShell).
+
+## 适用场景 / When to use it
+
+- Windows 机器上同时装了 PowerShell 7（`pwsh`）、Windows PowerShell 与 Git Bash，在此固定选好主力 Shell，以后每次按快捷键开新终端都直接进熟悉的环境。
+  - On Windows with PowerShell 7 (`pwsh`), Windows PowerShell, and Git Bash installed side by side, lock in your preferred default shell so every new terminal tab opens in the right environment.
+- macOS / Linux 上装了 Homebrew 新版 `zsh` 或 `fish`，指定后你的交互终端与智能体本地命令都能加载一致的工具链配置。
+  - Point OpenBitFun at a Homebrew `zsh` or `fish` binary on macOS/Linux so interactive terminals and local Agent runs share your expected toolchain environment.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 自动检测或指定默认终端 Shell
-  - Auto-detect or choose the default terminal shell
-- **智能体可直接控制 / Direct Agent control** · 把终端面板放在右侧或底部
-  - Place the terminal panel on the right or at the bottom
+- **智能体可直接控制 / Direct Agent control** · 自动检测或从本机已安装列表中指定默认终端 Shell
+  - Auto-detect or choose your default terminal shell from installed shells
+  - 说明：默认推荐“自动检测（跟随系统默认 Shell）”；手动选定具体 Shell 后，新打开的终端标签页与本地工作区智能体命令都会优先使用它（注：Windows 下若选 `Cmd`，交互终端会打开 `Cmd`，而智能体命令仍通过 PowerShell 执行以保障结构化返回）。
+  - Why & how: Auto-Detect (recommended) follows your OS login shell, or you can pick any detected shell on your machine for new terminal tabs and local Agent commands (on Windows, selecting `Cmd` opens `Cmd` for interactive tabs while Agent commands continue using PowerShell).
+- **智能体可直接控制 / Direct Agent control** · 兼容旧版终端面板位置配置项（当前终端停靠已由工作台分栏布局接管）
+  - Maintain legacy terminal-panel position compatibility setting (superseded by workbench split-pane layout)
+  - 说明：该底层配置字段（`app.terminal_panel_position`）仅为兼容旧版本配置保留，不在“编程与开发 → 终端”页面展示图形开关；日常调整终端位置请直接在工作台中拖拽标签页或使用分栏布局。
+  - Why & how: Retained strictly as an underlying config compatibility field (`app.terminal_panel_position`) and not shown on the Terminal settings page; arrange or dock terminals directly via workbench tabs and split panes.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“应用与界面 > 终端”
-   Go to App & Interface > Terminal
+1. 打开设置（⌘, / Ctrl+,），进入“编程与开发 → 终端”
+   Open Settings (⌘, / Ctrl+,) and go to Programming & Development → Terminal
+2. 在“默认终端”下拉框保持“自动检测（推荐）”或选择本机已安装的指定 Shell
+   Keep Auto-Detect (Recommended) or select a specific installed shell from the Default Terminal dropdown
+3. 新开一个终端标签页（Ctrl/Cmd+Shift+`）即可使用刚选好的 Shell，已有运行中的终端不受影响
+   Open a new terminal tab (Ctrl/Cmd+Shift+`) to use the updated shell while existing running tabs stay untouched
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 编程与开发 → 终端 / Settings (⌘, / Ctrl+,) → Programming & Development → Terminal (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -41,15 +54,26 @@ Choose the default terminal shell and where new terminal panels open in a sessio
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 默认终端 Shell / Default terminal shell | `string` | 设置 Shell 路径；空字符串表示自动检测。 | Set the shell path; an empty string enables automatic detection. |
-| 终端面板位置 / Terminal panel position | `right` / `bottom` | 把终端面板放在右侧或底部。 | Place the terminal panel on the right or at the bottom. |
+| 默认终端 Shell / Default terminal shell | `string` | 指定新建终端与本地智能体使用的 Shell 类型或路径；空字符串表示自动检测系统默认 Shell。 | Shell identifier or executable path for new terminals and local Agent runs; an empty string enables automatic detection. |
+| 终端面板位置（旧版兼容字段） / Terminal panel position (legacy compatibility) | `right` / `bottom` | 保留用于旧版配置读写的兼容字段（`right` / `bottom`），当前工作台已改为通过分栏与标签自由排布终端。 | Legacy config compatibility field (`right` / `bottom`); current workbench terminal placement is controlled directly through split panes and tabs. |
 
 ## 可以直接对智能体说 / Try saying
 
 - “打开终端设置”
   - “Open terminal settings”
-- “把终端面板放到底部”
-  - “Move the terminal panel to the bottom”
+- “把默认终端 Shell 改回自动检测”
+  - “Reset the default terminal shell to automatic detection”
+
+## 实用贴士 / Good to know
+
+- 切换默认 Shell 只会影响**之后新打开**的终端会话，当前正在跑 `pnpm dev` 或 `cargo watch` 的终端不会被重启或打断。
+  - Changing Default Shell affects **newly opened** terminals only — running dev servers or watchers in existing tabs keep running uninterrupted.
+- 在 SSH 远程工作区中，终端直接在远端主机登录自身的 Shell 中运行，不会套用你本机电脑上的 Shell 可执行文件路径。
+  - In SSH remote workspaces, terminals launch the remote host’s own shell rather than applying a local controller shell path.
+- 如果想为某个特定项目配置“打开终端自动激活虚拟环境或跑启动脚本”，可以在工作台终端面板的“新建带启动命令的终端”里按项目单独保存。
+  - Need per-project virtualenvs or startup commands? Configure a named Startup Command profile right from the workbench Terminal menu.
+
+关联条目 / Related: `feature.terminal`, `setting.application.development`, `setting.application.shortcuts`, `feature.remote-workspaces`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

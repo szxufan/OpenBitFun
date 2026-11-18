@@ -52,8 +52,9 @@ impl AgentListTool {
             for agent_id in &reserved_ids {
                 assistant_text.push_str(&format!("\n- {agent_id}"));
             }
-            assistant_text
-                .push_str("\n\nAll reserved IDs listed above are unavailable for AgentSpawn.");
+            assistant_text.push_str(
+                "\n\nAll reserved IDs listed above are unavailable for AgentSpawn and AgentFork.",
+            );
             data["reserved_agent_ids"] = json!(reserved_ids);
         }
         Ok(vec![ToolResult::Result {
@@ -106,7 +107,7 @@ impl Tool for AgentListTool {
             "properties": {
                 "include_reserved": {
                     "type": "boolean",
-                    "description": "Defaults to false. Set to true to also return reserved historical IDs (which cannot be reused for AgentSpawn)."
+                    "description": "Defaults to false. Set to true to also return reserved historical IDs (which cannot be reused for AgentSpawn or AgentFork)."
                 }
             },
             "additionalProperties": false
@@ -361,9 +362,9 @@ mod tests {
                 assert_eq!(data["reserved_agent_ids"], serde_json::json!([deleted_id]));
                 assert!(text.contains("Reserved IDs without active agents (1):"));
                 assert!(text.contains(&deleted_id));
-                assert!(
-                    text.contains("All reserved IDs listed above are unavailable for AgentSpawn.")
-                );
+                assert!(text.contains(
+                    "All reserved IDs listed above are unavailable for AgentSpawn and AgentFork."
+                ));
             } else {
                 assert!(data.get("reserved_agent_ids").is_none());
                 assert!(!text.contains(&deleted_id));

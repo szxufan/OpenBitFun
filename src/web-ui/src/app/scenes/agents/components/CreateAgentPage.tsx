@@ -52,6 +52,7 @@ const DEFAULT_CUSTOM_MODE_TOOLS = [
   'WriteStdin',
   'ExecControl',
   'AgentSpawn',
+  'AgentFork',
   'AgentSendInput',
   'AgentControl',
   'AgentWait',

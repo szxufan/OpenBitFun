@@ -68,6 +68,16 @@ describe('FlowChat transcript edge fade', () => {
     expect(stylesheet).not.toContain('backdrop-filter');
   });
 
+  it('keeps the animated transcript mask on a stable compositing path without trapping fixed descendants', () => {
+    const stylesheet = readSource('./VirtualMessageList.scss');
+    const scroller = stylesheet.match(/&__scroller\s*\{[\s\S]*?\n\s{2}\}/)?.[0];
+
+    expect(scroller).toBeDefined();
+    expect(scroller).toContain('will-change: opacity;');
+    expect(scroller).not.toMatch(/(?:^|\s)transform\s*:/);
+    expect(scroller).not.toContain('will-change: transform');
+  });
+
   it('removes the mask in forced-colors mode', () => {
     const stylesheet = readSource('./VirtualMessageList.scss');
     const forcedColors = stylesheet.slice(stylesheet.indexOf('@media (forced-colors: active)'));

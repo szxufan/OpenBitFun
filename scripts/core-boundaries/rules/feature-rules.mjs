@@ -127,7 +127,8 @@ export const optionalDependencyFeatureOwnerRules = [
       { depName: 'openbitfun-core-types', ownerFeatures: ['agent-api', 'remote-workspace-ports', 'ts'] },
       { depName: 'openbitfun-product-domains', ownerFeatures: ['permission', 'product-search', 'ts'] },
       { depName: 'tokio', ownerFeatures: ['remote-exec-port', 'terminal-port', 'workspace-ports'] },
-      { depName: 'tokio-util', ownerFeatures: ['permission', 'ts', 'workspace-ports'] },
+      // Exec stdin ports carry an in-process cooperative output-wait token.
+      { depName: 'tokio-util', ownerFeatures: ['permission', 'remote-exec-port', 'terminal-port', 'ts', 'workspace-ports'] },
       { depName: 'ts-rs', ownerFeatures: ['ts'] },
     ],
   },
@@ -409,11 +410,11 @@ export const capabilityContractDependencyRules = [
       'plugin-runtime': [],
       'product-search': ['dep:openbitfun-product-domains'],
       'ptc-runtime': [],
-      'remote-exec-port': ['dep:tokio'],
+      'remote-exec-port': ['dep:tokio', 'dep:tokio-util'],
       'remote-workspace-ports': ['dep:openbitfun-core-types'],
       'runtime-event-port': [],
       'script-tool-runtime': [],
-      'terminal-port': ['dep:tokio'],
+      'terminal-port': ['dep:tokio', 'dep:tokio-util'],
       'tool-runtime-handles': ['workspace-ports', 'terminal-port', 'remote-exec-port'],
       'web-search-port': [],
       ts: [

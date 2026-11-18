@@ -126,7 +126,7 @@ fn tool_display_mode(tool_name: &str, tool_state: &ToolDisplayState) -> ToolDisp
         }
         // Agent launches always render as Block — even during early detection / params streaming,
         // we want to show the subagent card with real-time progress rather than inline "Delegating...".
-        "Task" | "AgentSpawn" => ToolDisplayMode::Block,
+        "Task" | "AgentSpawn" | "AgentFork" => ToolDisplayMode::Block,
 
         // Always block tools
         "TodoWrite" | "AskUserQuestion" | "CreatePlan" => ToolDisplayMode::Block,
@@ -426,7 +426,7 @@ fn inline_pending_text(canonical: &str, tool_state: &ToolDisplayState) -> String
         "LS" => "Listing directory...".to_string(),
         "WebSearch" => "Searching web...".to_string(),
         "WebFetch" => "Fetching from the web...".to_string(),
-        "Task" | "AgentSpawn" => "Launching agent...".to_string(),
+        "Task" | "AgentSpawn" | "AgentFork" => "Launching agent...".to_string(),
         "TodoWrite" => "Updating todos...".to_string(),
         "HmosCompilation" => "Compiling HarmonyOS project...".to_string(),
         "Skill" => "Loading skill...".to_string(),
@@ -640,7 +640,7 @@ fn render_block_dispatch(
         "OpenBitFunControl" if login_qr_result(tool_state).is_some() => {
             render_login_qr_block(tool_state, theme, focused, spinner_frame, available_width)
         }
-        "Task" | "AgentSpawn" => {
+        "Task" | "AgentSpawn" | "AgentFork" => {
             render_task_block(tool_state, theme, focused, spinner_frame, available_width)
         }
         "TodoWrite" => {
@@ -1514,7 +1514,11 @@ fn render_task_block(
         ToolDisplayStatus::Running | ToolDisplayStatus::Streaming
     );
 
-    let title = format!("{} Agent", capitalize_first(&subagent_type));
+    let title = if tool_state.tool_name == "AgentFork" {
+        tool_state.tool_name.clone()
+    } else {
+        format!("{} Agent", capitalize_first(&subagent_type))
+    };
 
     // Build description line with tool call count (if available)
     let desc_text = if let Some(ref progress) = tool_state.subagent_progress {
@@ -2199,6 +2203,26 @@ fn capitalize_first(s: &str) -> String {
 mod tests {
     use super::*;
     use ratatui::{backend::TestBackend, style::Color, widgets::List, Terminal};
+
+    #[test]
+    fn agent_fork_renders_a_launch_without_an_agent_type() {
+        let state = ToolDisplayState {
+            tool_id: "fork-call".into(),
+            tool_name: "AgentFork".into(),
+            parameters: serde_json::json!({"agent_id":"review", "prompt":"Check the inherited findings"}),
+            status: ToolDisplayStatus::Running,
+            result: None,
+            progress_message: None,
+            duration_ms: None,
+            metadata: None,
+            subagent_progress: None,
+        };
+        let rendered = render_tool_card_inner(&state, &Theme::dark(), false, false, "", 80);
+        let text = rendered.plain_lines.join("\n");
+        assert!(text.contains("AgentFork"));
+        assert!(text.contains("Check the inherited findings"));
+        assert!(!text.contains("Unknown"));
+    }
 
     fn login_qr_state() -> ToolDisplayState {
         let qr = openbitfun_core::service::remote_connect::QrGenerator::present_content(

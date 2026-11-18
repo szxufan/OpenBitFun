@@ -299,6 +299,7 @@ mod baseline_tests {
             "Read",
             "Task",
             "AgentSpawn",
+            "AgentFork",
             "ListWorkspaces",
             "SessionControl",
             "Cron",

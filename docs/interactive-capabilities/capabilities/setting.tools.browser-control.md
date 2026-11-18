@@ -3,33 +3,48 @@
 id: setting.tools.browser-control
 kind: setting
 category: assistant
-title_zh: "浏览器控制"
-title_en: "Browser control"
+title_zh: "浏览器控制与网页链接"
+title_en: "Browser control & web links"
 ---
 
-# 浏览器控制 / Browser control
+# 浏览器控制与网页链接 / Browser control & web links
 
 > 设置 / Setting
 
-选择浏览器，检查连接状态，并配置 CDP 与启动连接行为。
+设置对话中的网页链接默认用内置浏览器还是系统默认浏览器打开，并连接本机 Chrome / Edge 的 CDP 远程调试端口，让智能体直接复用你已登录的浏览器环境协作。
 
-Choose a browser, inspect connection status, and configure CDP and startup connection behavior.
+Choose whether chat web links open in the built-in browser or your system default browser, and connect Chrome or Edge over CDP remote debugging so agents can work with your signed-in tabs.
+
+## 适用场景 / When to use it
+
+- 前端联调 localhost 页面时想边聊边看效果：把“网页链接默认打开方式”设为“内置浏览器”；平时查外部长文资料想用自己的书签和插件，则设为“系统默认浏览器”（右键任意链接也能临时选）。
+  - Previewing localhost dev servers vs reading external docs: set Default link target to Built-in browser for side-by-side workspace previews, or System default browser for everyday reading (right-clicking any link always lets you pick on the spot).
+- 需要智能体帮你查看需要 SSO 单点登录或二次验证的内网系统：在你平时已登录的 Chrome 地址栏打开 `chrome://inspect/#remote-debugging`（Edge 打开 `edge://inspect/#remote-debugging`）开启远程调试，再回到本页一键连接即可直接复用登录态。
+  - Letting an agent inspect a dashboard behind corporate SSO or 2FA: enable remote debugging in your already signed-in Chrome (`chrome://inspect/#remote-debugging`) or Edge (`edge://inspect/#remote-debugging`) and click Connect here to reuse that live session.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择浏览器并查看、建立或断开 CDP 连接
-  - Choose a browser and inspect, establish, or disconnect its CDP connection
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 设置对话中的网页链接默认在内置浏览器还是系统默认浏览器中打开
+  - Choose whether web links in chat open in the built-in browser or your system default browser
+  - 说明：选“内置浏览器”适合在工作区侧边直接预览本地服务与点选页面元素；选“系统默认浏览器”适合沿用日常插件与书签，平时右键点击链接也可随时切换打开方式。
+  - Why & how: Built-in browser keeps previews beside your chat, while System default browser uses your everyday tabs and extensions; right-clicking any link lets you override per click.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择 Chrome 或 Edge 浏览器，查看、建立或断开 CDP 远程调试连接
+  - Choose Chrome or Edge and inspect, establish, or disconnect its CDP remote-debugging connection
+  - 说明：支持一键配置默认 CDP 调试或接入已开启远程调试端口的现有浏览器实例，并可配合“启动时自动连接”开关管理自动重连行为。
+  - Why & how: Connect to an existing Chrome/Edge instance with remote debugging enabled or configure default CDP setup, alongside the startup auto-connect toggle.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“工具 > 浏览器与桌面控制”
-   Go to Tools > Browser & Desktop Control
-3. 选择浏览器并检查连接状态
-   Choose a browser and inspect its connection status
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“工具与集成 → 浏览器与桌面控制”
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Tools & Integrations → Browser & Desktop Control
+2. 在顶部“网页链接”区块选择点击会话链接时默认用“内置浏览器”还是“系统默认浏览器”打开
+   Under Web links, choose whether chat links open in the Built-in browser or your System default browser by default
+3. 在“浏览器控制”区块选择目标浏览器（如 Chrome 或 Edge）；若想复用正在运行的已登录浏览器，先在浏览器访问 `chrome://inspect/#remote-debugging`（或 `edge://inspect/#remote-debugging`）开启调试，再点击连接
+   Under Browser control, select Chrome or Edge; to reuse an already running signed-in browser, enable remote debugging at `chrome://inspect/#remote-debugging` (or `edge://inspect/#remote-debugging`) and click Connect
+4. 按日常使用频率决定是否开启“启动时自动连接”
+   Optionally toggle Connect on startup if you use external browser automation every day
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 工具与集成 → 浏览器与桌面控制 / Settings (⌘, / Ctrl+,) → Tools & Integrations → Browser & Desktop Control (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -45,10 +60,23 @@ Choose a browser, inspect connection status, and configure CDP and startup conne
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开浏览器控制设置”
-  - “Open Browser Control settings”
-- “检查浏览器连接”
-  - “Check the browser connection”
+- “打开浏览器控制设置，我想把网页链接改成默认用系统浏览器打开”
+  - “Open Browser control settings so I can open chat links in my system browser by default”
+- “带我连接本地已登录的 Chrome 浏览器”
+  - “Take me to Browser & Desktop Control to connect my signed-in Chrome”
+- “开启启动时自动连接浏览器”
+  - “Turn on browser auto-connect on startup”
+
+## 实用贴士 / Good to know
+
+- 只是调试无需登录的本地前端页面（如 `http://localhost:3000`），直接用 OpenBitFun **内置浏览器**最省心，完全不用折腾外部 CDP 端口；只有需要复用已有账号 Cookie、插件或跨站登录态时才需连接外部 Chrome / Edge。
+  - For local dev servers like `http://localhost:3000` that need no external cookies, the **Built-in browser** works immediately with zero CDP setup—use external Chrome/Edge CDP when you want your signed-in sessions or extensions.
+- 新版 Chrome / Edge 连接 CDP 时可能会在浏览器内弹出一次“允许远程调试连接”确认框，点击允许后智能体才能读取页面快照。
+  - Recent Chrome and Edge builds may show a one-time in-browser prompt asking you to allow the incoming DevTools debugging connection—approve it so page snapshots succeed.
+- “启动时自动连接”默认关闭，这样平时纯写代码时打开 OpenBitFun 不会无故唤醒浏览器或弹出连接提示。
+  - Auto-connect on startup stays off by default so ordinary coding sessions never trigger unexpected browser popups when OpenBitFun launches.
+
+关联条目 / Related: `feature.browser`, `setting.tools.desktop-control`, `feature.computer-use`, `setting.tools.execution`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

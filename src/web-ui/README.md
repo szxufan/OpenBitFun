@@ -602,3 +602,28 @@ partial view of available events. Peer detail bodies remain owned by the canonic
 record replica. This observer UI adds no runtime or filesystem dependency for
 Remote Control or Detached Dispatch jobs. Automated fixtures simulate these routing
 and device-switch contracts; live remote and native visual checks remain manual.
+
+### Subagent model selection policy
+
+In **Settings → Execution → Subagents**, **Allow agents to choose subagent models**
+controls `ai.allow_subagent_model_override` on the executing host. It defaults to
+`true`, including when loading older configurations. When disabled, AgentSpawn, AgentFork,
+AgentSendInput, legacy Task and LaunchReviewAgent omit `model_id` from model-facing
+schemas and related instructions. Calls that still supply the field fail before
+launching or switching a subagent; remove the argument to use configured models.
+Configured defaults, model pools, Agent-specific models and backend-owned Review
+model preferences remain effective. Existing running agents keep their models.
+
+The next tool catalog reflects a setting change, including deferred tool specs
+and PTC bindings; execution rechecks the current host setting. SSH workspaces,
+mobile/IM controllers and detached jobs use the execution host's policy. In Peer
+Device Mode, the setting belongs to the peer; hosts must advertise
+`subagent_model_override_policy_v1`. Older hosts show an unsupported setting rather
+than saving a value they cannot enforce.
+
+`AgentFork` launches a background agent with a copy of the current conversation
+context and the current agent type. It takes `agent_id`, `prompt`, and optionally
+`model_id`; it does not accept `agent_type`. Use `AgentSpawn` for a fresh specialist
+conversation. Both return `bg_task_id` and support the existing AgentWait,
+AgentSendInput, and AgentControl workflow. Forks retain the existing workspace,
+permission, and nested-delegation constraints.

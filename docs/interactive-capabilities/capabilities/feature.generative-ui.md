@@ -11,25 +11,50 @@ title_en: "Generative UI"
 
 > 功能 / Feature
 
-由智能体按组件库及关联 UI 规范生成 OpenUI 组件应用或 HTML/CSS/SVG 自由文档，经目标视口实际渲染、宿主验收与需求复核后接受并保存。
+当文字解释不够直观时，让智能体直接在聊天气泡里为你生成可点按、可调节的交互式小工具、数据看板、动态流程图或可视化演示卡——当场拖动滑块看结果，填写和勾选的状态还会随会话自动保存，下次打开接着用。
 
-Generate OpenUI component apps or free HTML/CSS/SVG documents under a bound UI specification; accept and persist only after target-viewport rendering, host checks and requirement review.
+Whenever plain text falls short, let the agent generate interactive calculators, dashboards, clickable flow diagrams, and visual explainers right inside the chat stream—adjust sliders and check items live, with your state automatically saved when you reopen the session.
+
+## 适用场景 / When to use it
+
+- 学习或排查一段复杂的并发算法、状态机或网络握手流程时，让 AI 画一个“点一步走一步”的交互式动态图解
+  - Ask for a step-by-step interactive diagram to walk through a tricky state machine, auth handshake, or algorithm visually
+- 对比云服务成本、房贷方案或接口压测指标时，直接生成带参数滑块与实时汇总图表的测算器，边拖边看变化
+  - Spin up an inline cost calculator or performance dashboard with live sliders and summary charts to test assumptions on the spot
+- 规划冲刺排期、旅行清单或读书笔记时，在对话里生成一张可勾选完成状态、可收藏筛选的交互面板
+  - Create a saveable daily planner, reading tracker, or release checklist right inside the thread and check items off as you go
 
 ## 完整功能清单 / Everything included
 
-- **由专用智能体工具控制 / Delegated Agent tool** · `GenerativeUI` · 生成可交互的 GenUI 应用并由宿主渲染
-  - Generate interactive GenUI applications rendered by the host
+- **由专用智能体工具控制 / Delegated Agent tool** · `GenerativeUI` · 在会话中生成基于标准组件库的可交互面板与迷你工具
+  - Generate interactive component-based apps and mini tools inline in chat
+  - 说明：使用经过设计规范打磨的表单、卡片、表格、标签页与按钮组合成结构清晰的小工具，流式生成、开箱即用。
+  - Why & how: Compose clean forms, cards, tables, tabs, and controls from trusted product components right inside your conversation.
+- **由专用智能体工具控制 / Delegated Agent tool** · `GenerativeUI` · 生成自由排版的 HTML / CSS / SVG 动态图解、示意图与信息卡片
+  - Render custom HTML, CSS, and SVG diagrams, charts, and visual explainers
+  - 说明：遇到架构图、几何演示、定制数据图等标准组件表达不了的创意画面时，在安全沙箱内自由绘制高颜值视觉文档。
+  - Why & how: When custom layouts shine—like architecture maps, animations, or bespoke charts—render sanitized HTML/CSS/SVG documents in an isolated sandbox.
+- **由专用智能体工具控制 / Delegated Agent tool** · `GenerativeUI` · 实时响应点击与输入，自动保存组件状态并在重开会话后恢复
+  - Interact live in chat with state persisted and restored across session reopens
+  - 说明：你在面板里填的数字、勾掉的待办或切到的页签都会随当前会话持久保存，关掉标签页下次回来依然停在原处。
+  - Why & how: Numbers you enter, items you check off, and active tabs are saved with the session so everything is right where you left it when you return.
+- **由专用智能体工具控制 / Delegated Agent tool** · `GenerativeUI` · 自动跟随浅色 / 深色外观，并在呈现前完成真实视口渲染验收
+  - Adapt to light and dark themes automatically with real-viewport quality checks
+  - 说明：生成结果会自动对齐客户端当前的字号与明暗配色，并在后台先走一遍布局与可读性自检，减少错位或白底刺眼问题。
+  - Why & how: Widgets inherit OpenBitFun’s live light/dark tokens and pass automated viewport and contrast checks before landing in your chat.
 
 ## 怎么用 / How to use it
 
-1. 打开 AI 会话
-   Open an AI session
-2. 让智能体生成一个 GenUI 应用
-   Ask the agent to generate a GenUI application
-3. 在宿主中完成交互并保存，随后重开应用
-   Interact and save it in the host, then reopen the application
+1. 打开任意 AI 会话（Standard、Ultimate、Creative、Cowork 或助理模式均可）
+   Open any AI session (available across Standard, Ultimate, Creative, Cowork, and Assistant modes)
+2. 用自然语言直接描述你想要的界面或可视化效果，例如“做一个可调利率和年限的还款对比看板”或“用可点击切换的图解讲清这段架构”
+   Describe what you want to see or interact with—for example, "Build an interactive loan comparison calculator" or "Explain this architecture with a clickable diagram"
+3. 智能体生成并完成渲染自检后，直接在会话内点击按钮、拖动滑块、切换视图或录入内容，状态会自动保存
+   Interact with buttons, sliders, tabs, and inputs right inside the conversation; your state saves automatically
+4. 想加图表、改布局或增加导出项？直接在下一句对话里提要求，智能体会接着迭代升级它
+   Want another chart or filter? Just ask in a follow-up message and the agent will refine the interface in place
 
-入口 / Entry: OpenBitFun 对应场景
+入口 / Entry: 在任意 AI 会话中直接用自然语言描述你想看的交互界面或图解（默认组件库可在「设置 → 模型与智能体 → 执行与协作」选择） / Ask in any AI session for an interactive widget, chart, or visual explainer (default component library lives in Settings → Models & Agents → Execution & Collaboration)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -45,14 +70,25 @@ Generate OpenUI component apps or free HTML/CSS/SVG documents under a bound UI s
 
 ## 可以直接对智能体说 / Try saying
 
-- “生成一个可保存的记账应用”
-  - “Generate a saveable accounting app”
-- “生成一个带预算设置和支出汇总的 dashboard 应用”
-  - “Generate a dashboard with budget settings and an expense summary”
-- “生成一个阅读目录并支持收藏”
-  - “Generate a reading catalog with favorites”
-- “生成一个带完成状态的日计划”
-  - “Generate a daily plan with completion state”
+- “帮我生成一个带预算上限设置和分类占比图的月度记账面板”
+  - “Generate a saveable monthly budget tracker with a spending limit slider and category breakdown”
+- “做一个可交互演示卡片，分步展示 OAuth PKCE 授权码流程里每一步发了什么请求”
+  - “Build an interactive step-by-step visual explainer showing how the OAuth PKCE flow works”
+- “把这份调研数据做成一个支持按维度筛选和收藏对比的交互式选型表”
+  - “Turn these benchmark numbers into a filterable comparison dashboard”
+- “生成一个今日专注计划卡，支持勾选完成状态和添加备注”
+  - “Create a daily focus planner widget with completion checkboxes and notes”
+
+## 实用贴士 / Good to know
+
+- Generative UI 和 Mini Apps 怎么选？随聊随看、紧贴当前上下文的测算板和原理图解用 **Generative UI** 最轻便；想做成脱离当前对话、常驻首页或侧边栏随时打开的独立工具，就让 AI 做成 **Mini App**。
+  - Generative UI vs Mini Apps: use Generative UI for fast, in-context explainers and calculators inside a chat; ask for a Mini App when you want a standalone tool you can launch anytime from Home or the sidebar.
+- 安全沙箱渲染：对话中生成的自由 HTML / SVG 界面运行在受限隔离环境中，无法读取你的本机密钥或任意系统文件，交互放心无忧。
+  - Sandboxed by design: custom HTML/CSS/SVG visuals run in an isolated opaque-origin frame with no access to your credentials, Tauri APIs, or local filesystem.
+- 切换默认组件风格：如果你想查看或切换新生成界面默认采用的组件规范（默认 `openui`），可前往「设置 → 模型与智能体 → 执行与协作」。
+  - Component library setting: you can check or change the default GenUI component library (defaults to `openui`) in Settings → Models & Agents → Execution & Collaboration.
+
+关联条目 / Related: `feature.ai-assistant`, `feature.miniapps`, `setting.tools.execution`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

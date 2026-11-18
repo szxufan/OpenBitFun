@@ -3,47 +3,74 @@
 id: setting.tools.automation
 kind: setting
 category: automation
-title_zh: "快捷操作与 Hooks"
-title_en: "Quick actions & hooks"
+title_zh: "自动化：快捷动作与 Hooks"
+title_en: "Automation: Quick actions & hooks"
 ---
 
-# 快捷操作与 Hooks / Quick actions & hooks
+# 自动化：快捷动作与 Hooks / Automation: Quick actions & hooks
 
 > 设置 / Setting
 
-自定义编码后的快捷操作，并配置在智能体生命周期事件上运行的 Hooks。
+定制编码完成后的一键快捷动作（如提交代码、创建 PR 或自定义检查 Prompt），并通过双门禁安全模型管理兼容 Codex 契约的生命周期 Hooks。
 
-Customize post-coding quick actions and configure hooks that run on agent lifecycle events.
+Customize one-click post-coding Quick actions (Commit, Create PR, or custom prompts) and manage Codex-compatible lifecycle hooks protected by a two-gate safety model.
+
+## 适用场景 / When to use it
+
+- 每次智能体改完代码，你都要手敲同一段“按 Conventional Commits 提交并附上测试结果”：在“快捷动作”里微调内置提交按钮或新增自定义快捷按钮，以后改完代码点一下就行。
+  - Repeating the same follow-up after every coding turn: customize the built-in Commit / Create PR quick actions or add your own "Run tests & summarize" button so post-coding wrap-up takes one click.
+- 想在智能体每次改完文件后自动跑 lint，或者在执行危险命令前做自定义拦截：编辑个人用户级 `config/hooks.json`，无需重启客户端，保存瞬间即对下一轮事件生效。
+  - Running automatic formatters, notifications, or custom policy checks on agent events: edit your user-level `config/hooks.json`—changes hot-reload immediately with no app restart.
+- 克隆了一个包含 `.openbitfun/config/hooks.json` 的团队仓库：先用编辑器审阅里面的 Shell 脚本确认安全无虞，再来本页打开第二道门禁“启用项目 Hook 文件”。
+  - Opening a repository that ships `.openbitfun/config/hooks.json`: inspect its shell commands first, then opt in to the second gate (Enable project hook files) once you trust the repo.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 启用和调整内置的提交与创建 Pull Request 快捷操作
-  - Enable and tune the built-in Commit and Create Pull Request quick actions
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 添加、编辑和删除自定义编码后快捷操作及 Prompt
-  - Add, edit, and delete custom post-coding quick actions and prompts
-- **智能体可直接控制 / Direct Agent control** · 整体启用或停用智能体生命周期 Hooks
-  - Enable or disable agent lifecycle hooks globally
-- **智能体可直接控制 / Direct Agent control** · 对可信仓库单独启用项目级 .openbitfun/config/hooks.json
-  - Enable project-level .openbitfun/config/hooks.json separately for trusted repositories
-- **由专用智能体工具控制 / Delegated Agent tool** · `Glob` / `Read` / `Edit` · 定位用户级和项目级 Hooks 配置文件并在修改后即时生效
-  - Locate user and project hook configuration files and apply edits without restarting
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在会话、智能体、工具、权限和用户输入等 Codex Hook 事件上运行处理器
-  - Run handlers on Codex hook events for sessions, agents, tools, permissions, and user input
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看外部 AI 应用的只读 Hook 目录并选择导入项
-  - Inspect read-only external-AI hook catalogs and choose entries to import
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 预览、修改和应用 Hook 导入计划，并保留冲突诊断
-  - Preview, edit, and apply hook import plans while retaining conflict diagnostics
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 启用或微调内置的“提交”与“创建 Pull Request”编码后快捷动作
+  - Enable and customize the built-in Commit and Create Pull Request post-coding quick actions
+  - 说明：控制智能体完成文件修改后是否展示内置的提交与创建 PR 快捷按钮，并可按团队规范定制触发时发送的 Prompt。
+  - Why & how: Show or hide the built-in Commit and Create PR buttons after coding turns and tailor their prompts to your team conventions.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 添加、编辑和删除自定义编码后快捷动作按钮与专属 Prompt
+  - Add, edit, and delete custom post-coding quick action buttons and prompts
+  - 说明：把高频后续步骤（例如“补充边界单测”、“自查安全漏洞”或“更新 CHANGELOG”）沉淀为一键直达按钮。
+  - Why & how: Turn recurring post-edit steps—like adding unit tests, running a security pass, or updating changelogs—into one-click buttons.
+- **智能体可直接控制 / Direct Agent control** · 整体启用或停用智能体生命周期 Hooks（默认开启用户级配置）
+  - Enable or disable agent lifecycle hooks globally (user-level hooks on by default)
+  - 说明：第一道总门禁：默认开启并加载你个人配置目录下的 `config/hooks.json`；排查问题时关闭此开关可一键暂停全部用户级与项目级 Hooks。
+  - Why & how: Gate 1 master switch: enabled by default for your personal `config/hooks.json`; turning it off immediately suspends both user and project hooks.
+- **智能体可直接控制 / Direct Agent control** · 为已审阅的可信仓库开启第二道门禁：启用项目级 .openbitfun/config/hooks.json
+  - Opt in to Gate 2 for trusted repos: enable project-level .openbitfun/config/hooks.json
+  - 说明：默认关闭！因为项目 Hook 文件中的命令会以你的当前系统用户权限直接执行，请仅在核查过仓库 `.openbitfun/config/hooks.json` 内容可信后再开启（且需总开关同时开启）。
+  - Why & how: Off by default! Because project hooks execute shell commands with your user permissions, enable this only after inspecting `.openbitfun/config/hooks.json` in repositories you trust.
+- **由专用智能体工具控制 / Delegated Agent tool** · `Glob` / `Read` / `Edit` · 定位并编辑用户级或项目级 hooks.json 配置文件（保存后即时生效）
+  - Locate and edit user or project hooks.json files with instant hot-reload on save
+  - 说明：修改 `hooks.json` 后运行时会自动重新加载，无需重启 OpenBitFun；也可以让智能体按你描述的规则帮你检查或精确编辑该文件。
+  - Why & how: Edits to `hooks.json` hot-reload automatically without restarting OpenBitFun, and agents can inspect or cleanly edit requested handlers for you.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在会话、用户输入、工具调用前后及结束等 Codex Hook 事件上运行处理器
+  - Run handlers on Codex hook events across session, prompt, tool, and stop stages
+  - 说明：严格遵循 Codex Hook 事件负载与决策返回结构，可用于上下文注入、命令合规阻断、自动格式化或完成通知。
+  - Why & how: Follows the standard Codex hook event payload and decision schema for context injection, pre-tool policy checks, post-edit formatting, or notifications.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 只读预览外部 AI 应用（如 Claude Code、Codex）的现有 Hook 目录
+  - Browse read-only external-AI hook catalogs from tools like Claude Code and Codex
+  - 说明：自动扫描本机已安装的外部 AI 工具中配置了哪些 Hooks，让你在决定迁移前先看清每条命令的作用。
+  - Why & how: Inspect existing hooks discovered from external AI tools in read-only mode before deciding what to bring over.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 预览、筛选并应用外部 Hook 导入计划，保留冲突与兼容性提示
+  - Preview, customize, and apply external hook import plans with conflict diagnostics
+  - 说明：将选中的外部 Hooks 安全转换为 OpenBitFun 副本并展示事件兼容或同名冲突诊断，绝不改动原外部应用的配置文件。
+  - Why & how: Convert selected external hooks into OpenBitFun copies with clear compatibility and conflict diagnostics while leaving original external files untouched.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“工具 > 自动化”
-   Go to Tools > Automation
-3. 在“快捷操作”或“Hooks”中配置
-   Configure Quick Actions or Hooks
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“工具与集成 → 自动化”
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Tools & Integrations → Automation
+2. 在上方“快捷动作”区块开关或编辑内置的提交 / 创建 PR 动作，或点击新增自定义编码后快捷按钮
+   Under Quick actions, toggle or customize built-in Commit / Create PR prompts, or add your own post-coding action buttons
+3. 在下方“事件 Hooks”区块确认“启用 Hooks”总开关；若需编辑个人规则，修改用户配置目录下的 `config/hooks.json` 即可即时热重载
+   Under Event Hooks, verify Enable hooks is on; edit your user `config/hooks.json` anytime and changes hot-reload immediately
+4. 若当前仓库带有 `.openbitfun/config/hooks.json`，请先审阅文件内容确认安全，再按需开启“启用项目 Hook 文件”
+   If a repository includes `.openbitfun/config/hooks.json`, inspect its commands first and only then turn on Enable project hook files
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 工具与集成 → 自动化 / Settings (⌘, / Ctrl+,) → Tools & Integrations → Automation (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -55,15 +82,28 @@ Customize post-coding quick actions and configure hooks that run on agent lifecy
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 启用 Hooks / Enable hooks | `boolean` | 允许已配置的智能体生命周期 Hooks 运行。 | Allow configured agent lifecycle hooks to run. |
-| 启用项目 Hooks / Enable project hooks | `boolean` | 允许当前项目中的 Hooks 配置生效。 | Allow hook configuration from the current project. |
+| 启用 Hooks / Enable hooks | `boolean` | 生命周期 Hooks 总开关（默认开启，自动加载用户级 config/hooks.json 并支持热重载）。 | Master switch for agent lifecycle hooks (on by default; loads user config/hooks.json with live hot-reload). |
+| 启用项目 Hook 文件 / Enable project hook files | `boolean` | 允许加载当前工作区 `.openbitfun/config/hooks.json` 中的处理器（默认关闭，请仅对审阅过的可信仓库启用）。 | Allow handlers from `{workspace}/.openbitfun/config/hooks.json` to run (off by default—enable only for inspected, trusted repositories). |
 
 ## 可以直接对智能体说 / Try saying
 
 - “打开 Hooks 设置”
   - “Open Hooks settings”
-- “带我编辑编码后的快捷操作”
-  - “Take me to post-coding quick actions”
+- “帮我暂时关闭所有生命周期 Hooks 排查问题”
+  - “Temporarily disable all lifecycle hooks while I debug”
+- “带我去添加一个编码后自动跑测试的快捷动作”
+  - “Take me to Quick actions so I can add a post-coding test button”
+
+## 实用贴士 / Good to know
+
+- 安全红线提醒：克隆陌生开源仓库时请保持“启用项目 Hook 文件”关闭！开启该开关意味着允许仓库里的 `.openbitfun/config/hooks.json` 在智能体生命周期中运行任意本机 Shell 命令。
+  - Security first: keep Enable project hook files turned OFF when cloning unfamiliar repositories, as `.openbitfun/config/hooks.json` runs shell commands with your user account permissions.
+- 两个 Hooks 开关是层级关系：如果关闭了第一道“启用 Hooks”总开关，即使“启用项目 Hook 文件”处于勾选状态，项目级 Hooks 也不会执行。
+  - The two gates are hierarchical: turning off the main Enable hooks switch disables project-level hooks as well.
+- 需要定期按时间表（如每天早上 9 点）自动跑任务而非响应会话事件？请使用主侧边栏的「任务看板」（而非设置页中的 Hooks）。
+  - Looking to run jobs on a clock (such as every weekday morning) rather than on turn lifecycle events? Open Task Board in the main sidebar rather than Hooks.
+
+关联条目 / Related: `feature.tasks-automation`, `feature.ecosystem-compatibility`, `feature.git`, `setting.ai.permissions`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

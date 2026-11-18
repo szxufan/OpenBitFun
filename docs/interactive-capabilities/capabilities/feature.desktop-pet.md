@@ -11,33 +11,52 @@ title_en: "Agent desktop companion"
 
 > 功能 / Feature
 
-在桌面上显示智能体伙伴，并选择、导入或管理 Petdex 角色包。
+在屏幕一角养一只灵动的像素桌面伙伴，它会跟着智能体思考、写代码、等待权限确认或顺利收工实时切换神态动作——支持一键切换内置形象、导入本地 Petdex 角色包、自由缩放窗口，需要极致专注时也能随时隐藏或彻底关闭。
 
-Show an agent companion on the desktop, and choose, import, or manage Petdex character packs.
+Keep a lively pixel companion on your desktop that reacts as your agent thinks, writes code, waits for approval, or finishes work—switch built-in characters, import custom Petdex packs, resize or hide its window anytime, or disable it completely when you want zero distraction.
+
+## 适用场景 / When to use it
+
+- 让 AI 在后台跑耗时构建或长任务，自己切去浏览器查资料——看一眼角落里伙伴的状态就知道任务跑完了还是卡在等权限
+  - While reading docs in another app during a long build, glance at your companion in the corner to see whether the agent finished or needs approval
+- 把喜欢的像素角色打包成 Petdex 目录（例如 `~/petdex/my-cat`），直接对智能体说一声或去设置页导入换新装
+  - Import a custom Petdex character folder (such as `~/petdex/my-cat`) to personalize your workspace vibe
+- 主窗口最小化到托盘后，不用去任务栏翻图标，直接通过桌面伙伴就能快速回到主界面
+  - Bring the main OpenBitFun window right back up from the companion when the app is minimized to the tray
 
 ## 完整功能清单 / Everything included
 
-- **由专用智能体工具控制 / Delegated Agent tool** · `OpenBitFunControl` · 整体启用或停用智能体桌面伙伴
+- **由专用智能体工具控制 / Delegated Agent tool** · `OpenBitFunControl` · 一键全局开启或关闭智能体桌面伙伴
   - Enable or disable the agent desktop companion globally
-- **由专用智能体工具控制 / Delegated Agent tool** · `OpenBitFunControl` · 查看并切换内置或已导入的 Petdex 角色
-  - Browse and switch among built-in or imported Petdex characters
-- **由专用智能体工具控制 / Delegated Agent tool** · `OpenBitFunControl` · 从本地 Petdex 包导入并使用新的角色与动画
-  - Import and use a new character and animations from a local Petdex package
-- **由专用智能体工具控制 / Delegated Agent tool** · `OpenBitFunControl` · 删除已导入的 Petdex 包并回退到可用角色
-  - Delete an imported Petdex package and fall back to an available character
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 显示、隐藏和调整独立桌面伙伴窗口大小，并可回到主窗口
-  - Show, hide, and resize the desktop companion window, and return to the main window
+  - 说明：想有人陪伴盯进度时打开，投屏汇报或沉浸写代码时一句话或一个开关即可干净收起。
+  - Why & how: Turn your companion on whenever you want ambient status feedback, or switch it off in one click for zero screen clutter.
+- **由专用智能体工具控制 / Delegated Agent tool** · `OpenBitFunControl` · 浏览并随时切换内置形象与已导入的 Petdex 角色
+  - Browse and switch among built-in characters and imported Petdex packs
+  - 说明：查看所有可用伙伴形象，点选即可立即换装生效，无需重启客户端。
+  - Why & how: Preview built-in and imported characters and switch your active companion instantly without restarting OpenBitFun.
+- **由专用智能体工具控制 / Delegated Agent tool** · `OpenBitFunControl` · 在设置页导入 `.zip` 角色压缩包，或让智能体加载本机 Petdex 目录 / `.zip` 包
+  - Import a `.zip` pack in Settings, or ask an agent to load a local Petdex folder or `.zip` archive
+  - 说明：设置页「导入」按钮支持直接选取 `.zip` 角色包；若你在本机解压或自制了包含精灵图与动作配置的 Petdex 目录（如 `~/petdex/pixel-fox`），直接发消息让智能体导入启用即可。
+  - Why & how: Click Import in Settings to choose a `.zip` character archive, or ask the agent in chat to load either a `.zip` pack or an unpacked local Petdex folder on your Desktop host.
+- **由专用智能体工具控制 / Delegated Agent tool** · `OpenBitFunControl` · 移除不再使用的自定义 Petdex 包并自动回退到可用角色
+  - Remove an imported Petdex package and fall back cleanly to an available character
+  - 说明：清理旧导入包时内置角色受保护不可误删，若删除的是当前激活角色会自动无缝切回默认伙伴。
+  - Why & how: Built-in characters stay protected, and removing the active imported pack automatically falls back to a working preset.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 显示、隐藏与自由缩放独立桌面伙伴窗口，并可一键唤回主界面
+  - Show, hide, and resize the companion window, and return quickly to the main window
+  - 说明：独立无边框悬浮窗支持按屏幕分辨率调大调小，主窗口最小化时点它就能快速回到工作台。
+  - Why & how: Resize the frameless companion window to fit high-DPI or compact displays, and jump straight back to the main OpenBitFun window anytime.
 
 ## 怎么用 / How to use it
 
-1. 打开桌面伙伴设置
-   Open Companion settings
-2. 启用或停用桌面伙伴
-   Enable or disable the desktop companion
-3. 选择预设或导入 Petdex 包
-   Choose a preset or import a Petdex pack
+1. 按 ⌘, / Ctrl+, 打开设置，进入「应用与界面 → 宠物与助手」
+   Open Settings (⌘, / Ctrl+,) and go to Application & Interface → Pet & assistant
+2. 在「宠物」区域开启桌面伙伴开关，从预设角色列表中挑选形象；如需自定义形象，可在设置页点击「导入」选择 `.zip` 角色压缩包，或在会话中直接让智能体导入本地 Petdex 目录（如 `~/petdex/my-cat`）或 `.zip` 包
+   Enable the desktop companion under Pet and pick a built-in character; for custom characters, click Import in Settings to pick a `.zip` pack, or ask the agent in chat to import a local Petdex folder (such as `~/petdex/my-cat`) or `.zip` archive
+3. 在桌面上拖动伙伴到不挡视线的位置并调整合适尺寸；需要专注或投屏时随时在设置中隐藏或关闭
+   Drag and resize the companion window anywhere comfortable on your desktop, or toggle it off anytime for zero distraction
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 应用与界面 → 宠物与助手 → 宠物 / Settings (⌘, / Ctrl+,) → Application & Interface → Pet & assistant → Pet (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -55,10 +74,23 @@ Show an agent companion on the desktop, and choose, import, or manage Petdex cha
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开桌面宠物设置”
-  - “Open desktop-pet settings”
-- “带我配置智能体伙伴”
-  - “Take me to agent-companion setup”
+- “帮我把桌面宠物打开，看看现在有哪些可选角色”
+  - “Turn on the desktop companion and list the available characters”
+- “从 ~/petdex/pixel-fox 导入并启用这个新的桌面伙伴”
+  - “Import and switch to the Petdex pack at ~/petdex/pixel-fox”
+- “先帮我把桌面伙伴关掉，一会儿要投屏演示”
+  - “Turn off the desktop pet for now while I share my screen”
+
+## 实用贴士 / Good to know
+
+- 设置页名称小提示：桌面伙伴现在位于「设置 → 应用与界面 → 宠物与助手」（与实时语音通话、桌面小卡片同页），找起来更集中。
+  - Where to find it: Desktop companion controls live in Settings → Application & Interface → Pet & assistant, right alongside Realtime Voice Calls and Desktop Cards.
+- 删除自定义包自动兜底：当你删掉某个自己导入的 Petdex 角色包时，系统会自动切回内置可用形象，不会报错或黑块。
+  - Graceful fallback on delete: deleting an imported Petdex pack automatically switches you back to a valid built-in character.
+- 直接对智能体说也能改：桌面伙伴已接入产品控制面板，你甚至不用自己翻设置，直接在聊天里说“关掉桌面宠物”或“换个宠物角色”即可生效。
+  - Control it right from chat: you can simply tell the agent "turn off the desktop pet" or "switch my pet character" without opening Settings.
+
+关联条目 / Related: `setting.application.pet`, `feature.desktop-cards`, `feature.voice-input`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

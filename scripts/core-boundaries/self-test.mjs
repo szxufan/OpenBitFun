@@ -830,7 +830,7 @@ export function runManifestParserSelfTest({
     }
   }
   const coreTaskToolRuleText = forbiddenRuleTextForPath(
-    'src/crates/assembly/core/src/agentic/tools/implementations/task/execution.rs',
+    'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/execution.rs',
   );
   if (!coreTaskToolRuleText) {
     throw new Error('missing core TaskTool DeepReview boundary rule');
@@ -4269,7 +4269,7 @@ export function runManifestParserSelfTest({
       contracts: ['builtin_agent_specs', 'runtime_agents::default_model_id_for_builtin_agent'],
     },
     {
-      path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/input.rs',
+      path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/input.rs',
       contracts: [
         'fork_context',
         'SubagentContextMode::Fork',
@@ -4277,7 +4277,7 @@ export function runManifestParserSelfTest({
       ],
     },
     {
-      path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/execution.rs',
+      path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/execution.rs',
       contracts: [
         'child_delegation_policy',
         'start_background_subagent',
@@ -4285,11 +4285,11 @@ export function runManifestParserSelfTest({
       ],
     },
     {
-      path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/background.rs',
+      path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/background.rs',
       contracts: ['Background subagent started successfully'],
     },
     {
-      path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/tests.rs',
+      path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/tests.rs',
       contracts: [
         'background_subagent_start_acknowledgement_exposes_agent_wait_task_id',
         '<background_task',
@@ -4378,7 +4378,7 @@ export function runManifestParserSelfTest({
       ],
     },
     {
-      path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/deep_review.rs',
+      path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/deep_review.rs',
       contracts: [
         'deep_review_task_adapter::should_emit_deep_review_retry_guidance',
         'deep_review_task_adapter::auto_retry_suppression_reason',
@@ -4387,7 +4387,7 @@ export function runManifestParserSelfTest({
       ],
     },
     {
-      path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/execution.rs',
+      path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/execution.rs',
       contracts: [
         'deep_review_task_adapter::deep_review_retry_guidance',
         'openbitfun_agent_runtime::subagent_task::subagent_task_completion_result',

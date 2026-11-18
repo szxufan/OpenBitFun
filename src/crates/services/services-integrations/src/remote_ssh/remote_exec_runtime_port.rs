@@ -185,6 +185,7 @@ fn stdin_request_to_service(request: ports::RemoteWriteStdinRequest) -> ServiceS
         append_enter: request.append_enter,
         yield_time_ms: request.yield_time_ms,
         max_output_chars: request.max_output_chars,
+        wait_interrupt: request.wait_interrupt,
     }
 }
 
@@ -208,6 +209,7 @@ fn response_from_service(response: ServiceCommandResponse) -> ports::RemoteExecC
         session_id: response.session_id,
         exit_code: response.exit_code,
         original_output_chars: response.original_output_chars,
+        wait_interrupted: response.wait_interrupted,
         completion: response.completion.map(completion_from_service),
     }
 }
@@ -291,6 +293,37 @@ fn error_from_service(error: RemoteExecError) -> ports::PortError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wait_interrupt_crosses_port_adapter_without_becoming_process_completion() {
+        let token = tokio_util::sync::CancellationToken::new();
+        let request = stdin_request_to_service(ports::RemoteWriteStdinRequest {
+            session_id: 42,
+            chars: "answer".into(),
+            append_enter: true,
+            yield_time_ms: Some(600_000),
+            max_output_chars: None,
+            wait_interrupt: Some(token.clone()),
+        });
+        token.cancel();
+        assert!(request.wait_interrupt.unwrap().is_cancelled());
+        assert_eq!(request.chars, "answer");
+        assert!(request.append_enter);
+        let response = response_from_service(ServiceCommandResponse {
+            chunk_id: "chunk".into(),
+            wall_time_seconds: 0.1,
+            output: "partial".into(),
+            session_id: Some(42),
+            exit_code: None,
+            original_output_chars: 7,
+            completion: None,
+            wait_interrupted: true,
+        });
+        assert!(response.wait_interrupted);
+        assert_eq!(response.session_id, Some(42));
+        assert_eq!(response.completion, None);
+        assert_eq!(response.exit_code, None);
+    }
 
     #[test]
     fn one_shot_response_preserves_stdout_stderr_and_timeout_flags() {

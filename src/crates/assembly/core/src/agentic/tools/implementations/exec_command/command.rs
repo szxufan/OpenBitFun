@@ -1627,6 +1627,7 @@ mod tests {
             exit_code: None,
             original_output_chars: 7,
             completion: None,
+            wait_interrupted: false,
         }
     }
 
@@ -1682,6 +1683,7 @@ mod tests {
                 session_id: None,
                 exit_code: Some(137),
                 original_output_chars: 0,
+                wait_interrupted: false,
                 completion: Some(openbitfun_runtime_ports::TerminalExecSessionCompletion {
                     status: openbitfun_runtime_ports::TerminalExecSessionCompletionStatus::Killed,
                     source: openbitfun_runtime_ports::TerminalExecSessionCompletionSource::Process,

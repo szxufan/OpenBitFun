@@ -15,6 +15,7 @@ export const toolPresentationRegistry = {
   ListModels: { owner: 'standard', component: 'ListModelsToolCard' },
   ControlHub: { owner: 'standard', component: 'ControlHubToolCard' },
   AgentSpawn: { owner: 'standard', component: 'AgentControlToolCard' },
+  AgentFork: { owner: 'standard', component: 'AgentControlToolCard' },
   AgentSendInput: { owner: 'standard', component: 'SessionMessageToolCard' },
   AgentWait: { owner: 'standard', component: 'AgentWaitToolCard' },
   TodoWrite: { owner: 'standard', component: 'TodoToolCard' },

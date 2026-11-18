@@ -14,15 +14,22 @@ export type ShellType =
   | 'Fish' 
   | 'Sh';
 
+export interface HostTerminalWorkspaceTarget {
+  rootPath: string;
+  connectionId?: string;
+}
+
 export interface CreateSessionRequest {
   workspaceId?: string;
+  /** Validate the workspace snapshot, then run the PTY on the OpenBitFun host. */
+  hostWorkspaceTarget?: HostTerminalWorkspaceTarget;
   sessionId?: string;
   name?: string;
   shellType?: ShellType | string;
   /** Stable identifier for an exact discovered shell executable. */
   shellId?: string;
   workingDirectory?: string;
-  /** Open a remote PTY on this SSH connection without a registered workspace. */
+  /** Explicit SSH connection without a workspace, or an empty string for the host. */
   connectionId?: string;
   env?: Record<string, string>;
   cols?: number;

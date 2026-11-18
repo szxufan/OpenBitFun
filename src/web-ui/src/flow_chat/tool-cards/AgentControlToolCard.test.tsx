@@ -115,7 +115,7 @@ const config: ToolCardConfig = {
 };
 
 function agentToolItem(
-  toolName: 'AgentSpawn' | 'AgentSendInput',
+  toolName: 'AgentSpawn' | 'AgentFork' | 'AgentSendInput',
   overrides: Partial<FlowToolItem> = {},
 ): FlowToolItem {
   return {
@@ -202,7 +202,7 @@ describeWithJsdom('AgentControlToolCard', () => {
 
   it('shows an incubating egg only for a new spawn, then stops on failure', () => {
     mocks.includeChildSession = false;
-    const render = (toolName: 'AgentSpawn' | 'AgentSendInput', status: FlowToolItem['status']) => act(() => root.render(
+    const render = (toolName: 'AgentSpawn' | 'AgentFork' | 'AgentSendInput', status: FlowToolItem['status']) => act(() => root.render(
       <AgentControlToolCard toolItem={agentToolItem(toolName, { status, subagentSessionId: undefined })}
         config={{ ...config, toolName }} sessionId="parent-session" />,
     ));
@@ -217,7 +217,7 @@ describeWithJsdom('AgentControlToolCard', () => {
     expect(container.querySelector('.lucide-bot')).toBeNull();
   });
 
-  it.each(['AgentSpawn'] as const)(
+  it.each(['AgentSpawn', 'AgentFork'] as const)(
     'opens %s directly in the side pane and never expands the prompt inline',
     async (toolName) => {
       await act(async () => root.render(

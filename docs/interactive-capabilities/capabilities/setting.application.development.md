@@ -11,29 +11,48 @@ title_en: "Editor"
 
 > 设置 / Setting
 
-调整代码编辑器的字体、缩进、换行、格式化与 Minimap。
+按外观、行为、显示、高级四大分区精细调校代码字体、缩进换行、Minimap 缩略图与自动格式化，并支持通过智能体调整底层自动保存策略。
 
-Tune code editor font, indentation, wrapping, formatting, and minimap behavior.
+Tune code typography, indentation, word wrap, minimap, and auto-formatting across Appearance, Behavior, Display, and Advanced sections, plus underlying autosave policy via Agent.
+
+## 适用场景 / When to use it
+
+- 审查智能体生成的宽行 Diff 或阅读 Markdown 文档时不想频繁左右拖滚动条，开启“自动换行（on）”并把编辑器字号调到顺眼的 15 px。
+  - Reviewing wide diffs or Markdown docs alongside chat? Enable Word Wrap (`on`) and bump editor font size to 15 px so you never have to scroll horizontally.
+- 在分栏模式下右边开着聊天、左边看代码觉得横向空间寸土寸金，关掉 Minimap 缩略图立刻给代码正文多腾出一截视野。
+  - Working in a side-by-side split pane on a laptop? Turn off the Minimap to reclaim extra horizontal room for code.
+- 同时维护 2 空格前端仓库与 4 空格后端仓库，保持“自动检测缩进”开启，打开旧文件按原仓库规矩走，新建文件则使用你设定的默认缩进。
+  - Juggling 2-space frontend repos and 4-space backend repos? Keep Detect Indentation enabled so existing files keep their native style while new files use your default tab size.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 设置编辑器字体、字重、字号、行高与光标样式
-  - Configure editor font, weight, size, line height, and cursor behavior
-- **智能体可直接控制 / Direct Agent control** · 设置 Tab 宽度、空格缩进、自动换行、行号与平滑滚动
-  - Configure tab size, space indentation, word wrapping, line numbers, and smooth scrolling
-- **智能体可直接控制 / Direct Agent control** · 控制 Minimap、空白字符、当前行高亮和滚动边界
-  - Control the minimap, whitespace rendering, current-line highlight, and scroll bounds
-- **智能体可直接控制 / Direct Agent control** · 控制自动保存、语义高亮、括号配色、格式化和空白清理
-  - Control autosave, semantic highlighting, bracket colors, formatting, and whitespace trimming
+- **智能体可直接控制 / Direct Agent control** · 调整编辑器外观：代码字体、字重、字号（10–32 px）、行高与光标样式
+  - Configure editor appearance: editor font, weight, size (10–32 px), line height, and cursor behavior
+  - 说明：对应页面“外观”分区：默认字号 14 px、行高 1.5、竖线光标（`line`）与平滑闪烁（`smooth`）；界面下拉内置系统默认、Fira Code、Noto Sans SC、Consolas、Courier New，想指定其他本机等宽字体也可直接让智能体设置。
+  - Why & how: Matches the Appearance section: defaults to 14 px font size, 1.5 line height, `line` cursor, and `smooth` blinking; the UI dropdown offers Default, Fira Code, Noto Sans SC, Consolas, and Courier New, while any custom monospace font stack can be set via the Agent.
+- **智能体可直接控制 / Direct Agent control** · 调整编辑行为：Tab 宽度、空格缩进、自动检测缩进、自动换行、行号与平滑滚动
+  - Configure editor behavior: tab size, space indentation, auto-detected indentation, word wrap, line numbers, and smooth scrolling
+  - 说明：对应“行为”分区：默认 4 空格缩进、开启自动识别已有文件缩进、关闭长行换行、显示常规行号并启用平滑滚动（Vim 习惯用户可将行号切为 `relative` 相对行号）。
+  - Why & how: Matches the Behavior section: defaults to 4-space indentation, auto-detect indentation on open, word wrap off, standard line numbers (switchable to `relative`), and smooth scrolling.
+- **智能体可直接控制 / Direct Agent control** · 调整编辑器显示：Minimap 缩略图、空白字符渲染、当前行高亮与底部滚动边界
+  - Control editor display: minimap, whitespace rendering, current-line highlight, and scroll-beyond-last-line
+  - 说明：对应“显示”分区：Minimap 默认停靠右侧（支持按比例/填充/适配三种尺寸），空白字符默认仅在选中文本时显现（`selection`），“滚过最后一行”默认关闭（可在“行为”分区切换）。
+  - Why & how: Matches Display controls: right-docked minimap (on by default with proportional/fill/fit modes), selection-only whitespace markers, active-line highlight, and scroll-beyond-last-line.
+- **智能体可直接控制 / Direct Agent control** · 调整高级编辑能力：语义高亮、括号配色、保存/粘贴格式化、空白清理与底层自动保存
+  - Control advanced editing: semantic highlighting, bracket colors, format on save/paste, whitespace trimming, and underlying autosave
+  - 说明：对应“高级”分区的 5 个可视化开关（默认均开启）；此外底层自动保存默认采用延迟 1000 ms（`afterDelay`）策略，虽不在本设置页展示图形开关，但可直接让智能体或通过配置文件修改。
+  - Why & how: Covers all 5 toggles in the Advanced section (all enabled by default); underlying autosave defaults to `afterDelay` (`1000` ms) and can be changed via the Agent or config even though it has no UI toggle on this page.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“应用与界面 > 编辑器”
-   Go to App & Interface > Editor
+1. 打开设置（⌘, / Ctrl+,），进入“编程与开发 → 编辑器”
+   Open Settings (⌘, / Ctrl+,) and go to Programming & Development → Editor
+2. 依次在“外观、行为、显示、高级”四个分区调整字体、缩进、Minimap 与格式化开关
+   Adjust font, indentation, minimap, and formatting controls across Appearance, Behavior, Display, and Advanced
+3. 所有控件修改后会自动保存，并即时同步到已打开的代码编辑器标签页
+   Every change saves automatically and updates open code editor tabs immediately
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 编程与开发 → 编辑器 / Settings (⌘, / Ctrl+,) → Programming & Development → Editor (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -45,36 +64,51 @@ Tune code editor font, indentation, wrapping, formatting, and minimap behavior.
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 编辑器字体 / Editor font family | `string` | 设置代码编辑器字体族与回退字体。 | Set the code editor font family and fallbacks. |
-| 编辑器字重 / Editor font weight | `normal` / `bold` | 选择普通或粗体字重。 | Choose normal or bold text weight. |
-| 编辑器字号 / Editor font size | `integer` (10–32) | 设置代码编辑器的字体大小。 | Set the code editor font size. |
-| 编辑器行高 / Editor line height | `number` (1–3) | 设置代码编辑器的行高倍数。 | Set the code editor line-height multiplier. |
-| 编辑器光标样式 / Editor cursor style | `line` / `line-thin` / `block` / `block-outline` / `underline` / `underline-thin` | 选择线、块或下划线等光标样式。 | Choose a line, block, underline, or thin cursor style. |
-| 编辑器光标闪烁 / Editor cursor blinking | `blink` / `smooth` / `phase` / `expand` / `solid` | 设置光标的闪烁动画。 | Set the cursor blinking animation. |
-| Tab 宽度 / Tab size | `integer` (1–8) | 设置一个 Tab 对应的空格数。 | Set the number of spaces represented by one tab. |
-| 使用空格缩进 / Insert spaces | `boolean` | 按 Tab 时插入空格而不是制表符。 | Insert spaces instead of a tab character. |
-| 自动检测缩进 / Detect indentation | `boolean` | 打开文件时识别已有缩进，否则使用默认缩进设置。 | Detect indentation when opening files, using configured defaults as a fallback. |
-| 自动换行 / Word wrapping | `off` / `on` / `wordWrapColumn` / `bounded` | 设置代码行的自动换行策略。 | Choose the code-line wrapping policy. |
-| 行号显示 / Line numbers | `on` / `off` / `relative` / `interval` | 设置行号显示方式。 | Choose how line numbers are displayed. |
-| 平滑滚动 / Smooth scrolling | `boolean` | 启用编辑器平滑滚动。 | Enable smooth editor scrolling. |
-| 显示 Minimap / Show minimap | `boolean` | 显示或隐藏代码缩略图。 | Show or hide the code minimap. |
-| Minimap 位置 / Minimap side | `left` / `right` | 把 Minimap 放在编辑器左侧或右侧。 | Place the minimap on the left or right. |
-| Minimap 大小 / Minimap size | `proportional` / `fill` / `fit` | 设置 Minimap 的缩放方式。 | Choose the minimap sizing mode. |
-| 显示空白字符 / Render whitespace | `none` / `boundary` / `selection` / `trailing` / `all` | 选择何时显示空格和制表符标记。 | Choose when spaces and tab markers are rendered. |
-| 当前行高亮 / Current-line highlight | `none` / `gutter` / `line` / `all` | 选择当前行的高亮范围。 | Choose how the current line is highlighted. |
-| 滚过最后一行 / Scroll beyond last line | `boolean` | 允许最后一行滚动到视口中部。 | Allow the final line to scroll above the bottom edge. |
-| 自动保存策略 / Autosave policy | `off` / `afterDelay` / `onFocusChange` / `onWindowChange` | 选择关闭、延迟保存、失焦保存或窗口失焦保存。 | Choose off, delayed, focus-change, or window-change autosave. |
-| 自动保存延迟 / Autosave delay | `integer` (100–60000) | 设置延迟自动保存的毫秒数。 | Set the delayed-autosave interval in milliseconds. |
-| 语义高亮 / Semantic highlighting | `boolean` | 启用语言感知的语义高亮。 | Enable language-aware semantic highlighting. |
-| 括号配色 / Bracket-pair colorization | `boolean` | 用颜色区分嵌套括号。 | Colorize nested bracket pairs. |
-| 保存时格式化 / Format on save | `boolean` | 保存文件时执行可用的格式化。 | Run available formatting when a file is saved. |
-| 粘贴时格式化 / Format on paste | `boolean` | 粘贴代码时执行可用的格式化。 | Run available formatting when code is pasted. |
-| 清理自动空白 / Trim automatic whitespace | `boolean` | 保存时清理自动产生的尾随空白。 | Trim automatically inserted trailing whitespace on save. |
+| 编辑器字体 / Editor font family | `string` | 界面下拉提供系统默认、Fira Code、Noto Sans SC、Consolas、Courier New；也可通过智能体或配置写入任意本机字体族与回退链。 | UI dropdown offers Default, Fira Code, Noto Sans SC, Consolas, and Courier New; custom font stacks and fallbacks can also be set via the Agent or config. |
+| 编辑器字重 / Editor font weight | `normal` / `bold` | 在普通（normal，默认）与粗体（bold）字重之间切换。 | Choose between `normal` (default) and `bold` code font weight. |
+| 编辑器字号 / Editor font size | `integer` (10–32) | 设置代码文字像素大小（范围 10–32 px，默认 14 px）。 | Set code font size in pixels (10–32 px, default 14 px). |
+| 编辑器行高 / Editor line height | `number` (1–3) | 设置代码行高倍数（范围 1.0–3.0，默认 1.5）。 | Set the code line-height multiplier (1.0–3.0, default 1.5). |
+| 编辑器光标样式 / Editor cursor style | `line` / `line-thin` / `block` / `block-outline` / `underline` / `underline-thin` | 选择竖线（line，默认）、实心块（block）、下划线（underline）及对应细线样式。 | Choose `line` (default), `block`, `underline`, `line-thin`, `block-outline`, or `underline-thin`. |
+| 编辑器光标闪烁 / Editor cursor blinking | `blink` / `smooth` / `phase` / `expand` / `solid` | 选择平滑渐变（smooth，默认）、普通闪烁（blink）、柔和（phase）、展开（expand）或常亮（solid）。 | Choose `smooth` (default), `blink`, `phase`, `expand`, or `solid` cursor animation. |
+| Tab 宽度 / Tab size | `integer` (1–8) | 设置一个制表位对应的空格宽度（1–8，默认 4）。 | Set the number of spaces per indentation level (1–8, default 4). |
+| 使用空格缩进 / Insert spaces | `boolean` | 按下 Tab 键时插入空格而非制表符（默认开启）。 | Insert spaces instead of a literal tab character when pressing Tab (on by default). |
+| 自动检测缩进 / Detect indentation | `boolean` | 打开已有文件时自动沿用文件现有缩进风格，仅在无法判断时回退默认设置（默认开启）。 | Automatically adopt an existing file’s indentation on open, falling back to your defaults for new files (on by default). |
+| 自动换行 / Word wrapping | `off` / `on` / `wordWrapColumn` / `bounded` | 选择不换行（off，默认）、按视口换行（on）、按固定列宽换行（wordWrapColumn）或取较小值（bounded）。 | Choose `off` (default), viewport wrap (`on`), `wordWrapColumn`, or `bounded`. |
+| 行号显示 / Line numbers | `on` / `off` / `relative` / `interval` | 选择常规行号（on，默认）、隐藏（off）、相对行号（relative）或每 10 行间隔显示（interval）。 | Choose `on` (default), `off`, `relative`, or 10-line `interval` numbering. |
+| 平滑滚动 / Smooth scrolling | `boolean` | 为代码滚动启用平滑过渡动画（默认开启）。 | Animate vertical scrolling smoothly inside code buffers (on by default). |
+| 显示 Minimap / Show minimap | `boolean` | 显示或隐藏代码侧边全景缩略图（默认开启）。 | Show or hide the code overview minimap (on by default). |
+| Minimap 位置 / Minimap side | `left` / `right` | 将代码缩略图停靠在编辑器右侧（right，默认）或左侧（left）。 | Dock the minimap on the `right` (default) or `left` edge of the editor. |
+| Minimap 大小 / Minimap size | `proportional` / `fill` / `fit` | 选择按比例缩放（proportional，默认）、填满高度（fill）或自适应高度（fit）。 | Choose `proportional` (default), `fill`, or `fit` minimap scaling. |
+| 显示空白字符 / Render whitespace | `none` / `boundary` / `selection` / `trailing` / `all` | 选择仅选区显示（selection，默认）、不显示（none）、行尾/词间边界（boundary）、行尾（trailing）或全部（all）。 | Render spaces and tabs for `selection` only (default), `none`, `boundary`, `trailing`, or `all`. |
+| 当前行高亮 / Current-line highlight | `none` / `gutter` / `line` / `all` | 选择仅高亮代码行（line，默认）、仅行号栏（gutter）、整行（all）或关闭（none）。 | Highlight `line` (default), `gutter`, `all`, or `none` for the active cursor line. |
+| 滚过最后一行 / Scroll beyond last line | `boolean` | 允许将文件末尾继续向上滚动到视口中部（默认关闭，位于“行为”分区）。 | Allow scrolling past the final line of a file (off by default, shown under Behavior in the UI). |
+| 自动保存策略（底层配置） / Autosave policy (config / Agent) | `off` / `afterDelay` / `onFocusChange` / `onWindowChange` | 控制文件自动保存方式：默认延迟保存（afterDelay），也可通过智能体设为关闭（off）、编辑器失焦（onFocusChange）或窗口失焦（onWindowChange）；不在编辑器设置页单独显示开关。 | Controls file autosave (`afterDelay` by default, or `off`, `onFocusChange`, `onWindowChange`); adjustable via the Agent or config rather than shown as a UI toggle on this page. |
+| 自动保存延迟（底层配置） / Autosave delay (config / Agent) | `integer` (100–60000) | 当自动保存设为 `afterDelay` 时的等待毫秒数（默认 1000 ms，可通过智能体或配置修改）。 | Delay in milliseconds when autosave is `afterDelay` (`1000` ms default; adjustable via the Agent or config). |
+| 语义高亮 / Semantic highlighting | `boolean` | 启用基于语言语义的符号着色（默认开启）。 | Enable language-aware semantic token coloring (on by default). |
+| 括号配色 / Bracket-pair colorization | `boolean` | 用不同颜色区分多层嵌套括号，方便快速定位闭合位置（默认开启）。 | Colorize nested bracket pairs to make matching scopes easy to scan (on by default). |
+| 保存时格式化 / Format on save | `boolean` | 保存文件时自动运行可用的代码格式化器（默认开启）。 | Automatically run available code formatters whenever a file is saved (on by default). |
+| 粘贴时格式化 / Format on paste | `boolean` | 粘贴代码片段时自动整理缩进与格式（默认开启）。 | Automatically tidy indentation and formatting when pasting code snippets (on by default). |
+| 清理自动空白 / Trim automatic whitespace | `boolean` | 自动移除换行缩进时残留的多余尾随空格（默认开启）。 | Automatically strip trailing whitespace inserted by auto-indentation (on by default). |
 
 ## 可以直接对智能体说 / Try saying
 
-- “把编辑器字号改成 15”
-  - “Set the editor font size to 15”
+- “把编辑器字号改成 15，开启自动换行”
+  - “Set the editor font size to 15 and turn on word wrap”
+- “关闭编辑器的 Minimap 缩略图”
+  - “Hide the code editor minimap”
+- “把自动保存延迟改成 2000 毫秒”
+  - “Change the editor autosave delay to 2000 ms”
+
+## 实用贴士 / Good to know
+
+- 编辑器页没有显示“自动保存”图形开关并非漏装：系统默认开启 1 秒延迟自动保存（`afterDelay`, `1000 ms`），如果你偏爱手动 `⌘S / Ctrl+S` 才落盘，直接对智能体说“关闭编辑器自动保存”即可。
+  - Wondering why Autosave has no toggle on this page? Delayed autosave (`afterDelay`, `1000` ms) is active under the hood by default — if you prefer strictly manual `⌘S / Ctrl+S` saves, just ask the Agent to set editor autosave to `off`.
+- 当“自动检测缩进”开启时，已有文件会优先沿用文件自身的 2 空格或 Tab 风格；只有新建空文件或无法判断时才会回退到你设定的 Tab 宽度。
+  - While Detect Indentation is enabled, existing files preserve their own 2-space or tab style; your configured Tab Size acts as the fallback for brand-new files.
+- 这里的字号只作用于代码编辑器；想把左侧目录树和聊天气泡的字一起调大，请去“应用与界面 → 外观 → 界面字号”。
+  - Editor Font Size affects code buffers only; to scale sidebar labels and chat messages, adjust UI Font Size in Application & Interface → Appearance.
+
+关联条目 / Related: `feature.files-editor`, `setting.application.appearance`, `setting.application.shortcuts`, `setting.application.terminal`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

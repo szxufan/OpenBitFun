@@ -3,51 +3,82 @@
 id: feature.remote-workspaces
 kind: feature
 category: connect
-title_zh: "远程工作区"
-title_en: "Remote workspaces"
+title_zh: "远程工作区（SSH / Docker / WSL）"
+title_en: "Remote workspaces (SSH, Docker & WSL)"
 ---
 
-# 远程工作区 / Remote workspaces
+# 远程工作区（SSH / Docker / WSL） / Remote workspaces (SSH, Docker & WSL)
 
 > 功能 / Feature
 
-通过 SSH 或容器在远程主机上打开项目，让文件、搜索、终端和智能体都在目标环境执行。
+把项目放在远程 Linux 服务器、Docker 容器或 Windows WSL 中直接打开——你在本机流畅浏览与对话，文件读写、全文搜索、终端命令和智能体工具全部在目标环境原生执行。
 
-Open projects over SSH or in containers so files, search, terminal, and agents all execute in the target environment.
+Open projects directly on a remote SSH server, inside a Docker container, or in Windows WSL—browse and chat smoothly on your machine while file I/O, search, terminals, and agent tools run natively in the target environment.
+
+## 适用场景 / When to use it
+
+- 轻薄本算力有限或缺少 GPU 时，直接连上云端开发机或实验室服务器编译大型 Rust / C++ / 深度学习项目
+  - Develop heavy Rust, C++, or GPU workloads on a cloud VM or lab server without taxing your laptop
+- 服务运行在远端容器的内网端口（如 3000 或 8080），让智能体自动建立端口转发，在本机浏览器直接打开调试
+  - Ask the agent to forward a dev server running on a remote container port so you can preview it on localhost
+- 在 Windows 电脑上直接使用 WSL 里的原生 Linux 工具链开发，无需手动来回同步两套文件系统
+  - Work natively inside a Linux WSL distribution on Windows without copying files across filesystems
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 保存、列出、测试和删除 SSH 连接配置
-  - Save, list, test, and delete SSH connection profiles
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 使用密码、私钥、证书、SSH Config Host 与跳板机连接
-  - Connect with passwords, private keys, certificates, SSH config hosts, and jump hosts
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现远程 Docker 容器并把容器作为工作环境
-  - Discover remote Docker containers and use a container as the work environment
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择 Windows 主机上的 WSL 发行版作为工作区
-  - Choose a WSL distribution on the Windows host as a workspace
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 打开、关闭和移除远程工作区，并读取服务器信息
-  - Open, close, and remove remote workspaces, and inspect server information
-- **由专用智能体工具控制 / Delegated Agent tool** · `LS` / `Read` / `Write` / `Edit` / `Delete` / `Glob` / `Grep` / `ExecCommand` · 浏览、读取、写入、创建、重命名和删除远程文件与目录
-  - Browse, read, write, create, rename, and remove remote files and directories
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 上传本地文件、下载远程文件并取消进行中的传输
-  - Upload local files, download remote files, and cancel active transfers
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` / `WriteStdin` / `ExecControl` · 在目标主机执行命令，让终端、搜索和智能体使用远程数据面
-  - Execute commands on the target so terminals, search, and agents use the remote data plane
-- **由专用智能体工具控制 / Delegated Agent tool** · `PortForward` · 发现远程监听端口并启动、查看或停止端口转发
-  - Discover remote listening ports and start, inspect, or stop port forwarding
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看连接状态并断开单个或全部 SSH 会话
-  - Inspect connection status and disconnect one or all SSH sessions
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 保存、测试与管理常用 SSH 连接配置
+  - Save, test, and manage reusable SSH connection profiles
+  - 说明：把常用的开发机、测试服存为连接配置，打开项目前可一键连通性自检，随时更新或清理旧主机。
+  - Why & how: Save frequently used dev servers as profiles, run one-click connection checks before opening a folder, and edit or remove stale hosts anytime.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 支持密码、私钥、证书、~/.ssh/config 与跳板机登录
+  - Authenticate via passwords, keys, certificates, ~/.ssh/config, and jump hosts
+  - 说明：兼容企业常见的堡垒机/跳板机链路与本地 SSH 配置，密码与私钥通过受保护凭据通道提交，不会暴露给模型。
+  - Why & how: Works with bastion/jump-host chains and existing ~/.ssh/config entries while keeping passwords and private keys inside the protected credential flow.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 自动发现远程 Docker 容器并进入容器内开发
+  - Discover remote Docker containers and work directly inside a container
+  - 说明：连上宿主机后可直接列出运行中的容器，把指定容器作为独立开发环境打开，工具链与依赖完全对齐容器镜像。
+  - Why & how: List running containers on a host and open any container as your active workspace so tools and dependencies match the container image.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在 Windows 上直接把 WSL 发行版作为项目工作区
+  - Open a Windows WSL distribution directly as a Linux workspace
+  - 说明：自动识别本机已安装的 Ubuntu、Debian 等 WSL 发行版，选定 Linux 用户与目录后即可享受原生 Linux 终端与工具体验。
+  - Why & how: Detect installed WSL distributions on Windows and pick your Linux user and folder so terminals and agents run natively inside Linux.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 打开、关闭或移除远程工作区并查看远端系统信息
+  - Open, close, or remove remote workspaces and inspect host details
+  - 说明：在侧边栏清晰区分本地与连接环境项目，随时查看远端系统架构信息，关闭项目不会误删远端磁盘文件。
+  - Why & how: Distinguish local and connected workspaces clearly in the sidebar, check remote OS details, and close workspaces safely without deleting remote files.
+- **由专用智能体工具控制 / Delegated Agent tool** · `LS` / `Read` / `Write` / `Edit` / `Delete` / `Glob` / `Grep` / `ExecCommand` · 在远端文件树直接浏览、搜索、编辑、重命名与删除文件
+  - Browse, search, edit, rename, and delete files directly on the remote host
+  - 说明：无论是你在编辑器里手动改代码，还是让 AI 用 Read / Edit / Grep 搜索修改，所有读写都直接作用于远端文件系统。
+  - Why & how: Both manual edits in the workbench and agent tools like Read, Edit, and Grep operate directly on the remote filesystem.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在本机与远端之间上传、下载文件或压缩包并可随时取消
+  - Upload and download files or archives between local and remote hosts
+  - 说明：支持把本机素材传上服务器，或把远端生成的构建产物、日志打包下载回本地电脑，大文件传输中途可随时取消。
+  - Why & how: Send local assets to the server or download remote build artifacts and logs back to your computer, with live cancellation for large transfers.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` / `WriteStdin` / `ExecControl` · 在远端环境执行构建与长耗时命令并保持交互控制
+  - Run builds and long-running commands natively in the remote environment
+  - 说明：终端与智能体的 ExecCommand 共享远端上下文，支持交互式输入、读取增量输出或在卡住时发送中断信号。
+  - Why & how: Terminals and agent ExecCommand calls run directly on the target host with interactive stdin, live output polling, and clean interrupt signals.
+- **由专用智能体工具控制 / Delegated Agent tool** · `PortForward` · 探测远端监听端口并一键开启或关闭本地端口转发
+  - Detect remote listening ports and start or stop local port forwarding
+  - 说明：不用手敲复杂的 ssh -L 命令，AI 可直接查出远端正在运行的端口并映射到本地，调完随时关闭释放端口。
+  - Why & how: Skip manual ssh -L flags—let the agent list active remote ports, forward the one you need to localhost, and stop it cleanly when done.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看实时 SSH 连接状态，按需断开单个或全部连接
+  - Monitor live SSH connection state and disconnect one or all sessions
+  - 说明：一眼掌握当前远端链路是否在线，切换网络或结束工作后可干净断开指定主机或全部 SSH 会话。
+  - Why & how: Check at a glance whether a remote link is healthy and cleanly disconnect individual or all SSH sessions when switching networks.
 
 ## 怎么用 / How to use it
 
-1. 打开新建项目
-   Open New Project
-2. 选择远程连接方式
-   Choose a remote connection type
-3. 配置主机并测试连接后打开工作区
-   Configure and test the host, then open the workspace
+1. 点击左侧边栏「会话」旁的 + 按钮（或按 ⌘K / Ctrl+K 选择「新建项目」），切换连接方式为 SSH、Docker 容器或 WSL
+   Click + beside Sessions in the left sidebar (or press ⌘K / Ctrl+K → New project) and choose SSH, Docker container, or WSL
+2. 选择已保存的主机或从系统 ~/.ssh/config 导入配置，填写认证信息（支持密码、私钥、证书与跳板机）并测试连接
+   Pick a saved connection or import a host from ~/.ssh/config, enter credentials (password, key, certificate, or jump host), and test the connection
+3. 在远程目录选择器中选定项目文件夹打开工作区，侧边栏和终端即刻切换到目标环境
+   Browse and select the target project folder to open the remote workspace
+4. 像本地项目一样编辑与对话；需要访问远端 Web 服务时，直接让智能体转发对应端口
+   Edit files, run terminals, and collaborate with agents natively on the remote host; ask the agent to forward ports whenever you need local browser access
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 左侧边栏「会话」旁点击 +（添加项目）或按 ⌘K / Ctrl+K → 新建项目 → 选择 SSH / 容器 / WSL / Click + beside Sessions in the left sidebar (or press ⌘K / Ctrl+K → New project) → Choose SSH, Container, or WSL (`⌘K / Ctrl+K`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -63,10 +94,23 @@ Open projects over SSH or in containers so files, search, terminal, and agents a
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开远程项目配置”
-  - “Open remote-project setup”
-- “我想连接一个 SSH 工作区”
-  - “I want to connect to an SSH workspace”
+- “看看远端服务器现在监听了哪些开发端口，帮我把 3000 端口转发到本机”
+  - “Check which dev ports are listening on the remote host and forward port 3000 to my machine”
+- “在当前远程工作区运行测试套件，定位失败用例并直接修复”
+  - “Run the test suite in this remote workspace, find the failing case, and fix it”
+- “帮我连接一个新的 SSH 远程工作区”
+  - “Open remote-project setup so I can connect an SSH workspace”
+
+## 实用贴士 / Good to know
+
+- 绝不静默回退本机：如果 SSH 断线或远端缺少命令，OpenBitFun 会明确提示连接或环境状态，绝不会把远端路径当成本机路径误操作。
+  - No silent local fallback: if SSH drops or a command is missing remotely, OpenBitFun surfaces a clear error rather than running against your local disk.
+- 善用 ~/.ssh/config：已在系统 SSH 配置里写好的 Host 别名、ProxyJump 跳板链和 IdentityFile 可直接识别复用，省去重复填表。
+  - Reuse ~/.ssh/config: host aliases, ProxyJump chains, and IdentityFile entries in your SSH config are discovered automatically.
+- 本机专属能力边界：远程工作区使用 POSIX 路径，不支持本机文件管理器「打开所在文件夹」以及聊天框 @ 选择本机 MCP 服务。
+  - Clear local boundaries: remote workspaces use POSIX paths and intentionally disable local OS file-manager reveal and local @ MCP server picking.
+
+关联条目 / Related: `feature.projects`, `feature.terminal`, `feature.remote-connect`, `feature.detached-dispatch`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

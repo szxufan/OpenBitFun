@@ -677,7 +677,7 @@ pub(super) fn tool_icon(tool_name: &str) -> &'static str {
         "LS" | "list_dir" | "ls" => "\u{2192}",                // →
         "WebFetch" => "%",
         "WebSearch" => "\u{25c8}", // ◈
-        "Task" | "AgentSpawn" => "#",
+        "Task" | "AgentSpawn" | "AgentFork" => "#",
         "HmosCompilation" => "\u{2692}",
         "TodoWrite" => "\u{2699}", // ⚙
         "Skill" => "\u{2192}",     // →

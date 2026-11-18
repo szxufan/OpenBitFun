@@ -58,7 +58,7 @@ export function resolveInteractionAgentSessionId(
   });
   if (projected) return projected.sessionId;
   // A new launch cannot borrow a former session merely by reusing its alias.
-  if (projectEffectiveToolItem(item).toolName === 'AgentSpawn') return '';
+  if (['AgentSpawn', 'AgentFork'].includes(projectEffectiveToolItem(item).toolName)) return '';
   const agentId = toolString(input.agent_id ?? input.agentId) || toolString(result.agent_id ?? result.agentId);
   if (!agentId || !parent) return '';
 
@@ -70,7 +70,7 @@ export function resolveInteractionAgentSessionId(
         if (candidate.id === item.id) return linkedSessionId;
         if (candidate.type !== 'tool') continue;
         const effective = projectEffectiveToolItem(candidate);
-        if (!['Task', 'AgentSpawn', 'AgentSendInput'].includes(effective.toolName)) continue;
+        if (!['Task', 'AgentSpawn', 'AgentFork', 'AgentSendInput'].includes(effective.toolName)) continue;
         const data = readToolRecord(effective.toolResult?.result);
         const params = readInteractionInput(effective);
         if ((toolString(data.agent_id ?? data.agentId) || toolString(params.agent_id ?? params.agentId)) !== agentId) continue;
@@ -79,7 +79,7 @@ export function resolveInteractionAgentSessionId(
             parentSessionId: context.parentSessionId,
             parentToolIds: new Set([candidate.id, candidate.toolCall?.id].filter((id): id is string => Boolean(id))),
           })?.sessionId);
-        if (linked || effective.toolName === 'AgentSpawn') linkedSessionId = linked || '';
+        if (linked || ['AgentSpawn', 'AgentFork'].includes(effective.toolName)) linkedSessionId = linked || '';
       }
     }
   }

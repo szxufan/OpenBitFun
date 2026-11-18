@@ -112,6 +112,28 @@ fn retry_policy_preserves_attempt_limit_and_error_class_contract() {
 }
 
 #[test]
+fn agent_fork_respects_subagent_batch_policy() {
+    assert!(!tool_call_concurrency_safe_for_batch(
+        "AgentFork",
+        false,
+        2,
+        SubagentBatchExecutionPolicy::SafeOnly
+    ));
+    assert!(!tool_call_concurrency_safe_for_batch(
+        "AgentFork",
+        false,
+        2,
+        SubagentBatchExecutionPolicy::Serial
+    ));
+    assert!(tool_call_concurrency_safe_for_batch(
+        "AgentFork",
+        false,
+        2,
+        SubagentBatchExecutionPolicy::ForceParallel
+    ));
+}
+
+#[test]
 fn cancellation_policy_preserves_cancellable_and_terminal_state_contract() {
     assert!(should_cancel_tool_state(ToolTaskStateKind::Queued));
     assert!(should_cancel_tool_state(ToolTaskStateKind::Waiting));

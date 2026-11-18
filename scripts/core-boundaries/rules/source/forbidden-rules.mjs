@@ -1140,7 +1140,7 @@ export const forbiddenContentRules = [
     ],
   },
   {
-    path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/execution.rs',
+    path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/execution.rs',
     patterns: [
       {
         regex: /\bDeepReviewIncrementalCache\b/,

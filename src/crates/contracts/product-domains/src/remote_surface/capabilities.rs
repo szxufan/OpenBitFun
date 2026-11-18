@@ -25,6 +25,7 @@ pub enum PeerHostCapability {
     GenUiLibrariesV1,
     ModelRoutingV1,
     ModelPoolSelectionV1,
+    SubagentModelOverridePolicyV1,
     MagpieDiscoveryV1,
     /// Versioned, execution-host-owned background report decisions are persisted and projected.
     BackgroundResultDeliveryV1,
@@ -99,6 +100,8 @@ pub enum PeerHostCapability {
     ToolCatalog,
     /// Workspace-backed pull request context and detail pages are implemented.
     ReviewPlatformV1,
+    /// `terminal_create` can validate an owning workspace and pin the PTY to the host.
+    HostTerminalWorkspaceV1,
     /// Mode/workspace-scoped `get_chat_mcp_catalog` is implemented.
     ChatMcpCatalogV1,
     /// Workspace references can carry the owning host's persisted ID.
@@ -145,6 +148,7 @@ impl PeerHostCapability {
         Self::GenUiLibrariesV1,
         Self::ModelRoutingV1,
         Self::ModelPoolSelectionV1,
+        Self::SubagentModelOverridePolicyV1,
         Self::MagpieDiscoveryV1,
         Self::BackgroundResultDeliveryV1,
         Self::DialogQueueV1,
@@ -180,6 +184,7 @@ impl PeerHostCapability {
         Self::CancelTool,
         Self::ToolCatalog,
         Self::ReviewPlatformV1,
+        Self::HostTerminalWorkspaceV1,
         Self::ChatMcpCatalogV1,
         Self::WorkspaceIconV1,
         Self::WorkspaceIdReferencesV1,
@@ -204,6 +209,7 @@ impl PeerHostCapability {
             Self::GenUiLibrariesV1 => "gen_ui_libraries_v1",
             Self::ModelRoutingV1 => "model_routing_v1",
             Self::ModelPoolSelectionV1 => "model_pool_selection_v1",
+            Self::SubagentModelOverridePolicyV1 => "subagent_model_override_policy_v1",
             Self::MagpieDiscoveryV1 => "magpie_discovery_v1",
             Self::BackgroundResultDeliveryV1 => "background_result_delivery_v1",
             Self::DialogQueueV1 => "dialog_queue_v1",
@@ -239,6 +245,7 @@ impl PeerHostCapability {
             Self::CancelTool => "cancel_tool",
             Self::ToolCatalog => "tool_catalog",
             Self::ReviewPlatformV1 => "review_platform_v1",
+            Self::HostTerminalWorkspaceV1 => "host_terminal_workspace_v1",
             Self::ChatMcpCatalogV1 => "chat_mcp_catalog_v1",
             Self::WorkspaceIconV1 => "workspace_icon_v1",
             Self::WorkspaceIdReferencesV1 => "workspace_id_references_v1",
@@ -270,6 +277,7 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::GenUiLibrariesV1,
     PeerHostCapability::ModelRoutingV1,
     PeerHostCapability::ModelPoolSelectionV1,
+    PeerHostCapability::SubagentModelOverridePolicyV1,
     PeerHostCapability::MagpieDiscoveryV1,
     PeerHostCapability::BackgroundResultDeliveryV1,
     PeerHostCapability::DialogQueueV1,
@@ -305,6 +313,7 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::CancelTool,
     PeerHostCapability::ToolCatalog,
     PeerHostCapability::ReviewPlatformV1,
+    PeerHostCapability::HostTerminalWorkspaceV1,
     PeerHostCapability::ChatMcpCatalogV1,
     PeerHostCapability::WorkspaceIconV1,
     PeerHostCapability::WorkspaceIdReferencesV1,
@@ -327,6 +336,7 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = &[
 const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::ModelRoutingV1,
     PeerHostCapability::ModelPoolSelectionV1,
+    PeerHostCapability::SubagentModelOverridePolicyV1,
     PeerHostCapability::MagpieDiscoveryV1,
     PeerHostCapability::BackgroundResultDeliveryV1,
     PeerHostCapability::DialogQueueV1,
@@ -473,8 +483,13 @@ mod tests {
         assert!(!cli.contains_key("product_control_presentation_v1"));
         assert!(!cli.contains_key("whole_session_copy_v1"));
         assert!(!cli.contains_key("review_platform_v1"));
+        assert!(!cli.contains_key("host_terminal_workspace_v1"));
         assert_eq!(
             capability_map(PeerHostKind::Desktop).get("review_platform_v1"),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            capability_map(PeerHostKind::Desktop).get("host_terminal_workspace_v1"),
             Some(&Value::Bool(true))
         );
         assert_eq!(

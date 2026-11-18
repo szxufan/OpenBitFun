@@ -2,7 +2,7 @@
 
 use log::{error, warn};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
@@ -106,16 +106,25 @@ impl Default for TerminalState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct HostTerminalWorkspaceTarget {
+    pub root_path: String,
+    pub connection_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSessionRequest {
     #[serde(default)]
     pub workspace_id: Option<String>,
+    /// A workspace snapshot to validate before opening a PTY on the host itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_workspace_target: Option<HostTerminalWorkspaceTarget>,
     pub session_id: Option<String>,
     pub name: Option<String>,
     pub shell_type: Option<String>,
     pub shell_id: Option<String>,
     pub working_directory: Option<String>,
-    /// When set, open a remote PTY on this SSH connection without requiring a
-    /// registered remote workspace (used by Relay Deploy wizard).
+    /// Explicit SSH connection without a workspace, or an empty string for the host.
     pub connection_id: Option<String>,
     pub env: Option<std::collections::HashMap<String, String>>,
     pub cols: Option<u16>,
@@ -550,6 +559,32 @@ async fn spawn_remote_pty_session(
     Ok(response)
 }
 
+fn resolve_terminal_workspace_target(
+    request: &mut CreateSessionRequest,
+    root_path: &Path,
+    connection_id: Option<&str>,
+) -> Result<(), String> {
+    if let Some(expected) = &request.host_workspace_target {
+        if expected.root_path != root_path.to_string_lossy()
+            || expected.connection_id.as_deref() != connection_id
+        {
+            return Err("Terminal owner workspace changed".into());
+        }
+        request.connection_id = Some(String::new());
+        if connection_id.is_some() {
+            // The workspace's directory is on SSH. Use the host shell's default directory.
+            request.working_directory = None;
+            return Ok(());
+        }
+    } else {
+        request.connection_id = Some(connection_id.unwrap_or_default().to_owned());
+    }
+    request
+        .working_directory
+        .get_or_insert_with(|| root_path.to_string_lossy().into_owned());
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn terminal_create(
     _app: AppHandle,
@@ -564,18 +599,17 @@ pub async fn terminal_create(
             .require_workspace(id)
             .await
             .map_err(|e| e.to_string())?;
-        request.connection_id = match workspace.workspace_kind {
+        let connection_id = match workspace.workspace_kind {
             openbitfun_core::service::workspace::WorkspaceKind::Remote => Some(
                 workspace
                     .remote_ssh_connection_id()
-                    .ok_or("Remote workspace is missing its saved SSH connection ID")?
-                    .to_owned(),
+                    .ok_or("Remote workspace is missing its saved SSH connection ID")?,
             ),
-            _ => Some(String::new()),
+            _ => None,
         };
-        request
-            .working_directory
-            .get_or_insert_with(|| workspace.root_path.to_string_lossy().into_owned());
+        resolve_terminal_workspace_target(&mut request, &workspace.root_path, connection_id)?;
+    } else if request.host_workspace_target.is_some() {
+        return Err("Host terminal workspace ID is required".into());
     } else if request.connection_id.is_none() {
         // Upgrade-only pre-ID terminal payload. Never infer a target from cwd.
         let service = openbitfun_core::service::workspace::get_global_workspace_service()
@@ -1098,7 +1132,59 @@ pub fn start_terminal_event_loop(terminal_state: TerminalState, app_handle: AppH
 
 #[cfg(test)]
 mod tests {
-    use super::remote_terminal_signal_bytes;
+    use super::{
+        remote_terminal_signal_bytes, resolve_terminal_workspace_target, CreateSessionRequest,
+    };
+    use serde_json::json;
+    use std::path::Path;
+
+    #[test]
+    fn terminal_workspace_target_rejects_rebound_connection_or_root() {
+        for (root, connection) in [
+            ("/repo", Some("ssh-b")),
+            ("/new-repo", Some("ssh-a")),
+            ("/repo", None),
+        ] {
+            let mut request: CreateSessionRequest = serde_json::from_value(json!({
+                "workspaceId": "workspace-1",
+                "hostWorkspaceTarget": { "rootPath": "/repo", "connectionId": "ssh-a" },
+            }))
+            .unwrap();
+            let error =
+                resolve_terminal_workspace_target(&mut request, Path::new(root), connection)
+                    .unwrap_err();
+            assert_eq!(error, "Terminal owner workspace changed");
+        }
+    }
+
+    #[test]
+    fn ssh_workspace_auth_terminal_uses_the_host_and_discards_the_remote_directory() {
+        let mut request: CreateSessionRequest = serde_json::from_value(json!({
+            "workspaceId": "workspace-1",
+            "hostWorkspaceTarget": { "rootPath": "/repo", "connectionId": "ssh-a" },
+            "workingDirectory": "/repo/src",
+        }))
+        .unwrap();
+        resolve_terminal_workspace_target(&mut request, Path::new("/repo"), Some("ssh-a")).unwrap();
+        assert_eq!(request.connection_id.as_deref(), Some(""));
+        assert!(request.working_directory.is_none());
+        assert_eq!(request.workspace_id.as_deref(), Some("workspace-1"));
+    }
+
+    #[test]
+    fn legacy_workspace_terminal_still_routes_over_ssh() {
+        let mut request: CreateSessionRequest = serde_json::from_value(json!({
+            "workspaceId": "workspace-1",
+        }))
+        .unwrap();
+        assert!(serde_json::to_value(&request)
+            .unwrap()
+            .get("hostWorkspaceTarget")
+            .is_none());
+        resolve_terminal_workspace_target(&mut request, Path::new("/repo"), Some("ssh-a")).unwrap();
+        assert_eq!(request.connection_id.as_deref(), Some("ssh-a"));
+        assert_eq!(request.working_directory.as_deref(), Some("/repo"));
+    }
 
     #[test]
     fn maps_supported_remote_terminal_signals_to_control_bytes() {

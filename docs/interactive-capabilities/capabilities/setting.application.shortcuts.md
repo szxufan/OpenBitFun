@@ -11,25 +11,40 @@ title_en: "Keyboard shortcuts"
 
 > 设置 / Setting
 
-搜索、查看、自定义与重置应用、场景、编辑器和终端快捷键。
+按作用域浏览和搜索全部快捷键，实时录制改键、标红排查冲突、合并改绑数字组键位，并支持单项恢复与全部重置。
 
-Search, browse, customize, and reset app, scene, editor, and terminal shortcuts.
+Browse and search every shortcut by scope, record custom bindings with live conflict checks, remap number-range groups at once, and revert single items or reset all.
+
+## 适用场景 / When to use it
+
+- 刚从 VS Code、JetBrains 或 Vim 迁过来，想快速查清全局搜索（`⌘K / Ctrl+K`）、新建终端（``Ctrl/Cmd+Shift+` ``）或侧边栏折叠默认绑了什么键。
+  - Coming from VS Code or JetBrains and want a quick cheat sheet for Global Search (`⌘K / Ctrl+K`), New Terminal (``Ctrl/Cmd+Shift+` ``), or split-pane navigation.
+- 常用快捷键和本地输入法、截图工具撞车了，点开对应条目按下顺手的新组合键，看没有红色冲突提示后点“应用”即可生效。
+  - Rebind a shortcut that collides with your IME or screenshot tool — press your preferred combo, verify there is no red conflict badge, and click Apply.
+- 想把切标签页统一改成自己习惯的修饰键前缀，只需在“切换编辑器标签（1–9）”录制一次修饰键 + 任意数字，1 到 9 号标签键位会自动整组同步。
+  - Change the modifier prefix for all tab-switching keys at once by recording a single combo on the grouped Switch Editor Tab (`1–9`) row.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 搜索和查看全部应用、场景、编辑器与终端快捷键
-  - Search and browse all app, scene, editor, and terminal shortcuts
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 录制新快捷键、检测冲突、恢复单项或重置全部自定义键位
-  - Record new shortcuts, detect conflicts, revert one binding, or reset all custom bindings
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 搜索和查看全局、智能体会话、代码编辑器、终端与 Git 等全部快捷键
+  - Search and browse all shortcuts across Global, Agent Session, Code Editor, Terminal, and Git scopes
+  - 说明：按作用域清晰分组展示每一项命令的当前按键与默认按键，支持在分区搜索框按命令名称或键位关键词即时过滤。
+  - Why & how: Lists every known shortcut grouped by scope (Global, Agent Session, Editor Canvas, Code Editor, Terminal, File Tree, Git) with instant search filtering.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 录制新快捷键、实时检测冲突、恢复单项或重置全部键位并点击应用保存
+  - Record new shortcuts, detect conflicts live, revert single bindings or reset all, and click Apply to save
+  - 说明：点击键位进入录制模式并按下组合键（按 `Esc` 取消录制）；若与同作用域命令或系统保留键冲突会实时标红提示。确认无冲突后记得点击“应用”正式保存。
+  - Why & how: Click any binding to record a new key chord (`Esc` cancels recording); overlapping bindings or OS-reserved keys highlight in red immediately. Click Apply when done to persist your edits.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“应用与界面 > 快捷键”
-   Go to App & Interface > Keyboard Shortcuts
+1. 打开设置（⌘, / Ctrl+,），进入“应用与界面 → 输入与交互”并滚动到底部“快捷键”分区（或在设置左上角“搜索设置…”直接搜“快捷键”跳转）
+   Open Settings (⌘, / Ctrl+,), go to Application & Interface → Input & Interaction, and scroll to the Keyboard Shortcuts section at the bottom (or search “Shortcuts” in the top-left Search settings box)
+2. 用分区搜索框找到目标操作，点击右侧键位胶囊后按下新的组合键（按 Esc 可放弃本次录制）
+   Filter for an action, click its keycap badge, and press your desired key combination (`Esc` cancels recording)
+3. 确认列表没有红色冲突提示后，点击“应用”按钮使新键位正式生效
+   Verify no red conflict warnings remain, then click Apply so your new bindings take effect
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 应用与界面 → 输入与交互（底部“快捷键”分区） / Settings (⌘, / Ctrl+,) → Application & Interface → Input & Interaction (bottom Keyboard Shortcuts section) (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -47,6 +62,19 @@ Search, browse, customize, and reset app, scene, editor, and terminal shortcuts.
 
 - “打开快捷键设置”
   - “Open keyboard-shortcut settings”
+- “带我查看终端和编辑器的快捷键列表”
+  - “Show me the list of terminal and editor shortcuts”
+
+## 实用贴士 / Good to know
+
+- 改完键位千万别忘了点 **“应用（Apply）”** 按钮！录制过程会先进入待确认草稿区，这样即使不小心按出冲突也不会立刻搞乱当前操作。
+  - Remember to click **Apply** after recording! Recorded edits stage in draft state first so accidental key presses never break your active shortcuts mid-session.
+- 不同作用域之间（例如“终端”内部和“代码编辑器”内部）允许使用相同按键而互不冲突；只有全局快捷键或同一作用域内重名才会被标红拦截。
+  - Shortcuts in separate local scopes (like Terminal vs Code Editor) can safely share the same chord; red conflicts trigger only when Global or same-scope bindings overlap.
+- “切换场景（1–3）”和“切换编辑器标签（1–9）”都是合并组，录一次 `修饰键 + 1` 就会把整串数字键一并改好。
+  - Switch Scene (`1–3`) and Switch Editor Tab (`1–9`) are grouped bindings — record `Modifier + 1` once and the whole number range updates together.
+
+关联条目 / Related: `setting.application.input`, `setting.application.development`, `feature.terminal`, `feature.files-editor`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

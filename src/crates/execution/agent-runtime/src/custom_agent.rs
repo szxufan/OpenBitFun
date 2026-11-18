@@ -20,6 +20,7 @@ pub const DEFAULT_CUSTOM_MODE_TOOLS: &[&str] = &[
     "ExecControl",
     "ExecReadOutput",
     "AgentSpawn",
+    "AgentFork",
     "AgentSendInput",
     "AgentControl",
     "AgentList",

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "digest": "fnv1a64:1d2876942689d395",
+  "digest": "fnv1a64:0f18e798fce0e82c",
   "retiredCommandPrefixes": [
     {
       "prefix": "lsp_",
@@ -12,6 +12,7 @@
       "gen_ui_libraries_v1",
       "model_routing_v1",
       "model_pool_selection_v1",
+      "subagent_model_override_policy_v1",
       "magpie_discovery_v1",
       "background_result_delivery_v1",
       "dialog_queue_v1",
@@ -47,6 +48,7 @@
       "cancel_tool",
       "tool_catalog",
       "review_platform_v1",
+      "host_terminal_workspace_v1",
       "chat_mcp_catalog_v1",
       "workspace_icon_v1",
       "workspace_id_references_v1",
@@ -68,6 +70,7 @@
       "gen_ui_libraries_v1",
       "model_routing_v1",
       "model_pool_selection_v1",
+      "subagent_model_override_policy_v1",
       "magpie_discovery_v1",
       "background_result_delivery_v1",
       "dialog_queue_v1",
@@ -103,6 +106,7 @@
       "cancel_tool",
       "tool_catalog",
       "review_platform_v1",
+      "host_terminal_workspace_v1",
       "chat_mcp_catalog_v1",
       "workspace_icon_v1",
       "workspace_id_references_v1",
@@ -122,6 +126,7 @@
     "cli": [
       "model_routing_v1",
       "model_pool_selection_v1",
+      "subagent_model_override_policy_v1",
       "magpie_discovery_v1",
       "background_result_delivery_v1",
       "dialog_queue_v1",

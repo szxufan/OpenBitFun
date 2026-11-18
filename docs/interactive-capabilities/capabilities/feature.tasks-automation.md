@@ -3,45 +3,70 @@
 id: feature.tasks-automation
 kind: feature
 category: automation
-title_zh: "任务板与定时任务"
-title_en: "Task board & scheduled jobs"
+title_zh: "任务看板与定时任务"
+title_en: "Task Board & Scheduled Jobs"
 ---
 
-# 任务板与定时任务 / Task board & scheduled jobs
+# 任务看板与定时任务 / Task Board & Scheduled Jobs
 
 > 功能 / Feature
 
-集中查看待办事项，并让任务在指定时间或目标主机上持续运行。
+在「任务看板」一处查看计划概览、未来 24 小时待执行列表与月度日历，按单次、固定间隔或自定义 Cron 时间表让智能体自动巡检项目、跑回归或写总结，支持跑在已有会话或每次新建会话。
 
-Track work in one task board and let scheduled jobs run at a chosen time or host.
+Plan and track automated work in the Task Board—view upcoming runs and a monthly calendar, schedule one-time, interval, or custom Cron jobs scoped to a workspace and agent, and run them in an existing thread or a fresh session.
+
+## 适用场景 / When to use it
+
+- 每个工作日早上 9:00 自动检查仓库最新提交、昨晚 CI 结果与未合并 PR，汇总成早报放进项目会话
+  - Every weekday at 9:00 AM, summarize overnight commits, CI status, and open PRs into a morning briefing session
+- 每隔 1 小时运行一次健康巡检脚本，一旦发现接口报错立刻分析日志并定位问题代码
+  - Run a health check every 2 hours on a connected workspace and investigate logs automatically if a check fails
+- 正在写代码怕忘事，随口跟 AI 说“45 分钟后在当前会话提醒我切分支发版”，到点自动唤醒执行
+  - Ask in chat: "In 45 minutes, remind me in this session to tag the release and verify changelog entries"
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按待处理、日历和已停用视图浏览任务
-  - Browse tasks in Pending, Calendar, and Inactive views
-- **由专用智能体工具控制 / Delegated Agent tool** · `Cron` · 创建、编辑、启用、停用和删除定时任务
-  - Create, edit, enable, disable, and delete scheduled jobs
-- **由专用智能体工具控制 / Delegated Agent tool** · `GetTime` / `Cron` · 设置一次性、每日、每周或自定义 Cron 时间表
-  - Choose one-time, daily, weekly, or custom cron schedules
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在日历中预览任务的下一次与后续运行时间
-  - Preview the next and future job occurrences on a calendar
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为任务选择智能体、模型、工作模式和工作区
-  - Choose the agent, model, work mode, and workspace for a job
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 把任务安排在当前主机或已连接的远程目标上运行
-  - Schedule jobs to run on the current host or a connected remote target
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看任务列表并等待桌面 Host 就绪后可靠执行
-  - List jobs and wait for desktop-host readiness before reliable execution
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在计划概览、待执行任务、日历与已暂停/无后续执行列表间清晰管理
+  - Track work across Plan Overview, Scheduled Tasks, Calendar, and Inactive sections
+  - 说明：一眼看到总任务数与 24 小时内即将触发的项，跑完的单次任务或手动暂停的任务会自动归入下方区域不添乱。
+  - Why & how: See total scheduled items and runs due within 24 hours up top, while paused or finished one-time tasks stay neatly grouped below.
+- **由专用智能体工具控制 / Delegated Agent tool** · `Cron` · 创建、编辑、暂停/启用、删除或立即运行定时任务
+  - Create, edit, pause/enable, delete, or immediately trigger scheduled jobs
+  - 说明：无论是点开编辑器细调参数，还是在对话里让 AI 帮你新增、改时间或先手动试跑一次，都能顺畅完成。
+  - Why & how: Manage schedules visually in the Todo editor or ask the agent in chat to add, update, pause, remove, or test-run a job immediately.
+- **由专用智能体工具控制 / Delegated Agent tool** · `GetTime` / `Cron` · 设置单次、固定间隔或自定义 Cron 时间表
+  - Choose one-time, interval, or custom Cron schedule types
+  - 说明：既支持“今天 17:30 跑一次”和“每 2 小时跑一次”，也支持标准 Cron 表达式与时区感知，AI 创建前会先核对当前准确时间。
+  - Why & how: Supports exact one-off timestamps, simple intervals (every N minutes/hours/days), and full timezone-aware Cron expressions verified against live system time.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在月度日历上点选日期，直观预览下一次与未来排期分布
+  - Click any date on the calendar to preview next and future run occurrences
+  - 说明：复杂 Cron 表达式不用自己心算——在日历上直接看到每天排了几项任务，避免多个重任务撞在同一时刻。
+  - Why & how: No mental Cron math required—see daily job counts on the monthly grid and click any date to inspect what will fire when.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为每项任务指定工作区、智能体角色、模型及目标会话方式
+  - Configure the workspace, agent role, model, and session target per job
+  - 说明：你可以让例行巡检每次新建干净的会话，也可以让提醒和跟进消息直接追加到你正在聊的那条会话里。
+  - Why & how: Run recurring checks in fresh sessions each time, or route reminders and follow-ups straight into an existing conversation thread.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 支持为本机工作区或已连接的远程环境安排定时执行
+  - Schedule automated work for local projects or connected remote environments
+  - 说明：任务严格绑定创建时选定的工作区环境，远端环境不可达时明确记录状态，绝不错误落到本机目录执行。
+  - Why & how: Each job stays bound to its owning local or remote workspace context and reports unavailability explicitly rather than running in the wrong folder.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 应用启动就绪后再可靠恢复调度，确保任务环境完整可用
+  - Wait for host runtime readiness on startup before firing due schedules
+  - 说明：桌面端或守护进程启动时会先等核心服务与配置加载完毕再拉起调度器，避免刚开机时环境未就绪导致误报失败。
+  - Why & how: On startup, OpenBitFun waits until core runtime services are initialized before resuming the scheduler so early runs don’t fail half-booted.
 
 ## 怎么用 / How to use it
 
-1. 打开任务板
-   Open the Task Board
-2. 选择待办或定时任务
-   Choose todos or scheduled jobs
-3. 创建任务并确认运行目标与时间
-   Create the job and confirm its target and timing
+1. 点击左侧边栏顶部的「任务看板」（或按 ⌘K / Ctrl+K 选择「打开待办」），先确保已打开一个要绑定执行的工作区
+   Click Task Board near the top of the left sidebar (or press ⌘K / Ctrl+K → Open todos) with a target workspace open
+2. 点击右上角「新建待办」，填写任务名称、要交给 AI 执行的提示词，并选择智能体模式与目标会话方式（已有会话 / 新建会话）
+   Click New Todo, enter a clear task name and prompt, and choose the agent mode and session target (Existing session vs New session)
+3. 选择计划类型：单次（指定具体时间）、间隔（每 N 分钟/小时/天）或 Cron 表达式，保存并启用任务
+   Pick a schedule kind—One-time, Interval (every N minutes/hours/days), or Cron—then save and enable the task
+4. 在右侧日历点击任意日期预览排期，或随时暂停、编辑、手动立即触发运行
+   Click any day on the Calendar to preview scheduled runs, or pause, edit, or trigger a run anytime
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 左侧边栏顶部「任务看板」，或按 ⌘K / Ctrl+K → 打开待办（单项目定时任务也可在「项目资源」管理） / Left Sidebar → Task Board, or press ⌘K / Ctrl+K → Open todos (project-scoped jobs also live in Project Resources) (`⌘K / Ctrl+K`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -57,10 +82,23 @@ Track work in one task board and let scheduled jobs run at a chosen time or host
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开任务板”
-  - “Open the task board”
-- “带我去看定时任务”
-  - “Take me to scheduled jobs”
+- “每天早上 9 点帮我检查这个仓库的失败测试并生成汇总报告”
+  - “Every morning at 9 AM, check failing tests in this repo and write a short summary”
+- “每 30 分钟巡检一次开发服接口状态，有问题就在当前会话告诉我”
+  - “Check the staging API health every 30 minutes and post in this session if anything breaks”
+- “列出我目前所有的定时任务，把周报那个任务先暂停”
+  - “List all my scheduled jobs and pause the weekly report job for now”
+
+## 实用贴士 / Good to know
+
+- 保持执行宿主在线：定时任务由所属主机（打开中的桌面端，或在后台运行 `openbitfun daemon` 的 CLI）按时触发；电脑关机期间不会隔空运行，重新启动后会恢复后续计划。
+  - Keep the host running: schedules fire on the owning machine (an open Desktop app or `openbitfun daemon` on CLI); if the machine was asleep, scheduling resumes cleanly once it starts again.
+- 单次失败不盲目死循环重试：某次定时触发若因模型网络或环境报错失败，会如实记录状态并等待下一次计划时间，不会无限刷爆你的 Token。
+  - No runaway retry storms: if a scheduled occurrence fails, OpenBitFun records the failure cleanly rather than endlessly retrying and burning tokens.
+- 助理也有专属日程：在「个人助理」详情页和「项目资源」页，都可以只看归属于该助理或该项目的定时任务。
+  - Scoped views everywhere: both Personal Assistant pages and Project Resources show filtered views of just the jobs owned by that assistant or project.
+
+关联条目 / Related: `feature.personal-assistants`, `feature.projects`, `setting.tools.automation`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

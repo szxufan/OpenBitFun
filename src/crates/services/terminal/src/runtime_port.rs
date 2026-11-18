@@ -159,6 +159,7 @@ fn local_write_stdin_request(request: TerminalWriteStdinRequest) -> WriteStdinRe
         append_enter: request.append_enter,
         yield_time_ms: request.yield_time_ms,
         max_output_chars: request.max_output_chars,
+        wait_interrupt: request.wait_interrupt,
     }
 }
 
@@ -183,6 +184,7 @@ fn terminal_exec_command_response(response: ExecCommandResponse) -> TerminalExec
         session_id: response.session_id,
         exit_code: response.exit_code,
         original_output_chars: response.original_output_chars,
+        wait_interrupted: response.wait_interrupted,
         completion: response.completion.map(terminal_completion),
     }
 }
@@ -260,6 +262,69 @@ mod tests {
         RuntimeServiceCapability, RuntimeServicePort, TerminalExecCommandRequest,
         TerminalExecSessionCompletionStatus, TerminalPort, TerminalSendStdinRequest,
     };
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn write_stdin_wait_interrupt_preserves_live_pty_and_submitted_input() {
+        use openbitfun_runtime_ports::TerminalWriteStdinRequest;
+        use std::{sync::Arc, time::Duration};
+        use tokio_util::sync::CancellationToken;
+
+        let manager = Arc::new(crate::exec::ExecProcessManager::default());
+        let port = TerminalRuntimePort::new(manager.clone());
+        let initial = port.exec_command(TerminalExecCommandRequest {
+            argv: vec!["sh".into(), "-c".into(),
+                "read first; printf 'first:%s\\n' \"$first\"; read second; printf 'second:%s\\n' \"$second\"".into()],
+            cwd: std::env::current_dir().unwrap(), env: Default::default(), tty: true,
+            yield_time_ms: Some(0), max_output_chars: None,
+            lifecycle_sink: None, output_sink: None,
+        }).await.unwrap();
+        let session_id = initial.session_id.unwrap();
+        let token = CancellationToken::new();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+        let request = TerminalWriteStdinRequest {
+            session_id,
+            chars: "one".into(),
+            append_enter: true,
+            yield_time_ms: Some(600_000),
+            max_output_chars: None,
+            wait_interrupt: Some(token.clone()),
+        };
+        let (response, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(port.write_stdin_streaming(request, tx), async {
+                let mut output = String::new();
+                while !output.contains("first:one") {
+                    output.push_str(&rx.recv().await.unwrap());
+                }
+                token.cancel();
+            })
+        })
+        .await
+        .unwrap();
+        let response = response.unwrap();
+        assert!(response.wait_interrupted);
+        assert!(response.output.contains("first:one"));
+        assert_eq!(response.session_id, Some(session_id));
+        assert_eq!(response.exit_code, None);
+        assert!(manager.is_session_active(session_id).await);
+
+        let last = port
+            .write_stdin(TerminalWriteStdinRequest {
+                session_id,
+                chars: "two".into(),
+                append_enter: true,
+                yield_time_ms: Some(5_000),
+                max_output_chars: None,
+                wait_interrupt: None,
+            })
+            .await
+            .unwrap();
+        assert!(!last.wait_interrupted);
+        assert!(last.output.contains("second:two"));
+        assert!(!last.output.contains("first:one"));
+        assert_eq!(last.exit_code, Some(0));
+        assert_eq!(last.session_id, None);
+    }
 
     #[test]
     fn terminal_runtime_port_reports_terminal_capability() {

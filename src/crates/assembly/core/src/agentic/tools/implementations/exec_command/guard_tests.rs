@@ -31,6 +31,7 @@ struct FixtureTerminal {
 }
 fn response(output: String, code: i32) -> TerminalExecCommandResponse {
     TerminalExecCommandResponse {
+        wait_interrupted: false,
         chunk_id: "fixture".into(),
         wall_time_seconds: 0.0,
         original_output_chars: output.chars().count(),

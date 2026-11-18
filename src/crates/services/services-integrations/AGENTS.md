@@ -179,6 +179,19 @@ they do not prove live SSH/Peer/relay behavior.
 
 ## Verification
 
+For remote ExecCommand/WriteStdin output waits, steering, split UTF-8 cursors
+and runtime-port conversion:
+
+```bash
+cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::remote_exec
+```
+
+Wait interruption commits the output cursor and leaves the remote process and
+already submitted input intact. Preserve partial UTF-8 bytes across polls and
+use the drained closure snapshot for session cleanup. These fixtures use the
+remote manager with simulated transport and local process owners; they do not
+establish live SSH, Peer Device, relay or Detached Dispatch behavior.
+
 Select one integration family and its minimum feature set. Remote SSH uses a
 grouped target for tests within the same boundary; use
 `--test <target> <module>::<filter>` for a single source module instead of

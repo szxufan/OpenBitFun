@@ -3,55 +3,90 @@
 id: feature.browser
 kind: feature
 category: workspace
-title_zh: "内置浏览器"
-title_en: "Built-in browser"
+title_zh: "内置浏览器与网页元素拾取"
+title_en: "Built-in browser & element picker"
 ---
 
-# 内置浏览器 / Built-in browser
+# 内置浏览器与网页元素拾取 / Built-in browser & element picker
 
 > 功能 / Feature
 
-在 OpenBitFun 内打开网页和本地服务；智能体可直接读取页面、选择元素并点击、填写、滚动或截图。
+在会话旁并排预览本地开发服务与文档网页：点一下「元素选择器」就能把页面上的 DOM 节点抓进聊天框改样式，也能让智能体直接在页面上点击、填表、滚动和截图验证。
 
-Open webpages and local services inside OpenBitFun, where an agent can inspect the page and select, click, fill, scroll, or capture elements directly.
+Preview local dev servers and web pages right beside your chat: click any DOM node with the Element Picker to send its exact selector and HTML into your prompt, or let the agent click, fill forms, scroll, and capture screenshots.
+
+## 适用场景 / When to use it
+
+- 页面上某个间距歪了或按钮颜色不对，但你不知道它叫什么组件名：点一下内置浏览器工具栏的「元素选择器」，在那个按钮上点一下，它的完整 CSS 路径和 HTML 就自动挂进了聊天框，直接说「把这个按钮改成圆角主色」就搞定！
+  - Spotted a misaligned card on localhost but don’t know which component owns it? Click the Element Picker icon, click the card on the page, and tell the Agent "Add 16px padding and fix the hover border on this element."
+- 刚让智能体写完一个注册表单，想验证交互逻辑通不通：直接说「在内置浏览器打开 `http://localhost:3000/signup`，填一组测试数据提交看看有没有报错」。
+  - Just built a multi-step checkout form? Ask the Agent to open `http://localhost:3000` in the built-in browser, fill out the fields, click submit, and verify the confirmation state.
+- 连接了 SSH 远程工作区并在服务器上跑起了 Web 服务：先让智能体把远端监听端口转发回本地（PortForward），再在内置浏览器里实时预览与调试。
+  - Need to automate a site where you are already logged in? Connect your external Chrome/Edge browser in Settings → Browser & Desktop Control instead of re-entering credentials.
 
 ## 完整功能清单 / Everything included
 
 - **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 输入完整网址、本地域名或开发服务端口并在 OpenBitFun 内打开
   - Open full URLs, local hostnames, or development-service ports inside OpenBitFun
-- **由专用智能体工具控制 / Delegated Agent tool** · `WebSearch` / `WebFetch` · 让智能体搜索网页并按需读取指定页面正文
-  - Let an agent search the web and fetch selected page content on demand
-- **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 使用后退、前进和地址栏浏览页面历史
-  - Navigate page history with Back, Forward, and the address bar
-- **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 刷新页面，并同步当前 URL、加载状态与错误提示
-  - Reload pages and synchronize the current URL, loading state, and errors
+  - 说明：支持直接输入 `localhost:5173`、局域网预览地址、外部文档链接，或直接预览工作区内的本地 HTML 文件。
+  - Why & how: Enter `localhost:5173`, LAN preview hosts, public documentation URLs, or open local HTML files right inside OpenBitFun.
 - **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 既可作为独立浏览器场景，也可在会话旁的辅助面板中打开
   - Use the browser as a standalone scene or an auxiliary panel beside a session
+  - 说明：当你在会话中呼出浏览器时，它会自动停靠在对话旁边的分栏里，方便边聊边看实时渲染效果；也可拖拽到顶部成为独立场景标签。
+  - Why & how: Opens automatically in the split pane beside an active chat for side-by-side UI iteration, or runs as a full-width scene tab.
 - **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 启动元素选择器，悬停时高亮页面元素并显示标签、ID 和 Class
   - Start the element picker to highlight hovered elements and show tag, ID, and class details
+  - 说明：点击浏览器地址栏旁的拾取按钮进入指哪打哪模式，鼠标移过之处会实时浮现半透明蓝色高亮框与节点标签信息。
+  - Why & how: Click the inspector button in the browser toolbar to hover over live DOM nodes with a blue highlight overlay showing tag, ID, and class names.
 - **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 点击元素后捕获 CSS 路径、属性、文本和 HTML，并加入当前会话上下文
   - Click an element to capture its CSS path, attributes, text, and HTML into the current session context
+  - 说明：点选目标元素后无需手动复制粘贴选择器，节点特征会自动变成上下文标签插入你正在编写的聊天草稿中。
+  - Why & how: Clicking a highlighted element automatically inserts a structured context chip with its CSS selector, attributes, text, and outerHTML into your chat composer.
 - **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 再次点击选择按钮或按 Esc 取消元素选择并清理高亮
   - Click the picker again or press Escape to cancel selection and remove overlays
+  - 说明：不想选了随时按一下 Esc 或再点一次拾取图标，页面立即恢复正常点击与滚动交互。
+  - Why & how: Press Escape or click the picker button again anytime to clear highlight overlays and return to normal page interaction.
 - **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` / `Playbook` · 让智能体对内置网页执行快照、读取、点击、悬停、填写、按键、滚动、等待、脚本求值和截图
   - Let an agent snapshot, read, click, hover, fill, press keys, scroll, wait, evaluate scripts, and capture the built-in page
+  - 说明：智能体可以先观察页面结构拿到精确的元素引用，再模拟真实用户操作走完端到端流程并截图验收。
+  - Why & how: Agents inspect structured page snapshots, interact with current element refs, run scripts, and capture screenshots to verify end-to-end UI flows.
+- **由专用智能体工具控制 / Delegated Agent tool** · `WebSearch` / `WebFetch` · 让智能体搜索公开网页并按需抓取指定页面正文用于技术查证
+  - Let an agent search the web and fetch clean article text on demand for fast research
+  - 说明：只需查公开 API 文档或报错信息时，智能体会用轻量的网页搜索与正文抓取快速核实，不必每次大动干戈拉起可视浏览器。
+  - Why & how: When checking public docs or error messages that don’t need clicks or login state, the Agent uses fast WebSearch + WebFetch instead of spinning up a browser window.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 使用后退、前进和地址栏顺畅浏览页面访问历史
+  - Navigate page history with Back, Forward, and the address bar
+  - 说明：具备熟悉的浏览器前进、后退与地址输入体验，方便在多级路由页面间来回验证。
+  - Why & how: Move back and forth across client-side and multi-page routes with standard address-bar and history controls.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 一键刷新页面，并实时同步当前 URL、加载进度与错误提示
+  - Reload pages and synchronize the live URL, loading state, and error feedback
+  - 说明：当开发服务器还没启动完成或端口填错时，会给出清晰的加载状态与错误反馈，改好后点刷新即可重连。
+  - Why & how: Surfaces clear loading indicators and connection errors while dev servers boot up, with one-click reload when ready.
 - **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 内置 WebView 与外部 CDP 浏览器共用同一套 BrowserActions 参数、元素引用、结果与错误契约
   - Use one BrowserActions parameter, element-ref, result, and error contract across the built-in WebView and external CDP browsers
+  - 说明：无论目标选内置浏览器还是你本机的外部 Chrome/Edge，智能体的操作方式完全一致，行为稳定可预期。
+  - Why & how: Whether targeting the built-in WebView or an external Chrome/Edge instance over CDP, the Agent uses the exact same action semantics and error reporting.
 - **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 通过 target 选择内置或外部浏览器，并用 session_id、URL 或标题精确定位页面
   - Choose the built-in or external browser with target and locate a page by session_id, URL, or title
-- **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 桌面端使用原生 WebView，Web 端回退到受限 iframe，并在当前页打开新窗口链接
-  - Use a native WebView on desktop, a sandboxed iframe on web, and open new-window links in place
+  - 说明：同时开了多个预览标签也不怕点错窗口：智能体会按会话 ID、网址或页面标题精准锁定你要操作的那一页。
+  - Why & how: Targets the exact open tab you mean by session ID, URL, or page title so automation never clicks into the wrong browser tab.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ControlHub` · 桌面端采用独立原生 WebView 渲染，Web 端回退受限 iframe，并在当前页接管新窗口链接
+  - Render with a native WebView on desktop and a sandboxed iframe on web, opening new-window links cleanly in place
+  - 说明：桌面端原生 WebView 不受普通网页跨域 iframe 拦截限制；页面内带有 `target="_blank"` 的跳转也会自动留在当前面板打开，不会乱弹外部窗口。
+  - Why & how: Desktop uses a native WebView (avoiding typical X-Frame-Options blocks) and intercepts `target="_blank"` links so navigation stays neatly inside your panel.
 
 ## 怎么用 / How to use it
 
-1. 打开浏览器并输入网址或本地端口
-   Open Browser and enter a URL or local port
-2. 直接告诉智能体要在页面上完成什么
-   Tell the agent what to accomplish on the page
-3. 智能体先读取页面，再用元素引用执行操作
-   The agent inspects the page, then acts through element refs
+1. 在打开会话的状态下按 ⌘K / Ctrl+K 搜索「打开浏览器」（或直接对智能体说「在内置浏览器打开 http://localhost:3000」）
+   With a session open, press ⌘K / Ctrl+K and select Open browser (or simply ask the Agent to "Open http://localhost:3000 in the built-in browser")
+2. 在右侧浏览器面板输入本地开发地址或网页 URL 预览画面
+   Enter your local dev server port or webpage URL in the address bar beside your chat
+3. 想修改页面某处细节时，点击地址栏旁的「元素选择器」图标，再点击页面上的目标元素，把选择器上下文带入聊天框
+   To tweak a specific UI element, click the Element Picker icon in the browser toolbar and click the target element on the page to attach its context chip
+4. 描述你想修改的样式或交互，或者直接让智能体替你在页面上点击、填表并截图验证改动效果
+   Tell the Agent how to restyle or fix it — or ask the Agent to click through, fill forms, and verify the updated page automatically
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 按 ⌘K / Ctrl+K 搜索「打开浏览器」（会话激活时自动在右侧辅助分栏打开，其他时候作为独立场景打开） / Press ⌘K / Ctrl+K and choose Open browser (opens in the split pane beside an active session, or as a standalone scene) (`⌘K → 打开浏览器 · Esc（退出拾取）`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -69,12 +104,23 @@ Open webpages and local services inside OpenBitFun, where an agent can inspect t
 
 ## 可以直接对智能体说 / Try saying
 
-- “在内置浏览器打开这个网址，然后找到登录按钮”
-  - “Open this URL in the built-in browser and find the sign-in button”
-- “读取当前内置网页并填写这个表单”
-  - “Inspect the current built-in page and fill this form”
-- “用内置浏览器点开搜索结果并总结页面”
-  - “Use the built-in browser to open the search result and summarize the page”
+- “在内置浏览器打开 http://localhost:5173，帮我测一下登录表单空提交时的错误提示对不对”
+  - “Open http://localhost:5173 in the built-in browser and test whether submitting an empty sign-in form shows validation errors”
+- “读取当前内置浏览器打开的文档页面，帮我总结核心配置参数”
+  - “Read the documentation page currently open in the built-in browser and summarize the required config fields”
+- “我刚用元素选择器选中了顶栏按钮，帮我把它的内边距调紧凑一点并在深色模式下加深边框对比度”
+  - “Using the navbar button I just picked with the element picker, tighten its padding and improve its dark-mode border contrast”
+
+## 实用贴士 / Good to know
+
+- 想更改聊天消息里点击普通网页链接时的默认打开方式（用「内置浏览器」打开还是跳去「系统默认浏览器」），可前往「设置 → 工具与集成 → 浏览器与桌面控制」。
+  - Prefer links clicked in chat to open in your system browser instead of the built-in browser (or vice versa)? Toggle link behavior in Settings → Tools & Integrations → Browser & Desktop Control.
+- 涉及需要登录企业内网 SSO 或第三方账号的网页自动化时，不必在内置浏览器里重新登录——去「设置 → 工具与集成 → 浏览器与桌面控制」连接你平时已登录的 Chrome / Edge 浏览器最省事。
+  - Working with pages behind corporate SSO or personal logins? Connect your everyday Chrome or Edge browser in Browser & Desktop Control settings so the Agent reuses your authorized session.
+- 如果开发服务跑在 SSH 远程服务器上，记得先让智能体用端口转发（PortForward）把远端端口映射到本地，再用内置浏览器访问。
+  - If your dev server is running inside an SSH remote workspace, ask the Agent to forward the remote port first (`PortForward`), then preview it locally in the built-in browser.
+
+关联条目 / Related: `feature.computer-use`, `setting.tools.browser-control`, `setting.tools.web-search`, `feature.remote-workspaces`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

@@ -411,7 +411,7 @@ export class SubagentStreamCoordinator {
 
   private static isOwnerToolName(rawName: string): boolean {
     const name = rawName.trim().replace(/[\s-]/g, '_').toLowerCase();
-    return name === 'task' || name === 'agentspawn';
+    return name === 'task' || name === 'agentspawn' || name === 'agentfork';
   }
 
   private static ownerData(event: HostSessionEvent): SubagentOwnerItemData | undefined {

@@ -255,6 +255,8 @@
   &__inline-item-trailing {
     display: grid;
     flex: 0 0 var(--openbitfun-space-5);
+    grid-template-rows: minmax(0, 1fr);
+    place-content: center;
     place-items: center;
     inline-size: var(--openbitfun-space-5);
     block-size: var(--openbitfun-space-5);
@@ -262,6 +264,7 @@
 
   &__inline-item-status {
     grid-area: 1 / 1;
+    line-height: 0;
     pointer-events: none;
 
     .openbitfun-nav-panel__inline-item:hover &,

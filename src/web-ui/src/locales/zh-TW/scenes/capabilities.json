@@ -34,199 +34,226 @@
     },
     "capabilities": {
       "feature": {
-        "ai-assistant": {
-          "title": "AI 助手與工作階段",
-          "summary": "在項目上下文中與 AI 協作，創建工作階段、繼續任務、處理權限請求，並保留完整的工作記錄。",
+        "home-search": {
+          "title": "首頁、全域搜尋與分欄工作台",
+          "summary": "從首頁總覽快速進入常用資產與裝置，按 ⌘K / Ctrl+K 一鍵搜尋訊息、檔案、命令與設定，並用雙欄工作台或懸浮窗自由組織螢幕空間。",
           "items": {
-            "create-session": "打開並新建一個 AI 工作階段",
-            "session-lifecycle": "重命名、歸檔、恢復、刪除、複製、分叉與導出工作階段",
-            "model-mode-permissions": "為工作階段選擇模型、工作模式、記憶模式與權限模式",
-            "creative-frontend-authoring": "讓創造模式擴展客戶端界面與運行時能力",
-            "image-generation": "透過已設定的預設圖像模型生成圖片",
-            "office-document-generation": "使用 GenOfficeFile 建立並編輯 Word、Excel 和 PowerPoint 檔案",
-            "turn-control": "開始、引導、打斷、取消或恢復一次智能體運行",
-            "permission-mailbox": "查看並逐個或批量回答等待中的權限請求",
-            "history-search": "分頁加載、搜索和回填歷史消息與工作階段內容",
-            "session-storage-directory": "從工作區或工作階段菜單打開工作階段存儲目錄，用於備份與手動排障",
-            "agent-session-coordination": "讓智能體創建、列出、取消、刪除工作階段或向另一工作階段發送消息",
-            "mcp-mentions": "在對話中通過 @ 選擇當前模式可用的 MCP 服務",
-            "tool-activity": "查看工具調用與後台命令，讀取輸出並繼續輸入或停止",
-            "goals": "查看、創建並完成或阻塞當前工作階段目標",
-            "goal-maintenance": "編輯目標說明或清除當前工作階段目標",
-            "working-plan": "讓智能體維護任務清單、生成實施計劃並按需向用戶提問",
-            "usage": "查看單個工作階段的請求、Token 與成本用量報告",
-            "context-memory": "重新加載工作階段上下文、運行 AGENTS.md 初始化並管理長期記憶",
-            "btw-editor-ai": "使用 BTW 輕量問答與編輯器內聯 AI，並可隨時取消"
+            "home-overview": "在「首頁」總覽活躍度熱力圖、已關聯裝置，並快捷啟動智能體、助理、小應用與技能",
+            "global-search": "用全域搜尋（⌘K / Ctrl+K 或 Alt+F）跨專案檢索訊息、檔案、功能與設定，或輸入 > 執行命令",
+            "split-workbench": "在雙欄工作台中並排查看工作階段與程式碼/終端，拖拽移動分頁或使用分屏快捷鍵",
+            "sidebar-pins": "自訂左側邊欄固定入口與順序，並固定常用的 Mini App 快捷圖示",
+            "floating-window": "一鍵切換到輕量「懸浮窗模式」，在其他應用上方隨時發起對話或恢復主視窗"
+          }
+        },
+        "ai-assistant": {
+          "title": "AI 工作階段與多模式協作",
+          "summary": "圍繞專案開展持久對話：按任務挑選「標準 / 極致 / 辦公協作 / 深度研究 / 論文寫作 / 電腦操作 / 創造」等模式，用 @ 掛載檔案與歷史工作階段、用 /goal 持續推進目標，還能直接生成圖片與 Office 文件。",
+          "items": {
+            "create-session": "打開工作階段場景並快速新建一個 AI 工作階段",
+            "session-lifecycle": "篩選、重新命名、複製、從任意輪次分叉（Fork）、歸檔恢復與匯出工作階段記錄",
+            "model-mode-permissions": "按工作階段自由切換模型、思考強度、內建工作模式、記憶開關與審批模式",
+            "composer-context-slash": "在輸入框用 @ 掛載檔案、目錄、歷史工作階段與技能，並用 / 或 $ 觸發斜槓指令",
+            "mcp-mentions": "在對話中透過 @ 選擇當前模式可用的 MCP 服務",
+            "selection-annotations-sideask": "劃選對話文字新增多條編號「批註」合併提交，或發起不打亂主線的「側邊提問」",
+            "turn-control": "在智能體執行中隨時插話引導（Steer）、管理待發送佇列、按 Esc 中斷或恢復異常輪次",
+            "permission-mailbox": "審閱工具與命令權限請求：支援允許一次、記住專案範圍、批次放行或附理由拒絕",
+            "goals": "用 /goal 建立跨輪次持久工作階段目標，讓智能體自主推進直到真正達成",
+            "goal-maintenance": "在工作階段頂部目標列隨時修改目標描述或清除當前目標",
+            "working-plan": "讓智能體拆解待辦進度、編寫 .openbitfun/plans 實施計劃，並在關鍵分岔點向你提問確認",
+            "btw-editor-ai": "用 /btw（或 Ctrl+Alt+B）隨手發起臨時「側問」，以及在程式碼編輯器中使用內聯 AI",
+            "creative-frontend-authoring": "切換到「創造（Creative）」模式，安全自訂正在執行的 OpenBitFun 介面與互動能力",
+            "image-generation": "透過已設定的預設圖像模型在對話中直接生成配圖與素材",
+            "office-document-generation": "用 GenOfficeFile 免安裝 Office 建立並編輯 Word、Excel 與 PowerPoint 文件",
+            "tool-activity": "展開工具膠囊查看呼叫詳情，並查看、輸入或終止正在背景執行的命令",
+            "usage": "點擊上下文與用量徽章，透視系統提示詞、規則、技能、MCP 與對話的 Token 構成及快取命中率",
+            "context-memory": "用 /compact 壓縮長對話、用 /init 生成專案 AGENTS.md 規範、熱重載上下文或管理長期記憶",
+            "history-search": "按頁回溯超長歷史工作階段，或讓智能體跨工作階段檢索過往討論與決策記錄",
+            "agent-session-coordination": "讓智能體跨工作區列出、新建工作階段，或把子任務交給另一個持久工作階段接力完成",
+            "session-storage-directory": "從專案或工作階段右鍵選單一鍵打開本機工作階段儲存目錄，方便手動備份或排查"
           }
         },
         "agents": {
-          "title": "智能體管理",
-          "summary": "管理內置、自定義和子智能體，讓不同角色分工處理研究、編碼、評審等任務。",
+          "title": "智能體管理與並行子智能體",
+          "summary": "查看和自訂不同專長的智能體角色，按需裁剪每個角色的工具與 Skills 邊界，並讓主智能體在複雜任務中自動派生多個子智能體並行調研、編碼與審查。",
           "items": {
-            "browse-agents": "查看內置、用戶、項目與當前環境可見的智能體",
-            "custom-agent-create": "創建自定義智能體並設定名稱、說明和角色",
-            "custom-agent-manage": "讀取、編輯、重新加載或刪除自定義智能體",
-            "subagent-manage": "創建、配置、查看和刪除可委派的子智能體",
-            "capability-summary": "查看每個智能體的工具、Skills、只讀狀態和能力摘要",
-            "tools-skills": "按智能體選擇工具組、單個工具、Skill 組與 Skills",
-            "delegation": "讓主智能體委派並行研究、編碼和評審任務並協調生命週期"
+            "browse-agents": "按內建、個人、專案與外部來源分類瀏覽當前環境可用的全部智能體",
+            "custom-agent-create": "建立自訂主對話智能體，設定專屬名稱、職責說明與系統提示詞",
+            "custom-agent-manage": "查看詳情、隨時微調提示詞、熱重載設定或刪除不再需要的自訂智能體",
+            "subagent-manage": "建立與維護可被主智能體自動委派的個人級或專案級子智能體",
+            "capability-summary": "懸停或點開智能體卡片，透視它的可用工具清單、Skills 與唯讀安全限制",
+            "tools-skills": "按智能體精細開關工具組、單個工具與 Skills，並隨時一鍵恢復預設設定",
+            "delegation": "由主智能體自動派生並行子智能體協同調研、編碼與審查，並統一彙總結果"
           }
         },
         "personal-assistants": {
-          "title": "個人助理",
-          "summary": "在助理空間中創建和管理自己的長期 AI 助理，定義身份與人設，並從同一處開始工作階段或安排定時任務。",
+          "title": "個人助理（長期人設與專屬空間）",
+          "summary": "擁有獨立工作區、長期記憶與鮮明性格的隨身 AI 夥伴：不局限於單個程式碼倉庫，可隨時陪你梳理日常事務、撰寫文件、跟進長期計劃並執行專屬定時任務。",
           "items": {
-            "assistant-gallery": "瀏覽已有助理、創建新助理並查看每個助理的身份與能力概覽",
-            "assistant-open-close": "關閉側欄中的助理並取消正在運行的工作階段，保留配置和歷史，之後從助理空間重新打開",
-            "primary-delete-reset": "設為主助理、刪除非主助理，或將助理工作區重置為預設狀態",
-            "identity-avatar": "編輯助理名稱、角色類型和氣質，並選擇官方頭像、Emoji 或自定義頭像字符",
-            "persona-documents": "讀取和編輯 IDENTITY.md、SOUL.md 與 USER.md，並自動保存 Markdown 正文和 Frontmatter",
-            "assistant-sessions": "在助理詳情中選擇模型、輸入消息並查看該助理的歷史工作階段",
-            "assistant-schedules": "查看和管理僅屬於當前助理工作區的定時工作階段與自動任務"
+            "assistant-gallery": "在助理空間一覽全部個人助理、查看人設與能力摘要，並一鍵建立新助理",
+            "assistant-open-close": "把暫時不用的助理從側邊欄收起（完整保留人設與歷史），需要時隨時重新打開",
+            "primary-delete-reset": "將最常用的夥伴設為「主助理」、刪除不再需要的副助理，或一鍵重置為初始狀態",
+            "identity-avatar": "自訂助理暱稱、角色設定與說話氣質，並挑選官方插畫頭像、Emoji 或自訂字元",
+            "persona-documents": "直接編輯自動儲存的 IDENTITY.md、SOUL.md 與 USER.md，用透明 Markdown 掌控人設細節",
+            "assistant-sessions": "從助理主頁直接選模型發訊息開聊，並集中回顧與該助理的所有歷史工作階段",
+            "assistant-schedules": "為當前個人助理單獨建立和管理定時工作階段與週期性自動任務"
           }
         },
         "projects": {
-          "title": "項目與工作區",
-          "summary": "打開本地目錄或創建項目，讓檔案、工作階段、終端和智能體圍繞同一工作區協作。",
+          "title": "專案、工作區與專案資源",
+          "summary": "打開本地資料夾或遠端環境建立工作區，並在專屬「專案資源」頁集中管理單一專案的預設模型、關聯目錄、權限規則、定時任務與專案級智能體/技能。",
           "items": {
-            "open-create": "打開現有項目或進入新建項目流程",
-            "close-switch-reorder": "關閉、切換並重新排序多個已打開工作區",
-            "recent-workspaces": "查看、清理和重新打開最近使用的項目",
-            "workspace-metadata": "掃描並維護工作區名稱、資訊、關聯目錄和 Persona 檔案",
-            "workspace-icon": "選擇項目圖案和顏色，或使用自訂圖片",
-            "file-watch": "監聽項目檔案變化、檢查監聽狀態並在失敗後恢復",
-            "workspace-search": "按檔案名、路徑或檔案內容搜索本地工作區",
-            "remote-open": "從項目流程打開 SSH 或其他遠程工作區",
-            "project-health": "查看當前工作區、應用狀態、健康狀態與統計資訊"
+            "open-create": "打開現有專案目錄，或透過精靈建立本地與遠端新專案",
+            "project-defaults-permissions": "在「專案資源」頁設定單一專案的預設模型與模式，並集中管理專案權限、定時任務、子智能體與技能",
+            "close-switch-reorder": "在多個已打開專案間自由切換、拖拽排序或關閉閒置工作區",
+            "recent-workspaces": "查看最近打開過的專案列表，一鍵重開或清理失效記錄",
+            "workspace-metadata": "新增或移除「關聯目錄」，維護專案名稱描述與工作區人設檔案",
+            "workspace-icon": "自訂專案專屬圖示圖案、配色或分別上傳淺色/深色自訂圖片",
+            "file-watch": "自動監聽工作區檔案變動，並在大型倉庫監聽中斷時一鍵恢復",
+            "workspace-search": "在本地工作區內按檔案名、路徑或內文快速檢索定位",
+            "remote-open": "直接從新建專案精靈接入 SSH、Docker 容器或 WSL 遠端工作區",
+            "project-health": "在「專案資源」與狀態列查看 Git 改動路徑數、工作階段數、任務數及設定健康度"
           }
         },
         "files-editor": {
-          "title": "檔案與代碼編輯",
-          "summary": "瀏覽、搜索和編輯項目檔案，查看差異、按語言可用的編輯操作與智能體產生的改動。",
+          "title": "檔案、程式碼編輯與多格式預覽",
+          "summary": "在工作階段旁瀏覽和編輯專案程式碼，逐檔案或逐輪次審閱智能體改動並隨時回滾快照，原生支援 Markdown、LaTeX 編譯預覽與 PDF 高亮批註審閱。",
           "items": {
-            "file-tree": "瀏覽、創建、讀取、編輯、重命名和刪除檔案與目錄",
-            "reveal-in-system": "在系統檔案管理器中顯示檔案或目錄",
-            "indexed-search": "按檔案名模式和全文內容搜索當前工作區",
-            "search-index-management": "建立或重建界面搜索索引",
-            "edit-save": "讀取、編輯、保存檔案並同步編輯器狀態",
-            "diffs": "查看修改檔案、工作階段、輪次和單次操作的差異與統計",
-            "accept-reject": "按檔案、操作或整個工作階段接受或拒絕智能體改動",
-            "snapshots-rollback": "查看檔案變更歷史和快照，並回滾整個工作階段或指定輪次",
-            "language-actions": "僅在當前語言提供器實際支持時顯示格式化、定義與類型跳轉、引用、重命名、快速修復和符號導航",
-            "attachments": "在 Desktop 本地工作階段中粘貼或拖入本機檔案、資料夾與圖片",
-            "image-analysis": "查看並分析工作區或工作階段中的圖片"
+            "file-tree": "在左側「工作區資源」瀏覽目錄樹，新建、讀取、重新命名或刪除檔案與資料夾",
+            "edit-save": "在分欄程式碼編輯器中編輯與儲存檔案，未儲存關閉時自動彈出保護提醒",
+            "diffs": "按單個檔案、單次工具操作、單輪對話或整個工作階段查看程式碼 Diff 與增刪行數統計",
+            "accept-reject": "按單次操作、單個檔案或整個工作階段一鍵「接受」或「拒絕」智能體產生的程式碼改動",
+            "snapshots-rollback": "基於自動變更快照查看檔案修改軌跡，隨時把工作階段與程式碼一起回滾到指定歷史輪次",
+            "rich-previews-pdf-latex": "原生編輯與預覽 Markdown、實施計劃、LaTeX 編譯文件，並在 PDF 中新增高亮與批註審閱",
+            "indexed-search": "支援檔案名萬用字元與正規表示式全文搜尋，串流展示工作區匹配行與上下文",
+            "search-index-management": "啟用本地工作區加速搜尋索引，實現毫秒級大倉庫內容檢索",
+            "language-actions": "僅在當前語言提供器實際支援時顯示格式化、定義與類型跳轉、引用、重新命名、快速修復和符號導航",
+            "attachments": "在本地桌面工作階段中直接貼上剪貼簿截圖，或把本機檔案與資料夾拖進聊天框",
+            "image-analysis": "讓智能體直接查看並深度分析工作區配圖、UI 截圖、報錯圖或架構草圖",
+            "reveal-in-system": "在 Finder 或系統檔案總管中一鍵定位當前本機檔案或資料夾"
           }
         },
         "terminal": {
-          "title": "終端",
-          "summary": "在當前項目中運行 Shell、查看輸出、保留命令歷史，並讓智能體與同一終端環境協作。",
+          "title": "內建終端與命令列協作",
+          "summary": "在專案目錄內隨時開啟多實例 Shell：清晰區分「我的終端」與「智能體終端」，支援儲存常用啟動設定，且關掉普通終端分頁不會誤殺正在執行的背景服務。",
           "items": {
-            "create-terminal": "打開終端面板並新建一個終端工作階段",
-            "terminal-session-management": "列出、切換和關閉多個終端工作階段",
-            "shells": "檢測可用 Shell，並為終端選擇預設或指定 Shell",
-            "working-directory": "在當前項目目錄或指定起始目錄創建終端",
-            "command-control": "執行命令、寫入輸入並行送中斷或其他信號",
-            "resize": "隨終端面板大小變化同步行列尺寸",
-            "history-integration": "查看命令歷史並檢測 Shell Integration 支持",
-            "shutdown": "確認輸出接收並安全關閉單個或全部終端"
+            "create-terminal": "打開終端視圖並在當前工作區一鍵新建終端工作階段",
+            "terminal-session-management": "按「我的 / 智能體」分類查看、切換終端，或儲存常用的終端啟動設定",
+            "shells": "自動偵測系統可用 Shell（如 zsh、bash、PowerShell、Git Bash）並按需切換新建終端類型",
+            "working-directory": "在檔案樹任意子目錄右鍵「在此新建終端」，或讓智能體在指定子目錄執行命令",
+            "command-control": "由智能體執行建置與測試命令、向互動式程序輸入內容，或發送中斷與停止訊號",
+            "resize": "在底部面板與右側分欄間流暢拖拽調整終端尺寸，自動適配全螢幕 TUI 與長行排版",
+            "history-integration": "回溯終端命令歷史並識別 Shell Integration 狀態",
+            "shutdown": "區分「關分頁分離視圖」與「徹底停止關閉程序」，安全關停單個或全部終端"
+          }
+        },
+        "cli-tui": {
+          "title": "OpenBitFun CLI 與終端互動介面（TUI）",
+          "summary": "在系統終端直接執行 `openbitfun`：既有快捷鍵順手的全螢幕互動式 TUI（含 `!` Shell 模式、圖片貼上與多視窗共享執行時），也支援可寫進腳本與 CI 的 `exec`、背景 `daemon` 與遠端派發。",
+          "items": {
+            "install-quickstart": "一鍵安裝 `openbitfun` 命令列工具，並用 `doctor` 自檢執行環境與設定狀態",
+            "interactive-tui": "在互動式 TUI 中使用 `/sessions`、`/fork`、`/goal`、`/queue`、`/diff`、`/undo`、`/editor` 與子智能體樹檢視器",
+            "shell-and-attachments": "在空輸入框按 `!` 秒進 SHELL 命令模式，或按 `Ctrl+V` 貼上剪貼簿圖片與本地圖片路徑",
+            "headless-exec": "用 `openbitfun exec` 執行非互動式任務，輸出純文字、JSON 或串流 JSONL 並顯式控制 `--auto` 審批",
+            "shared-tui": "透過 `openbitfun chat --shared` 讓多個終端視窗共享同一個工作區執行時",
+            "daemon-dispatch-server": "使用 `daemon` 託管遠控機器人與定時任務，用 `dispatch outbound` 遠端派發，或啟動 `server` 標準流服務"
           }
         },
         "git": {
-          "title": "Git 版本控制",
-          "summary": "查看改動、分支和提交，完成暫存、提交、合併、Cherry-pick 與 Worktree 工作流。",
+          "title": "Git 版本控制與 Worktree 並行隔離",
+          "summary": "在工作階段與終端中順暢完成狀態檢查、暫存提交、分支管理與 Cherry-pick，並藉助 Git Worktree 在同一倉庫同時並行推進多個互不干擾的 AI 工作階段。",
           "items": {
-            "status-diff": "查看倉庫狀態、修改檔案和逐檔案 Diff",
-            "stage-reset": "暫存檔案、取消暫存並重置到指定提交",
-            "commit": "預覽或生成提交資訊並創建提交",
-            "sync": "從遠端 Pull 並向遠端 Push",
-            "branches": "查看、創建、切換和刪除本地分支",
-            "graph-history": "瀏覽提交圖譜與倉庫歷史並保存最近訪問記錄",
-            "revision-content": "解析 Revision 並查看任意提交中的檔案內容",
-            "cherry-pick": "執行、繼續或中止 Cherry-pick",
-            "trust-worktrees": "管理倉庫信任與 Worktree 的創建、綁定、提升、重建和刪除"
+            "status-diff": "查看倉庫工作樹狀態、已追蹤改動數與逐檔案 Diff 詳情",
+            "trust-worktrees": "管理倉庫信任授權，以及建立、綁定、提升、重建和清理隔離的 Git Worktree",
+            "stage-reset": "按檔案精準暫存（Stage）、取消暫存或安全重置到指定提交",
+            "commit": "結合真實改動自動擬定規範提交說明並建立 Git Commit",
+            "branches": "查看本地與遠端追蹤分支，新建特性分支、切換分支或清理已合併分支",
+            "sync": "從遠端倉庫拉取更新（Pull）並將本地提交推送到遠端（Push）",
+            "cherry-pick": "跨分支挑選合併指定提交（Cherry-pick），並支援衝突後繼續或安全中止",
+            "graph-history": "檢索提交歷史與演進脈絡，快速定位引入回歸問題的提交（git log / blame）",
+            "revision-content": "解析任意分支、Tag 或 Commit SHA，直接對比或讀取歷史版本中的檔案內容"
           }
         },
         "code-review": {
-          "title": "代碼評審與 Pull Request",
-          "summary": "閱讀改動與 PR 上下文，查看 CI 記錄，生成提交資訊，並組織深度代碼評審。",
+          "title": "深度程式碼評審（Deep Review）與 Pull Request",
+          "summary": "一站讀取 GitHub / GitLab / GitCode / Gitee 的 PR 改動、關聯 Issue 與失敗的 CI 執行日誌，並可調度多角色評審團隊對本地修改、指定提交或遠端 PR 進行嚴格結構化審查。",
           "items": {
-            "workspace-context": "讀取倉庫、分支、工作區快照和評審目標",
-            "pull-request": "查看 Pull Request 詳情、分頁內容與關聯改動",
-            "ci-logs": "讀取 Pull Request 的 CI 運行記錄",
-            "issues": "讀取關聯 Issue 的標題、描述與上下文",
-            "authentication": "保存或清除評審平台訪問令牌",
-            "commit-message": "預覽、生成或快速採用提交資訊",
-            "deep-review": "針對工作區、提交或 PR 發起 Deep Review 並匯總結構化評審"
+            "deep-review": "針對本地未提交改動、指定 Commit 或遠端 PR 發起多角色 Deep Review 結構化審查",
+            "pull-request": "分頁讀取 Pull Request / Merge Request 的描述、評論討論與關聯程式碼改動",
+            "ci-logs": "一鍵拉取 PR 失敗或執行中的 CI 任務日誌，快速定位建置與測試報錯",
+            "workspace-context": "自動識別當前倉庫的 Git 遠端位址、分支快照與對應的評審平台目標",
+            "issues": "讀取關聯 Issue 的需求背景、驗收標準與討論上下文",
+            "authentication": "對接本機 GitHub CLI（`gh`）登入態，或安全儲存/清除 GitLab、GitCode 與 Gitee 存取權杖",
+            "commit-message": "一鍵預覽、生成或快速填充貼合改動的提交資訊"
           }
         },
         "browser": {
-          "title": "內置瀏覽器",
-          "summary": "在 OpenBitFun 內打開網頁和本地服務；智能體可直接讀取頁面、選擇元素並點擊、填寫、滾動或截圖。",
+          "title": "內建瀏覽器與網頁元素拾取",
+          "summary": "在工作階段旁並排預覽本地開發服務與文件網頁：點一下「元素選擇器」就能把頁面上的 DOM 節點抓進聊天框改樣式，也能讓智能體直接在頁面上點擊、填表、捲動和截圖驗證。",
           "items": {
-            "open-urls": "輸入完整網址、本地域名或開發服務端口並在 OpenBitFun 內打開",
-            "agent-web-research": "讓智能體搜索網頁並按需讀取指定頁面正文",
-            "history-navigation": "使用後退、前進和地址欄瀏覽頁面歷史",
-            "reload-status": "重新整理頁面，並同步當前 URL、加載狀態與錯誤提示",
+            "open-urls": "輸入完整網址、本地域名或開發服務埠並在 OpenBitFun 內打開",
             "scene-and-panel": "既可作為獨立瀏覽器場景，也可在工作階段旁的輔助面板中打開",
-            "element-picker": "啓動元素選擇器，懸停時高亮頁面元素並顯示標籤、ID 和 Class",
-            "element-context": "點擊元素後捕獲 CSS 路徑、屬性、文本和 HTML，並加入當前工作階段上下文",
+            "element-picker": "啟動元素選擇器，懸停時高亮頁面元素並顯示標籤、ID 和 Class",
+            "element-context": "點擊元素後捕獲 CSS 路徑、屬性、文字和 HTML，並加入當前工作階段上下文",
             "element-picker-cancel": "再次點擊選擇按鈕或按 Esc 取消元素選擇並清理高亮",
-            "agent-page-automation": "讓智能體對內置網頁執行快照、讀取、點擊、懸停、填寫、按鍵、滾動、等待、腳本求值和截圖",
-            "shared-browser-action-contract": "內置 WebView 與外部 CDP 瀏覽器共用同一套 BrowserActions 參數、元素引用、結果與錯誤契約",
-            "browser-target-selection": "通過 target 選擇內置或外部瀏覽器，並用 session_id、URL 或標題精確定位頁面",
-            "embedded-webview": "桌面端使用原生 WebView，Web 端回退到受限 iframe，並在當前頁打開新窗口鏈接"
+            "agent-page-automation": "讓智能體對內建網頁執行快照、讀取、點擊、懸停、填寫、按鍵、捲動、等待、腳本求值和截圖",
+            "agent-web-research": "讓智能體搜尋公開網頁並按需抓取指定頁面內文用於技術查證",
+            "history-navigation": "使用後退、前進和位址列順暢瀏覽頁面造訪歷史",
+            "reload-status": "一鍵重新整理頁面，並即時同步當前 URL、載入進度與錯誤提示",
+            "shared-browser-action-contract": "內建 WebView 與外部 CDP 瀏覽器共用同一套 BrowserActions 參數、元素引用、結果與錯誤契約",
+            "browser-target-selection": "透過 target 選擇內建或外部瀏覽器，並用 session_id、URL 或標題精確定位頁面",
+            "embedded-webview": "桌面端採用獨立原生 WebView 渲染，Web 端回退受限 iframe，並在當前頁接管新視窗連結"
           }
         },
         "computer-use": {
           "title": "瀏覽器與桌面控制",
-          "summary": "授權智能體操作瀏覽器或本機界面，並明確管理輔助功能、屏幕錄制與瀏覽器連接。",
+          "summary": "讓智能體連線你平時用的 Chrome / Edge 等外部瀏覽器（直接重用已登入的網頁帳號），或在你的明確授權下共享指定應用程式視窗與桌面畫面，完成截圖觀察、點擊、輸入與捲動操作，並提供即時預覽卡片與一鍵急停。",
           "items": {
-            "status": "檢查 Computer Use 可用性、輔助功能和屏幕錄制授權狀態",
-            "request-permissions": "請求桌面控制所需的系統權限",
-            "system-settings": "直接打開對應的系統隱私與安全設定",
-            "browser-discovery": "發現受支持的瀏覽器並查看當前 CDP 連接狀態",
-            "launch-connect": "啓動瀏覽器控制，以及連接或斷開已經配置 CDP 的瀏覽器",
-            "default-cdp": "啓用預設 CDP 配置並按需要重啓瀏覽器",
-            "agent-actions": "授權後讓智能體截圖、點擊、輸入、滾動並讀取可見界面",
-            "control-session-preview": "在控制狀態卡片查看當前目標、模式與授權畫面預覽",
-            "stop-control-session": "停止當前桌面控制工作階段並釋放捕獲與輸入資源",
-            "app-sharing": "選擇 App 窗口並單獨授權或撤銷控制",
-            "preview-input": "在共享預覽中點擊、拖動、滾動及輸入",
-            "remembered-control": "按應用執行檔案和控制模式記住或忘記授權"
+            "status": "一鍵檢查桌面控制可用性及「輔助使用」「螢幕錄製」授權狀態",
+            "request-permissions": "在介面內一鍵觸發桌面控制所需的作業系統權限申請",
+            "system-settings": "直達系統「隱私權與安全性」對應設定面板",
+            "browser-discovery": "自動探索本機受支援的瀏覽器並檢視即時 CDP 連線狀態",
+            "launch-connect": "啟動受控瀏覽器，或隨時連線 / 中斷已開啟 CDP 的瀏覽器",
+            "default-cdp": "一鍵設定預設 CDP 遠端除錯參數並按需優雅重啟瀏覽器",
+            "agent-actions": "獲權後由智能體完成畫面讀取、元素定位、點擊、輸入與捲動",
+            "control-session-preview": "在工作階段控制卡片中即時檢視目前受控目標、模式與授權畫面預覽",
+            "stop-control-session": "隨時一鍵停止桌面控制工作階段並立即釋放截圖與輸入佔用",
+            "app-sharing": "按單一 App 視窗精細共享，先確認畫面再獨立授權鍵鼠控制",
+            "preview-input": "直接在共享預覽畫面中點擊、拖曳、捲動與輸入互動",
+            "remembered-control": "按應用程式可執行檔與控制模式記住常用授權，或隨時撤銷記憶"
           }
         },
         "skills": {
           "title": "Skills 技能",
-          "summary": "為智能體安裝和管理可復用的專業工作流，並控制哪些模式可以使用它們。",
+          "summary": "將領域經驗、團隊程式碼規範、排查套路與輔助腳本封裝成可重用的 Skill。既能從技能市集一鍵安裝，也能放在專案倉庫裡隨團隊共享，或在對話中透過 $、/ 與 @ 隨時點名呼叫。",
           "items": {
-            "installed-catalog": "統一查看用戶級、項目級、本地和遠程來源的已安裝 Skills",
-            "market": "瀏覽、搜索和重新整理 Skill 市場",
-            "market-install": "把市場 Skill 下載到用戶級或當前項目",
-            "local-add": "校驗本地 Skill 路徑並添加到用戶級或項目級",
-            "remove": "刪除已安裝的用戶級或項目級 Skill",
-            "global-enable": "在全局範圍啓用或停用單個 Skill",
-            "mode-selection": "按智能體模式選擇 Skill 與 Skill 組，並可恢復預設選擇",
-            "shadowing": "識別同名 Skill 的用戶級與項目級遮蔽優先級",
-            "invoke": "按需加載並執行當前智能體可見的 Skill"
+            "installed-catalog": "集中瀏覽內建、個人全域、目前專案與外部匯入的全部已安裝 Skills",
+            "market": "逛 Skill 市集：搜尋、分類瀏覽與重新整理社群精選技能",
+            "market-install": "將市集中的 Skill 一鍵安裝到個人全域或目前專案",
+            "local-add": "驗證本機資料夾（含 SKILL.md）並新增為個人或專案 Skill",
+            "remove": "安全移除不再需要的個人級或專案級已安裝 Skill",
+            "global-enable": "在全域一鍵啟用或暫時停用某個 Skill，無需解除安裝",
+            "mode-selection": "按智能體模式（如 Standard、Creative）自訂可用 Skill 組合並支援恢復預設",
+            "shadowing": "自動按「專案級優先於個人級」處理同名 Skill 並在介面提示遮蔽關係",
+            "invoke": "在工作階段中由智能體按需自動載入或回應 $ 點名執行可見 Skill"
           }
         },
         "miniapps": {
           "title": "Mini Apps 小應用",
-          "summary": "在 OpenBitFun 內安裝、創建和運行輕量應用，讓界面、數據與智能體工作流組合在一起。",
+          "summary": "在 OpenBitFun 內逛市集安裝現成效率小工具，或用自然語言讓智能體直接為你寫一個帶獨立介面、本機持久儲存、Node/JS 背景 Worker 與內建 AI 對話能力的小應用——支援草稿即時改版、版本回滾，還能發佈分享到市集。",
           "items": {
-            "gallery-lifecycle": "查看、創建、編輯和刪除已安裝 Mini App",
-            "market": "瀏覽市場、查看詳情並安裝或更新發佈版本",
-            "market-account": "登錄市場賬戶並收藏、評分和查看已安裝來源",
-            "permissions": "按路徑或工作區授予權限，並在定制前審查權限差異",
-            "runtime": "運行 Mini App Host 與 Worker，查看狀態並停止後台 Worker",
-            "storage": "為正式應用和定制草稿分別讀取與保存持久狀態",
-            "agent-ai": "在 Mini App 中調用模型補全、聊天和專屬智能體工作階段",
-            "customization": "創建定制草稿、實時預覽，並應用、同步或丟棄修改",
-            "versions": "查看版本歷史並回滾到舊版本",
-            "agent-authoring": "讓智能體初始化、編寫並校驗一個 Mini App",
-            "agent-operate-app": "由智能體結合原始碼控制 Mini App",
-            "agent-market-submit": "在用戶明確要求時由智能體提交已完成的 Mini App 到市場審核",
-            "publishing": "撤回和審查市場發佈，並可渲染幻燈片頁面"
+            "gallery-lifecycle": "列出、檢視原始碼、直接建立、增量更新或刪除已安裝小應用",
+            "market": "瀏覽小應用市集、檢視應用詳情與套件資訊，一鍵安裝或升級版本",
+            "market-account": "登入市集帳號，收藏喜歡的小應用、評分並檢視安裝來源",
+            "permissions": "按具體資料夾或工作區精細授權，並在應用自訂前審查權限變更",
+            "runtime": "執行小應用前端與背景 Worker、自動安裝相依套件並管理執行狀態",
+            "storage": "為正式版小應用與自訂草稿分別提供互不干擾的持久化儲存",
+            "agent-ai": "在小應用內部直接呼叫大模型補全、串流對話與專屬智能體工作階段",
+            "customization": "開啟自訂草稿邊改邊即時預覽，滿意後再套用或隨時捨棄草稿",
+            "versions": "瀏覽小應用的每次修改版本歷史，隨時一鍵回滾到舊版本",
+            "agent-authoring": "由智能體包辦受管草稿初始化、前後端編寫與建置清單驗證",
+            "agent-market-submit": "在你的明確要求下，由智能體整理發佈說明並提交小應用到市集審核",
+            "agent-operate-app": "讓智能體讀懂小應用原始碼並直接在目前視窗幫你互動操作",
+            "publishing": "檢視我的市集投稿審核進度、撤回發佈申請與預覽展示頁"
           }
         },
         "canvas": {
@@ -244,412 +271,443 @@
           }
         },
         "tasks-automation": {
-          "title": "任務板與定時任務",
-          "summary": "集中查看待辦事項，並讓任務在指定時間或目標主機上持續運行。",
+          "title": "任務看板與排程任務",
+          "summary": "在「任務看板」一處檢視計畫概覽、未來 24 小時待執行清單與月度日曆，按單次、固定間隔或自訂 Cron 時間表讓智能體自動巡檢專案、跑迴歸或寫總結，支援跑在已有工作階段或每次新建工作階段。",
           "items": {
-            "board-views": "按待處理、日曆和已停用視圖瀏覽任務",
-            "create-edit": "創建、編輯、啓用、停用和刪除定時任務",
-            "schedule-types": "設定一次性、每日、每周或自定義 Cron 時間表",
-            "calendar-occurrences": "在日曆中預覽任務的下一次與後續運行時間",
-            "agent-workspace": "為任務選擇智能體、模型、工作模式和工作區",
-            "local-remote-target": "把任務安排在當前主機或已連接的遠程目標上運行",
-            "host-readiness": "查看任務列表並等待桌面 Host 就緒後可靠執行"
+            "board-views": "在計畫概覽、待執行任務、日曆與已暫停/無後續執行清單間清晰管理",
+            "create-edit": "建立、編輯、暫停/啟用、刪除或立即執行排程任務",
+            "schedule-types": "設定單次、固定間隔或自訂 Cron 時間表",
+            "calendar-occurrences": "在月度日曆上點選日期，直觀預覽下一次與未來排期分佈",
+            "agent-workspace": "為每項任務指定工作區、智能體角色、模型及目標工作階段方式",
+            "local-remote-target": "支援為本機工作區或已連線的遠端環境安排定時執行",
+            "host-readiness": "應用程式啟動就緒後再可靠恢復排程，確保任務環境完整可用"
           }
         },
         "insights": {
           "title": "Insights 工作洞察",
-          "summary": "把工作階段和項目活動匯總成可讀的洞察，幫助回顧工作方式、用量和進展。",
+          "summary": "將你近期的多輪對話、專案推進軌跡與模型使用紀錄濃縮成一份好讀的深度工作複盤——幫你看清時間都花在了哪些專案與任務類型上，總結高光成果、揪出協作卡點，並給出能立刻用起來的提效建議。",
           "items": {
-            "availability": "檢查當前賬戶與工作階段是否已有可分析的洞察數據",
-            "generate": "按所選日期範圍和模型生成工作洞察報告",
-            "cancel": "取消正在運行的洞察生成任務",
-            "latest-report": "查看最新報告或加載指定的歷史報告",
-            "usage-statistics": "把工作活動與模型、Token 和緩存用量統計關聯起來",
-            "patterns": "回顧項目分布、工作時段、任務類型和協作習慣"
+            "availability": "自動偵測目前裝置與工作區是否已累積足夠的可分析工作階段資料",
+            "generate": "自選時間範圍與分析模型，一鍵生成深度工作洞察報告",
+            "cancel": "隨時取消正在生成的洞察分析任務",
+            "latest-report": "即時閱讀最新洞察報告，或隨時載入以往儲存的歷史報告",
+            "usage-statistics": "將工作產出與模型分佈、Token 消耗及快取命中率對照檢視",
+            "patterns": "複盤專案精力分佈、高效工作時段、任務類型與人機協作默契度"
           }
         },
         "ecosystem-compatibility": {
-          "title": "外部導入",
-          "summary": "查看外部 AI 生態的內容與狀態，導入受支持的 Skill、MCP、Hook，以及 Codex、Zcode 工作階段，並在 OpenBitFun 中繼續對話。",
+          "title": "外部匯入",
+          "summary": "集中掃描本機或目前工作區中 Claude Code、Codex、OpenCode、ZCode 等外部 AI 工具的設定與歷史記錄，安全續聊 Codex / ZCode 工作階段（自動切出獨立分支），並依衝突審閱匯入受支援的 Skills、MCP 與 Hooks。",
           "items": {
-            "source-discovery": "發現 OpenCode、Claude Code、Codex 等外部 AI 來源與可用內容",
-            "source-policy": "按來源啓用或停用集成，並選擇管理、預覽或只讀策略",
-            "codex-session-import": "發現、移除和重新添加 Codex 來源工作階段，並在 OpenBitFun 分支中續聊",
-            "zcode-session-import": "發現、移除和重新添加 Zcode 來源工作階段，並在 OpenBitFun 分支中續聊",
-            "prompts-commands": "展開外部 Prompt/Command 內容並處理與原生命令的衝突",
-            "subagents": "啓用外部智能體，處理同名衝突並綁定模型",
-            "mcp-import": "預覽 MCP 導入計劃，逐個處理伺服器衝突並應用",
-            "tool-targets": "選擇外部工具目標、解決衝突並控制是否啓用",
-            "hooks": "查看外部 Hooks 目錄、規劃導入、修改選擇並應用",
-            "security-review": "在遷移前查看衝突、安全影響和來源控制快照",
-            "reveal-source": "在檔案管理器或遠程環境中定位外部配置來源"
+            "source-discovery": "自動掃描並探索 Claude Code、Codex、OpenCode、ZCode 等外部來源與可用內容",
+            "codex-session-import": "探索、移除與恢復 Codex 來源工作階段，並在 OpenBitFun 獨立分支中安全續聊",
+            "zcode-session-import": "探索、移除與恢復 ZCode 來源工作階段，並在 OpenBitFun 獨立分支中安全續聊",
+            "mcp-import": "預覽外部 MCP 伺服器匯入計畫，逐一解決同名衝突並儲存副本",
+            "hooks": "瀏覽外部 Hooks 目錄，制定、調整並套用 Hook 匯入計畫",
+            "source-policy": "依外部來源啟用或停用相容整合，並選擇管理、預覽或唯讀策略",
+            "prompts-commands": "檢視展開外部 Prompt / Command 內容並處理與原生命令的同名衝突",
+            "subagents": "管理外部子智能體相容啟用狀態、解決同名衝突並綁定執行模型",
+            "tool-targets": "選擇外部工具目標、處理同名衝突並控制啟用範圍",
+            "security-review": "在匯入前集中審查設定衝突、執行安全影響與來源控制快照",
+            "reveal-source": "在系統檔案管理員或遠端環境中直接定位外部設定檔來源路徑"
           }
         },
         "remote-workspaces": {
-          "title": "遠程工作區",
-          "summary": "通過 SSH 或容器在遠程主機上打開項目，讓檔案、搜索、終端和智能體都在目標環境執行。",
+          "title": "遠端工作區（SSH / Docker / WSL）",
+          "summary": "將專案放在遠端 Linux 伺服器、Docker 容器或 Windows WSL 中直接開啟——在本機流暢瀏覽與對話，檔案讀寫、全文搜尋、終端命令與智能體工具全部在目標環境原生執行。",
           "items": {
-            "ssh-profiles": "保存、列出、測試和刪除 SSH 連接配置",
-            "ssh-auth": "使用密碼、私鑰、證書、SSH Config Host 與跳板機連接",
-            "docker": "發現遠程 Docker 容器並把容器作為工作環境",
-            "wsl": "選擇 Windows 主機上的 WSL 發行版作為工作區",
-            "remote-open": "打開、關閉和移除遠程工作區，並讀取伺服器資訊",
-            "remote-files": "瀏覽、讀取、寫入、創建、重命名和刪除遠程檔案與目錄",
-            "transfer": "上傳本地檔案、下載遠程檔案並取消進行中的傳輸",
-            "remote-execution": "在目標主機執行命令，讓終端、搜索和智能體使用遠程數據面",
-            "port-forwarding": "發現遠程監聽端口並啓動、查看或停止端口轉發",
-            "connection-lifecycle": "查看連接狀態並斷開單個或全部 SSH 工作階段"
+            "ssh-profiles": "儲存、測試與管理常用 SSH 連線設定",
+            "ssh-auth": "支援密碼、私鑰、憑證、~/.ssh/config 與跳板機登入",
+            "docker": "自動探索遠端 Docker 容器並進入容器內開發",
+            "wsl": "在 Windows 上直接將 WSL 發行版作為專案工作區",
+            "remote-open": "開啟、關閉或移除遠端工作區並檢視遠端系統資訊",
+            "remote-files": "在遠端檔案樹直接瀏覽、搜尋、編輯、重新命名與刪除檔案",
+            "transfer": "在本機與遠端之間上傳、下載檔案或壓縮檔並可隨時取消",
+            "remote-execution": "在遠端環境執行建置與長耗時命令並保持互動控制",
+            "port-forwarding": "探測遠端監聽連接埠並一鍵開啟或關閉本機連接埠轉發",
+            "connection-lifecycle": "檢視即時 SSH 連線狀態，按需中斷單一或全部連線"
           }
         },
         "remote-connect": {
-          "title": "Remote Connect 與多設備",
-          "summary": "從手機、Bot 或另一台 OpenBitFun 設備連接當前主機，遠程查看工作階段、回答權限並繼續工作。",
+          "title": "Remote Connect 遠控與多裝置互控",
+          "summary": "離開座位也能用手機網頁，或接入微信、飛書、Telegram 中的聊天機器人檢視對話進度、審批權限並繼續指揮；同帳號多台電腦還能開啟 Peer Device Mode，在一個視窗裡直接切換操作另一台機器的工作區與工作階段。",
           "items": {
-            "connection-methods": "選擇局域網或官方 Relay",
-            "start-stop-status": "啓動、停止 Remote Connect 並查看實時連接狀態和設備資訊",
-            "network": "查看局域網 IP、網路資訊與可分享的連接配置",
-            "bots": "配置飛書、Telegram、微信等 Bot 並單獨停止 Bot",
-            "account": "使用 GitHub 登錄、退出並查看身份狀態",
-            "devices": "列出、連接、查看設備型號與系統、設定別名和刪除同賬戶設備",
-            "peer-device": "進入 Peer Device Mode，把另一台 OpenBitFun 設備作為命令與事件數據面"
+            "connection-methods": "使用免部署官方 Relay 或桌面端區域網路 Relay（可同時開啟）",
+            "start-stop-status": "一鍵啟動、停用遠控管道並檢視即時連線與裝置資訊",
+            "network": "檢視本機區域網路位址、網路介面卡狀態與掃碼邀請連結",
+            "bots": "接入微信掃碼、飛書或 Telegram 聊天機器人（每次連線一個聊天應用，與手機遠控並行不悖）",
+            "account": "透過 GitHub 或信箱驗證碼登入帳號並檢視身分狀態",
+            "devices": "檢視同帳號線上裝置、系統型號、自訂裝置別名與移除舊裝置",
+            "peer-device": "開啟 Peer Device Mode，在目前視窗無縫接管另一台電腦的工作區"
           }
         },
         "detached-dispatch": {
-          "title": "Detached Dispatch 遠程派發",
-          "summary": "把可持續運行的任務派發到另一台 OpenBitFun 主機；控制端可以斷開，目標主機繼續執行並保留記錄。",
+          "title": "Detached Dispatch 遠端派發",
+          "summary": "將耗時的編碼、測試或重構任務從目前 Git 工作區派發到另一台同帳號裝置或 SSH 主機執行。提交後可直接闔上電腦離開——目標機器在獨立 Worktree 中持續跑完並儲存完整事件流，重連後隨時回看進度、遠端批覆權限或將程式碼同步回來。",
           "items": {
-            "targets": "列出同帳戶設備與已保存的 SSH 目標",
-            "provision": "為目標主機配置運行環境並安裝或更新 OpenBitFun CLI",
-            "model-sync": "在提交任務前同步目標所需的模型配置",
-            "submit": "從當前 Git 工作區把持久任務提交到同帳戶設備或 SSH 目標",
-            "status-list": "列出派發任務並查詢運行狀態、結果和錯誤",
-            "transcript": "保存、追加和重新加載可斷線恢復的執行記錄",
-            "permission-continuation": "遠程回答權限請求並繼續目標端任務",
-            "cancel": "取消本機派發的任務",
-            "result-sync": "將目標端結果同步回控制端，而不把控制端當作遠程檔案系統代理"
+            "targets": "列出同帳號下的所有裝置與本機已儲存的 SSH 目標",
+            "provision": "為目標主機自動偵測、安裝或更新 OpenBitFun CLI 執行環境",
+            "model-sync": "在派發前按需將任務所選的模型設定同步給目標主機",
+            "submit": "從目前 Git 工作區向裝置或 SSH 目標提交可離線執行的持久任務",
+            "status-list": "檢視本機或目標機持有的派發任務清單、即時進度與錯誤詳情",
+            "transcript": "斷線重連後自動儲存、追加並完整恢復任務對話紀錄",
+            "permission-continuation": "遠端批覆目標端等待中的權限請求並繼續推進任務",
+            "cancel": "隨時遠端取消本機派發的正在執行任務",
+            "result-sync": "將目標機完成的程式碼改動安全同步回本機工作區"
           }
         },
         "pages": {
-          "title": "Pages 發佈",
-          "summary": "保存頁面版本並行布到公開或私有地址，管理標題、可見性、歷史版本和分享鏈接。",
+          "title": "Pages 網頁發佈",
+          "summary": "不用買伺服器、不用配繁瑣的部署流水線——將智能體生成的互動網頁、產品原型、資料報告或個人作品集直接發佈成線上連結，自由控制公開或私密存取權限，每次更新自動儲存歷史版本，隨時一鍵回滾或下線。",
           "items": {
-            "pages-list": "查看賬戶下的 Pages 與每個頁面的當前發佈狀態",
-            "immutable-versions": "保存不可變頁面版本並瀏覽版本歷史",
-            "publish": "發佈或重新部署選中的頁面版本",
-            "visibility": "更新標題、公開/私有可見性和訪問設定",
-            "share-open": "創建可打開和分享的頁面鏈接",
-            "unpublish": "取消發佈頁面，同時保留可再次發佈的版本",
-            "delete": "刪除單個版本或整個 Page"
+            "pages-list": "列出帳號下全部已發佈與未發佈的 Pages 及其狀態、權限和連結",
+            "immutable-versions": "每次儲存自動生成不可變歷史版本，隨時翻閱完整版本紀錄",
+            "publish": "儲存、發佈網頁或將任意歷史版本一鍵重新部署上線",
+            "visibility": "靈活修改頁面標題，並在私密、登入可見與公開之間隨時切換",
+            "share-open": "一鍵生成並開啟可分享的線上存取連結",
+            "unpublish": "隨時一鍵下線已發佈的頁面，同時完好保留所有歷史版本",
+            "delete": "按需清理單一冗餘歷史版本，或徹底刪除整個 Page"
           }
         },
         "voice-input": {
-          "title": "語音輸入與實時通話",
-          "summary": "將錄音轉成文字，或在客戶端持續進行實時語音通話，讓助手進入項目執行任務並播報簡要進展。",
+          "title": "語音輸入與即時通話",
+          "summary": "提供兩套互補的語音體驗：平時在聊天框點一下麥克風，用本機離線模型（輕量預設的 SenseVoice 支援自動辨識中英粵日韓，或下載 Qwen3-ASR 解鎖 30+ 語言，錄音不上傳）快速將口述轉成可編輯文字；想徹底解放雙手時，在非工作階段視圖點右下角 Hi 開啟懸浮對話窗（或開啟懸浮窗模式）並點頂部電話圖示「切換到即時語音」，像打電話一樣讓助手跨專案跑任務並播報進展。",
           "items": {
-            "composer-recording": "從聊天輸入框開始、結束或取消一次錄音",
-            "stream-audio": "錄音過程中分塊傳輸音頻並顯示識別進度",
-            "realtime-assistant-call": "在客戶端啓動或結束實時語音通話，聽取回復，並讓助手執行或停止項目任務",
-            "realtime-assistant-config": "讀取或保存實時語音服務配置",
-            "local-models": "查看本地語音模型及安裝、下載、驗證、修復和刪除狀態",
-            "cancel-download": "取消正在進行的語音模型下載",
-            "language-microphone": "選擇自動檢測或指定識別語言，並選擇系統麥克風",
-            "diagnostic-test": "在設定頁進行麥克風與語音識別測試並查看耗時和錯誤",
-            "edit-transcript": "把轉寫結果放回輸入框，在發送前繼續編輯"
+            "composer-recording": "在聊天輸入框一鍵開始、完成或取消語音聽寫錄音",
+            "stream-audio": "錄音期間即時分塊擷取音訊並直觀展示準備與辨識狀態",
+            "realtime-assistant-call": "從右下角 Hi 懸浮窗或懸浮窗模式切換到即時語音通話，邊聊邊讓助手跨專案執行或停止任務",
+            "realtime-assistant-config": "在「寵物與助手」頁設定即時語音開關、火山引擎 API Key 與音色角色",
+            "local-models": "瀏覽、下載、驗證、修復或清理 SenseVoice 與 Qwen3-ASR 本機離線語音模型",
+            "cancel-download": "隨時取消正在下載中的本機語音模型任務",
+            "language-microphone": "選擇「自動」或指定辨識語言，並切換目前使用的系統麥克風",
+            "diagnostic-test": "在設定頁直接試錄一段話，測試麥克風收音並檢視毫秒級推論耗時",
+            "edit-transcript": "辨識完成後將文字放回聊天輸入框，方便補充修改後再傳送"
           }
         },
         "desktop-pet": {
           "title": "智能體桌面夥伴",
-          "summary": "在桌面上顯示智能體夥伴，並選擇、導入或管理 Petdex 角色包。",
+          "summary": "在螢幕一角養一隻靈動的像素桌面夥伴，它會跟著智能體思考、寫程式碼、等待權限確認或順利收工即時切換神態動作——支援一鍵切換內建形象、匯入本機 Petdex 角色包、自由縮放視窗，需要極致專注時也能隨時隱藏或徹底關閉。",
           "items": {
-            "enable": "整體啓用或停用智能體桌面夥伴",
-            "presets": "查看並切換內置或已導入的 Petdex 角色",
-            "petdex-import": "從本地 Petdex 包導入並使用新的角色與動畫",
-            "petdex-delete": "刪除已導入的 Petdex 包並回退到可用角色",
-            "desktop-window": "顯示、隱藏和調整獨立桌面夥伴窗口大小，並可回到主窗口"
+            "enable": "一鍵全域開啟或關閉智能體桌面夥伴",
+            "presets": "瀏覽並隨時切換內建形象與已匯入的 Petdex 角色",
+            "petdex-import": "在設定頁匯入 `.zip` 角色壓縮檔，或讓智能體載入本機 Petdex 目錄 / `.zip` 包",
+            "petdex-delete": "移除不再使用的自訂 Petdex 包並自動回退到可用角色",
+            "desktop-window": "顯示、隱藏與自由縮放獨立桌面夥伴視窗，並可一鍵喚回主介面"
           }
         },
         "desktop-cards": {
           "title": "桌面小卡片",
-          "summary": "讓智能體在主窗口之外放置可拖動的小卡片，顯示倒計時、清單、PR 狀態、天氣、股價等需要偶爾看一眼的資訊，並在重新打開應用後恢復。",
+          "summary": "讓智能體將倒數計時提醒、上線核對清單、PR 狀態、介面健康指標或行情看板做成輕巧的獨立小卡片，貼在螢幕任意順眼的位置——支援定時自動拉取資料重新整理、Windows 桌面圖示層釘選，關掉應用程式再重開也會按原位置與尺寸自動恢復。",
           "items": {
-            "agent-cards": "按需求或在任務過程中創建倒計時、清單、便簽、進度、指標、圖表、定時任務和自定義卡片，可定時從 HTTP 接口或本機命令重新整理數據",
-            "home-management": "在首頁“小卡片”區查看全部卡片，並顯示、隱藏或刪除單張卡片",
-            "card-actions": "在卡片上重新整理數據、勾選清單項、切換置頂、打開鏈接或回到來源工作階段",
-            "drag-restore": "拖動卡片到桌面任意位置，拖動卡片邊緣或四角調整大小；關閉 OpenBitFun 時卡片消失，重新打開後按原位置和大小恢復",
-            "desktop-pinning": "在卡片選單、首頁卡片列表或設定裡把卡片釘選到 Windows 桌面，隱藏的卡片同樣可以切換釘選狀態"
+            "agent-cards": "一句話建立倒數計時、清單、便籤、進度、指標與圖表卡片，支援 HTTP 或命令定時重新整理",
+            "home-management": "在「首頁 → 小卡片」集中瀏覽全部卡片，一鍵顯示、隱藏或刪除",
+            "card-actions": "在卡片上直接重新整理資料、勾選待辦項、切換視窗置頂或一鍵回到來源工作階段",
+            "desktop-pinning": "在卡片選單、首頁卡片清單或設定裡將卡片釘選到桌面（Windows 桌面圖示層）",
+            "drag-restore": "自由拖曳擺放並拉伸卡片邊緣調整尺寸，關閉重啟 OpenBitFun 後自動按原樣恢復"
           }
         },
         "generative-ui": {
-          "title": "生成式介面",
-          "summary": "在工作階段中使用所選元件庫生成可互動介面。",
+          "title": "Generative UI 生成式介面",
+          "summary": "當文字解釋不夠直觀時，讓智能體直接在對話氣泡裡為你生成可點按、可調節的互動式小工具、資料看板、動態流程圖或視覺化展示卡——當場拖動滑桿看結果，填寫與勾選的狀態還會隨工作階段自動儲存，下次開啟接著用。",
           "items": {
-            "app-generation": "生成可互動的 GenUI 應用並由宿主渲染"
+            "app-generation": "在工作階段中生成基於標準元件庫的可互動面板與迷你工具",
+            "visual-explainers": "生成自由排版的 HTML / CSS / SVG 動態圖解、示意圖與資訊卡片",
+            "interactive-state": "即時回應點擊與輸入，自動儲存元件狀態並在重開工作階段後恢復",
+            "library-verification": "自動跟隨淺色 / 深色外觀，並在呈現前完成真實視口渲染驗收"
           }
         }
       },
       "setting": {
         "application": {
           "general": {
-            "title": "常規設定",
-            "summary": "管理啓動、更新、關閉行為、通知與睡眠保持等應用級偏好。",
+            "title": "一般設定",
+            "summary": "一站式調整介面語言、開機自啟、長任務防休眠、視窗關閉回系統匣、系統通知與應用程式更新。",
             "items": {
-              "automatic-updates": "啓用或停用自動檢查更新",
-              "manual-update": "手動檢查並後台下載更新，確認後安裝並重啓，或稍後從關於頁面安裝",
-              "launch-at-login": "控制 OpenBitFun 是否在登錄系統後自動啓動",
-              "prevent-sleep": "控制 OpenBitFun 運行期間是否阻止電腦自動睡眠",
-              "close-behavior": "選擇關閉主窗口時退出、最小化到托盤或每次詢問",
-              "notifications": "分別控制任務完成和權限請求通知"
+              "interface-language": "在一般頁切換簡體中文、English 或繁體中文介面語言",
+              "automatic-updates": "啟用或停用啟動後自動檢查更新",
+              "manual-update": "手動檢查並背景下載更新，確認後安裝並重啟，或稍後從關於頁面安裝",
+              "launch-at-login": "控制登入桌面系統後是否自動啟動 OpenBitFun",
+              "prevent-sleep": "開啟或關閉執行期間阻止電腦閒置自動睡眠",
+              "close-behavior": "選擇點擊主視窗關閉按鈕時最小化到系統匣、直接結束或每次詢問",
+              "notifications": "分別開啟或關閉任務完成通知與權限請求通知"
             }
           },
           "appearance": {
-            "title": "外觀與語言",
-            "summary": "切換主題與語言，調整字體，並安裝或導入外觀包。",
+            "title": "外觀",
+            "summary": "自由切換跟隨系統與 9 套內建主題、匯入動態視覺皮膚包，並自訂全域字級、左側導覽列、對話寬度與側邊面板佈局。",
             "items": {
-              "built-in-appearance": "選擇跟隨系統、淺色、深色、單色、Midnight、中國風、Cyber、Slate 或 Tokyo Night 等內置外觀",
-              "language": "切換簡體中文、繁體中文、英文等受支持界面語言",
-              "ui-font-size": "調整全局界面字號，並支持自定義像素值"
+              "built-in-appearance": "選擇跟隨系統或暗色、淺色、黑白撞色、午夜、墨韻、墨夜、賽博、石板灰、東京夜等內建主題",
+              "visual-skins": "匯入、預覽、啟用或停用自訂視覺皮膚包（支援動態影片背景）",
+              "ui-font-size": "調整全域介面字級檔位，或按 12–20 px 自訂像素大小並即時預覽",
+              "sidebar-navigation": "釘選、取消釘選或調整左側導覽列場景入口順序",
+              "chat-content-width": "微調或重設對話流內容區的首選像素寬度",
+              "session-panel-layout": "在「並排」與「覆蓋」之間切換工作階段側邊面板顯示模式",
+              "language": "透過智能體直接切換簡體中文、English 或繁體中文介面語言"
             }
           },
           "pet": {
-            "title": "桌面夥伴設定",
-            "summary": "啓用桌面智能體夥伴並管理當前角色，以及開啓或關閉桌面小卡片。",
+            "title": "寵物與助手",
+            "summary": "依序設定客戶端免持即時語音通話、桌面智能體寵物角色與 Petdex 包，以及桌面小卡片開關與 Windows 桌面釘選。",
             "items": {
-              "enabled": "整體啓用或停用智能體夥伴",
-              "desktop-cards-enabled": "開啓或關閉桌面小卡片；關閉後隱藏所有卡片，智能體也不再看到小卡片工具",
-              "preset-selection": "從內置與已導入角色中選擇當前夥伴",
-              "import": "導入本地 Petdex 角色包",
-              "delete-refresh": "重新整理角色列表並刪除不再需要的導入包"
+              "realtime-voice-call": "設定客戶端即時語音通話開關、火山引擎 API Key 與播報音色",
+              "enabled": "整體啟用或隱藏桌面智能體寵物",
+              "preset-selection": "從內建與已匯入的 Petdex 角色中切換目前寵物外觀",
+              "import": "匯入本機 Petdex 角色包（介面選取 .zip 包，或讓智能體匯入資料夾/壓縮包）",
+              "delete-refresh": "重新整理角色清單並刪除不再需要的匯入角色包",
+              "desktop-cards-enabled": "開啟或關閉桌面小卡片總開關（關閉後隱藏全部卡片且收起小卡片工具）",
+              "desktop-cards-pinning": "將單張桌面小卡片釘選到 Windows 桌面圖示層（含目前隱藏的卡片）"
             }
           },
           "input": {
-            "title": "輸入與交互",
-            "summary": "配置對話文本選擇操作、語音輸入、麥克風、識別語言與本地模型。",
+            "title": "輸入與互動",
+            "summary": "設定本機離線語音輸入（SenseVoice / Qwen3-ASR 雙模型）、執行中的訊息傳送策略（立即糾偏 vs 排隊）、側問關閉保護與選取文字操作列。",
             "items": {
-              "auto-show-selection-toolbar": "開啓或關閉選中對話文本後的自動操作欄",
-              "voice-enabled": "在聊天輸入框啓用或停用語音輸入",
-              "language": "選擇自動檢測或中文、粵語、英文、日文等識別語言",
-              "microphone-test": "選擇麥克風並執行語音識別測試",
-              "local-models": "下載、選擇、驗證、修復或刪除本地語音模型",
-              "recording-limit": "設定單次語音輸入的最長錄音時間"
+              "voice-enabled": "在聊天輸入框啟用或停用語音輸入按鈕",
+              "local-models": "下載、選擇、驗證、修復或刪除本機語音模型（SenseVoice Small 與 Qwen3-ASR）",
+              "language": "設定預設語音辨識語言（自動偵測或依所選模型指定語種）",
+              "recording-limit": "設定單次語音輸入允許的最長錄音秒數（10–600 秒）",
+              "microphone-test": "選擇輸入麥克風裝置並現場測試語音轉寫效果與耗時",
+              "message-sending": "設定智能體執行期間傳送訊息的預設行為（立即傳送糾偏 vs 排隊等待）",
+              "btw-close-confirmation": "開啟或關閉側問（/btw）面板關閉前的捨棄確認提示",
+              "auto-show-selection-toolbar": "開啟或關閉在對話中選取文字後自動彈出快捷操作列"
             }
           },
           "shortcuts": {
             "title": "快捷鍵",
-            "summary": "搜索、查看、自定義與重置應用、場景、編輯器和終端快捷鍵。",
+            "summary": "依作用域瀏覽和搜尋全部快捷鍵，即時錄製改鍵、標紅排查衝突、合併改綁數字組鍵位，並支援單項恢復與全部重設。",
             "items": {
-              "shortcut-browser": "搜索和查看全部應用、場景、編輯器與終端快捷鍵",
-              "shortcut-remap": "錄制新快捷鍵、檢測衝突、恢復單項或重置全部自定義鍵位"
+              "shortcut-browser": "搜尋和檢視全域、智能體工作階段、程式碼編輯器、終端與 Git 等全部快捷鍵",
+              "shortcut-remap": "錄製新快捷鍵、即時偵測衝突、恢復單項或重設全部鍵位並點擊套用儲存"
             }
           },
           "development": {
             "title": "編輯器",
-            "summary": "調整代碼編輯器的字體、縮進、換行、格式化與 Minimap。",
+            "summary": "依外觀、行為、顯示、進階四大分區精細調校程式碼字型、縮排換行、Minimap 縮略圖與自動格式化，並支援透過智能體調整底層自動儲存策略。",
             "items": {
-              "editor-appearance": "設定編輯器字體、字重、字號、行高與光標樣式",
-              "indent-wrap": "設定 Tab 寬度、空格縮進、自動換行、行號與平滑滾動",
-              "editor-display": "控制 Minimap、空白字符、當前行高亮和滾動邊界",
-              "editor-advanced": "控制自動保存、語義高亮、括號配色、格式化和空白清理"
+              "editor-appearance": "調整編輯器外觀：程式碼字型、字重、字級（10–32 px）、行高與游標樣式",
+              "indent-wrap": "調整編輯行為：Tab 寬度、空格縮排、自動偵測縮排、自動換行、行號與平滑捲動",
+              "editor-display": "調整編輯器顯示：Minimap 縮略圖、空白字元渲染、目前行醒目提示與底部捲動邊界",
+              "editor-advanced": "調整進階編輯能力：語義醒目提示、括號配色、儲存/貼上格式化、空白清理與底層自動儲存"
             }
           },
           "terminal": {
             "title": "終端",
-            "summary": "選擇預設終端 Shell，並設定新終端面板在工作階段中的打開位置。",
+            "summary": "為新建終端分頁與本機工作區智能體命令選擇預設 Shell（支援自動偵測或指定已安裝的 zsh / bash / PowerShell 等）。",
             "items": {
-              "default-shell": "自動檢測或指定預設終端 Shell",
-              "terminal-position": "把終端面板放在右側或底部"
+              "default-shell": "自動偵測或從本機已安裝清單中指定預設終端 Shell",
+              "terminal-position": "相容舊版終端面板位置設定項（目前終端停靠已由工作台分欄佈局接管）"
             }
           }
         },
         "ai": {
           "models": {
             "title": "模型與供應商",
-            "summary": "添加 AI 供應商和模型，選擇預設模型，配置網路代理、訂閱與流式超時。",
+            "summary": "一站式管理 AI 供應商與訂閱帳號，分配主模型、快速模型與經濟模型等預設槽位，並設定智慧路由、模型池、獨立生圖、網路代理與串流逾時。",
             "items": {
-              "providers": "添加、編輯和刪除內置或自定義 AI 供應商",
-              "credentials-endpoint": "配置 API Key、Base URL、請求格式和模型列表",
-              "subscription-auth": "登錄、重新整理和退出 Codex、Antigravity、OpenCode Console（Zen）、Grok、Hermes 等賬戶",
-              "default-models": "選擇主模型、快速模型以及圖像理解、圖像生成和語音識別模型",
-              "reasoning": "為模型選擇推理預設或自定義推理強度",
-              "proxy": "配置 AI 請求使用的網路代理與繞過規則",
-              "stream-timeouts": "設定或取消首 Token 等待和流式空閒超時",
-              "available-models": "讓智能體查看當前配置下可用的模型",
-              "model-catalog": "查看 models.dev 目錄狀態、手動重新整理並定位本地緩存",
-              "advanced-request": "為供應商添加自定義 Header、請求體字段與 SSL 行為",
-              "connection-test": "測試模型連線或圖像生成，並重新整理執行階段用戶端",
-              "model-pools": "管理模型池、路由策略與工作階段模型選擇",
-              "smart-routing": "查看智慧模式可用狀態（尚未開放）"
+              "providers": "新增內建或自訂供應商、探測 Magpie 閘道器與設定獨立生圖服務",
+              "credentials-endpoint": "設定 API Key、Base URL、請求格式（含即時派生 URL 預覽）與備用通道",
+              "subscription-auth": "登入 Codex、ZCode、OpenCode、Grok、Antigravity、Hermes 等訂閱帳號與多帳號訂閱池",
+              "default-models": "選擇主模型、快速模型、經濟模型以及圖像理解、圖像生成和語音辨識預設模型",
+              "reasoning": "依模型能力選擇推理預設或自訂思考預算",
+              "smart-routing": "設定智慧模式路由：聯動主模型、經濟模型與路由分類模型",
+              "model-pools": "管理多成員模型池、路由策略、健康狀態與工作階段模型選擇",
+              "connection-test": "測試模型連線或實測圖像生成服務，並重新整理執行階段用戶端",
+              "stream-timeouts": "設定或取消首次回應逾時與回應間隔逾時（預設均 600 秒）",
+              "proxy": "設定 AI 請求使用的 HTTP / HTTPS / SOCKS5 網路代理與略過規則",
+              "advanced-request": "依供應商新增自訂 Header、請求體擴充欄位與 SSL 憑證驗證行為",
+              "available-models": "讓智能體讀取目前設定下已啟用且可用的模型與能力清單",
+              "model-catalog": "檢視 models.dev 目錄同步狀態、手動重新整理並開啟本機快取資料夾"
             }
           },
           "memory": {
-            "title": "記憶設定",
-            "summary": "控制 OpenBitFun 是否從工作階段中提取和使用長期記憶，以及保留、整理和模型策略。",
+            "title": "長期記憶設定",
+            "summary": "控制 OpenBitFun 是否自動生成記憶並在會話中使用記憶，支援自訂外部工具隱私策略、BTW 側問參與度、兩階段擷取/整理模型、會話回溯與候選保留天數及本機記憶資料夾維護。",
             "items": {
-              "generation-recall": "一鍵同時啓用或停用長期記憶生成與工作階段召回",
-              "btw": "決定 BTW 輕量工作階段是否參與記憶生成",
-              "external-context": "存在外部工具上下文時選擇清除工具結果、允許或跳過工作階段",
-              "rollout-policy": "設定空閒時長、最大年齡、啓動處理上限和掃描上限",
-              "extraction": "設定記憶提取並行數和單次原始候選上限",
-              "extraction-model": "從當前可用模型中選擇記憶提取模型或跟隨主模型",
-              "retention": "設定未使用記憶的最長保留天數",
-              "consolidation": "選擇記憶整理模型並讓它跟隨主模型或提取模型",
-              "maintenance": "打開記憶目錄、恢復預設設定或顯式清空全部記憶"
+              "generation-recall": "啟用或停用「自動生成記憶」與「在會話中使用記憶」",
+              "btw": "決定 BTW 順手側問是否參與長期記憶擷取",
+              "external-context": "存在外部工具上下文時選擇清除工具結果、允許保留或略過整個工作階段",
+              "rollout-policy": "設定擷取前最短閒置時長、會話回溯天數與啟動掃描上限",
+              "extraction": "設定第一階段記憶擷取並行數與原始候選上限",
+              "extraction-model": "從已啟用模型中選擇第一階段記憶擷取模型或跟隨主模型",
+              "consolidation": "選擇第二階段記憶整理模型（跟隨主模型、擷取模型或指定模型）",
+              "retention": "設定未被使用的候選保留天數",
+              "maintenance": "透過「⋯」選單開啟本機記憶資料夾、恢復預設設定或清空全部記憶"
+            }
+          },
+          "permissions": {
+            "title": "權限規則與自動審批",
+            "summary": "設定智能體執行工具時的預設安全邊界（需要確認、自動審批或完全存取），設定自動審批審查模型與逾時兜底策略，並集中維護全域 Allow / Ask / Deny 規則。",
+            "items": {
+              "default-permission-posture": "在需要確認（預設）、自動審批與完全存取三種預設權限模式間切換",
+              "auto-approval-screener": "為自動審批選擇聊天審查模型或專用 Jev 決策模型並加密儲存憑證",
+              "auto-approval-fallbacks": "設定自動審批逾時（預設 30 秒）及模型不確定或報錯時的兜底動作",
+              "global-permission-rules": "編輯與排序全域 Allow、Ask、Deny 權限規則",
+              "composer-permission-switcher": "控制是否在聊天輸入框下方顯示權限模式快捷選擇器"
             }
           }
         },
         "workspace": {
           "session": {
-            "title": "工作階段與工作區設定",
-            "summary": "控制預設智能體執行框架、工作階段標題生成、工作區加速搜索和與項目上下文相關的行為。",
+            "title": "工作階段與工作區搜尋設定",
+            "summary": "管理新建工作階段的預設智能體執行模式、工作階段標題自動產生與選型、答覆後的下一步候選建議，以及本機專案的加速全文搜尋開關。",
             "items": {
-              "default-agent-harness": "讓普通新工作階段跟隨 ChatInput 上次選擇，或固定使用指定執行框架",
-              "automatic-titles": "啓用或停用根據工作階段內容自動生成標題",
-              "title-model": "讓標題模型繼承主模型、快速模型或使用指定模型",
-              "next-input-suggestion": "啓用或停用 Agent 答復後在輸入框中顯示的一句話候選輸入",
-              "accelerated-search": "為本地工作區啓用 Flashgrep 加速搜索",
-              "search-index": "查看索引狀態並在需要時重建工作區索引",
-              "remote-behavior": "遠程工作區明確降級搜索實現，不把遠程路徑回退到本機"
+              "default-agent-harness": "設定預設智能體執行模式：跟隨聊天輸入框上一次選擇，或固定預設模式",
+              "automatic-titles": "啟用或停用根據工作階段內容自動產生標題",
+              "title-model": "讓標題模型繼承快速模型、主模型或使用指定輕量模型",
+              "next-input-suggestion": "啟用或停用智能體答覆後在聊天輸入框顯示的一句話候選建議",
+              "remote-behavior": "遠端工作區明確走遠端搜尋資料面，絕不靜默回退到本機檔案",
+              "accelerated-search": "為本機工作區啟用 Flashgrep 加速搜尋",
+              "search-index": "背景自動維護本機 Flashgrep 搜尋索引並在檔案搜尋入口檢視狀態"
             }
           },
           "worktrees": {
-            "title": "Worktree 設定",
-            "summary": "配置 Git Worktree 的根目錄、分支前綴和自動清理規則，並查看現有隔離工作區。",
+            "title": "工作區與 Git",
+            "summary": "管理本機加速工作區搜尋、AI Git 提交聯合作者署名（Co-authored-by），以及平行隔離 Worktree 的存放目錄、分支前綴、自動清理與生命週期。",
             "items": {
-              "isolation": "瞭解隔離 Worktree，並配置其創建與清理預設值",
-              "root-path": "設定受管 Worktree 的統一根目錄",
-              "branch-prefix": "設定自動創建分支使用的名稱前綴",
-              "copy-changes": "創建隔離工作區時選擇是否複製當前未提交改動",
-              "auto-cleanup": "啓用自動清理並設定最多保留的受管 Worktree 數量",
-              "management": "查看 Worktree 生命週期、髒狀態、未發佈提交與關聯工作階段",
-              "open-restore-delete": "打開或恢復關聯工作階段，並在保護檢查後刪除或強制刪除 Worktree"
+              "workspace-search": "為本機工作區開啟或關閉加速工作區搜尋",
+              "git-commit-coauthor": "開啟或關閉智能體建立 Git 提交時的 Co-authored-by 聯合作者署名",
+              "isolation": "瞭解工作階段級隔離 Worktree 機制並設定建立與清理預設策略",
+              "root-path": "設定受管 Worktree 的統一存放根目錄（預設 ~/.openbitfun/worktrees）",
+              "branch-prefix": "設定隔離工作樹自動新建分支的名稱前綴（預設 openbitfun/）",
+              "copy-changes": "選擇新建隔離工作樹時是否帶上目前未提交的本機改動",
+              "auto-cleanup": "啟用受管 Worktree 自動清理並設定最多保留數量（預設保留 15 個）",
+              "management": "盤點受管 Worktree 的生命週期、未提交改動、未發佈提交與關聯工作階段",
+              "open-restore-delete": "一鍵打開或還原關聯工作階段，並在髒工作區/未發佈提交保護檢查後刪除 Worktree"
             }
           }
         },
         "tools": {
           "execution": {
-            "title": "執行與權限控制",
-            "summary": "管理智能體工具權限、呈現模式、並行度、超時、延遲加載、Computer Use 與瀏覽器控制。",
+            "title": "執行與協作",
+            "summary": "集中調校工具逾時、向使用者提問等待時間、子智能體預設模型與並行策略、按需載入工具、PTC 工具呈現、參數 JSON 修復、Deep Review 容量與 GenUI 預設元件庫，並串聯權限及裝置控制開關。",
             "items": {
-              "permission-mode": "選擇詢問、自動審批或完全存取權限模式，並確認高風險警告",
-              "permission-selector": "控制權限模式選擇器是否顯示在聊天輸入框下方",
-              "global-project-rules": "創建、排序和保存全局或項目級 Allow、Ask、Deny 規則",
-              "remembered-grants": "查看、撤銷或清空項目中記住的權限授權與審計記錄",
-              "deferred-tools": "按需延遲加載工具定義以減少智能體初始上下文",
-              "tool-presentation": "選擇模型使用原生模式或 PTC TypeScript 模式",
-              "parallelism": "設定子智能體與 Swarm 最大並行及安全、強制並行或串行策略",
-              "timeouts": "設定或取消單次工具調用超時",
-              "review-capacity": "設定 Deep Review 最大並行評審者和隊列等待時間",
-              "computer-use": "啓用或停用已獲系統授權的 Computer Use",
-              "computer-use-permissions": "查看並請求輔助功能與屏幕錄制權限",
-              "browser-auto-connect": "控制 OpenBitFun 啓動時是否自動連接瀏覽器",
-              "browser-setup": "發現並選擇瀏覽器、配置預設 CDP 或按需重啓",
-              "json-repair": "控制是否在安全邊界內修復模型生成的非法工具參數 JSON",
-              "genui-library": "選擇生成式 UI 元件庫並操作預覽"
+              "deferred-tools": "開啟「按需載入工具」（延遲載入工具），減少智能體初始上下文",
+              "timeouts": "設定或取消單次工具呼叫逾時",
+              "question-timeout": "設定向使用者提問的最長等待回應時間（預設 180 秒）",
+              "subagent-default-model": "指定子智能體預設模型：繼承父工作階段、快速/主模型、指定模型或模型池",
+              "parallelism": "設定子智能體與 Swarm 並行上限及任務並行方式",
+              "tool-presentation": "選擇模型使用原生工具呼叫、PTC TypeScript 或 PTC Python 模式",
+              "json-repair": "控制是否在安全邊界內自動修復模型產生的輕微格式錯誤 JSON",
+              "review-capacity": "設定 Deep Review 最大並行評審者數量與佇列等待時間",
+              "genui-library": "選擇新建生成式 UI 應用預設使用的元件庫（預設 openui）",
+              "permission-mode": "選擇需要確認、自動審批或完全存取權限模式並確認高風險提示",
+              "permission-selector": "控制權限模式快捷選擇器是否顯示在聊天輸入框下方",
+              "global-project-rules": "建立、排序與儲存全域或專案級 Allow、Ask、Deny 規則",
+              "remembered-grants": "檢視、撤銷或清空目前專案中已記住的權限授權與稽核記錄",
+              "computer-use": "開啟或關閉已獲系統授權的「允許桌面控制」開關",
+              "computer-use-permissions": "檢視並請求輔助功能與螢幕錄製系統權限",
+              "browser-auto-connect": "控制 OpenBitFun 啟動時是否自動連線外部 CDP 瀏覽器",
+              "browser-setup": "探索並選擇外部瀏覽器、開啟預設 CDP 設定或依需求重新啟動連線",
+              "subagent-model-override": "控制 Agent 能否在啟動或繼續執行子 Agent 時指定模型"
             }
           },
           "desktop-control": {
-            "title": "桌面控制",
-            "summary": "管理 Computer Use 開關，並檢查輔助功能與屏幕錄制授權。",
+            "title": "桌面控制（Computer Use）",
+            "summary": "管理智能體操作原生桌面應用介面的「允許桌面控制」總開關，清晰核查並引導授予系統「輔助功能」與「螢幕錄製」權限，在可控安全邊界內完成跨應用自動化。",
             "items": {
-              "permissions": "查看 Computer Use、輔助功能與屏幕錄制狀態並完成系統授權"
+              "permissions": "檢視「允許桌面控制」開關及「輔助功能」、「螢幕錄製」系統授權狀態並完成授權",
+              "safety-posture": "結合應用級總開關、單視窗共享與主機邊界安全管控桌面操作"
             }
           },
           "browser-control": {
-            "title": "瀏覽器控制",
-            "summary": "選擇瀏覽器，檢查連接狀態，並配置 CDP 與啓動連接行為。",
+            "title": "瀏覽器控制與網頁連結",
+            "summary": "設定對話中的網頁連結預設用內建瀏覽器還是系統預設瀏覽器開啟，並連線本機 Chrome / Edge 的 CDP 遠端除錯連接埠，讓智能體直接重用你已登入的瀏覽器環境協作。",
             "items": {
-              "connection": "選擇瀏覽器並查看、建立或斷開 CDP 連接"
+              "default-link-target": "設定對話中的網頁連結預設在內建瀏覽器還是系統預設瀏覽器中開啟",
+              "connection": "選擇 Chrome 或 Edge 瀏覽器，檢視、建立或中斷 CDP 遠端除錯連線"
             }
           },
           "automation": {
-            "title": "快捷操作與 Hooks",
-            "summary": "自定義編碼後的快捷操作，並配置在智能體生命週期事件上運行的 Hooks。",
+            "title": "自動化：快捷動作與 Hooks",
+            "summary": "自訂編碼完成後的一鍵快捷動作（如提交程式碼、建立 PR 或自訂檢查 Prompt），並透過雙門禁安全模型管理相容 Codex 契約的生命週期 Hooks。",
             "items": {
-              "built-in-actions": "啓用和調整內置的提交與創建 Pull Request 快捷操作",
-              "custom-actions": "添加、編輯和刪除自定義編碼後快捷操作及 Prompt",
-              "hooks-enabled": "整體啓用或停用智能體生命週期 Hooks",
-              "project-hooks": "對可信倉庫單獨啓用項目級 .openbitfun/config/hooks.json",
-              "hook-files": "定位用戶級和項目級 Hooks 配置檔案並在修改後即時生效",
-              "hook-events": "在工作階段、智能體、工具、權限和用戶輸入等 Codex Hook 事件上運行處理器",
-              "external-hooks": "查看外部 AI 應用的只讀 Hook 目錄並選擇導入項",
-              "hook-import": "預覽、修改和應用 Hook 導入計劃，並保留衝突診斷"
+              "built-in-actions": "啟用或微調內建的「提交」與「建立 Pull Request」編碼後快捷動作",
+              "custom-actions": "新增、編輯與刪除自訂編碼後快捷動作按鈕與專屬 Prompt",
+              "hooks-enabled": "整體啟用或停用智能體生命週期 Hooks（預設開啟使用者級設定）",
+              "project-hooks": "為已審閱的可信儲存庫開啟第二道門禁：啟用專案級 .openbitfun/config/hooks.json",
+              "hook-files": "定位並編輯使用者級或專案級 hooks.json 設定檔（儲存後即時生效）",
+              "hook-events": "在工作階段、使用者輸入、工具呼叫前後及結束等 Codex Hook 事件上執行處理器",
+              "external-hooks": "唯讀預覽外部 AI 應用（如 Claude Code、Codex）的既有 Hook 目錄",
+              "hook-import": "預覽、篩選並套用外部 Hook 匯入計畫，保留衝突與相容性提示"
             }
           },
           "web-search": {
-            "title": "網頁搜索",
-            "summary": "選擇 WebSearch 工具運行時使用的搜索服務，並配置自建 HTTP 端點與當前執行主機的設備憑據。",
+            "title": "網頁搜尋",
+            "summary": "為智能體的 WebSearch 工具選擇執行階段搜尋服務（開箱即用的「Exa MCP（免費）」、Exa Search API、Tavily Search API、DeepSeek Search API、Keenable Search API 或自訂 HTTP 服務），並在目前執行主機加密管理搜尋憑證。",
             "items": {
-              "provider": "在免費 Exa MCP、Exa Search API、Tavily、DeepSeek 與 OpenBitFun Search HTTP Protocol 之間選擇運行時服務",
-              "http-endpoint": "為 OpenBitFun Search HTTP Protocol 配置端點、認證方式和受限憑據 Header",
-              "device-credential": "查看當前執行主機的憑據狀態，並保存、替換或清除 API Key/Secret",
-              "http-protocol": "查看並複製 OpenBitFun Search HTTP Protocol v1 的請求、響應和傳輸限制"
+              "provider": "在 Exa MCP（免費）、Exa Search API、Tavily、DeepSeek、Keenable 與自訂 HTTP 服務間選擇搜尋服務",
+              "device-credential": "檢視目前執行主機的搜尋憑證狀態，並加密儲存、替換或清除 API Key / Secret",
+              "http-endpoint": "為 OpenBitFun Search HTTP Protocol 設定請求端點、驗證方式與安全受限 Header 名稱",
+              "http-protocol": "檢視並一鍵複製 OpenBitFun Search HTTP Protocol v1 的請求、回應與傳輸限制說明"
             }
           },
           "mcp": {
             "title": "MCP 伺服器",
-            "summary": "添加和管理 Model Context Protocol 伺服器，查看工具、資源、提示詞與遠程授權狀態。",
+            "summary": "透過表單或 JSON 新增與管理 Model Context Protocol（MCP）伺服器，支援本機 stdio 行程、Docker 容器與遠端 Streamable HTTP（Bearer / OAuth），並檢視健康狀態、工具清單、Prompt、Resource 與互動式 MCP App。",
             "items": {
-              "json-config": "用表單或 JSON 查看和保存全部 MCP 伺服器配置",
-              "server-types": "添加本地進程、遠程 HTTP/SSE 或容器 MCP 伺服器",
-              "lifecycle": "啓動、停止、重啓和刪除單個 MCP 伺服器",
-              "status": "查看初始化、連接、健康、重連、鑒權和失敗狀態",
-              "remote-auth": "配置遠程 Header/環境變量認證或清除已有憑據",
-              "oauth": "發起、輪詢、取消或重新連接遠程 MCP OAuth",
-              "tools-prompts": "列出 MCP Prompt 並讀取帶參數的指定 Prompt",
-              "mcp-tool-ui": "查看 MCP 工具清單並打開工具提供的 App/UI",
-              "resources": "列出並讀取 MCP Resources",
-              "mcp-apps": "打開 MCP App/UI、雙向發送消息並回答交互請求"
+              "json-config": "透過表單或 JSON 檢視伺服器狀態並增量儲存非機密設定",
+              "server-types": "新增本機 stdio 行程、Docker 容器或遠端 Streamable HTTP MCP 伺服器",
+              "lifecycle": "單獨啟動、停止、重新啟動或刪除指定的 MCP 伺服器",
+              "status": "即時檢視初始化、已連線、重連中、待驗證與失敗診斷狀態",
+              "remote-auth": "設定遠端 Bearer / 自訂 Header 與本機環境變數憑證，或清除既有金鑰",
+              "oauth": "發起、等待、取消或重新連線遠端 MCP 瀏覽器 OAuth 授權",
+              "tools-prompts": "列出伺服器提供的 MCP Prompts 並依參數渲染指定範本",
+              "resources": "列出並依 URI 讀取 MCP 伺服器公開的 Resources",
+              "mcp-tool-ui": "瀏覽每個 MCP 伺服器載入出的工具清單並識別附帶的互動介面",
+              "mcp-apps": "開啟互動式 MCP App/UI 面板、雙向收發訊息並完成介面內確認"
             }
           },
           "acp": {
             "title": "ACP 外部智能體",
-            "summary": "配置通過 Agent Client Protocol 接入的外部智能體，並檢查適配器、命令與工作階段選項。",
+            "summary": "透過 Agent Client Protocol（ACP）把外部命令列智能體接入同一工作台，利用「本機」、「SSH」與「進階 JSON」三分頁管理預設安裝、「預下載 ACP」、遠端探測與工作階段權限策略。",
             "items": {
-              "presets": "使用 OpenCode、dsh、OMP、Claude Code 和 Codex 等預設",
-              "json-config": "通過 JSON 查看、添加和保存 ACP 智能體配置",
-              "probe": "探測 CLI、適配器、路徑、版本、連接與權限要求",
-              "install": "安裝外部智能體 CLI 並預下載 ACP 客戶端適配器",
-              "remote-detection": "在 SSH 遠程工作區探測可用外部智能體並顯示不支持原因",
-              "session-model-options": "為 ACP 工作階段選擇模型並修改客戶端聲明的配置選項",
-              "session-commands": "查看並執行外部智能體暴露的工作階段命令",
-              "dialog-permissions": "開始或取消 ACP 對話，並遠程回答外部智能體權限請求"
+              "presets": "在「本機」分頁啟用原生 ACP CLI（opencode、dsh、omp）或 npx 橋接預設（Claude Code、Codex）",
+              "probe": "一鍵探測 CLI 可執行路徑、版本號、轉接器狀態與連線就緒度",
+              "install": "一鍵安裝受支援的外部智能體 CLI 或點擊「預下載 ACP」快取轉接器",
+              "remote-detection": "在「SSH」分頁探測遠端工作區伺服器上的可用 ACP 智能體並檢視不支援原因",
+              "json-config": "在「進階 JSON」分頁直接檢視、新增自訂命令與儲存 ACP 設定",
+              "session-model-options": "在 ACP 工作階段中選擇外部智能體公開的模型與用戶端設定項",
+              "session-commands": "瀏覽並執行外部 ACP 智能體在工作階段中公開的斜線或專屬命令",
+              "dialog-permissions": "發起或取消 ACP 工作階段輪次，並在本機或遠端回答外部智能體的權限請求"
             }
           }
         },
         "data": {
           "usage": {
-            "title": "Token 用量",
-            "summary": "查看請求、輸入輸出 Token、緩存命中和估算成本等使用統計。",
+            "title": "調用統計",
+            "summary": "透過活躍度熱力圖、時間範圍彙總卡片、輸入/輸出 Token 趨勢圖與依模型/依服務商/依端點分佈明細，清晰掌握本機 AI 調用情況與快取命中效率。",
             "items": {
-              "time-range": "按最近 24 小時、今天、本週、本月或全部時間查看用量",
-              "granularity": "按小時或天切換趨勢粒度",
-              "filter": "按供應商、模型或搜索關鍵詞篩選用量",
-              "summary": "查看請求數、總 Token、緩存 Token 與緩存命中率",
-              "distribution": "按模型、供應商組和請求端點比較分布",
-              "trend": "分別查看輸入、輸出、緩存創建、緩存讀取和命中率趨勢"
+              "activity-heatmap": "透過頂部使用活躍度熱力圖回顧每日 AI 協作密度",
+              "time-range": "依最近 24 小時、今天、本週、本月（預設）或全部時間切換統計視窗",
+              "granularity": "隨時間範圍自動適配小時級或天級趨勢柱狀圖粒度",
+              "summary": "檢視總 Token、輸入/輸出 Token、請求次數以及快取 Token 與快取命中率",
+              "distribution": "切換「按模型」與「按服務商」分佈排行，並在詳情檢視依請求端點明細",
+              "filter": "輸入關鍵詞篩選模型、服務商或請求端點的調用明細",
+              "trend": "透過堆疊柱狀圖檢視輸入與輸出 Token 隨時間的變化趨勢"
             }
           },
           "archived": {
-            "title": "已歸檔工作階段",
-            "summary": "查找、恢復或永久刪除已歸檔的工作階段，管理長期工作階段歷史。",
+            "title": "已歸檔會話",
+            "summary": "依工作區折疊分組盤點已歸檔的對話歷史，支援一鍵還原回原專案側欄、單條刪除或移除外部匯入來源，以及二次確認清空全部歸檔。",
             "items": {
-              "browse": "按工作區瀏覽分頁歸檔工作階段及其元數據",
-              "search": "按標題、內容和工作區搜索已歸檔工作階段",
-              "restore": "恢復工作階段、輪次和原工作區視圖並取消歸檔",
-              "delete-selected": "明確確認後永久刪除選中的歸檔工作階段",
-              "delete-all": "明確確認後永久刪除全部歸檔工作階段"
+              "browse": "依可折疊的工作區分組瀏覽全部已歸檔會話與更新時間",
+              "restore": "一鍵取消歸檔並將選中會話連同完整輪次還原回原工作區",
+              "delete-selected": "二次確認後永久刪除單條歸檔會話，或移除匯入的外部會話來源",
+              "delete-all": "明確確認後一鍵永久清空全部已歸檔會話",
+              "search": "透過會話側欄或聊天框 @ 引用依標題與內文檢索歷史會話"
             }
           },
           "diagnostics": {
-            "title": "記錄與診斷",
-            "summary": "調整記錄級別，查看運行記錄路徑，並導出用於排查問題的診斷包。",
+            "title": "日誌與診斷",
+            "summary": "即時調整執行日誌級別、一鍵打開本機日誌目錄、檢視上次崩潰或設定恢復提示，並在本機匯出自動定位顯示的可控隱私 ZIP 診斷包。",
             "items": {
-              "log-level": "設定 Trace、Debug、Info、Warn、Error 或關閉後端記錄",
-              "sensitive-diagnostics": "選擇診斷中是否允許包含敏感上下文，並在導出前明確提示",
-              "log-path": "查看記錄路徑並打開記錄資料夾",
-              "export-bundle": "導出包含系統、配置健康和記錄資訊的診斷包",
-              "crash-recovery": "查看上次崩潰、非正常退出、啓動恢復和配置恢復資訊",
-              "devtools": "在開發構建中檢查 DevTools 是否可用並打開或關閉",
-              "element-inspector": "在開發構建中啓用主窗口元素檢查並回傳選中的元素"
+              "log-level": "即時切換 Trace、Debug、Info、Warn、Error 或關閉後端執行日誌",
+              "sensitive-diagnostics": "控制日誌與診斷包是否允許記錄敏感除錯上下文（預設關閉）",
+              "log-path": "檢視目前工作階段日誌目錄路徑並一鍵打開本機日誌資料夾",
+              "export-bundle": "確認隱私說明後匯出本機 ZIP 診斷包並自動在檔案管理員中定位",
+              "crash-recovery": "檢視上次異常結束、崩潰記錄以及啟動與設定自動恢復詳情",
+              "devtools": "僅開發建置：檢查桌面視窗 DevTools 可用狀態並打開或關閉除錯器",
+              "element-inspector": "僅開發建置：啟用主視窗介面元素拾取器並回傳選中元件資訊"
             }
           }
         }

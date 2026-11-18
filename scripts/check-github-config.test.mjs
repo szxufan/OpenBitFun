@@ -590,8 +590,10 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
   const linuxFullCoreLibraryTests = rustJob.steps.find(
     (step) => step.name === 'Run full core library tests on Linux',
   );
+  const linuxCoreCommand = 'node scripts/ci/rust-stack-diagnostics.mjs --output "${{ runner.temp }}/rust-stack-diagnostics" -- --locked -p openbitfun-core --features product-full --lib';
+  const otherCoreCommand = 'node scripts/ci/rust-stack-diagnostics.mjs --output "${{ runner.temp }}/rust-stack-diagnostics" -- --locked -p openbitfun-core --lib';
   const coreLibraryTestSteps = rustJob.steps.filter(
-    (step) => /^cargo test --locked -p openbitfun-core\b.*\s--lib$/.test(step.run ?? ''),
+    (step) => /^(?:cargo test|node scripts\/ci\/rust-stack-diagnostics\.mjs .* --) --locked -p openbitfun-core\b.*\s--lib$/.test(step.run ?? ''),
   );
   const desktopLibraryTests = rustJob.steps.find(
     (step) => step.name === 'Run desktop library tests',
@@ -608,7 +610,7 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
   );
   assert.equal(
     coreLibraryTests?.run,
-    'cargo test --locked -p openbitfun-core --lib',
+    otherCoreCommand,
   );
   assert.equal(
     linuxFullCoreLibraryTests?.if,
@@ -616,18 +618,31 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
   );
   assert.equal(
     linuxFullCoreLibraryTests?.run,
-    'cargo test --locked -p openbitfun-core --features product-full --lib',
+    linuxCoreCommand,
   );
+  assert.equal(coreLibraryTests?.id, 'core-library-tests');
+  assert.equal(coreLibraryTests?.['continue-on-error'], undefined);
+  assert.equal(linuxFullCoreLibraryTests?.id, 'full-core-library-tests');
+  assert.equal(linuxFullCoreLibraryTests?.['continue-on-error'], undefined);
+  const stackArtifact = rustJob.steps.find((step) => step.name === 'Upload Rust stack diagnostics');
+  assert.equal(stackArtifact?.if, "${{ failure() && (steps.core-library-tests.outputs.stack_overflow == 'true' || steps.full-core-library-tests.outputs.stack_overflow == 'true') }}");
+  assert.equal(stackArtifact?.uses, 'actions/upload-artifact@v6');
+  assert.equal(stackArtifact?.with?.path, '${{ runner.temp }}/rust-stack-diagnostics');
+  assert.equal(stackArtifact?.with?.['retention-days'], 7);
+  assert.equal(stackArtifact?.with?.name, 'rust-stack-diagnostics-${{ runner.os }}');
+  assert.equal(rustJob.steps.find(
+    (step) => step.name === 'Verify Rust stack diagnostic contracts',
+  )?.run, 'node --test scripts/ci/rust-stack-diagnostics.test.mjs');
   assert.deepEqual(
     coreLibraryTestSteps.map((step) => ({ if: step.if, run: step.run })),
     [
       {
         if: "runner.os != 'Linux'",
-        run: 'cargo test --locked -p openbitfun-core --lib',
+        run: otherCoreCommand,
       },
       {
         if: "runner.os == 'Linux'",
-        run: 'cargo test --locked -p openbitfun-core --features product-full --lib',
+        run: linuxCoreCommand,
       },
     ],
     'Core library validation must contain exactly the reviewed complementary steps',

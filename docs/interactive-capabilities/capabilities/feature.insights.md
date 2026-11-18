@@ -11,35 +11,58 @@ title_en: "Insights"
 
 > 功能 / Feature
 
-把会话和项目活动汇总成可读的洞察，帮助回顾工作方式、用量和进展。
+把你近期的多轮对话、项目推进轨迹与模型使用记录浓缩成一份好读的深度工作复盘——帮你看清时间都花在了哪些项目与任务类型上，总结高光成果、揪出协作卡点，并给出能立刻用起来的提效建议。
 
-Turn session and project activity into readable insights about working patterns, usage, and progress.
+Distill your recent conversations, project activity, and model usage into an engaging work retrospective—see where your energy went, celebrate key wins, uncover workflow friction, and get practical tips for collaborating better with AI.
+
+## 适用场景 / When to use it
+
+- 周五写周报或冲刺复盘前打开 Insights，几分钟理清这周跨多个仓库到底推进了哪些核心事项
+  - Before a Friday retro or weekly update, generate an Insights report to recap what you shipped across multiple repos
+- 想看看自己和 AI 配合哪里还能更顺：报告会指出哪些重复解释其实适合固化进 AGENTS.md 或封装成 Skill
+  - Spot repeated back-and-forth patterns that could become a permanent AGENTS.md rule or reusable Skill
+- 结合模型与缓存命中统计，检查主力大模型与轻量模型的分工是否划算合理
+  - Pair qualitative workflow takeaways with token and cache-hit statistics to tune your model mix
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 检查当前账户与会话是否已有可分析的洞察数据
-  - Check whether the current account and sessions contain analyzable insight data
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按所选日期范围和模型生成工作洞察报告
-  - Generate a work-insights report for a selected date range and model
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 取消正在运行的洞察生成任务
-  - Cancel an in-progress insights generation job
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看最新报告或加载指定的历史报告
-  - Open the latest report or load a selected historical report
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 把工作活动与模型、Token 和缓存用量统计关联起来
-  - Relate work activity to model, token, and cache-usage statistics
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 回顾项目分布、工作时段、任务类型和协作习惯
-  - Review project distribution, working hours, task types, and collaboration patterns
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 自动检测当前设备与工作区是否已积累足够的可分析会话数据
+  - Check whether current sessions contain analyzable activity data
+  - 说明：进入页面即可知晓可分析的数据状态，没有足够历史记录时会给出友好提示，避免空跑消耗额度。
+  - Why & how: Know right away whether enough session history exists before spending tokens on a report run.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 自选时间范围与分析模型，一键生成深度工作洞察报告
+  - Generate a tailored work-insights report for a chosen date range and model
+  - 说明：你可以按周、按月挑选回顾区间，并自由指定擅长总结推理的模型来执笔撰写报告。
+  - Why & how: Pick the exact window you want to reflect on and choose which configured model synthesizes the findings.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 随时取消正在生成的洞察分析任务
+  - Cancel an in-progress insights generation run anytime
+  - 说明：如果选错了时间跨度或换了主意，点一下即可立即中止后台汇总任务，不必干等跑完。
+  - Why & how: Changed your mind about the date range or model? Stop the running analysis cleanly with one click.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 即时阅读最新洞察报告，或随时加载以往保存的历史报告
+  - Read your latest report instantly or switch to any saved historical report
+  - 说明：每次生成的报告都会妥善留存，打开即看最新一期，也能翻出上个月的报告纵向对比变化。
+  - Why & how: Open straight to your most recent retrospective or load past reports from history to see how your workflow evolved.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 将工作产出与模型分布、Token 消耗及缓存命中率对照查看
+  - Connect project activity with model, token, and prompt-cache metrics
+  - 说明：把“做了什么事”和“花了多少 Token、缓存省了多少”放在一起看，账目与产出两相印证。
+  - Why & how: See what you accomplished side by side with token consumption and KV-cache savings for a complete picture.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 复盘项目精力分布、高效工作时段、任务类型与人机协作默契度
+  - Reflect on project focus, active hours, task types, and AI collaboration style
+  - 说明：不仅统计数字，更帮你梳理沟通风格、常见卡点与下一阶段值得尝试的自动化方向。
+  - Why & how: Go beyond raw counters—understand your prompting style, recurring bottlenecks, and high-leverage automation ideas.
 
 ## 怎么用 / How to use it
 
-1. 打开 Insights
-   Open Insights
-2. 选择可用的数据范围
-   Choose the available data scope
-3. 生成或查看最新报告
-   Generate or read the latest report
+1. 按 ⌘K / Ctrl+K 打开全局搜索，输入「洞察」或「Insights」进入工作洞察页（常看可在外观设置里将其固定到左侧边栏）
+   Press ⌘K / Ctrl+K and search "Insights" to open the Insights scene (or pin it permanently in Appearance → Left sidebar)
+2. 页面会自动检查当前积累的可分析会话范围；选择你想回顾的日期区间与用于撰写报告的模型
+   Pick the date range and model you want to use once OpenBitFun confirms analyzable session activity is available
+3. 点击生成报告（生成途中若想调整范围可随时取消），稍等片刻即可阅读完整分析与改进建议
+   Click Generate (you can cancel anytime if you pick a different range) and read your structured overview, wins, friction points, and tips
+4. 在报告切换器中随时翻阅最新一期或以往保存的历史报告
+   Switch between your latest report and earlier saved reports anytime from the report selector
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 按 ⌘K / Ctrl+K 打开全局搜索 → 输入「洞察」或「Insights」（也可在「设置 → 应用与界面 → 外观 → 左侧导航栏」固定到侧边栏） / Press ⌘K / Ctrl+K → Search "Insights" (or pin Insights to the left sidebar in Settings → Application & Interface → Appearance → Left sidebar) (`⌘K / Ctrl+K`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -55,10 +78,21 @@ Turn session and project activity into readable insights about working patterns,
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开 Insights”
-  - “Open Insights”
-- “带我查看工作洞察”
-  - “Show me my work insights”
+- “打开 Insights，我想生成一份这周的工作洞察报告”
+  - “Open Insights so I can generate a report for this week”
+- “带我查看最近一次的工作洞察总结”
+  - “Show me my latest work insights report”
+
+## 实用贴士 / Good to know
+
+- 为什么默认在侧边栏没看到？为了让日常编码界面保持清爽，侧边栏默认只固定「任务看板」；用 ⌘K / Ctrl+K 秒开，或去「设置 → 应用与界面 → 外观 → 左侧导航栏」一键固定即可。
+  - Where is it in the sidebar? To keep the default sidebar clean, Insights isn’t pinned out of the box—open it instantly via ⌘K / Ctrl+K, or pin it in Settings → Appearance → Left sidebar.
+- 刚装好还没数据时：需要先积累一定量的真实会话互动，Insights 才能提炼出有价值的模式分析。
+  - New install? Run a few real coding or assistant sessions first so Insights has meaningful activity to analyze.
+- 和「调用统计」怎么配合看？查账单级 Token 明细去「设置 → 数据与维护 → 调用统计」；看工作内容总结与提效建议来「洞察」。
+  - Insights vs Call Statistics: visit Settings → Data & Maintenance → Call Statistics for raw token charts, and Insights for narrative retrospectives and workflow coaching.
+
+关联条目 / Related: `setting.data.usage`, `setting.application.appearance`, `feature.ai-assistant`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

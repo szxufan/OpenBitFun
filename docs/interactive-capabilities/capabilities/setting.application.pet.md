@@ -3,65 +3,105 @@
 id: setting.application.pet
 kind: setting
 category: application
-title_zh: "桌面伙伴设置"
-title_en: "Companion settings"
+title_zh: "宠物与助手"
+title_en: "Pet & assistant"
 ---
 
-# 桌面伙伴设置 / Companion settings
+# 宠物与助手 / Pet & assistant
 
 > 设置 / Setting
 
-启用桌面智能体伙伴并管理当前角色，以及开启或关闭桌面小卡片。
+按序配置客户端免提实时语音通话、桌面智能体宠物角色与 Petdex 包，以及桌面小卡片开关与 Windows 桌面固定。
 
-Enable the desktop agent companion, manage the active character, and turn desktop cards on or off.
+Configure client-wide hands-free realtime voice calls, your desktop pet mascot and Petdex character packs, and desktop cards with Windows desktop-layer pinning.
+
+## 适用场景 / When to use it
+
+- 手头正翻看纸质资料或双屏调试不便打字，在页面顶部配好实时语音通话后点右下角“Hello”，直接动嘴让语音助手进项目查进展、跑任务并语音播报结果。
+  - Configure Realtime Voice Call at the top of the page once, click the bottom-right Hello button, and talk hands-free while the voice assistant enters projects, runs tasks, and speaks concise updates.
+- 写代码累了想换个桌面陪伴形象，导入自定义 Petdex `.zip` 包（或让智能体直接加载 `/path/to/pet` 文件夹），也可以在录屏演示前一句话暂时隐藏桌面宠物与小卡片。
+  - Swap your desktop companion by importing a Petdex `.zip` package in the UI (or giving a `/path/to/pet` folder path to the Agent), or hide both the pet and desktop cards before a clean screen share.
+- 在 Windows 上摆了几张倒计时、待办或指标小卡片，开启单卡“固定到桌面”让它们稳稳贴在桌面图标层上方、普通应用窗口下方，看桌面时一眼扫到却绝不挡窗口。
+  - On Windows, pin specific countdown, checklist, or metric cards to the desktop layer so they sit neatly above desktop icons and behind regular app windows.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 整体启用或停用智能体伙伴
-  - Enable or disable the agent companion
-- **智能体可直接控制 / Direct Agent control** · 开启或关闭桌面小卡片；关闭后隐藏所有卡片，智能体也不再看到小卡片工具
-  - Turn desktop cards on or off; when off, all cards are hidden and agents no longer see the desktop card tool
-- **智能体可直接控制 / Direct Agent control** · 从内置与已导入角色中选择当前伙伴
-  - Choose the active companion from built-in and imported characters
-- **智能体可直接控制 / Direct Agent control** · 导入本地 Petdex 角色包
-  - Import a local Petdex character package
-- **智能体可直接控制 / Direct Agent control** · 刷新角色列表并删除不再需要的导入包
-  - Refresh the character list and delete imported packages you no longer need
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 配置客户端实时语音通话开关、火山引擎 API Key 与播报音色
+  - Configure client-wide realtime voice calls, Volcengine API key, and voice ID
+  - 说明：位于本页最上方：填写本机专属的火山引擎实时语音 API Key（仅保存在当前客户端，绝不转发到远程工作区或 Peer 主机），可自定义音色（默认 Jupiter 女声），开启后通过右下角“Hello”按钮发起免提语音协作。
+  - Why & how: Located at the top of Pet & assistant: enter your Volcengine Realtime Voice API key (stored strictly on this local client and never sent to remote workspaces or peer hosts), customize the voice ID (Jupiter female voice by default), and launch hands-free calls from the bottom-right Hello button.
+- **智能体可直接控制 / Direct Agent control** · 整体启用或隐藏桌面智能体宠物
+  - Enable or hide the desktop agent pet companion
+  - 说明：默认开启。关闭后会隐藏独立桌面宠物窗口，但你已导入的角色包与偏好都会完整保留，随时可重新唤出。
+  - Why & how: Enabled by default. Turning it off hides the floating pet window while keeping your imported Petdex characters and preferences intact.
+- **智能体可直接控制 / Direct Agent control** · 从内置与已导入的 Petdex 角色中切换当前宠物外观
+  - Switch the active pet mascot appearance among built-in and imported Petdex characters
+  - 说明：自带默认伙伴（BitBlob）与内置角色（如“困困”），选中后桌面伙伴窗口的形象与状态动画会立即切换。
+  - Why & how: Browse built-in characters (including BitBlob) alongside your imported Petdex packs and switch your companion’s mascot appearance immediately.
+- **智能体可直接控制 / Direct Agent control** · 导入本地 Petdex 角色包（界面选 .zip 包，或让智能体导入文件夹/压缩包）
+  - Import a local Petdex character pack (`.zip` in the UI, or folder / `.zip` via the Agent)
+  - 说明：点击设置页的“导入”按钮可选择本地 `.zip` 角色压缩包；如果角色包是未打包的本地文件夹（如 `/path/to/pet`）或 `.zip`，也可以直接把路径发给智能体一键导入并启用。
+  - Why & how: Clicking Import in Settings opens a `.zip` package picker, while asking the Agent (`use-pet`) can import and activate either a local `.zip` archive or an unpacked Petdex folder such as `/path/to/pet`.
+- **智能体可直接控制 / Direct Agent control** · 刷新角色列表并删除不再需要的导入角色包
+  - Refresh the character list and delete imported Petdex packs you no longer need
+  - 说明：内置角色受保护不可误删；若删除的正好是当前正在使用的导入角色，系统会自动安全回退到默认伙伴。
+  - Why & how: Built-in characters stay protected; if you delete the currently active imported pack, OpenBitFun safely falls back to the default companion.
+- **智能体可直接控制 / Direct Agent control** · 开启或关闭桌面小卡片总开关（关闭后隐藏全部卡片且收起小卡片工具）
+  - Turn desktop cards on or off globally (hiding cards and removing the agent tool when off)
+  - 说明：默认开启。关闭后会隐藏所有桌面小卡片，且智能体上下文中不再暴露小卡片工具；已创建的卡片与布局数据会完好保留，重开即恢复。
+  - Why & how: Enabled by default. Turning it off hides all cards and removes the desktop-card tool from agents without deleting your saved cards or positions.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 将单张桌面小卡片固定到 Windows 桌面图标层（含当前隐藏的卡片）
+  - Pin individual desktop cards to the Windows desktop icon layer (including hidden cards)
+  - 说明：在支持桌面层固定的 Windows 环境下，可逐张开关卡片固定状态，让卡片位于桌面图标之上、普通窗口之下；即使某张卡片当前处于隐藏状态也能在此提前设好。
+  - Why & how: On Windows hosts that support desktop-layer pinning, toggle pinning per card so it sits above desktop icons and behind regular app windows — even for cards that are currently hidden.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“应用 > 桌面伙伴”
-   Go to Application > Companion
-3. 选择开关和角色
-   Choose its state and character
+1. 打开设置（⌘, / Ctrl+,），进入“应用与界面 → 宠物与助手”
+   Open Settings (⌘, / Ctrl+,) and go to Application & Interface → Pet & assistant
+2. 在顶部“实时语音通话”区按需开启语音通话、录入本机火山引擎 API Key 并设置音色
+   At the top under Realtime Voice Call, toggle voice calls, enter your local Volcengine API key, and set your preferred voice ID
+3. 向下在“桌面宠物”区开关伙伴或导入 `.zip` 角色包，并在底部“桌面小卡片”区管理卡片总开关与 Windows 桌面固定
+   Scroll down to Desktop Pet (toggle visibility, switch characters, or import a `.zip` pack) and Desktop Cards (master switch and Windows desktop pinning)
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 应用与界面 → 宠物与助手 / Settings (⌘, / Ctrl+,) → Application & Interface → Pet & assistant (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
 | 操作 / Action | 中文说明 | English description |
 | --- | --- | --- |
-| 列出可用萌宠 / List available pets | 读取当前角色以及 OpenBitFun 已导入的 Petdex 角色。 | Read the active character and Petdex characters imported into OpenBitFun. |
-| 使用指定萌宠 / Use a pet | 按本地 Petdex 目录或压缩包路径导入并选中角色，或按已导入角色 ID 直接选中。 | Import and select a local Petdex directory/archive, or select an already imported character by ID. |
-| 删除已导入萌宠 / Delete an imported pet | 按角色 ID 或 OpenBitFun 包目录删除已导入角色；若正在使用则安全回退到默认角色。 | Delete an imported character by ID or OpenBitFun package path, safely falling back when it is active. |
+| 列出可用萌宠 / List available pets | 读取当前启用角色以及内置与已导入的 Petdex 角色列表。 | Read the active character along with built-in and imported Petdex characters. |
+| 切换或导入指定萌宠 / Use or import a pet | 按已安装角色 ID 直接切换，或传入本地 Petdex 文件夹 / 压缩包路径一键导入并启用。 | Switch to an installed character by ID, or pass a local Petdex folder/archive path to import and activate it. |
+| 删除已导入萌宠 / Delete an imported pet | 按角色 ID 或包路径移除已导入角色；若该角色正在使用，会自动安全回退到默认伙伴。 | Remove an imported character by ID or package path, automatically falling back to the default companion if active. |
 
 ## 可配置选项 / Configurable options
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 启用桌面伙伴 / Enable companion | `boolean` | 显示或隐藏智能体伙伴。 | Show or hide the agent companion. |
-| 启用桌面小卡片 / Enable desktop cards | `boolean` | 显示或隐藏全部桌面小卡片，并控制智能体是否可以使用小卡片工具；关闭不会删除已有卡片。 | Show or hide all desktop cards and control whether agents can use the desktop card tool; turning it off keeps existing cards. |
+| 启用桌面宠物 / Enable desktop pet | `boolean` | 在桌面上显示或隐藏智能体伙伴窗口（默认开启）。 | Show or hide the floating agent companion on your desktop (on by default). |
+| 启用桌面小卡片 / Enable desktop cards | `boolean` | 控制桌面小卡片整体显隐以及智能体是否可调用小卡片工具；关闭不会删除已有卡片（默认开启）。 | Show or hide all desktop cards and control whether agents can use the desktop-card tool without deleting saved cards (on by default). |
 
 ## 可以直接对智能体说 / Try saying
 
-- “关闭桌面伙伴”
-  - “Turn off the desktop companion”
+- “关闭桌面宠物”
+  - “Turn off the desktop pet”
 - “让 OpenBitFun 使用 /path/to/pet 里的萌宠”
   - “Make OpenBitFun use the pet at /path/to/pet”
-- “关闭小卡片功能”
-  - “Turn off desktop cards”
+- “打开实时语音通话设置”
+  - “Open realtime voice call settings”
+- “暂时关闭桌面小卡片功能”
+  - “Turn off desktop cards for now”
+
+## 实用贴士 / Good to know
+
+- “实时语音通话”位于本页顶部，而聊天输入框里的“本地离线语音转文字（听写）”位于“输入与交互”页——两者互不干扰，可按需分别开启。
+  - Client-wide Realtime Voice Call sits right at the top of Pet & assistant, whereas composer dictation (local SenseVoice / Qwen3-ASR speech-to-text) lives in Input & Interaction — you can use either or both.
+- 实时语音通话的 API Key 只存放在你当前这台控制端电脑上，即使连接了 SSH 远程工作区或同账号其他设备也不会外发。
+  - Your Realtime Voice API key stays strictly on this local controller device and is never forwarded to SSH remote workspaces or peer devices.
+- 关闭“启用桌面小卡片”不会清空已有卡片；等演示或录屏结束重新打开开关，原来的卡片会按原尺寸和位置回来。
+  - Turning off Enable Desktop Cards never deletes existing cards; toggle it back on after your meeting and every card returns in place.
+
+关联条目 / Related: `feature.desktop-pet`, `feature.voice-input`, `feature.desktop-cards`, `setting.application.input`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

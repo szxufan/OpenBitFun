@@ -23,11 +23,19 @@ infrastructure, not a product command or UI layer.
 ```bash
 cargo check -p terminal-core
 cargo test -p terminal-core --lib exec:: # process output, encoding, polling and lifecycle
+cargo test --locked -p terminal-core --lib runtime_port::tests::write_stdin_wait_interrupt # live Unix PTY steering and continued input
 cargo test -p terminal-core --lib workspace_origin_contract_tests # terminal response compatibility
 node scripts/check-core-boundaries.mjs
 ```
 
 For documentation-only changes, run `git diff --check`.
+
+WriteStdin's optional wait-interrupt token ends only output collection. Return
+the collected bytes and commit the cursor before yielding; do not signal or
+drop the process, replay stdin, or conflate wait interruption with completion.
+Session cleanup uses the closure snapshot from the final output drain so an
+exit immediately after that drain leaves its trailing bytes pollable.
+The live PTY fixture is Unix-only; these tests do not establish remote behavior.
 
 For natural PTY exit, output draining, confirmed shutdown and Unix hangup
 escalation, run `cargo test -p terminal-core --lib pty::process::tests` and

@@ -200,6 +200,30 @@ function assertBilingual(capability, field) {
   }
 }
 
+function assertBilingualList(owner, field, ownerId = owner.id) {
+  const zh = owner[`${field}Zh`];
+  const en = owner[`${field}En`];
+  if (!Array.isArray(zh) || zh.length === 0) {
+    throw new Error(`${ownerId}.${field}Zh must be a non-empty array`);
+  }
+  if (!Array.isArray(en) || en.length === 0) {
+    throw new Error(`${ownerId}.${field}En must be a non-empty array`);
+  }
+  if (zh.length !== en.length) {
+    throw new Error(`${ownerId}.${field} must have matching Chinese and English entries`);
+  }
+  zh.forEach((entry, index) => {
+    if (typeof entry !== 'string' || !/[\u3400-\u9fff]/u.test(entry)) {
+      throw new Error(`${ownerId}.${field}Zh[${index}] must contain Chinese text`);
+    }
+  });
+  en.forEach((entry, index) => {
+    if (typeof entry !== 'string' || !/[A-Za-z]/u.test(entry)) {
+      throw new Error(`${ownerId}.${field}En[${index}] must contain English text`);
+    }
+  });
+}
+
 function buildInteractionInventory(roots) {
   const signature = [];
   const files = [];
@@ -466,6 +490,22 @@ function validateSource(source) {
         throw new Error(`${capability.id}.${field} must have matching Chinese and English entries`);
       }
     }
+    if (capability.order !== undefined && !Number.isInteger(capability.order)) {
+      throw new Error(`${capability.id}.order must be an integer`);
+    }
+    if (capability.entryPathZh !== undefined || capability.entryPathEn !== undefined) {
+      assertBilingual(capability, 'entryPath');
+    }
+    if (capability.shortcut !== undefined
+        && (typeof capability.shortcut !== 'string' || !capability.shortcut.trim())) {
+      throw new Error(`${capability.id}.shortcut must be a non-empty string`);
+    }
+    if (capability.scenariosZh !== undefined || capability.scenariosEn !== undefined) {
+      assertBilingualList(capability, 'scenarios');
+    }
+    if (capability.tipsZh !== undefined || capability.tipsEn !== undefined) {
+      assertBilingualList(capability, 'tips');
+    }
     if (capability.agentControl) {
       if (typeof capability.agentControl.tool !== 'string' || !capability.agentControl.tool.trim()) {
         throw new Error(`${capability.id}.agentControl.tool must name the controlling Agent tool`);
@@ -496,6 +536,9 @@ function validateSource(source) {
       if (itemIds.has(item.id)) throw new Error(`${capability.id} has duplicate documented item ${item.id}`);
       itemIds.add(item.id);
       assertBilingual({ ...item, id: `${capability.id}.${item.id}` }, 'title');
+      if (item.descriptionZh !== undefined || item.descriptionEn !== undefined) {
+        assertBilingual({ ...item, id: `${capability.id}.${item.id}` }, 'description');
+      }
       if (item.destination) {
         validateDestination(item.destination, capability.id, item.id);
         if (
@@ -808,6 +851,132 @@ function validateSource(source) {
       }
     }
   }
+
+  const isKnownCapabilityTarget = (id) => capabilityIds.has(id) || id === 'setting.ai.permissions';
+  let directoryGroupById = null;
+  if (source.playbook !== undefined) {
+    if (!source.playbook || typeof source.playbook !== 'object' || Array.isArray(source.playbook)) {
+      throw new Error('playbook must be an object');
+    }
+    const { hero, gettingStarted, scenarios, directoryGroups } = source.playbook;
+    if (!hero || typeof hero !== 'object' || Array.isArray(hero)) {
+      throw new Error('playbook.hero must be an object');
+    }
+    for (const field of ['kicker', 'title', 'subtitle']) {
+      assertBilingual({ ...hero, id: 'playbook.hero' }, field);
+    }
+    assertBilingualList(hero, 'quickQueries', 'playbook.hero');
+
+    if (!Array.isArray(directoryGroups) || directoryGroups.length === 0) {
+      throw new Error('playbook.directoryGroups must be a non-empty array');
+    }
+    directoryGroupById = new Map();
+    for (const group of directoryGroups) {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(group?.id ?? '')) {
+        throw new Error(`Invalid playbook directoryGroup id: ${group?.id ?? '<missing>'}`);
+      }
+      if (directoryGroupById.has(group.id)) {
+        throw new Error(`Duplicate playbook directoryGroup id: ${group.id}`);
+      }
+      if (!['feature', 'setting'].includes(group.kind)) {
+        throw new Error(`playbook.directoryGroups.${group.id} needs kind feature or setting`);
+      }
+      if (!Number.isInteger(group.order)) {
+        throw new Error(`playbook.directoryGroups.${group.id}.order must be an integer`);
+      }
+      assertBilingual({ ...group, id: `playbook.directoryGroups.${group.id}` }, 'title');
+      assertBilingual({ ...group, id: `playbook.directoryGroups.${group.id}` }, 'description');
+      directoryGroupById.set(group.id, group);
+    }
+
+    if (!Array.isArray(gettingStarted) || gettingStarted.length === 0) {
+      throw new Error('playbook.gettingStarted must be a non-empty array');
+    }
+    const gettingStartedIds = new Set();
+    for (const stepEntry of gettingStarted) {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(stepEntry?.id ?? '')) {
+        throw new Error(`Invalid playbook gettingStarted id: ${stepEntry?.id ?? '<missing>'}`);
+      }
+      if (gettingStartedIds.has(stepEntry.id)) {
+        throw new Error(`Duplicate playbook gettingStarted id: ${stepEntry.id}`);
+      }
+      gettingStartedIds.add(stepEntry.id);
+      if (!Number.isInteger(stepEntry.step) || stepEntry.step < 1) {
+        throw new Error(`playbook.gettingStarted.${stepEntry.id}.step must be a positive integer`);
+      }
+      assertBilingual({ ...stepEntry, id: `playbook.gettingStarted.${stepEntry.id}` }, 'title');
+      assertBilingual({ ...stepEntry, id: `playbook.gettingStarted.${stepEntry.id}` }, 'description');
+      if (stepEntry.actionLabelZh !== undefined || stepEntry.actionLabelEn !== undefined) {
+        assertBilingual({ ...stepEntry, id: `playbook.gettingStarted.${stepEntry.id}` }, 'actionLabel');
+      }
+      if (typeof stepEntry.capabilityId !== 'string' || !isKnownCapabilityTarget(stepEntry.capabilityId)) {
+        throw new Error(
+          `playbook.gettingStarted.${stepEntry.id} targets unknown capability ${stepEntry.capabilityId}`,
+        );
+      }
+    }
+
+    if (!Array.isArray(scenarios) || scenarios.length === 0) {
+      throw new Error('playbook.scenarios must be a non-empty array');
+    }
+    const scenarioIds = new Set();
+    for (const scenario of scenarios) {
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(scenario?.id ?? '')) {
+        throw new Error(`Invalid playbook scenario id: ${scenario?.id ?? '<missing>'}`);
+      }
+      if (scenarioIds.has(scenario.id)) {
+        throw new Error(`Duplicate playbook scenario id: ${scenario.id}`);
+      }
+      scenarioIds.add(scenario.id);
+      assertBilingual({ ...scenario, id: `playbook.scenarios.${scenario.id}` }, 'title');
+      assertBilingual({ ...scenario, id: `playbook.scenarios.${scenario.id}` }, 'description');
+      if (!Array.isArray(scenario.capabilityIds) || scenario.capabilityIds.length === 0) {
+        throw new Error(`playbook.scenarios.${scenario.id}.capabilityIds must be a non-empty array`);
+      }
+      if (new Set(scenario.capabilityIds).size !== scenario.capabilityIds.length) {
+        throw new Error(`playbook.scenarios.${scenario.id}.capabilityIds must not contain duplicates`);
+      }
+      for (const targetId of scenario.capabilityIds) {
+        if (typeof targetId !== 'string' || !isKnownCapabilityTarget(targetId)) {
+          throw new Error(`playbook.scenarios.${scenario.id} targets unknown capability ${targetId}`);
+        }
+      }
+    }
+  }
+
+  for (const capability of source.capabilities) {
+    if (capability.directoryGroupId !== undefined) {
+      if (typeof capability.directoryGroupId !== 'string' || !capability.directoryGroupId.trim()) {
+        throw new Error(`${capability.id}.directoryGroupId must be a non-empty string`);
+      }
+      if (directoryGroupById) {
+        const group = directoryGroupById.get(capability.directoryGroupId);
+        if (!group) {
+          throw new Error(`${capability.id} references unknown directoryGroupId ${capability.directoryGroupId}`);
+        }
+        if (group.kind !== capability.kind) {
+          throw new Error(`${capability.id} kind (${capability.kind}) does not match directoryGroup ${group.id} (${group.kind})`);
+        }
+      }
+    }
+    if (capability.relatedIds !== undefined) {
+      if (!Array.isArray(capability.relatedIds)) {
+        throw new Error(`${capability.id}.relatedIds must be an array`);
+      }
+      if (new Set(capability.relatedIds).size !== capability.relatedIds.length) {
+        throw new Error(`${capability.id}.relatedIds must not contain duplicates`);
+      }
+      for (const relatedId of capability.relatedIds) {
+        if (relatedId === capability.id) {
+          throw new Error(`${capability.id}.relatedIds must not reference itself`);
+        }
+        if (typeof relatedId !== 'string' || !isKnownCapabilityTarget(relatedId)) {
+          throw new Error(`${capability.id}.relatedIds targets unknown capability ${relatedId}`);
+        }
+      }
+    }
+  }
+
   return capabilityIds;
 }
 
@@ -893,7 +1062,7 @@ function validateDocumentationEvidence(source, technicalCommands) {
   }
 }
 
-function runtimeItem(item, capability) {
+function publicItem(item, capability) {
   const { evidence: _evidence, ...value } = item;
   if (value.control.kind === 'delegate') {
     return {
@@ -906,6 +1075,28 @@ function runtimeItem(item, capability) {
       },
     };
   }
+  return value;
+}
+
+function leanItem(item, capability) {
+  const { descriptionZh: _descriptionZh, descriptionEn: _descriptionEn, ...value } = publicItem(item, capability);
+  return value;
+}
+
+function leanCapability(capability) {
+  const {
+    directoryGroupId: _directoryGroupId,
+    order: _order,
+    entryPathZh: _entryPathZh,
+    entryPathEn: _entryPathEn,
+    shortcut: _shortcut,
+    scenariosZh: _scenariosZh,
+    scenariosEn: _scenariosEn,
+    tipsZh: _tipsZh,
+    tipsEn: _tipsEn,
+    relatedIds: _relatedIds,
+    ...value
+  } = capability;
   return value;
 }
 
@@ -1445,18 +1636,27 @@ export function buildCapabilityCatalog() {
   const technicalCommands = technicalCoverage.commands;
   validateDocumentationEvidence(source, technicalCommands);
 
-  const runtimeCapabilities = source.capabilities.map((capability) => {
+  const fullCapabilities = source.capabilities.map((capability) => {
     const category = source.categories[capability.categoryId];
     return {
       ...capability,
-      items: capability.items.map((item) => runtimeItem(item, capability)),
+      items: capability.items.map((item) => publicItem(item, capability)),
       operations: capability.operations ?? [],
       options: capability.options ?? [],
       searchTerms: searchTerms(capability, category),
       docsUrl: `${source.origin}/capabilities/${capability.id}/`,
     };
   });
-  const publicCapabilities = runtimeCapabilities.map((capability) => ({
+  const runtimeCapabilities = fullCapabilities.map((capability) => ({
+    ...leanCapability(capability),
+    items: capability.items.map((item) => leanItem(item, capability)),
+  }));
+  const publicCapabilities = fullCapabilities.map((capability) => ({
+    ...capability,
+    operations: capability.operations.map(publicOperation),
+    options: capability.options.map(publicOption),
+  }));
+  const frontendCapabilities = runtimeCapabilities.map((capability) => ({
     ...capability,
     operations: capability.operations.map(publicOperation),
     options: capability.options.map(publicOption),
@@ -1467,6 +1667,7 @@ export function buildCapabilityCatalog() {
     .digest('hex');
   const digest = createHash('sha256')
     .update(JSON.stringify({
+      ...(source.playbook ? { playbook: source.playbook } : {}),
       categories: source.categories,
       searchAcceptance: source.searchAcceptance,
       capabilities: publicCapabilities,
@@ -1517,7 +1718,12 @@ export function buildCapabilityCatalog() {
       ]),
   );
   return {
-    publicCatalog: { ...common, capabilities: publicCapabilities },
+    publicCatalog: {
+      ...common,
+      ...(source.playbook ? { playbook: source.playbook } : {}),
+      capabilities: publicCapabilities,
+    },
+    frontendCatalog: { ...common, capabilities: frontendCapabilities },
     runtimeCatalog: { ...common, capabilities: runtimeCapabilities },
     technicalMap: {
       schemaVersion: 2,
@@ -1625,10 +1831,25 @@ function renderCapabilityMarkdown(capability) {
     ).join('\n')
     : '| 在界面中配置 / Configure in the UI | — | 此页面的设置在对应界面中完成。 | Configure this page in its matching UI. |';
   const steps = capability.stepsZh.map((step, index) => `${index + 1}. ${step}\n   ${capability.stepsEn[index] ?? ''}`).join('\n');
-  const inventory = capability.items.map((item) =>
-    `- **${itemControlLabel(item)}**${itemControlDetail(item, capability)} · ${item.titleZh}\n  - ${item.titleEn}`,
-  ).join('\n');
+  const inventory = capability.items.map((item) => {
+    const detail = item.descriptionZh
+      ? `\n  - 说明：${item.descriptionZh}\n  - Why & how: ${item.descriptionEn ?? ''}`
+      : '';
+    return `- **${itemControlLabel(item)}**${itemControlDetail(item, capability)} · ${item.titleZh}\n  - ${item.titleEn}${detail}`;
+  }).join('\n');
   const examples = capability.agentExamplesZh.map((item, index) => `- “${item}”\n  - “${capability.agentExamplesEn[index] ?? ''}”`).join('\n');
+  const entryText = capability.entryPathZh
+    ? `${capability.entryPathZh} / ${capability.entryPathEn}${capability.shortcut ? ` (\`${capability.shortcut}\`)` : ''}`
+    : destinationText(capability.destination);
+  const scenariosSection = capability.scenariosZh?.length
+    ? `\n## 适用场景 / When to use it\n\n${capability.scenariosZh.map((item, index) => `- ${item}\n  - ${capability.scenariosEn?.[index] ?? ''}`).join('\n')}\n`
+    : '';
+  const tipsSection = capability.tipsZh?.length
+    ? `\n## 实用贴士 / Good to know\n\n${capability.tipsZh.map((item, index) => `- ${item}\n  - ${capability.tipsEn?.[index] ?? ''}`).join('\n')}\n`
+    : '';
+  const relatedSection = capability.relatedIds?.length
+    ? `\n关联条目 / Related: ${capability.relatedIds.map((id) => `\`${id}\``).join(', ')}\n`
+    : '';
   return `${GENERATED_MARKER}
 ---
 id: ${capability.id}
@@ -1645,7 +1866,7 @@ title_en: ${JSON.stringify(capability.titleEn)}
 ${capability.summaryZh}
 
 ${capability.summaryEn}
-
+${scenariosSection}
 ## 完整功能清单 / Everything included
 
 ${inventory}
@@ -1654,7 +1875,7 @@ ${inventory}
 
 ${steps}
 
-入口 / Entry: ${destinationText(capability.destination)}
+入口 / Entry: ${entryText}
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -1671,7 +1892,7 @@ ${options}
 ## 可以直接对智能体说 / Try saying
 
 ${examples}
-
+${tipsSection}${relatedSection}
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 
 The agent first finds the relevant feature or setting, confirms the target, and then opens, runs, or changes it for you. The full catalog is never embedded in the conversation context.
@@ -1770,6 +1991,7 @@ async function generatedMarkdownFiles() {
 async function main() {
   const {
     publicCatalog,
+    frontendCatalog,
     runtimeCatalog,
     technicalMap,
     interactionAudit,
@@ -1777,7 +1999,7 @@ async function main() {
   } = buildCapabilityCatalog();
   const drift = [];
   await compareOrWrite(PUBLIC_CATALOG_PATH, `${JSON.stringify(publicCatalog, null, 2)}\n`, drift);
-  await compareOrWrite(RUNTIME_CATALOG_PATH, `${JSON.stringify(publicCatalog, null, 2)}\n`, drift);
+  await compareOrWrite(RUNTIME_CATALOG_PATH, `${JSON.stringify(frontendCatalog, null, 2)}\n`, drift);
   await compareOrWrite(PRODUCT_CONTROL_CATALOG_PATH, `${JSON.stringify(runtimeCatalog, null, 2)}\n`, drift);
   await compareOrWrite(
     PRODUCT_CONTROL_TS_BINDINGS_PATH,

@@ -206,8 +206,14 @@ impl LaunchReviewAgentTool {
         })
     }
 
-    fn render_description() -> String {
-        r#"Launch one foreground-waited DeepReview worker.
+    fn render_description(allow_model_override: bool) -> String {
+        let model_field = if allow_model_override {
+            "`model_id`, "
+        } else {
+            ""
+        };
+        format!(
+            r#"Launch one foreground-waited DeepReview worker.
 
 When the prepared manifest contains active work packets, launch only those packets in declared batch order. Manifest-declared managed Review packets may use bounded same-role file shards; every call blocks the owning Review turn until its result, timeout, or cancellation is recorded. Never convert a packet to a background AgentSpawn.
 
@@ -221,13 +227,13 @@ The capability catalog below contains short descriptions only. For an adaptive R
 
 For a managed packet, pass its exact manifest `packet_id` in the top-level `packet_id` field. Runtime rejects missing or unknown managed packet ids.
 
-Do not put `subagent_type`, `packet_id`, `description`, `model_id`, `timeout_seconds`, `retry`, `auto_retry`, `retry_coverage`, or `focused_assignment` inside the prompt string.
+Do not put `subagent_type`, `packet_id`, `description`, {model_field}`timeout_seconds`, `retry`, `auto_retry`, `retry_coverage`, or `focused_assignment` inside the prompt string.
 
 Retry rules:
 - Set `retry=true` only when re-dispatching the same reviewer after `partial_timeout` or a transient capacity skip in the current turn.
 - Retry calls must include `retry_coverage` with `source_packet_id`, `source_status`, `covered_files`, and a smaller `retry_scope_files` list.
 - Do not set `auto_retry=true` unless this is a backend-owned bounded automatic retry admitted by Review Team settings."#
-            .to_string()
+        )
     }
 
     fn render_tool_use_message(input: &Value, options: &ToolRenderOptions) -> String {
@@ -408,14 +414,17 @@ impl Tool for LaunchReviewAgentTool {
     }
 
     async fn description(&self) -> OpenBitFunResult<String> {
-        Ok(Self::render_description())
+        Ok(Self::render_description(
+            ModelOverridePolicy::presentation().await?.allowed,
+        ))
     }
 
     async fn description_with_context(
         &self,
         context: Option<&ToolUseContext>,
     ) -> OpenBitFunResult<String> {
-        let mut description = Self::render_description();
+        let mut description =
+            Self::render_description(ModelOverridePolicy::presentation().await?.allowed);
         if let Some(context) = context.filter(|context| {
             !context.is_remote()
                 && context
@@ -445,6 +454,10 @@ impl Tool for LaunchReviewAgentTool {
 
     fn input_schema(&self) -> Value {
         Self::launch_input_schema()
+    }
+
+    async fn input_schema_for_model(&self) -> Value {
+        ModelOverridePolicy::model_schema(self.input_schema()).await
     }
 
     fn output_schema(&self) -> Value {
@@ -521,6 +534,9 @@ impl Tool for LaunchReviewAgentTool {
         input: &Value,
         context: Option<&ToolUseContext>,
     ) -> ValidationResult {
+        if let Some(validation) = model_override_validation(input).await {
+            return validation;
+        }
         match Self::parse_invocation(input) {
             Ok(invocation) => {
                 if let Some(context) = context {
@@ -593,6 +609,7 @@ impl Tool for LaunchReviewAgentTool {
         input: &Value,
         context: &ToolUseContext,
     ) -> OpenBitFunResult<Vec<ToolResult>> {
+        ModelOverridePolicy::enforce(input).await?;
         self.call_launch_review_agent_impl(input, context).await
     }
 }

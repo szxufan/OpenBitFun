@@ -3,56 +3,89 @@
 id: feature.projects
 kind: feature
 category: workspace
-title_zh: "项目与工作区"
-title_en: "Projects & workspaces"
+title_zh: "项目、工作区与项目资源"
+title_en: "Projects, workspaces & Project Resources"
 ---
 
-# 项目与工作区 / Projects & workspaces
+# 项目、工作区与项目资源 / Projects, workspaces & Project Resources
 
 > 功能 / Feature
 
-打开本地目录或创建项目，让文件、会话、终端和智能体围绕同一工作区协作。
+打开本地文件夹或远程环境建立工作区，并在专属「项目资源」页集中管理单项目的默认模型、关联目录、权限规则、定时任务与项目级智能体/技能。
 
-Open a local directory or create a project so files, sessions, terminals, and agents share one workspace.
+Open local folders or remote environments as workspaces, and use each project’s Project Resources hub to manage default models, linked directories, permission rules, scheduled jobs, and project-scoped agents or Skills.
+
+## 适用场景 / When to use it
+
+- 主力业务仓库需要最强的推理模型，而个人练手小项目想省成本用轻量模型：点开项目行旁的「项目资源」，直接在顶部三个胶囊选择器里为该项目单独指定模型与默认模式，无需来回改全局设置。
+  - Want your flagship monorepo to default to a frontier reasoning model while a side project uses a lighter model? Set per-project Primary model, Fast model, and default mode pills at the top of Project Resources.
+- 前端应用需要对照另一个目录里的后端接口定义或设计规范：在「项目资源 → 目录」点击「添加目录」关联进来，点卡片就能在左侧文件树切换浏览。
+  - Working across split frontend and backend repos? Add the companion repo under Related Directories in Project Resources so both stay one click away in your file tree.
+- 侧边栏同时开了十几个项目显得杂乱：暂时不做的项目直接右键「关闭工作区」收起，所有历史会话与配置都会完好保留，随时从最近项目重新打开。
+  - Too many open projects cluttering the sidebar? Close idle workspaces from the context menu — your sessions and settings stay safe on disk and reopen anytime.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 打开现有项目或进入新建项目流程
-  - Open an existing project or enter the new-project flow
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 关闭、切换并重新排序多个已打开工作区
-  - Close, switch, and reorder multiple open workspaces
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看、清理和重新打开最近使用的项目
-  - Review, clean up, and reopen recently used projects
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 扫描并维护工作区名称、信息、关联目录和 Persona 文件
-  - Scan and maintain workspace names, metadata, related directories, and persona files
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 监听项目文件变化、检查监听状态并在失败后恢复
-  - Watch project file changes, inspect watch status, and recover a stopped watcher
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按文件名、路径或文件内容搜索本地工作区
-  - Search local workspaces by filename, path, or file content
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 从项目流程打开 SSH 或其他远程工作区
-  - Open SSH and other remote workspaces from the project flow
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看当前工作区、应用状态、健康状态与统计信息
-  - Inspect the current workspace, app state, health, and statistics
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择项目图案和颜色，或使用自定义图片
-  - Choose project icon shapes and colors, or use a custom image
+- **智能体可直接控制 / Direct Agent control** · 打开现有项目目录，或通过向导创建本地与远程新项目
+  - Open an existing project folder or launch the new-project wizard for local and remote environments
+  - 说明：点击侧边栏「会话」旁的「+」或直接让智能体打开入口，可选择本机目录、从模板新建工作区，或在已登录的其他设备、SSH 主机、容器与 WSL 中创建项目。
+  - Why & how: Use the + button beside Sessions or ask the Agent to open an existing directory or start a new project on this machine, a Peer device, SSH, Docker, or WSL.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在「项目资源」页配置单项目的默认模型与模式，并集中管理项目权限、定时任务、子智能体与技能
+  - Configure per-project default models and mode in Project Resources, alongside project permissions, schedules, subagents, and Skills
+  - 说明：点击项目行旁的「项目资源」图标即可设置只对该仓库（含其关联 Worktree）生效的主力模型、快速模型与默认模式，并在同一页增删该项目的工具审批规则、定时任务、项目子智能体和项目级 Skills。
+  - Why & how: Open Project Resources from a project row to override the Primary model, Fast model, and default mode for that repo (inherited by its worktrees), and manage its tool permissions, scheduled jobs, subagents, and Skills.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在多个已打开项目间自由切换、拖拽排序或关闭闲置工作区
+  - Switch, drag to reorder, or close open project workspaces in the sidebar
+  - 说明：支持按习惯拖拽调整侧边栏项目顺序；关闭项目只会把它从当前侧边栏收起，磁盘文件和历史会话均不受影响。
+  - Why & how: Drag project headers to keep active repos at the top, or close idle workspaces without touching files or saved conversation history.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看最近打开过的项目列表，一键重开或清理失效记录
+  - Browse recently opened projects, reopen them in one click, or clean up stale entries
+  - 说明：如果某个本地目录已被移动或删除，可以单独移除记录或一键清理失效路径，保持列表清爽。
+  - Why & how: Quickly jump back into recent repositories or prune moved and deleted directory entries from your history.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 添加或移除「关联目录」，维护项目名称描述与工作区人设文件
+  - Link or unlink Related Directories and maintain workspace metadata and persona files
+  - 说明：在「项目资源 → 目录」中可关联跨仓库目录并附带说明（移除关联只解除引用，绝不删除磁盘文件），也可维护工作区信息或重置 Persona 文档。
+  - Why & how: Attach companion directories with descriptions in Project Resources (unlinking never deletes files on disk) and maintain workspace info or persona files.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 定制项目专属图标图案、配色或分别上传浅色/深色自定义图片
+  - Customize project icons with presets and colors, or upload separate light and dark images
+  - 说明：点击「项目资源」页顶部的大图标，可从工作学习、生活兴趣分类挑选图标与配色，或上传浅色/深色模式专属图片，侧边栏会同步更新。
+  - Why & how: Click the large header icon in Project Resources to pick a preset glyph and color or upload light/dark custom artwork that syncs with the sidebar.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 自动监听工作区文件变动，并在大型仓库监听中断时一键恢复
+  - Watch workspace file changes automatically and retry the watcher if OS limits interrupt it
+  - 说明：当你在外部终端或 IDE 修改文件时，文件树和编辑器会自动感知最新状态；若因系统句柄上限暂停，可查看状态并重试。
+  - Why & how: Keeps the file tree and open buffers in sync when external tools touch files, with status inspection and one-click retry if a watcher stops.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在本地工作区内按文件名、路径或正文快速检索定位
+  - Search local workspaces by filename, path, or full-text content
+  - 说明：在左侧「工作区资源 → 文件」或全局搜索中输入关键词，即可快速定位目标代码文件与匹配上下文。
+  - Why & how: Filter by filename, relative path, or file contents right from Workspace Resources or Global Search to jump straight to matching lines.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 直接从新建项目向导接入 SSH、Docker 容器或 WSL 远程工作区
+  - Connect to SSH hosts, Docker containers, or WSL directly from the New Project wizard
+  - 说明：新建或添加项目时无需离开主流程，直接选择远程环境并浏览远端目录即可建立完整的远程工作区。
+  - Why & how: Select an existing or new SSH, container, or WSL target right inside the project creation flow and pick the remote directory visually.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在「项目资源」与状态栏查看 Git 改动路径数、会话数、任务数及配置健康度
+  - Check changed Git path counts, conversation totals, scheduled tasks, and config health
+  - 说明：项目资源顶部统计条会汇总去重后的 Git 改动文件数、未归档会话总数、定时任务以及项目专属智能体与技能数量，点击数字即可滚动聚焦对应分区。
+  - Why & how: The Project Resources summary strip shows distinct changed Git paths, unarchived conversations, scheduled jobs, and project Agents/Skills — click a count to jump to its section.
 
 ## 怎么用 / How to use it
 
-1. 选择“打开项目”或“新建项目”
-   Choose Open Project or New Project
-2. 选择本地目录或配置远程位置
-   Select a local directory or configure a remote location
-3. 从侧边栏进入项目文件与会话
-   Use the sidebar to access files and sessions
+1. 点击左侧边栏「会话」标题右侧的「+」（添加项目或个人助理），或按 ⌘K / Ctrl+K 选择「打开项目 / 新建项目」
+   Click + beside Sessions in the left sidebar (or press ⌘K / Ctrl+K and choose Open project / New project)
+2. 选择本机文件夹，或切换到 SSH / 容器 / WSL 及其他在线设备并选定项目目录
+   Pick a local folder, or choose an SSH host, Docker container, WSL distro, or Peer device and select its directory
+3. 悬停在侧边栏项目名称上：点「文件夹」图标可在左侧展开该项目的「工作区资源」（文件树 + 终端）；点「项目资源」图标可进入项目仪表盘
+   Hover the project header in the sidebar: click the folder icon to open Workspace Resources (files + terminals), or click the Project Resources icon for its dashboard
+4. 在「项目资源」顶部按需为该项目指定专属的主力模型、快速模型和默认模式，或添加关联目录与项目级权限规则
+   In Project Resources, optionally set per-project Primary/Fast models and default mode, link related directories, or add project permission rules
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 左侧边栏「会话」标题右侧的「+」按钮；或悬停项目行点击「项目资源」图标与文件夹图标 / Click + beside Sessions in the left sidebar, or hover a project row for its Project Resources and Open directory icons (`⌘K → 打开项目 / 新建项目`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
 | 操作 / Action | 中文说明 | English description |
 | --- | --- | --- |
-| 打开项目 / Open project | 选择并打开一个已有目录。 | Choose and open an existing directory. |
-| 新建项目 / Create project | 打开新建项目流程。 | Open the new-project flow. |
+| 打开项目 / Open project | 弹出目录选择器并打开一个已有项目文件夹。 | Open the directory picker to open an existing project folder. |
+| 新建项目 / Create project | 打开新建项目向导，支持本地目录、模板或远程环境。 | Launch the new-project wizard for local folders, templates, or remote targets. |
 
 ## 可配置选项 / Configurable options
 
@@ -62,10 +95,23 @@ Open a local directory or create a project so files, sessions, terminals, and ag
 
 ## 可以直接对智能体说 / Try saying
 
-- “帮我打开一个项目”
-  - “Help me open a project”
-- “打开新建项目的界面”
-  - “Open the new-project flow”
+- “帮我打开一个本地项目”
+  - “Help me open a local project folder”
+- “打开新建项目向导，我想连一个远程目录”
+  - “Open the new-project dialog so I can connect a remote directory”
+- “看看我当前工作区下有哪些项目，在这个项目新建一个会话”
+  - “List my registered workspaces and start a new session in this project”
+
+## 实用贴士 / Good to know
+
+- 在「项目资源」里设置的默认模型和默认模式，会自动被该项目派生的所有 Git Worktree 继承，并行开分支也不用重复配置。
+  - Per-project default models and modes set in Project Resources are automatically inherited by linked Git worktrees of that repo.
+- 如果侧边栏会话列表切换到了「全部（平铺）」视图，新打开一个还没有会话的空项目时，OpenBitFun 会自动切回「分组」视图，确保你能立刻看到新项目标题。
+  - If your session list is in flat All view when you open a brand-new project, OpenBitFun automatically switches to Grouped view so the new project header is visible right away.
+- 移除「关联目录」只会解除项目引用，绝对不会删除你硬盘上的任何源文件，可以放心整理。
+  - Removing a Related Directory only unlinks it from the project — your files on disk are never deleted.
+
+关联条目 / Related: `feature.home-search`, `feature.remote-workspaces`, `setting.workspace.session`, `setting.workspace.worktrees`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

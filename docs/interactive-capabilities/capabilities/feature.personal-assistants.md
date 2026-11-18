@@ -3,45 +3,70 @@
 id: feature.personal-assistants
 kind: feature
 category: assistant
-title_zh: "个人助理"
-title_en: "Personal assistants"
+title_zh: "个人助理（长期人设与专属空间）"
+title_en: "Personal assistants (persistent persona & workspace)"
 ---
 
-# 个人助理 / Personal assistants
+# 个人助理（长期人设与专属空间） / Personal assistants (persistent persona & workspace)
 
 > 功能 / Feature
 
-在助理空间中创建和管理自己的长期 AI 助理，定义身份与人设，并从同一处开始会话或安排定时任务。
+拥有独立工作区、长期记忆与鲜明性格的随身 AI 伙伴：不局限于单个代码仓库，可随时陪你梳理日常事务、撰写文档、跟进长期计划并运行专属定时任务。
 
-Create and manage persistent AI assistants, define their identity and persona, and start chats or scheduled work from one place.
+Create long-lived AI companions with their own workspace, memory, and Markdown persona documents — ideal for ongoing daily planning, writing, research, and assistant-scoped scheduled jobs beyond any single repo.
+
+## 适用场景 / When to use it
+
+- 想要一个懂你表达习惯、记住你工作偏好的日常搭子，但不想每次都先打开某个代码工程：直接和主助理开聊，把周报提纲、会议纪要和杂事交给它整理。
+  - Want an AI partner that remembers your writing tone and ongoing priorities without opening a code repo first? Start a chat with your Primary Assistant anytime from the sidebar.
+- 希望早上九点自动汇总待办或晚间提醒复盘：在个人助理详情页直接添加定时任务，时间一到它就会带着自己的人设和记忆自动执行。
+  - Need a morning briefing or Friday weekly-review nudge? Add a scheduled job right inside that assistant’s page so it runs in its own workspace with its persona intact.
+- 想分别拥有一位严谨毒舌的「论文审稿人」和一位温和耐心的「学习陪练」：创建两个不同的个人助理，各自维护独立的 `SOUL.md` 灵魂设定与会话历史，互不串味。
+  - Want both a tough academic critic and a friendly language tutor? Create two assistants with separate SOUL.md files and isolated conversation histories.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 浏览已有助理、创建新助理并查看每个助理的身份与能力概览
-  - Browse existing assistants, create a new one, and review each assistant's identity and capability summary
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 关闭侧栏中的助理并取消正在运行的会话，保留配置和历史，之后从助理空间重新打开
-  - Close sidebar assistants and cancel running sessions, preserve configuration and history, and reopen them from the assistant gallery
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 设为主助理、删除非主助理，或将助理工作区重置为默认状态
-  - Set the primary assistant, delete non-primary assistants, or reset an assistant workspace to defaults
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 编辑助理名称、角色类型和气质，并选择官方头像、Emoji 或自定义头像字符
-  - Edit an assistant's name, creature type, and vibe, then choose an official avatar, emoji, or custom avatar character
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 读取和编辑 IDENTITY.md、SOUL.md 与 USER.md，并自动保存 Markdown 正文和 Frontmatter
-  - Read and edit IDENTITY.md, SOUL.md, and USER.md with autosaved Markdown body and frontmatter
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在助理详情中选择模型、输入消息并查看该助理的历史会话
-  - Choose a model, send a message, and browse an assistant's sessions from its detail page
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看和管理仅属于当前助理工作区的定时会话与自动任务
-  - Review and manage scheduled sessions and automated jobs scoped to the current assistant workspace
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在助理空间一览全部个人助理、查看人设与能力摘要，并一键创建新助理
+  - Browse all your personal assistants, review their persona and capability summaries, and create new ones in one click
+  - 说明：新创建的助理会自动使用开箱即用的默认模板初始化，随后你可以按喜好慢慢雕琢它的名字、头像与性格。
+  - Why & how: New assistants spin up instantly with sensible defaults so you can start chatting right away or customize their identity whenever you like.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 把暂时不用的助理从侧边栏收起（完整保留人设与历史），需要时随时重新打开
+  - Hide inactive assistants from the sidebar while keeping their persona and history intact, and reopen them anytime
+  - 说明：在侧边栏关闭助理只会停下正在运行的轮次并收起分组，所有人设文档与历史对话都安全保存在助理空间中。
+  - Why & how: Closing an assistant in the sidebar cancels any in-flight turn and declutters your list without deleting its persona files or past sessions.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 将最常用的伙伴设为「主助理」、删除不再需要的副助理，或一键重置为初始状态
+  - Designate your Primary Assistant, remove extra assistants, or reset an assistant workspace back to defaults
+  - 说明：设为主助理后，新建助理会话与手机远控都会优先使用它；主助理受保护不可直接误删，如需重来可先切换主助理或使用重置。
+  - Why & how: Your Primary Assistant becomes the default companion for quick assistant chats; non-primary assistants can be deleted, and any assistant can be reset to clean defaults.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 定制助理昵称、角色设定与说话气质，并挑选官方插画头像、Emoji 或自定义字符
+  - Edit an assistant’s name, role archetype, and conversational vibe, and pick a preset avatar, emoji, or custom glyph
+  - 说明：给每个助理起个好记的名字、配上辨识度高的头像，在侧边栏和标签栏里一眼就能认出正在和谁对话。
+  - Why & how: Give each companion a memorable name, vibe, and distinct avatar so you can tell them apart instantly in the sidebar and session tabs.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 直接编辑自动保存的 IDENTITY.md、SOUL.md 与 USER.md，用透明 Markdown 掌控人设细节
+  - Read and edit autosaved IDENTITY.md, SOUL.md, and USER.md persona documents in plain Markdown
+  - 说明：没有黑盒参数：`IDENTITY.md` 定义它是谁、`SOUL.md` 定义性格与行事准则、`USER.md` 记录它需要了解的关于你的背景偏好，边写边自动保存。
+  - Why & how: Zero black-box magic: IDENTITY.md defines who the assistant is, SOUL.md shapes its voice and principles, and USER.md captures your preferences — all autosaved as clean Markdown.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 从助理主页直接选模型发消息开聊，并集中回顾与该助理的所有历史会话
+  - Pick a model, send a quick message, and browse all past conversations from the assistant’s page
+  - 说明：在助理详情页顶部输入框写下一句话就能开启新对话，下方列表按时间整理了你和这位助理聊过的全部主题。
+  - Why & how: Start a new thread right from the quick composer at the top of the assistant’s page or jump back into any earlier conversation below.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为当前个人助理单独创建和管理定时会话与周期性自动任务
+  - Create and manage scheduled sessions and recurring automated jobs scoped to a specific assistant
+  - 说明：在这里添加的定时任务只绑定当前助理工作区，运行记录也会归档在它的会话列表下，和代码项目的构建巡检任务互不混杂。
+  - Why & how: Scheduled jobs created here belong specifically to this assistant’s workspace, keeping personal briefings and reminders neatly separated from repo build jobs.
 
 ## 怎么用 / How to use it
 
-1. 打开“助理”
-   Open Assistants
-2. 创建助理或选择现有助理
-   Create an assistant or choose an existing one
-3. 编辑身份与人设，然后开始会话或定时任务
-   Edit its identity and persona, then start a chat or scheduled task
+1. 从左侧「首页」的「智能体」分区点击助理卡片或「创建助理」进入（也可点侧边栏「会话」旁的「+」直接新建个人助理，或在外观设置中把「助理」固定到左侧边栏）
+   From Home, look under the Agents section to open an assistant or click Create assistant (or click + beside Sessions in the sidebar, or pin Assistant to the left sidebar in Appearance settings)
+2. 选择现有的主助理，或点击「创建助理」生成一位新伙伴
+   Select your Primary Assistant or click Create assistant to add a new specialized companion
+3. 修改昵称、头像和气质，按需在 IDENTITY.md / SOUL.md / USER.md 中补充它的说话风格与你的个人背景（自动保存）
+   Set its name, vibe, and avatar, and optionally refine IDENTITY.md, SOUL.md, and USER.md — changes save automatically
+4. 在页面顶部输入框直接发消息开聊，或切换到定时任务区给它安排每日早报/提醒
+   Send a message right from the quick input box at the top, or add a recurring briefing under its Scheduled Jobs section
 
-入口 / Entry: OpenBitFun 对应场景
+入口 / Entry: 左侧「首页 → 智能体」分区的助理入口（创建助理），或点击侧边栏「会话」旁的「+」新建个人助理（也可按 ⌘K / Ctrl+K 搜索「助理」，或在外观设置中将「助理」固定到左侧边栏） / Home → Agents section (Create assistant), click + beside Sessions in the sidebar, press ⌘K / Ctrl+K for Assistant, or pin Assistant to the left sidebar (`⌘K → 个人助理`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -57,12 +82,23 @@ Create and manage persistent AI assistants, define their identity and persona, a
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开我的个人助理”
-  - “Open my personal assistants”
-- “帮我创建一个新的个人助理”
-  - “Help me create a new personal assistant”
-- “我想修改主助理的人设”
-  - “I want to edit my primary assistant's persona”
+- “打开我的个人助理空间”
+  - “Open my personal assistants gallery”
+- “我想修改主助理的人设，让它回答更精炼直接”
+  - “Take me to my Primary Assistant so I can make its persona more concise”
+- “每天早上 9 点让我的主助理帮我整理一份今日关注事项提醒”
+  - “Schedule a 9:00 AM daily check-in task for my assistant”
+
+## 实用贴士 / Good to know
+
+- 「个人助理」和「智能体（Agents）」有什么区别？「智能体」是面向具体开发任务的专业工种或子代理（跟着代码项目走）；「个人助理」则拥有自己独立的工作区、长期记忆和 `SOUL.md` 人格，适合跨项目的日常陪伴与长期事务。
+  - Personal Assistants vs. Agents: Agents are task roles and subagents used inside project sessions, whereas each Personal Assistant owns its own persistent workspace, memory, and SOUL.md persona across days and weeks.
+- 不知道 `USER.md` 写什么？你可以直接在和助理聊天时告诉它你的职业、常用技术栈和偏好，让它帮你整理更新即可。
+  - Not sure what to put in USER.md? Just tell your assistant about your role, habits, and formatting preferences in chat and ask it to update your profile notes.
+- 手机端通过 Remote Connect 连接电脑后，同样可以在侧边栏直接切换到你的个人助理发消息！
+  - When connected via Mobile Web or IM bots, your Personal Assistants appear right alongside your code workspaces so you can message them on the go.
+
+关联条目 / Related: `feature.ai-assistant`, `feature.tasks-automation`, `setting.ai.memory`, `feature.remote-connect`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

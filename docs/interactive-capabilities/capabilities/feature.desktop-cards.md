@@ -11,35 +11,54 @@ title_en: "Desktop cards"
 
 > 功能 / Feature
 
-让智能体在主窗口之外放置可拖动的小卡片，显示倒计时、清单、PR 状态、天气、股价等需要偶尔看一眼的信息，并在重新打开应用后恢复。
+让智能体把倒计时提醒、上线核对清单、PR 状态、接口健康指标或行情看板做成轻巧的独立小卡片，贴在屏幕任意顺眼的位置——支持定时自动拉取数据刷新、Windows 桌面图标层固定，关掉应用再重开也会按原位置和尺寸自动恢复。
 
-Let agents place draggable cards outside the main window for glanceable information such as countdowns, checklists, PR status, weather, or stock prices, restored after the app reopens.
+Let agents place lightweight, draggable cards outside the main window for glanceable info like countdowns, checklists, PR status, service metrics, or quotes—with automatic HTTP/command refresh, Windows desktop-layer pinning, and exact position/size restore on relaunch.
+
+## 适用场景 / When to use it
+
+- 写代码容易忘时间？随口说一句“25 分钟后提醒我站起来活动一下”，屏幕角落立刻多出一张倒计时卡陪你专注
+  - Say "Remind me about design review in 20 minutes" and get a clean countdown card tucked in the corner of your screen
+- 提交完大 PR 等 CI 跑完，让 AI 做一张每两分钟自动刷新的 PR 状态小卡片贴在副屏，不用来回切网页盯进度
+  - Keep a self-refreshing PR status or build-health card on your secondary monitor instead of constantly reloading GitHub tabs
+- 把发版前的 6 步手工核对项做成桌面清单卡，做完一步勾一步，随时点卡片菜单跳回原对话让 AI 接着执行下一步
+  - Pin a release checklist card to your desktop, check items off as you go, and jump back to the originating chat in one click
 
 ## 完整功能清单 / Everything included
 
-- **由专用智能体工具控制 / Delegated Agent tool** · `DesktopCard` · 按需求或在任务过程中创建倒计时、清单、便签、进度、指标、图表、定时任务和自定义卡片，可定时从 HTTP 接口或本机命令刷新数据
-  - Create countdown, checklist, note, progress, metrics, chart, scheduled-job, and custom cards on request or during a task, optionally refreshed from an HTTP endpoint or a local command
-- **由专用智能体工具控制 / Delegated Agent tool** · `DesktopCard` · 在首页“小卡片”区查看全部卡片，并显示、隐藏或删除单张卡片
-  - See every card in the Home Desktop cards section, and show, hide, or delete individual cards
-- **由专用智能体工具控制 / Delegated Agent tool** · `DesktopCard` · 在卡片上刷新数据、勾选清单项、切换置顶、打开链接或回到来源会话
-  - Refresh data, check off list items, toggle always-on-top, open the link, or return to the source session from a card
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在卡片菜单、首页卡片列表或设置里把卡片固定到 Windows 桌面，隐藏的卡片同样可以切换固定状态
-  - Pin a card to the Windows desktop from the card menu, the Home card list, or Settings, including hidden cards
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 拖动卡片到桌面任意位置，拖动卡片边缘或四角调整大小；关闭 OpenBitFun 时卡片消失，重新打开后按原位置和大小恢复
-  - Drag cards anywhere on the desktop and resize them from their edges or corners; they disappear when OpenBitFun closes and return with the same position and size when it reopens
+- **由专用智能体工具控制 / Delegated Agent tool** · `DesktopCard` · 一句话创建倒计时、清单、便签、进度、指标与图表卡片，支持 HTTP 或命令定时刷新
+  - Create countdown, checklist, note, progress, metric, and chart cards with optional live refresh
+  - 说明：内置丰富卡片预设，既能展示静态备忘与倒计时，也能绑定 HTTP 接口或本机轻量命令定期拉取最新数字。
+  - Why & how: Pick from rich built-in presets or custom layouts, optionally wired to an HTTP endpoint or local command for scheduled updates.
+- **由专用智能体工具控制 / Delegated Agent tool** · `DesktopCard` · 在「首页 → 小卡片」集中浏览全部卡片，一键显示、隐藏或删除
+  - View all cards in Home → Desktop cards and show, hide, or delete any card
+  - 说明：哪怕卡片被你藏起来了或挪到了外接显示器角落，回到首页「我的卡片」列表也能一目了然地找回或清理。
+  - Why & how: Even if a card is hidden, every card stays listed in Home → Desktop cards so you can show, hide, or remove it easily.
+- **由专用智能体工具控制 / Delegated Agent tool** · `DesktopCard` · 在卡片上直接刷新数据、勾选待办项、切换窗口置顶或一键回到来源会话
+  - Refresh data, check off items, toggle always-on-top, open links, or jump to the source session
+  - 说明：卡片不只是静态展示牌——直接在上面勾掉完成的任务，或者点一下回到当初生成它的聊天窗口继续吩咐 AI。
+  - Why & how: Cards are interactive: check off tasks right on the surface, trigger an immediate refresh, or jump back to the chat that created it.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在卡片菜单、首页卡片列表或设置里将卡片固定到 Windows 桌面图标层
+  - Pin cards to the Windows desktop layer from the card menu, Home list, or Settings
+  - 说明：嵌入 Windows Explorer 桌面层（位于桌面图标之上、其他软件窗口之下），连已隐藏的卡片也可提前切换固定偏好。
+  - Why & how: Embeds the card onto the Windows desktop plane—above desktop icons and behind normal app windows—without blocking active coding.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 自由拖拽摆放并拉伸卡片边缘调整尺寸，关闭重启 OpenBitFun 后自动按原样恢复
+  - Drag and resize cards freely on screen, with positions and sizes restored on relaunch
+  - 说明：退出客户端时卡片会随之干净收起，下次启动自动回到你上次摆好的屏幕坐标与大小，不用重新排布。
+  - Why & how: Cards tuck away cleanly when OpenBitFun exits and reappear at the exact same position and dimensions next time you launch.
 
 ## 怎么用 / How to use it
 
-1. 让智能体创建一张卡片，或在任务中由智能体主动创建
-   Ask an agent for a card, or let it create one during a task
-2. 拖动卡片到合适位置
-   Drag the card where you want it
-3. 在卡片菜单、首页列表或设置里把卡片固定到桌面（Windows）
-   Pin it to the desktop from the card menu, the Home card list, or Settings (Windows)
-4. 在首页“小卡片”区或卡片菜单中隐藏或删除
-   Hide or delete it from the Home Desktop cards section or the card menu
+1. 在任意桌面端本地会话中告诉智能体你想盯什么信息（如倒计时、待办清单、PR 状态或某个接口指标），智能体会自动挑选合适模板创建卡片
+   Ask an agent in a Desktop session for the glanceable card you want (countdown, checklist, PR watcher, or live metric)
+2. 按住卡片拖到屏幕顺手的位置，拖动边缘或四角调整到舒服的大小
+   Drag the card anywhere on your screen and resize it from its edges or corners
+3. 通过卡片右上角菜单可手动刷新、勾选清单、切换「置顶」或在 Windows 上选择「固定到桌面」
+   Use the card menu to refresh data, check off items, toggle always-on-top, or Pin to desktop on Windows
+4. 需要暂时收起或清理时，在卡片菜单、「首页 → 小卡片」区域或「设置 → 应用与界面 → 宠物与助手 → 小卡片」中隐藏或删除
+   Show, hide, or delete cards anytime from the card menu, Home → Desktop cards, or Settings → Pet & assistant → Desktop cards
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 在对话中直接让智能体创建；集中管理位于「首页 → 小卡片」或「设置 (⌘, / Ctrl+,) → 应用与界面 → 宠物与助手 → 小卡片」 / Ask an agent in chat to create a card; manage all cards in Home → Desktop cards or Settings (⌘, / Ctrl+,) → Application & Interface → Pet & assistant → Desktop cards
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -57,10 +76,25 @@ Let agents place draggable cards outside the main window for glanceable informat
 
 ## 可以直接对智能体说 / Try saying
 
-- “20 分钟后提醒我开会”
+- “20 分钟后提醒我参加产品评审会”
   - “Remind me about the meeting in 20 minutes”
-- “做一张卡片帮我盯着这个 PR 的状态”
+- “做一张桌面小卡片帮我盯着当前分支 PR 的 CI 状态”
   - “Make a card that keeps an eye on this PR”
+- “帮我把今晚发版要检查的 5 件事做成一张桌面清单卡片”
+  - “Create a desktop checklist card for tonight’s 5 release verification steps”
+- “把桌面上那张已经跑完的倒计时卡片删掉”
+  - “Hide or delete the finished countdown card on my desktop”
+
+## 实用贴士 / Good to know
+
+- 「置顶」与 Windows「固定到桌面」的区别：开启「置顶」会让卡片浮在所有窗口最前面（适合紧急倒计时）；Windows 的「固定到桌面」则把卡片贴在壁纸图标层上，看桌面时才露出来，平时完全不挡代码窗口。
+  - Always-on-top vs Pin to desktop (Windows): Always-on-top floats above active windows for urgent timers, while Pin to desktop tucks the card onto the wallpaper layer behind your apps.
+- 在设置里关闭总开关不会删卡：如果你在「宠物与助手 → 小卡片」里暂时关闭小卡片功能，所有卡片只是隐藏收起，重新开启后立刻原样恢复。
+  - Turning off Desktop cards keeps your data: disabling the master toggle in Pet & assistant settings hides existing cards safely until you re-enable them.
+- 桌面端本机专属：小卡片需要本机图形窗口承载，手机远控会话暂不支持创建；在远程 SSH 工作区中可使用 HTTP 数据源卡片，但不能绑定本机命令刷新。
+  - Desktop-host scope: Desktop cards require the native Desktop host (unavailable from mobile remote control), and remote SSH workspaces cannot attach local shell commands as card data sources.
+
+关联条目 / Related: `setting.application.pet`, `feature.desktop-pet`, `feature.tasks-automation`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

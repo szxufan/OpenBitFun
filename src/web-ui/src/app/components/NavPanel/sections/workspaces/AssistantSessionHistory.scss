@@ -5,11 +5,15 @@
   }
 
   .openbitfun-nav-panel__inline-item-trailing {
-    // Reserve both actions even while hidden, so their intrinsic width cannot
-    // push the status icon outside the row's clipped boundary.
+    // Reserve both actions on both axes even while hidden, so the xs default
+    // icon button neither clips the status icon nor overflows the 20px trailing
+    // track downward.
     flex-basis: calc(var(--openbitfun-control-icon-button-xs-size) + var(--openbitfun-space-5));
     inline-size: calc(var(--openbitfun-control-icon-button-xs-size) + var(--openbitfun-space-5));
+    block-size: var(--openbitfun-control-icon-button-xs-size);
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    align-content: center;
     justify-items: end;
   }
 }

@@ -3,53 +3,80 @@
 id: feature.terminal
 kind: feature
 category: workspace
-title_zh: "终端"
-title_en: "Terminal"
+title_zh: "内置终端与命令行协作"
+title_en: "Integrated terminal & shell collaboration"
 ---
 
-# 终端 / Terminal
+# 内置终端与命令行协作 / Integrated terminal & shell collaboration
 
 > 功能 / Feature
 
-在当前项目中运行 Shell、查看输出、保留命令历史，并让智能体与同一终端环境协作。
+在项目目录内随时开启多实例 Shell：清晰区分「我的终端」与「智能体终端」，支持保存常用启动配置，且关掉普通终端标签页不会误杀正在运行的后台服务。
 
-Run a shell in the current project, inspect output, keep command history, and share the same terminal context with agents.
+Run multiple shells scoped to your local or remote workspace: separate Mine vs. Agent terminals, save reusable startup configurations, and close terminal tabs without killing running dev servers.
+
+## 适用场景 / When to use it
+
+- 你在终端里跑着 `pnpm dev`，想先把终端标签页关掉腾出屏幕看代码：放心按关闭即可——普通终端标签默认只是分离视图，后台服务不会断，随时从左侧「工作区资源 → 终端」点一下就能重新接回实时输出。
+  - Running `pnpm dev` and want screen space back? Close the terminal tab worry-free — regular tabs detach cleanly while the process keeps running in Workspace Resources → Terminals.
+- 每次打开项目都要敲一串带环境变量的启动命令：在终端菜单中选择「保存配置」，下次就能直接从列表按保存好的配置一键启动。
+  - Tired of typing the same startup command every morning? Save a terminal configuration on the workspace and start it on demand.
+- 跑单测报错了一大屏堆栈：直接让智能体在同一工作区环境下复现命令、读取标准输出并交互式调试修复。
+  - Hit a wall of test failures? Ask the Agent to run the suite in your workspace environment, inspect stdout/stderr, and iterate on the fix.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 打开终端面板并新建一个终端会话
-  - Open the terminal panel and create a terminal session
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 列出、切换和关闭多个终端会话
-  - List, switch, and close multiple terminal sessions
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 检测可用 Shell，并为终端选择默认或指定 Shell
-  - Detect available shells and choose a default or explicit shell
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 在当前项目目录或指定起始目录创建终端
-  - Create terminals in the current project or a chosen starting directory
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` / `WriteStdin` / `ExecControl` / `ExecReadOutput` · 执行命令、读取输出、写入输入并发送中断或其他信号
-  - Execute commands, read output, write input, and send interrupt or other signals
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 随终端面板大小变化同步行列尺寸
-  - Synchronize terminal rows and columns as the panel resizes
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看命令历史并检测 Shell Integration 支持
-  - Review command history and detect shell-integration support
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 确认输出接收并安全关闭单个或全部终端
-  - Acknowledge output and safely shut down one or all terminals
+- **智能体可直接控制 / Direct Agent control** · 打开终端视图并在当前工作区一键新建终端会话
+  - Open the terminal view and create a new shell session in the active workspace
+  - 说明：自动绑定当前项目的根目录（含 SSH 远程工作区连接），让你一打开就处在正确的代码目录下。
+  - Why & how: Automatically binds to your active project’s root directory — including SSH remote workspaces — so you land in the right folder immediately.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按「我的 / 智能体」分类查看、切换终端，或保存常用的终端启动配置
+  - Browse and switch terminals across Mine and Agent views, and save reusable terminal configurations
+  - 说明：左侧「工作区资源 → 终端」会清晰标出每个终端的运行中、已保存或已结束状态；打开已保存配置不会擅自自动跑命令，等你点启动才执行。
+  - Why & how: See Running, Saved, or Ended badges in Workspace Resources → Terminals; opening a saved profile never runs its startup command until you explicitly start it.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 自动检测系统可用 Shell（如 zsh、bash、PowerShell、Git Bash）并按需切换新建终端类型
+  - Auto-detect installed shells (zsh, bash, PowerShell, Git Bash, WSL) and pick a default or per-terminal shell
+  - 说明：既可在「设置 → 编程与开发 → 终端」设定全局默认 Shell，也可在新建终端下拉菜单里临时挑选别的 Shell。
+  - Why & how: Set your global default shell in Settings → Programming & Development → Terminal, or pick a specific shell on the fly when creating a terminal.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 在文件树任意子目录右键「在此新建终端」，或让智能体在指定子目录执行命令
+  - Open a terminal directly inside any subfolder from the file tree, or let the agent run commands in a target directory
+  - 说明：处理 Monorepo 子包时无需手动 `cd`，直接在目标包文件夹右键即可打开定位于该子目录的终端，也可从终端反向在文件树定位当前工作目录。
+  - Why & how: Working in a monorepo package? Right-click any folder in the file tree to launch a shell right there, or reveal a terminal’s working directory back in the file tree.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` / `WriteStdin` / `ExecControl` / `ExecReadOutput` · 由智能体执行构建与测试命令、向交互式进程输入内容，或发送中断与停止信号
+  - Let the agent run build and test commands, send interactive stdin, or interrupt and terminate hung processes
+  - 说明：智能体跑命令同样严格遵守你的权限规则与远程工作区边界；遇到交互式脚手架提示时可启用 TTY 持续输入或终止卡死命令。
+  - Why & how: Agent shell calls honor your workspace boundary and approval rules, supporting interactive TTY input, output polling, and clean signal termination.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在底部面板与右侧分栏间流畅拖拽调整终端尺寸，自动适配全屏 TUI 与长行排版
+  - Resize docked bottom or split-pane terminals smoothly with automatic row/column adaptation for TUI tools
+  - 说明：拖拽分割线时会自动防抖同步 PTY 行列尺寸，确保 `htop`、`vim`、`lazygit` 等终端全屏工具画面不乱码不错位。
+  - Why & how: Dragging panel splitters synchronizes PTY rows and columns cleanly so full-screen terminal apps like htop, vim, or lazygit render crisply.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 回溯终端命令历史并识别 Shell Integration 状态
+  - Browse terminal command history and detect Shell Integration support
+  - 说明：保留终端执行过的历史记录与退出后的屏幕输出，进程结束后依然能往上翻看完整报错日志，直到你主动关闭移除该终端。
+  - Why & how: Even after a shell process exits, its scrollback output stays readable for inspection until you explicitly remove the terminal entry.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 区分「关标签分离视图」与「彻底停止关闭进程」，安全关停单个或全部终端
+  - Detach views safely when closing tabs, or explicitly stop and shut down individual or all terminal processes
+  - 说明：关掉顶部或右侧标签只收起画面不杀进程；当你确实想释放端口或退出所有后台 Shell 时，可在终端操作菜单中显式停止关闭。
+  - Why & how: Closing a tab detaches without stopping your server; use Stop / Remove in the terminal actions menu when you actually want to free ports and end processes.
 
 ## 怎么用 / How to use it
 
-1. 打开终端
-   Open Terminal
-2. 确认当前目录
-   Confirm the current directory
-3. 输入命令；需要时新建额外终端
-   Enter a command and create extra terminals as needed
+1. 按 ⌘Shift+`（Windows/Linux 按 Ctrl+Shift+`），或点侧边栏项目行的「文件夹」图标展开「工作区资源 → 终端」
+   Press ⌘Shift+` (Ctrl+Shift+` on Windows/Linux) or click a project’s folder icon in the sidebar to open Workspace Resources → Terminals
+2. 点击「+」新建终端（或在下拉箭头里挑选 zsh / PowerShell / Git Bash 等指定 Shell）
+   Click + to start a shell in your project root, or use the shell picker to choose zsh, bash, PowerShell, or Git Bash
+3. 输入命令启动服务或测试；想看代码时直接关掉终端标签页，进程会在左侧终端列表继续保活
+   Run your dev server or tests; close the tab anytime to free screen space while keeping the underlying process alive
+4. 需要彻底释放端口时，在左侧「工作区资源 → 终端」对应条目菜单里点击「停止」或「移除已结束终端」
+   When you want to stop the process and free its port, choose Stop or Remove from the terminal row menu in Workspace Resources
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 按快捷键 ⌘Shift+` / Ctrl+Shift+`，或展开左侧「工作区资源 → 终端」分区（文件树任意目录右键也可「在此新建终端」） / Press ⌘Shift+` / Ctrl+Shift+`, expand Workspace Resources → Terminals in the left panel, or right-click any folder for New terminal here (`⌘Shift+` / Ctrl+Shift+``)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
 | 操作 / Action | 中文说明 | English description |
 | --- | --- | --- |
-| 新建终端 / Create terminal | 在当前工作区创建终端。 | Create a terminal in the current workspace. |
+| 新建终端 / Create terminal | 在当前工作区新建一个终端会话。 | Create a new terminal session in the current workspace. |
 
 ## 可配置选项 / Configurable options
 
@@ -59,10 +86,23 @@ Run a shell in the current project, inspect output, keep command history, and sh
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开一个终端”
-  - “Open a terminal”
-- “切到终端界面”
-  - “Switch to the terminal”
+- “帮我在当前项目新建一个终端”
+  - “Create a new terminal in the current project”
+- “跑一下当前包的单元测试，把失败用例的报错原因告诉我”
+  - “Run the unit tests for this package and explain any failures”
+- “打开默认终端 Shell 设置”
+  - “Open default terminal shell settings”
+
+## 实用贴士 / Good to know
+
+- 看到终端显示「运行中」代表 Shell 会话还活着，并不代表里面的 Web 服务健康无报错——需要核实服务状态时点开看看实时日志最稳妥。
+  - A Running badge means the shell PTY is active — open the terminal view to check foreground server logs when verifying health.
+- 如果你更喜欢纯键盘、全终端无 GUI 的沉浸式开发体验，还可以安装独立的 `openbitfun` 命令行工具（详见下一篇「OpenBitFun CLI 与终端交互界面」）。
+  - Prefer living 100% inside iTerm2, Ghostty, WezTerm, or an SSH session? Check out the standalone `openbitfun` CLI & TUI guide right next to this page.
+- 在连接 SSH 远程工作区时新建终端，不会读取你本机的默认 Shell 路径，而是直接启动远端服务器的原生登录 Shell。
+  - New SSH workspace terminals always launch the remote server’s native shell rather than reusing your local computer’s shell executable.
+
+关联条目 / Related: `setting.application.terminal`, `feature.cli-tui`, `feature.remote-workspaces`, `feature.files-editor`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

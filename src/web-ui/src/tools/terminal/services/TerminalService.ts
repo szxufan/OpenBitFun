@@ -11,6 +11,7 @@ import { createLogger } from '@/shared/utils/logger';
 import {
   getActiveSurfaceScope,
   getActiveSurfaceId,
+  isLocalSurface,
   type SurfaceScope,
 } from '@/infrastructure/peer-device/deviceSurface';
 import type {
@@ -342,17 +343,31 @@ export class TerminalService {
 
   async createSession(request: CreateSessionRequest): Promise<SessionResponse> {
     const { surfaceId } = getActiveSurfaceScope();
+    const { workspaceId, hostWorkspaceTarget, ...terminalOptions } = request;
+    const workingDirectory = hostWorkspaceTarget?.connectionId ? undefined : terminalOptions.workingDirectory;
     try {
       const session = await invokePrepared<SessionResponse>('terminal_create', async () => {
-        if (!request.workspaceId) return { request };
-        const reference = await workspaceIdRequest(request.workspaceId, 'workspacePath');
+        if (hostWorkspaceTarget) {
+          if (!workspaceId?.trim()) throw new Error('Host terminal workspace ID is required');
+          if (isLocalSurface(surfaceId)) return { request };
+          const capabilities = peerConnectionManager.get(surfaceId)?.getState().capabilities;
+          if (capabilities?.hostTerminalWorkspaceV1) return { request };
+          if (capabilities?.hostKind !== 'desktop') {
+            throw new Error('Host terminals for workspaces are unavailable on this device');
+          }
+          // Older Desktop hosts accept an explicit host target without a workspace ID.
+          // Including the ID could cause them to route the PTY to the workspace's SSH host.
+          return { request: { ...terminalOptions, workingDirectory, connectionId: '' } };
+        }
+        if (!workspaceId) return { request };
+        const reference = await workspaceIdRequest(workspaceId, 'workspacePath');
         return 'workspaceId' in reference
           ? { request }
           : { request: { ...request, workspaceId: undefined, connectionId: reference.remoteConnectionId ?? '' } };
       });
       log.debug('Session created', { sessionId: session.id });
       return this.projectSession(surfaceId, {
-        ...session, workspaceId: session.workspaceId || request.workspaceId, initialCwd: session.initialCwd || request.workingDirectory || session.cwd,
+        ...session, workspaceId: session.workspaceId || workspaceId, initialCwd: session.initialCwd || workingDirectory || session.cwd,
       });
     } catch (error) {
       log.error('Failed to create session', error);

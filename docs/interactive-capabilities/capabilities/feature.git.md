@@ -3,49 +3,78 @@
 id: feature.git
 kind: feature
 category: workspace
-title_zh: "Git 版本控制"
-title_en: "Git version control"
+title_zh: "Git 版本控制与 Worktree 并行隔离"
+title_en: "Git version control & isolated Worktrees"
 ---
 
-# Git 版本控制 / Git version control
+# Git 版本控制与 Worktree 并行隔离 / Git version control & isolated Worktrees
 
 > 功能 / Feature
 
-查看改动、分支和提交，完成暂存、提交、合并、Cherry-pick 与 Worktree 工作流。
+在会话与终端中顺畅完成状态检查、暂存提交、分支管理与 Cherry-pick，并借助 Git Worktree 在同一仓库同时并行推进多个互不干扰的 AI 会话。
 
-Inspect changes, branches, and commits; stage, commit, merge, cherry-pick, and work with Git worktrees.
+Inspect changes, stage, commit, manage branches, and cherry-pick through AI sessions and terminals — and use Git worktrees to run multiple parallel sessions on the same repository without branch collisions.
+
+## 适用场景 / When to use it
+
+- 正在重构大功能改了一半，线上突然来了一个紧急热修（Hotfix）：不用 `git stash` 手忙脚乱，直接开启一个绑定独立 Worktree 的新会话修 Bug 提 PR，两边目录完全隔离。
+  - Deep in a multi-file refactor when an urgent production bug lands? Start a Worktree-isolated session for the hotfix instead of juggling `git stash` — both sessions edit and run tests independently.
+- 想把另一个实验分支上的某两次干净提交摘到主干分支：告诉智能体「帮我把那两个修复提交 cherry-pick 过来」，遇到冲突还能一步步协助解决或随时 `--abort` 中止还原。
+  - Need just two clean bugfix commits from an experimental branch? Ask the Agent to cherry-pick them and help resolve any conflict (or abort cleanly if needed).
+- 写完一堆零散改动懒得憋英文提交说明：让智能体先看一遍 `git diff` 按仓库历史风格生成 Commit Message，你过目点头后再提交。
+  - Finished a feature and want a commit message that matches your repo’s style? Have the Agent inspect `git status` + `git diff` + recent `git log` and draft it for your approval.
 
 ## 完整功能清单 / Everything included
 
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 查看仓库状态、修改文件和逐文件 Diff
-  - Inspect repository status, changed files, and per-file diffs
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 暂存文件、取消暂存并重置到指定提交
-  - Stage files, unstage changes, and reset to a selected commit
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 预览或生成提交信息并创建提交
-  - Preview or generate a commit message and create the commit
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 从远端 Pull 并向远端 Push
-  - Pull from and push to remotes
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 查看、创建、切换和删除本地分支
-  - Browse, create, check out, and delete local branches
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 浏览提交图谱与仓库历史并保存最近访问记录
-  - Browse the commit graph and repository history, including recent-history persistence
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 解析 Revision 并查看任意提交中的文件内容
-  - Resolve revisions and inspect file content from any commit
-- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 执行、继续或中止 Cherry-pick
-  - Start, continue, or abort a cherry-pick
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 管理仓库信任与 Worktree 的创建、绑定、提升、重建和删除
-  - Manage repository trust and create, bind, promote, recreate, or remove worktrees
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 查看仓库工作树状态、已跟踪改动数与逐文件 Diff 详情
+  - Inspect working-tree status, tracked change counts, and per-file diffs
+  - 说明：在「项目资源」顶部可直接看到去重后的 Git 改动路径总数，在会话中也能随时让智能体梳理未暂存、已暂存与未跟踪文件。
+  - Why & how: See distinct changed-path counts in Project Resources and inspect staged, unstaged, and untracked file diffs right from your session.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 管理仓库信任授权，以及创建、绑定、提升、重建和清理隔离的 Git Worktree
+  - Manage repository trust and create, bind, promote, recreate, or clean up isolated Git worktrees
+  - 说明：为并行会话分配独立 Worktree 工作目录后，智能体的文件修改和构建命令都会锁定在该工作树中；任务完成后可合并提升或一键清理目录。
+  - Why & how: Bind parallel sessions to dedicated Git worktrees so edits and builds stay completely isolated, then promote or clean them up when done.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 按文件精准暂存（Stage）、取消暂存或安全重置到指定提交
+  - Stage selected files, unstage changes, or reset to a chosen commit with safety checks
+  - 说明：可以把不同主题的改动分批暂存拆成多次干净提交；涉及丢弃改动的 `reset` 参数会自动触发权限与安全拦截确认。
+  - Why & how: Split mixed edits into clean atomic commits by staging selectively; destructive reset flags remain gated by permission checks.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 结合真实改动自动拟定规范提交说明并创建 Git Commit
+  - Generate clear commit messages from actual diffs and create commits after your review
+  - 说明：智能体会先比对暂存内容与仓库近期提交规范生成标题和正文，并可在「设置 → 工作区与 Git」中配置是否附带协作署名。
+  - Why & how: Drafts accurate commit titles and bodies grounded in your staged diff and recent commit conventions, respecting your Git attribution settings.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 查看本地与远端跟踪分支，新建特性分支、切换分支或清理已合并分支
+  - List local and tracking branches, create feature branches, switch branches, or clean up merged ones
+  - 说明：开启新功能前让智能体先基于最新主干切好规范命名的分支，省去手敲命令或切错基准分支的烦恼。
+  - Why & how: Have the Agent branch cleanly off your latest base ref before starting work and tidy up merged local branches afterward.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 从远端仓库拉取更新（Pull）并将本地提交推送到远端（Push）
+  - Pull upstream updates and push local commits to remotes with force-push protection
+  - 说明：仅在你明确要求推送到远端时才会执行 `git push`，且 `--force` 等高风险覆盖动作默认会被拦截或要求你显式确认。
+  - Why & how: Runs `git push` only when you ask to push, keeping force-pushes and history rewrites blocked or explicitly confirmed.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 跨分支挑选合并指定提交（Cherry-pick），并支持冲突后继续或安全中止
+  - Start, continue, or cleanly abort a Git cherry-pick across branches
+  - 说明：精准把其他分支上的修复提交移植过来；如果出现代码冲突，智能体可帮你定位冲突块并在修好后 `--continue`，或随时 `--abort` 恢复原状。
+  - Why & how: Backport or port individual commits cleanly across branches, with guided conflict resolution via `--continue` or instant rollback via `--abort`.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 检索提交历史与演进脉络，快速定位引入回归问题的提交（git log / blame）
+  - Explore commit history and graphs to pinpoint when a behavior or regression was introduced
+  - 说明：遇到「上周还好好的怎么突然坏了」，直接让智能体结合提交历史与变更记录顺藤摸瓜找出关键提交。
+  - Why & how: Ask the Agent to trace recent commits and history graphs whenever you need to find exactly which change altered behavior.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ExecCommand` · 解析任意分支、Tag 或 Commit SHA，直接对比或读取历史版本中的文件内容
+  - Resolve any branch, tag, or commit SHA and read historical file contents without checking out
+  - 说明：不必切换当前工作分支，就能直接查看某个旧标签或主干提交里的文件原文进行比对参考。
+  - Why & how: Read or diff a file from `main`, a release tag, or an older commit SHA without disturbing your current working tree.
 
 ## 怎么用 / How to use it
 
-1. 打开 Git
-   Open Git
-2. 选择改动或分支
-   Choose changes or a branch
-3. 执行暂存、提交或分支操作
-   Stage, commit, or perform a branch operation
+1. 在项目会话中直接告诉智能体你的 Git 诉求（如「看看当前改了哪些文件」「基于 main 切一个修复分支」），或在内置终端 / CLI 中输入 `/diff` 查看变更
+   Tell the Agent in chat what you want to do in Git ("Show unstaged changes", "Create a fix branch off main"), or run `/diff` in the CLI
+2. 想同时跑两个互不干扰的任务时，为新会话启用 Worktree 隔离（可在侧边栏会话筛选器中按「主工作区 / 工作树会话」分类查看）
+   When running parallel tasks on one repo, create a Worktree-isolated session (and filter Main vs. Worktree sessions anytime in the sidebar view menu)
+3. 开发完成后，点击会话改动条逐文件审阅 Diff，再让智能体按仓库风格拟定提交信息并完成本地 Commit
+   Review per-file diffs in the session’s modified-files bar, then ask the Agent to draft a commit message and create the commit
+4. 确认无误后再明确指令智能体执行 `git push` 或使用 `commit-push-pr` 技能一气呵成发起 PR
+   Once satisfied, explicitly ask the Agent to push or invoke the built-in `commit-push-pr` Skill to open a pull request
 
-入口 / Entry: OpenBitFun 对应场景
+入口 / Entry: 在 AI 会话中直接用自然语言操作 Git、查看底部文件 Diff 栏，或在新建会话 / 「设置 → 编程与开发 → 工作区与 Git → Worktrees」管理隔离工作树 / Ask in any AI session, inspect the modified-files diff bar, use `/diff` in CLI, or manage isolated worktrees in Settings → Programming & Development → Workspace & Git → Worktrees (`会话指令 · CLI /diff`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -61,10 +90,23 @@ Inspect changes, branches, and commits; stage, commit, merge, cherry-pick, and w
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开 Git 面板”
-  - “Open the Git panel”
-- “带我查看当前代码改动”
-  - “Show me the current code changes”
+- “看看当前仓库有哪些未提交的改动，帮我把日志调试代码剔除后整理一次干净提交”
+  - “Check git status and diff, strip any leftover debug logs, and stage a clean commit with a descriptive message”
+- “帮我把 commit a1b2c3d cherry-pick 到当前分支，如果有冲突先列给我看”
+  - “Cherry-pick commit a1b2c3d onto my current branch and walk me through any conflicts”
+- “查一下最近两周是谁、在哪次提交里改了 token 刷新的超时逻辑”
+  - “Search recent git history to find which commit changed the token refresh timeout logic”
+
+## 实用贴士 / Good to know
+
+- 默认情况下智能体绝不会未经允许自动 `git push` 或使用 `--force` 改写远端历史，你可以放心让它在本地整理分支与提交。
+  - Agents never push to remotes or run destructive `--force` / `--hard` commands unless you explicitly ask and approve.
+- 想定制新 Worktree 根目录、分支前缀、保留上限、「默认复制本地改动」（把未提交改动与暂存状态一并带入新工作树）或「Git 提交署名（Co-authored-by）」，可前往「设置 → 编程与开发 → 工作区与 Git」；编码或提交后的快捷动作则在「设置 → 工具与集成 → 自动化」中管理。
+  - Configure your Worktree root path, branch prefix, retention limit, Copy local changes by default (carries uncommitted workspace changes and staged state into new worktrees), and Git Co-authored-by attribution in Settings → Programming & Development → Workspace & Git; post-coding and commit Quick Actions live under Settings → Tools & Integrations → Automation.
+- 在 Peer 对端设备模式下，「信任仓库（`git_trust_repository`）」属于本机操作员级别的安全决定，必须由目标机器本机确认。
+  - Repository trust (`git_trust_repository`) is an operator-local safety gate on the host machine and is never silently bypassed by remote controllers.
+
+关联条目 / Related: `setting.workspace.worktrees`, `feature.code-review`, `feature.files-editor`, `feature.terminal`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

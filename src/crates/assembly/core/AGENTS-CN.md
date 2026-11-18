@@ -127,3 +127,14 @@ workspace check 与产品全量测试由 CI 兜底，不是 Core 默认预检。
 
 助理发现、打开状态持久化和按工作区 ID 重新打开的聚焦验证：
 `cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib service::workspace::service::tests::assistant_`。
+
+## Agent 协作工具验证
+
+`Agent*` 工具与旧 `Task` 兼容入口统一位于 `agentic::tools::implementations::agent_collaboration`。
+验证 Agent 名称映射、目录准入及协作工具行为：
+
+```bash
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib agentic::tools::implementations::agent_collaboration::
+```
+
+这些测试覆盖本地夹具和模拟工作区策略，不代表已验证真实 SSH、Relay、Peer Device 或 Detached Dispatch 连接。

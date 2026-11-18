@@ -450,7 +450,7 @@ test('an unmarked launch item keeps the parent rows that follow it out of its br
 });
 
 test('every owner name the host can send opens the branch', () => {
-  for (const name of ['Task', 'task', 'TASK', ' Task ', 'AgentSpawn', 'agentspawn', 'AgentSpawn']) {
+  for (const name of ['Task', 'task', 'TASK', ' Task ', 'AgentSpawn', 'agentspawn', 'AgentFork', 'agentfork']) {
     const owner = { type: 'tool', tool: { id: 'call', name, status: 'running' } };
     const child = { type: 'text', is_subagent: true, content: 'child output' };
     const scoped = Policy.scopeSubagentItems([owner, child]);
@@ -459,23 +459,25 @@ test('every owner name the host can send opens the branch', () => {
 });
 
 test('a card read from a decorated parent message carries the child branch', () => {
-  const harness = coordinatorHarness();
-  const { coordinator, opened } = harness;
-  coordinator.beginSession(SESSION);
-  coordinator.observeParentEvent(ownerRecord(1));
-  assert.ok(opened.has(CHILD_SESSION), 'the child session is followed once its launch is read');
+  for (const toolName of ['AgentSpawn', 'AgentFork']) {
+    const harness = coordinatorHarness();
+    const { coordinator, opened } = harness;
+    coordinator.beginSession(SESSION);
+    coordinator.observeParentEvent(ownerRecord(1, CHILD_SESSION, toolName));
+    assert.ok(opened.has(CHILD_SESSION), 'the child session is followed once its launch is read');
 
-  const callbacks = opened.get(CHILD_SESSION);
-  childRecords().forEach(event => callbacks.onEvent(event));
-  callbacks.onCaughtUp();
+    const callbacks = opened.get(CHILD_SESSION);
+    childRecords().forEach(event => callbacks.onEvent(event));
+    callbacks.onCaughtUp();
 
-  const decorated = coordinator.decorate(parentMessages([ownerRecord(1)]));
-  const card = Policy.subagentBranchAt(ui.toConversationUiMessage(decorated[1]).items || [], 0, SWARM_CALL_ID);
-  assert.ok(card, 'the branch is found by the launch tool call');
-  assert.deepEqual((card.subItems || []).map(child => child.type), ['thinking', 'tool', 'text']);
-  assert.ok(harness.notifications() > 0, 'the parent is republished when the branch changes');
-  coordinator.endSession();
-  assert.ok(harness.closed.includes(CHILD_SESSION), 'and the child stream is closed with the session');
+    const decorated = coordinator.decorate(parentMessages([ownerRecord(1, CHILD_SESSION, toolName)]));
+    const card = Policy.subagentBranchAt(ui.toConversationUiMessage(decorated[1]).items || [], 0, SWARM_CALL_ID);
+    assert.ok(card, 'the branch is found by the launch tool call');
+    assert.deepEqual((card.subItems || []).map(child => child.type), ['thinking', 'tool', 'text']);
+    assert.ok(harness.notifications() > 0, 'the parent is republished when the branch changes');
+    coordinator.endSession();
+    assert.ok(harness.closed.includes(CHILD_SESSION), 'and the child stream is closed with the session');
+  }
 });
 
 test('the same child record published twice adds one step', () => {

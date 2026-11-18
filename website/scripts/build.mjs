@@ -39,9 +39,10 @@ function embeddedJson(value) {
   return JSON.stringify(value).replaceAll('<', '\\u003c');
 }
 
-function renderPage(template, { title, description, url, pageData, assetVersion }) {
+function renderPage(template, { title, heading, description, url, pageData, assetVersion }) {
   return template
     .replaceAll('__PAGE_TITLE__', escapeHtml(title))
+    .replaceAll('__PAGE_HEADING__', escapeHtml(heading ?? title))
     .replaceAll('__PAGE_DESCRIPTION__', escapeHtml(description))
     .replaceAll('__PAGE_URL__', escapeHtml(url))
     .replaceAll('__ASSET_VERSION__', escapeHtml(assetVersion))
@@ -55,6 +56,7 @@ async function main() {
   const catalog = JSON.parse(await readFile(catalogPath, 'utf8'));
   const template = await readFile(path.join(sourceRoot, 'index.html'), 'utf8');
   const appSource = await readFile(path.join(sourceRoot, 'app.js'), 'utf8');
+  const playbookDataSource = await readFile(path.join(sourceRoot, 'playbook-data.js'), 'utf8');
   const searchSource = await readFile(path.join(sourceRoot, 'search.js'), 'utf8');
   const stylesSource = await readFile(path.join(sourceRoot, 'styles.css'), 'utf8');
   const designTokensSource = await readFile(designTokensCssPath, 'utf8');
@@ -73,6 +75,7 @@ async function main() {
     .update(catalog.digest)
     .update(template)
     .update(appSource)
+    .update(playbookDataSource)
     .update(searchSource)
     .update(stylesSource)
     .update(designTokensSource)
@@ -87,8 +90,11 @@ async function main() {
   await mkdir(path.join(outputRoot, 'assets'), { recursive: true });
   await writeFile(
     path.join(outputRoot, 'assets/app.js'),
-    appSource.replace("'./search.js'", `'./search.js?v=${assetVersion}'`),
+    appSource
+      .replace("'./search.js'", `'./search.js?v=${assetVersion}'`)
+      .replace("'./playbook-data.js'", `'./playbook-data.js?v=${assetVersion}'`),
   );
+  await writeFile(path.join(outputRoot, 'assets/playbook-data.js'), playbookDataSource);
   await writeFile(path.join(outputRoot, 'assets/search.js'), searchSource);
   await writeFile(path.join(outputRoot, 'assets/design-tokens.css'), designTokensSource);
   await writeFile(path.join(outputRoot, 'assets/theme.css'), themeSource);
@@ -115,9 +121,11 @@ async function main() {
     }, null, 2)}\n`,
   );
 
-  const homeDescription = `Learn ${catalog.counts.features} OpenBitFun features and ${catalog.counts.settings} settings pages in Chinese or English.`;
+  const homeDescription = catalog.playbook?.hero?.subtitleZh
+    || `OpenBitFun 实用使用指南：涵盖 ${catalog.counts.features} 项核心功能与 ${catalog.counts.settings} 个设置页面的上手步骤、常见场景与智能体协作指令。`;
   await writeFile(path.join(outputRoot, 'index.html'), renderPage(template, {
-    title: 'OpenBitFun Playbook — Features, settings, and practical guides',
+    title: 'OpenBitFun 使用指南 · Playbook — 功能目录、上手步骤与设置参考',
+    heading: 'OpenBitFun Playbook',
     description: homeDescription,
     url: `${catalog.origin}/`,
     assetVersion,
@@ -128,8 +136,9 @@ async function main() {
     const directory = path.join(outputRoot, 'capabilities', capability.id);
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, 'index.html'), renderPage(template, {
-      title: `${capability.titleEn} / ${capability.titleZh} — OpenBitFun Playbook`,
-      description: capability.summaryEn,
+      title: `${capability.titleZh} / ${capability.titleEn} — OpenBitFun Playbook`,
+      heading: `${capability.titleZh} · ${capability.titleEn}`,
+      description: `${capability.summaryZh} ${capability.summaryEn}`,
       url: capability.docsUrl,
       assetVersion,
       pageData: { kind: 'capability', capabilityId: capability.id, digest: catalog.digest },

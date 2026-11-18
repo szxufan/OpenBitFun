@@ -20,7 +20,6 @@ export const chatComposerMeta = {
     "border.width.default",
     "color.composer.border",
     "color.composer.contextBackground",
-    "control.composer.contextBlur",
     "control.composer.surfaceRadius",
     "control.composer.surfacePadding",
     "control.composer.surfaceGap",

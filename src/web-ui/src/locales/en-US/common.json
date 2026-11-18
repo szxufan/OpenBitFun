@@ -2266,6 +2266,7 @@
       "copyAuthFailed": "Failed to copy GitHub CLI login command.",
       "unresolvedPullRequest": "This pull request could not be resolved from the remotes of the current workspace.",
       "ghAuthRequired": "GitHub CLI authentication required",
+      "ghAuthHostTerminal": "Run this command in the OpenBitFun host terminal, finish signing in, then retry.",
       "tokenRequiredTitle": "Token required",
       "tokenScopeTitle": "Token permissions required",
       "tokenUpdateTitle": "Token update required",

@@ -11,41 +11,70 @@ title_en: "Skills"
 
 > 功能 / Feature
 
-为智能体安装和管理可复用的专业工作流，并控制哪些模式可以使用它们。
+把领域经验、团队代码规范、排查套路和辅助脚本封装成可复用的 Skill。既能从技能市场一键安装，也能放在项目仓库里随团队共享，或在对话中通过 $、/ 与 @ 随时点名调用。
 
-Install and manage reusable expert workflows for agents, and control which modes can use them.
+Turn domain know-how, team conventions, debugging playbooks, and helper scripts into reusable Skills—install from the Marketplace, commit project-scoped Skills with your repo, or invoke them on demand with $, /, or @ in chat.
+
+## 适用场景 / When to use it
+
+- 把团队的 API 命名规范、数据库迁移检查单写成项目级 Skill（放在 .openbitfun/skills），全组同学拉下仓库就能让 AI 按统一标准写代码
+  - Check team API guidelines or release checklists into .openbitfun/skills so everyone on the repo gets consistent AI behavior automatically
+- 想给客户端换一套独特主题？在聊天里调用内置的 openbitfun-skin-designer 技能并附上一张参考图，让 AI 自动生成并校验完整视觉皮肤包
+  - Drop a reference artwork into chat and invoke the built-in openbitfun-skin-designer Skill to craft a custom Visual Skin Pack
+- 从外部 AI 工具（如 Claude Code、Codex）迁移过来时，把原有技能一键导入并在不同工作模式中按需启用
+  - Install specialized testing or documentation workflows from the Skill Market and scope them only to the modes that need them
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 统一查看用户级、项目级、本地和远程来源的已安装 Skills
-  - Browse installed Skills from user, project, local, and remote sources in one catalog
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 浏览、搜索和刷新 Skill 市场
-  - Browse, search, and refresh the Skill market
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 把市场 Skill 下载到用户级或当前项目
-  - Download a market Skill for the user or current project
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 校验本地 Skill 路径并添加到用户级或项目级
-  - Validate a local Skill path and add it at user or project scope
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 删除已安装的用户级或项目级 Skill
-  - Remove an installed user-level or project-level Skill
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在全局范围启用或停用单个 Skill
-  - Enable or disable an individual Skill globally
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按智能体模式选择 Skill 与 Skill 组，并可恢复默认选择
-  - Choose Skills and skill groups per agent mode and restore defaults
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 识别同名 Skill 的用户级与项目级遮蔽优先级
-  - Understand user-versus-project shadowing precedence for same-named Skills
-- **由专用智能体工具控制 / Delegated Agent tool** · `Skill` · 按需加载并执行当前智能体可见的 Skill
-  - Load and execute a Skill visible to the current agent on demand
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 集中浏览内置、个人全局、当前项目与外部导入的全部已安装 Skills
+  - Browse built-in, user, project, and imported Skills in one unified catalog
+  - 说明：清晰展示每个技能的来源标签、路径、扫描状态与简介，哪个是全局通用、哪个是当前仓库专属一目了然。
+  - Why & how: See every Skill’s source badge, location, scan health, and summary in one place so user-wide and repo-specific workflows stay clear.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 逛 Skill 市场：搜索、分类浏览与刷新社区精选技能
+  - Explore, search, and refresh community workflows in the Skill Market
+  - 说明：按关键词查找现成的开发、写作、设计与自动化工作流，点击即可预览技能详情与使用说明。
+  - Why & how: Search by keyword to discover ready-made coding, writing, design, and automation workflows before installing.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 将市场中的 Skill 一键安装到个人全局或当前项目
+  - Install a Marketplace Skill to your user profile or active project
+  - 说明：通用效率技能装到「用户级」所有项目都能用；团队协作规范装到「项目级」方便随 Git 提交共享。
+  - Why & how: Install personal productivity Skills at user scope for every workspace, or at project scope to share with teammates in Git.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 校验本地文件夹（含 SKILL.md）并添加为个人或项目 Skill
+  - Validate a local SKILL.md folder and add it at user or project scope
+  - 说明：自己动手写新技能时，导入前会自动检查目录结构与 Frontmatter 格式，有问题当场给出清晰提示。
+  - Why & how: Authoring your own Skill? OpenBitFun validates the folder and SKILL.md frontmatter before linking it to your user or project catalog.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 安全移除不再需要的个人级或项目级已安装 Skill
+  - Remove an installed user-level or project-level Skill safely
+  - 说明：清理过时或测试用的自定义技能（内置系统技能受保护不会被误删），操作前有明确确认提示。
+  - Why & how: Clean up outdated user or project Skills with explicit confirmation while built-in Skills remain protected.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在全局一键启用或暂时停用某个 Skill，无需卸载
+  - Enable or temporarily disable any Skill globally without uninstalling it
+  - 说明：某个技能暂时不用但以后还想保留？关掉开关即可对所有新轮次隐藏，随时再点一下就能恢复。
+  - Why & how: Keep a Skill installed on disk while hiding it from agents until you need it again.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按智能体模式（如 Standard、Creative）定制可用 Skill 组合并支持恢复默认
+  - Customize which Skills and skill groups each Agent mode can use, with one-click reset
+  - 说明：给编码模式配齐调试与重构技能，给写作模式只留文档与排版技能，职责清爽不串味，改乱了随时一键恢复默认。
+  - Why & how: Give coding modes debugging and Git Skills while keeping writing or minimal modes focused—and restore defaults anytime.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 自动按「项目级优先于个人级」处理同名 Skill 并在界面提示遮蔽关系
+  - Automatically prioritize project Skills over same-named user Skills with clear badges
+  - 说明：当仓库自带了同名技能时，列表会清楚标注哪个版本正在生效、哪个被遮蔽，排查为什么某条规则生效不再靠猜。
+  - Why & how: When a repo defines a same-named Skill, the catalog badges which version is active and which is shadowed so precedence is never a mystery.
+- **由专用智能体工具控制 / Delegated Agent tool** · `Skill` · 在会话中由智能体按需自动加载或响应 $ 点名执行可见 Skill
+  - Load and follow a visible Skill on demand or via $ mention in chat
+  - 说明：触发后智能体会先完整阅读 SKILL.md 及其配套参考文档，再严格按照里面的步骤、脚本和质量红线推进任务。
+  - Why & how: Once triggered, the agent reads the complete SKILL.md instructions and bundled resources before executing the workflow step by step.
 
 ## 怎么用 / How to use it
 
-1. 打开 Skills
-   Open Skills
-2. 搜索需要的工作流
-   Search for the workflow you need
-3. 安装后在会话中调用
-   Install it and invoke it from a session
+1. 在左侧边栏点击「首页」滑到「技能」区域点击「已安装技能」或「搜索更多技能」（或按 ⌘K / Ctrl+K 搜索「打开技能」），在「已安装技能」与「技能市场」页签间切换
+   From Home, click Installed Skills or Find More Skills (or press ⌘K / Ctrl+K → Open skills) to switch between the Installed Skills and Marketplace tabs
+2. 从市场搜索并下载喜欢的 Skill（可选安装到个人全局或当前项目），或点击「添加技能」选择本地包含 SKILL.md 的目录
+   Download a Skill from the Market to user or project scope, or click Add Skill to validate and link a local SKILL.md folder
+3. 按需开启/停用单个 Skill，或在「智能体」管理页按模式配置可见的技能组
+   Toggle individual Skills on or off globally, or customize per-mode Skill selection in Agents
+4. 在会话中直接描述任务让 AI 自动匹配加载，或输入 $技能名（以及 @ → 技能）显式指定按该技能执行
+   Describe your task naturally so the agent loads matching Skills on demand, or type $skill-name (or @ → Skills) in chat to invoke one explicitly
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 左侧边栏「首页」→ 已安装技能 / 搜索更多技能，或按 ⌘K / Ctrl+K → 打开技能（项目级技能也可在项目旁「项目资源」管理） / Home → Installed Skills / Find More Skills, or press ⌘K / Ctrl+K → Open skills (project-scoped Skills also live in Project Resources) (`⌘K / Ctrl+K`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -61,10 +90,23 @@ Install and manage reusable expert workflows for agents, and control which modes
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开 Skills”
-  - “Open Skills”
-- “带我去技能管理”
-  - “Take me to skill management”
+- “用 openbitfun-skin-designer 技能参考这张图片帮我设计一套深色视觉皮肤”
+  - “Use the openbitfun-skin-designer Skill to create a dark visual skin inspired by this image”
+- “看看当前项目有哪些可用的 Skills，按发版检查技能帮我过一遍改动”
+  - “Check which Skills are available in this project and run our release-checklist workflow”
+- “打开技能管理页面，我想去技能市场逛逛”
+  - “Open Skills so I can browse the Skill Market”
+
+## 实用贴士 / Good to know
+
+- 同名技能项目优先：如果当前项目与个人全局安装了同名 Skill，项目内版本会自动覆盖全局版本（列表会清晰标注遮蔽状态），方便单仓定制。
+  - Project overrides user scope: when a project defines a Skill with the same name as a user-level Skill, the project version wins automatically and the UI marks the shadowed entry clearly.
+- 装得多也不费 Token：平时对话上下文只携带可见技能的简短名称与描述，只有真正调用某个 Skill 时才会按需读取完整指南与脚本。
+  - Token-friendly by design: idle Skills only expose compact metadata—full SKILL.md instructions load on demand when a task actually uses them.
+- 固定到侧边栏：经常开关或调试自写 Skill 的话，可在「设置 → 应用与界面 → 外观 → 左侧导航栏」把「技能」固定到主导航。
+  - Pin to sidebar: if you author or switch Skills often, pin Skills or Discover skills in Settings → Application & Interface → Appearance → Left sidebar.
+
+关联条目 / Related: `feature.agents`, `feature.projects`, `feature.ecosystem-compatibility`, `setting.application.appearance`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

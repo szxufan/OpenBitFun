@@ -87,6 +87,7 @@ static EMPTY_PERMISSION_CONSTRAINTS: std::sync::LazyLock<PermissionConstraintLay
 pub fn standard_harness_tools() -> Vec<String> {
     vec![
         "AgentSpawn".to_string(),
+        "AgentFork".to_string(),
         "AgentSendInput".to_string(),
         "AgentControl".to_string(),
         "AgentList".to_string(),
@@ -292,6 +293,7 @@ mod tests {
 
         for collaboration_tool in [
             "AgentSpawn",
+            "AgentFork",
             "AgentSendInput",
             "AgentControl",
             "AgentList",

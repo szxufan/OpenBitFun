@@ -898,7 +898,14 @@ pub fn render_exec_command_response_for_assistant(data: &Value) -> String {
 }
 
 pub fn render_write_stdin_response_for_assistant(data: &Value) -> String {
-    render_exec_response_for_assistant(data, completion_status_lines(data), 4)
+    let mut notes = Vec::new();
+    if data.get("wait_end_reason").and_then(Value::as_str) == Some("steered") {
+        notes.push(
+            "WriteStdin ended its wait early because user steering arrived. The wait did not stop the process or undo submitted input. Handle the new user message before polling again; do not resend already submitted input."
+                .to_string(),
+        );
+    }
+    render_exec_response_for_assistant_with_notes(data, completion_status_lines(data), notes, 4)
 }
 
 pub fn render_exec_control_response_for_assistant(
@@ -1117,6 +1124,24 @@ mod tests {
             !rendered.contains("code -1"),
             "an unknown status must never be rendered as a failing exit code"
         );
+    }
+
+    #[test]
+    fn write_stdin_legacy_and_steered_payloads_keep_process_status_separate() {
+        let legacy = r#"{"wall_time_seconds":0.25,"output":"partial","session_id":7,"exit_code":null,"completion":null}"#;
+        let mut data: Value = serde_json::from_str(legacy).unwrap();
+        let original = render_write_stdin_response_for_assistant(&data);
+        assert!(!original.contains("<note>"));
+        let round_trip: Value =
+            serde_json::from_str(&serde_json::to_string(&data).unwrap()).unwrap();
+        assert_eq!(round_trip, data);
+        data["wait_end_reason"] = json!("steered");
+        let rendered = render_write_stdin_response_for_assistant(&data);
+        assert!(rendered.contains("Process is still running. session_id: 7"));
+        assert!(rendered.contains("user steering arrived"));
+        assert!(rendered.contains("do not resend already submitted input"));
+        assert!(rendered.contains("<output>\npartial\n</output>"));
+        assert!(!rendered.contains("Process was interrupted externally"));
     }
 
     #[test]

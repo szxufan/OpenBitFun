@@ -45,6 +45,7 @@ Notes:
 | `ListModels` | Deferred | None | - |
 | `Task` | Direct | None | - |
 | `AgentSpawn` | Direct | None | - |
+| `AgentFork` | Direct | None | - |
 | `AgentSendInput` | Direct | None | - |
 | `AgentControl` | Direct | None | - |
 | `AgentList` | Direct | None | - |

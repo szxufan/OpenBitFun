@@ -540,12 +540,16 @@ describe('Gitee panel state and asynchronous request ordering', () => {
       mocks.state.activeSessionId = 'chat';
     });
 
-    it('copies the login command and opens the returned session in the owning workspace', async () => {
+    it('opens a host login terminal owned by the SSH workspace', async () => {
       await mountAuthPanel();
       expect(authDialogState()).not.toBeNull();
       await clickOpenTerminal();
       expect(mocks.setClipboard).toHaveBeenCalledExactlyOnceWith('gh auth login --hostname github.com');
-      expect(terminal.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: owningId, workspacePath: owningPath });
+      expect(terminal.create).toHaveBeenCalledExactlyOnceWith({
+        workspaceId: owningId,
+        workspacePath: undefined,
+        hostWorkspaceTarget: { rootPath: owningPath, connectionId: 'ssh-owner' },
+      });
       expect(terminal.open).toHaveBeenCalledExactlyOnceWith({
         sessionId: 'terminal-42', sessionName: 'Shell 7',
         scope: { surfaceId: 'local', workspaceId: owningId, workspacePath: owningPath, remoteConnectionId: 'ssh-owner' },
@@ -589,11 +593,16 @@ describe('Gitee panel state and asynchronous request ordering', () => {
     });
 
     it('starts at the owner root when the panel path belongs to another workspace', async () => {
+      workspaces.opened.set(owningId, { rootPath: owningPath, workspaceKind: 'normal' });
       await mountAuthPanel('/canvas-fallback-workspace');
       await clickOpenTerminal();
-      expect(terminal.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: owningId, workspacePath: owningPath });
+      expect(terminal.create).toHaveBeenCalledExactlyOnceWith({
+        workspaceId: owningId,
+        workspacePath: owningPath,
+        hostWorkspaceTarget: { rootPath: owningPath },
+      });
       expect(terminal.open).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-        scope: { surfaceId: 'local', workspaceId: owningId, workspacePath: owningPath, remoteConnectionId: 'ssh-owner' },
+        scope: { surfaceId: 'local', workspaceId: owningId, workspacePath: owningPath },
       }));
       expect(mocks.notify.success).toHaveBeenCalledOnce();
     });
@@ -602,7 +611,11 @@ describe('Gitee panel state and asynchronous request ordering', () => {
       workspaces.opened.set(owningId, { rootPath: owningPath, workspaceKind: 'normal' });
       await mountAuthPanel(`${owningPath}/src`);
       await clickOpenTerminal();
-      expect(terminal.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: owningId, workspacePath: `${owningPath}/src` });
+      expect(terminal.create).toHaveBeenCalledExactlyOnceWith({
+        workspaceId: owningId,
+        workspacePath: `${owningPath}/src`,
+        hostWorkspaceTarget: { rootPath: owningPath },
+      });
       const { scope } = terminal.open.mock.calls[0][0] as { scope: Record<string, unknown> };
       expect(scope).toEqual({ surfaceId: 'local', workspaceId: owningId, workspacePath: owningPath });
       expect(scope).not.toHaveProperty('remoteConnectionId');
@@ -614,8 +627,6 @@ describe('Gitee panel state and asynchronous request ordering', () => {
       mocks.setClipboard.mockReturnValueOnce(clipboard.promise);
       await mountAuthPanel();
       await clickOpenTerminal();
-      // The panel is still current, so only the owner check can stop this; the
-      // service would otherwise create the PTY on the new connection.
       workspaces.opened.set(owningId, { rootPath: owningPath, workspaceKind: 'remote', connectionId: 'ssh-reconnected' });
       await act(async () => clipboard.resolve());
       expect(terminal.create).not.toHaveBeenCalled();

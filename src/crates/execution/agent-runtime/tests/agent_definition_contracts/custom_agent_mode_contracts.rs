@@ -76,6 +76,7 @@ fn custom_mode_defaults_generate_id_and_default_policy() {
     }
     for tool_name in [
         "AgentSpawn",
+        "AgentFork",
         "AgentSendInput",
         "AgentControl",
         "AgentList",

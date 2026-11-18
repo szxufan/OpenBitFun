@@ -471,14 +471,14 @@ export class ChatMessageStructurePolicy {
    * Normalized names of the tool calls that launch a child agent.
    *
    * `Task` is the delegation tool older desktops used; the current delegation
-   * tool is `AgentSpawn`. Both own a branch, and mobile web accepts both names
+   * tools are `AgentSpawn` and `AgentFork`. All own a branch, and mobile web accepts these names
    * for the same reason. A plain tool row must never be mistaken for one of
    * these, so the list stays explicit instead of matching a prefix or a
    * contains-rule.
    */
   private static isOwnerTool(tool: ConversationUiToolStatus): boolean {
     const name = ToolStatusPresentationPolicy.normalizedName(tool);
-    return name === 'task' || name === 'agentspawn';
+    return name === 'task' || name === 'agentspawn' || name === 'agentfork';
   }
 
   /**

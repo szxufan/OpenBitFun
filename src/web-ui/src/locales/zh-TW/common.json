@@ -2266,6 +2266,7 @@
       "copyAuthFailed": "複製 GitHub CLI 登入命令失敗。",
       "unresolvedPullRequest": "無法從目前工作區的遠端儲存庫中找到此提取請求。",
       "ghAuthRequired": "需要 GitHub CLI 驗證",
+      "ghAuthHostTerminal": "請在執行 OpenBitFun 的主機終端中執行此命令，完成登入後再試。",
       "tokenRequiredTitle": "需要權杖",
       "tokenScopeTitle": "需要權杖權限",
       "tokenUpdateTitle": "需要更新權杖",

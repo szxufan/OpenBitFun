@@ -3,75 +3,132 @@
 id: feature.ai-assistant
 kind: feature
 category: assistant
-title_zh: "AI 助手与会话"
-title_en: "AI assistant & sessions"
+title_zh: "AI 会话与多模式协作"
+title_en: "AI sessions & multi-mode collaboration"
 ---
 
-# AI 助手与会话 / AI assistant & sessions
+# AI 会话与多模式协作 / AI sessions & multi-mode collaboration
 
 > 功能 / Feature
 
-在项目上下文中与 AI 协作，创建会话、继续任务、处理权限请求，并保留完整的工作记录。
+围绕项目开展持久对话：按任务挑选「标准 / 极致 / 办公协作 / 深度研究 / 论文写作 / 电脑操作 / 创造」等模式，用 @ 挂载文件与历史会话、用 /goal 持续推进目标，还能直接生成图片与 Office 文档。
 
-Work with AI in project context, create sessions, continue tasks, answer permission requests, and keep a durable work record.
+Collaborate in durable project sessions: switch between Standard, Ultimate, Cowork, Deep Research, Paper Writing, Computer Use, or Creative modes, attach files and past sessions with @, drive multi-turn goals with /goal, and generate images or Office files.
+
+## 适用场景 / When to use it
+
+- 不确定该选哪个模式？日常写代码修 Bug 选「标准」最均衡；跨模块重构或疑难杂症选「极致」；只想快速问答不需要调工具选「极简」；整理汇报写 Office 文档选「办公协作」；调研文献写论文选「深度研究 / 论文写作」；跨桌面软件点击操作选「电脑操作」；想给 OpenBitFun 自己改界面加小功能就选「创造」。
+  - Wondering which mode to pick? Choose Standard for everyday coding, Ultimate for deep multi-file architecture work, Minimal for fast tool-free Q&A, Cowork for docs and spreadsheets, Deep Research or Paper Writing for synthesis and papers, Computer Use for desktop GUI tasks, or Creative to customize OpenBitFun’s own live UI.
+- 智能体写完一长段方案，你有五处细节想让它一起改：直接用鼠标划选对应句子点「添加批注」，写完 5 条批注后一次性提交，比来回追问五轮省心得多。
+  - Have five small tweaks on a long AI design doc? Highlight each phrase, click Annotate to attach numbered notes, and submit the whole batch in a single turn.
+- 想让智能体「把所有失败单测修到全绿为止」：输入 `/goal 修复当前模块全部失败单测并通过验证`，智能体会自己跨多轮持续执行，直到目标真正达成。
+  - Need the agent to keep iterating until tests actually pass? Start with `/goal Fix the failing tests in this package and verify they pass` so it continues across turns until done.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可直接控制 / Direct Agent control** · 打开并新建一个 AI 会话
-  - Open and create a new AI session
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 重命名、归档、恢复、删除、复制、分叉与导出会话
-  - Rename, archive, restore, delete, copy, fork, and export sessions
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为会话选择模型、工作模式、记忆模式与权限模式
-  - Choose the model, work mode, memory mode, and permission mode per session
-- **由专用智能体工具控制 / Delegated Agent tool** · `FrontendWorkbench` / `Read` / `Write` / `Edit` · 让创造模式扩展客户端界面与运行时能力
-  - Extend client UI and runtime capabilities in Creative mode
-- **由专用智能体工具控制 / Delegated Agent tool** · `generate_image` · 通过已配置的默认图像模型生成图片
-  - Generate images with the configured default image model
-- **由专用智能体工具控制 / Delegated Agent tool** · `GenOfficeFile` · 用 GenOfficeFile 创建并编辑 Word、Excel 和 PowerPoint 文件
-  - Create and edit Word, Excel, and PowerPoint files with GenOfficeFile
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 开始、引导、打断、取消或恢复一次智能体运行
-  - Start, steer, interrupt, cancel, or recover an agent turn
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看并逐个或批量回答等待中的权限请求
-  - Review and answer pending permission requests individually or in a batch
-- **由专用智能体工具控制 / Delegated Agent tool** · `ListWorkspaces` / `SessionControl` / `SessionHistory` / `Read` / `Grep` · 分页加载、搜索和回填历史消息与会话内容
-  - Page through, search, and backfill historical turns and session content
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 从工作区或会话菜单打开会话存储目录，用于备份与手动排障
-  - Open session storage from workspace or session menus for backups and manual troubleshooting
-- **由专用智能体工具控制 / Delegated Agent tool** · `ListWorkspaces` / `SessionControl` / `SessionMessage` · 让智能体创建、列出、取消、删除会话或向另一会话发送消息
-  - Let an agent create, list, cancel, or delete sessions and send messages to another session
+- **智能体可直接控制 / Direct Agent control** · 打开会话场景并快速新建一个 AI 会话
+  - Open the Session view and start a new AI conversation
+  - 说明：可在当前项目、指定 Git Worktree 或个人助理下新建会话，每个会话都可以作为独立标签页保留在顶部栏。
+  - Why & how: Start a fresh conversation scoped to your active project, an isolated Git worktree, or a personal assistant, each in its own tab.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 筛选、重命名、复制、从任意轮次分叉（Fork）、归档恢复与导出会话记录
+  - Filter, rename, duplicate, fork from any turn, archive, restore, and export sessions
+  - 说明：侧边栏会话支持按「未读 / 需要处理 / 运行中 / Worktree / 远程环境 / 外部来源」筛选；遇到两种实现路线想对比时，可从指定消息「分叉会话」保留共同上下文并独立推进，也可将对话导出为 Markdown 或图片分享。
+  - Why & how: Filter sidebar sessions by Unread, Needs attention, Running, Worktree, or Environment; fork a conversation from any turn to explore an alternative approach safely, or export transcripts.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按会话自由切换模型、思考强度、内置工作模式、记忆开关与审批模式
+  - Switch the model, reasoning effort, work mode, memory toggle, and approval mode per session
+  - 说明：在聊天输入框底部随时切换「标准 / 极致 / 极简 / 办公协作 / 深度研究 / 论文写作 / 电脑操作 / 创造」等模式，调整推理强度（Reasoning Effort），或把当前会话临时设为自动审批。
+  - Why & how: Use the composer bar to switch between Standard, Ultimate, Minimal, Cowork, Deep Research, Paper Writing, Computer Use, or Creative modes, tune reasoning effort, or adjust session approval behavior on the fly.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在输入框用 @ 挂载文件、目录、历史会话与技能，并用 / 或 $ 触发斜杠指令
+  - Attach files, folders, past sessions, and Skills with @, and run slash commands with / or $
+  - 说明：输入 @ 可一处搜索项目文件、文件夹、其他历史会话（把过往结论带进新对话）、可用 Skills、MCP 与图片；行首输入 / 可调用 /goal、/btw、/compact、/usage、/init 或外部命令（含 Shell 预览确认），句中输入 $ 或 / 可直接点名某个 Skill。
+  - Why & how: Type @ to attach workspace files, folders, other sessions, Skills, MCP servers, or images; type / at the start for /goal, /btw, /compact, /usage, or /init, and $ or / inline to invoke a Skill.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在对话中通过 @ 选择当前模式可用的 MCP 服务
   - Use @ in chat to select MCP servers available to the current mode
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看工具调用与后台命令，读取输出并继续输入或停止
-  - Inspect tool calls and background commands, read output, send input, or stop them
-- **由专用智能体工具控制 / Delegated Agent tool** · `get_goal` / `create_goal` / `update_goal` · 查看、创建并完成或阻塞当前会话目标
-  - Inspect, create, complete, or block the current session goal
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 编辑目标说明或清除当前会话目标
-  - Edit the goal objective or clear the current session goal
-- **由专用智能体工具控制 / Delegated Agent tool** · `TodoWrite` / `AskUserQuestion` · 让智能体维护任务清单、生成实施计划并按需向用户提问
-  - Let an agent maintain a task list, produce an implementation plan, and ask the user when needed
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看单个会话的请求、Token 与成本用量报告
-  - View request, token, and cost usage for an individual session
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 重新加载会话上下文、运行 AGENTS.md 初始化并管理长期记忆
-  - Reload session context, initialize AGENTS.md, and manage long-term memory
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 使用 BTW 轻量问答与编辑器内联 AI，并可随时取消
-  - Use lightweight BTW questions and inline editor AI, with cancellation
+  - 说明：输入 @ 进入 MCP 列表，也可以直接搜某个工具名反查它所属的 MCP 服务；注意「极简（Minimal）」模式默认精简隐藏 MCP，切到「标准 / 极致 / 创造」即可使用。
+  - Why & how: Type @ to pick an enabled MCP server — you can even search by a tool’s name or description to find its server. Note that Minimal mode hides MCP; switch to Standard, Ultimate, or Creative to use them.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 划选对话文字添加多条编号「批注」合并提交，或发起不打乱主线的「侧边提问」
+  - Select transcript text to collect numbered batch annotations or ask a focused Side Question
+  - 说明：阅读智能体长回复时，用鼠标选中任意片段即可「添加批注」（积累多条修改意见后一次发给智能体处理）、「添加到会话」引用，或点「侧边提问」在旁侧小窗追问概念细节而不污染主会话上下文。
+  - Why & how: Highlight any passage in a reply to add numbered annotations and submit them together, quote text into your draft, or open a Side Question thread to clarify a detail without derailing the main chat.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在智能体运行中随时插话引导（Steer）、管理待发送队列、按 Esc 中断或恢复异常轮次
+  - Steer a running turn mid-flight, manage queued follow-up messages, interrupt with Esc, or recover interrupted turns
+  - 说明：发现智能体方向偏了不必等它跑完，直接发消息即可实时引导（也可在输入设置中改为默认加入「待发送队列」并随时调整顺序），或按 Esc 立即停下当前步骤。
+  - Why & how: Redirect an active run without starting over by sending a steering message (or queue follow-ups and reorder them), press Esc to stop immediately, or resume an interrupted turn.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 审阅工具与命令权限请求：支持允许一次、记住项目范围、批量放行或附理由拒绝
+  - Answer tool and command permission prompts once, remember scoped project grants, batch-approve, or reject with feedback
+  - 说明：当智能体准备执行敏感命令或改写受保护范围时，你可以选「允许一次」「始终允许此范围 / 此精确命令」，或输入修改意见点「附理由拒绝」让它换一种安全做法；远控手机也能同步收到并审批。
+  - Why & how: Approve once, remember exact command or path grants for the current project, approve all pending requests in a batch, or reject with a reason so the Agent adjusts course — locally or from Mobile Web.
+- **由专用智能体工具控制 / Delegated Agent tool** · `get_goal` / `create_goal` / `update_goal` · 用 /goal 创建跨轮次持久会话目标，让智能体自主推进直到真正达成
+  - Set a persistent multi-turn session goal with /goal so the agent keeps driving until completion
+  - 说明：适合「全量测试修绿」「逐模块迁移接口」等长线任务：智能体会围绕目标自动衔接后续轮次，直到验证达标标记完成，或遇到真实外部阻碍时清晰汇报。
+  - Why & how: Great for long-running work like fixing a full test suite or migrating modules: the Agent continues across turns until the goal is verified complete or surfaces a concrete blocker.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在会话顶部目标条随时修改目标描述或清除当前目标
+  - Edit the active goal objective or clear the session goal from the goal banner
+  - 说明：中途需求调整时，可直接在会话顶部的目标状态条修改目标说明，或一键结束目标模式回到普通一问一答。
+  - Why & how: Refine what success looks like mid-task by editing the goal banner text, or clear the goal anytime to return to normal turn-by-turn chat.
+- **由专用智能体工具控制 / Delegated Agent tool** · `TodoWrite` / `AskUserQuestion` · 让智能体拆解待办进度、编写 .openbitfun/plans 实施计划，并在关键分岔点向你提问确认
+  - Let the agent track step-by-step todos, write .openbitfun/plans specs, and ask clarifying questions when choices matter
+  - 说明：面对复杂特性，智能体会先阅读代码库并把结构化方案保存到 `.openbitfun/plans` 供你在专属计划视图中审阅，只在仓库里查不到、需要你拍板的设计取舍上弹出单选/多选卡片。
+  - Why & how: For complex work, the Agent tracks live progress items, saves structured plans under .openbitfun/plans for review, and asks concise multiple-choice questions only when a product decision is needed.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 用 /btw（或 Ctrl+Alt+B）随手发起临时「侧问」，以及在代码编辑器中使用内联 AI
+  - Ask quick ephemeral side questions with /btw (or Ctrl+Alt+B) and invoke inline AI inside the code editor
+  - 说明：正在跑大重构时突然想查个语法或正则？输入 `/btw 这个问题` 会开启一个继承当前上下文、不调工具、关掉即焚的轻量侧问，完全不打断也不撑爆主对话；写代码时也可直接在编辑器内呼出内联 AI。
+  - Why & how: Need a quick syntax check mid-task? `/btw your question` opens a lightweight, tool-free side chat that inherits context without cluttering or saving to your main transcript; inline AI is also available right inside the editor.
+- **由专用智能体工具控制 / Delegated Agent tool** · `FrontendWorkbench` / `Read` / `Write` / `Edit` · 切换到「创造（Creative）」模式，安全定制正在运行的 OpenBitFun 界面与交互能力
+  - Switch to Creative mode to customize the live OpenBitFun interface with automatic 15-second rollback protection
+  - 说明：无需下载源码或搭编译环境，直接告诉创造模式的智能体你想怎么改界面样式或组合快捷功能；新改动激活后会弹出 15 秒不可变确认倒计时，万一渲染异常会自动回滚保底。
+  - Why & how: No source checkout or build toolchain needed: describe the UI tweak or custom workflow you want in Creative mode, preview it live, and rely on the 15-second confirmation window to roll back automatically if anything goes wrong.
+- **由专用智能体工具控制 / Delegated Agent tool** · `generate_image` · 通过已配置的默认图像模型在对话中直接生成配图与素材
+  - Generate illustrations, icons, and visual assets directly in chat with your configured image model
+  - 说明：配置好图像生成服务后，只需描述画面风格、尺寸和张数，智能体就会生成图片并保存到当前本地或远程工作区中交付给你。
+  - Why & how: Once an image model is configured in Models settings, describe the style, dimensions, and count you need and the Agent saves the generated files straight into your workspace.
+- **由专用智能体工具控制 / Delegated Agent tool** · `GenOfficeFile` · 用 GenOfficeFile 免安装 Office 创建并编辑 Word、Excel 与 PowerPoint 文档
+  - Create and revise Word, Excel, and PowerPoint files with GenOfficeFile — no Office installation required
+  - 说明：支持直接生成排版整洁的 `.docx` 报告、`.xlsx` 数据表和 `.pptx` 演示文稿并分批迭代修改；若文件后来被你在外部软件手动改过，工具会默认保护你的外部修改不被静默覆盖。
+  - Why & how: Build and iteratively refine .docx reports, .xlsx spreadsheets, and .pptx slide decks in local or remote workspaces, with built-in protection against overwriting external edits.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 展开工具胶囊查看调用详情，并查看、输入或终止正在后台运行的命令
+  - Inspect tool call capsules and monitor, send input to, or stop background shell commands
+  - 说明：每一次文件读写、搜索和命令执行都会收纳成清晰的步骤胶囊；遇到长耗时开发服务或交互式脚本转入后台时，可随时读取实时输出、补发输入或一键停止。
+  - Why & how: Every file read, search, and shell call appears as an inspectable capsule; for long-running or interactive background commands, view live output, send stdin, or stop them anytime.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 点击上下文与用量徽章，透视系统提示词、规则、技能、MCP 与对话的 Token 构成及缓存命中率
+  - Click the context and usage badge to inspect token breakdown across prompts, rules, Skills, MCP, and KV cache hits
+  - 说明：不仅能看当前会话消耗了多少输入输出 Token 和 KV Cache 命中率，还能展开「上下文构成」逐项查看系统提示词、工具定义、AGENTS.md 规则、Skills 和历史对话各占多少空间，并点开预览具体内容。
+  - Why & how: See input/output tokens and KV cache hit rates for the session, plus a category-by-category Context Composition breakdown (system prompt, tools, rules, Skills, MCP, conversation) with content previews.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 用 /compact 压缩长对话、用 /init 生成项目 AGENTS.md 规范、热重载上下文或管理长期记忆
+  - Compact long chats with /compact, initialize AGENTS.md with /init, reload context, and manage long-term memory
+  - 说明：对话太长接近窗口上限时输入 `/compact` 即可提炼摘要腾出空间（原始聊天记录依然完整保存）；新接手仓库输入 `/init` 可自动扫描生成贴合项目的 `AGENTS.md` 协作规范。
+  - Why & how: Run `/compact` when a long thread fills the context window (your full saved transcript stays intact), `/init` to generate a repo-tailored `AGENTS.md`, or reload context after editing rules and Skills.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ListWorkspaces` / `SessionControl` / `SessionHistory` / `Read` / `Grep` · 按页回溯超长历史会话，或让智能体跨会话检索过往讨论与决策记录
+  - Page smoothly through long transcripts or let the agent search indexed history across past sessions
+  - 说明：长会话采用按需分页加载不卡顿；你也可以直接让智能体去翻找之前某个会话里定下的接口约定，智能体会先读索引再精确定位对应轮次，不会把整本历史硬塞进上下文。
+  - Why & how: Long sessions page smoothly on scroll, and you can ask the Agent to look up decisions from earlier threads — it reads a compact session index first instead of dumping entire transcripts into context.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ListWorkspaces` / `SessionControl` / `SessionMessage` · 让智能体跨工作区列出、新建会话，或把子任务发给另一个持久会话接力完成
+  - Let an agent create or list sessions across workspaces and hand off work to another persisted session
+  - 说明：需要把后端改动交给另一个后端专属会话联动处理时，智能体可直接向目标会话发送消息并收回结果，本地与远程工作区边界保持严格隔离。
+  - Why & how: Coordinate across sessions or repos by letting an Agent create a companion session or message an existing one asynchronously while preserving local and remote workspace boundaries.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 从项目或会话右键菜单一键打开本机会话存储目录，方便手动备份或排查
+  - Reveal the local session storage folder from workspace or session menus for backup and troubleshooting
+  - 说明：想备份重要对话原始记录时，在菜单中点一下即可在 Finder / 资源管理器定位存储目录；远程工作区会打开本机保存的镜像目录。
+  - Why & how: Open the underlying session data folder directly in Finder or Explorer when backing up transcripts or inspecting local mirrors of remote workspaces.
 
 ## 怎么用 / How to use it
 
-1. 打开 AI 助手或新建会话
-   Open the AI assistant or create a session
-2. 选择项目、模型和工作模式
-   Choose a project, model, and working mode
-3. 描述目标；OpenBitFun 会在会话中持续记录进度
-   Describe the goal; OpenBitFun keeps progress in the session
+1. 在侧边栏项目名旁点「新建会话」（或按 ⌘Shift+A / Ctrl+Shift+A 进入会话后按 ⌘N / Ctrl+N）
+   Click New session beside your project in the sidebar (or press ⌘Shift+A / Ctrl+Shift+A, then ⌘N / Ctrl+N)
+2. 在输入框下方选择适合当前任务的模式（如日常开发选「标准」，深度攻关选「极致」，写文档选「办公协作」）与模型
+   Pick the mode that fits your task in the composer bar (Standard for daily coding, Ultimate for deep problem-solving, Cowork for documents) and choose a model
+3. 输入 @ 添加相关文件、目录或过往会话作为上下文，描述你想达成的效果；长任务可在开头加 `/goal `
+   Type @ to attach relevant files, folders, or past sessions, then describe what you need — prefix with `/goal ` for persistent multi-turn objectives
+4. 运行过程中可随时发送新消息引导方向、审批权限卡片，或划选回复内容添加批注与侧边提问
+   While running, send follow-ups to steer, approve permission prompts, or highlight reply text to add batch annotations or ask a side question
 
-入口 / Entry: OpenBitFun 对应场景
+入口 / Entry: 左侧边栏「会话」列表点击项目旁的「新建会话」，或按 ⌘Shift+A / Ctrl+Shift+A 切回会话（聊天内按 ⌘N / Ctrl+N 新建） / Click New session beside any project in the sidebar, press ⌘Shift+A / Ctrl+Shift+A to open Session, or press ⌘N / Ctrl+N inside chat (`⌘Shift+A / Ctrl+Shift+A`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
 | 操作 / Action | 中文说明 | English description |
 | --- | --- | --- |
-| 新建会话 / Create a session | 打开一个新的 AI 会话。 | Open a new AI session. |
+| 新建会话 / Create a session | 在当前工作上下文中打开一个新的 AI 会话。 | Open a new AI session in your active working context. |
 
 ## 可配置选项 / Configurable options
 
@@ -81,10 +138,25 @@ Work with AI in project context, create sessions, continue tasks, answer permiss
 
 ## 可以直接对智能体说 / Try saying
 
-- “新建一个会话，我们来排查这个构建错误”
-  - “Start a new session so we can debug this build error”
-- “打开 AI 助手，我想继续刚才的任务”
-  - “Open the AI assistant; I want to continue my previous task”
+- “新建一个会话，帮我排查为什么登录接口偶发返回 401”
+  - “Start a new session and help me debug why the login endpoint intermittently returns 401”
+- “/goal 把 auth 模块的单元测试补齐并全部跑通”
+  - “/goal Add unit tests for the auth module and iterate until the whole suite passes”
+- “根据这份接口说明帮我生成一份结构清晰的 .xlsx 测试用例表和 .pptx 评审简报”
+  - “Create a clean .xlsx test matrix and a .pptx review deck from this API spec”
+- “翻一下我上周关于缓存改造的历史会话，把当时敲定的键名规范整理出来”
+  - “Search my session history from last week on cache redesign and summarize the key naming rules we agreed on”
+
+## 实用贴士 / Good to know
+
+- 在聊天框按 Enter 默认直接发送，按 Ctrl+Enter（或 Shift+Enter）换行；如果你习惯智能体运行时发的消息先排队而不是立即插话引导，可在「设置 → 应用与界面 → 输入与交互」中调整「消息发送」策略。
+  - In the composer, Enter sends and Ctrl+Enter / Shift+Enter inserts a newline; to queue messages instead of steering active runs immediately, change Message sending under Settings → Application & Interface → Input & Interaction.
+- 切换到了「极简（Minimal）」模式却找不到 @MCP？这是刻意设计的轻量无工具打扰模式，切回「标准」或「极致」就能看到已连接的 MCP 服务了。
+  - Can’t see @MCP in Minimal mode? Minimal intentionally strips extra tool overhead — switch to Standard, Ultimate, or Creative to pick MCP servers.
+- 仓库根目录放一份 `AGENTS.md`（可用 `/init` 自动生成初稿）写明构建与测试命令，所有会话和子智能体都会自动遵守，省去每次重复交代。
+  - Run `/init` once in a new repo to generate an `AGENTS.md` file with your build and test rules so every future session follows your team’s conventions automatically.
+
+关联条目 / Related: `feature.agents`, `setting.ai.models`, `setting.ai.permissions`, `setting.ai.memory`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

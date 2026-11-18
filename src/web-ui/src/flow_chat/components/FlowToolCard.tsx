@@ -73,7 +73,7 @@ const FlowToolCardCard: React.FC<FlowToolCardProps> = React.memo(({
   const CardComponent = toolItem.importedSource && !importedToolCardName(toolItem)
     ? DefaultToolCard : getToolCardComponent(effectiveToolItem.toolName);
   const interruptionNote = getToolInterruptionNote(effectiveToolItem, t);
-  const cardHandlesInterruptionNote = ['Task', 'AgentSpawn', 'LaunchReviewAgent'].includes(effectiveToolItem.toolName);
+  const cardHandlesInterruptionNote = ['Task', 'AgentSpawn', 'AgentFork', 'LaunchReviewAgent'].includes(effectiveToolItem.toolName);
   const toolCardTestId =
     effectiveToolItem.toolName === 'ExecCommand'
       ? 'chat-shell-tool-card'

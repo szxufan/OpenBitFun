@@ -3,45 +3,70 @@
 id: feature.agents
 kind: feature
 category: assistant
-title_zh: "智能体管理"
-title_en: "Agents"
+title_zh: "智能体管理与并行子智能体"
+title_en: "Agents & parallel subagent delegation"
 ---
 
-# 智能体管理 / Agents
+# 智能体管理与并行子智能体 / Agents & parallel subagent delegation
 
 > 功能 / Feature
 
-管理内置、自定义和子智能体，让不同角色分工处理研究、编码、评审等任务。
+查看和定制不同专长的智能体角色，按需裁剪每个角色的工具与 Skills 边界，并让主智能体在复杂任务中自动派生多个子智能体并行调研、编码与审查。
 
-Manage built-in, custom, and subagents so specialized roles can handle research, coding, review, and more.
+Browse and customize specialized agents, tailor each role’s allowed tools and Skills, and let your primary agent spawn parallel subagents for codebase exploration, implementation, and review.
+
+## 适用场景 / When to use it
+
+- 接手陌生大仓库要先摸清五六个模块的调用链：在「标准」或「极致」模式下直接提问，主智能体会自动派生多个只读探索子智能体分头检索，几秒钟汇总出全景结论，还不污染主对话上下文。
+  - Mapping out five unfamiliar subsystems in a large monorepo? Ask in Standard or Ultimate mode and let the primary agent spawn read-only explorer subagents in parallel without bloating your main context window.
+- 团队有严格的接口安全或无障碍审查要求：在「项目资源 → 智能体」里新建一个只读的项目级审查子智能体，写明检查清单并提交到仓库共享给队友。
+  - Have strict security or accessibility rules for one repo? Add a read-only project subagent from Project Resources → Agents so every teammate and review session can invoke it.
+- 想给某类专门工作配一个顺手的对话模式：在「智能体」页面创建自定义智能体，只开启它真正需要的工具组和 Skills，响应更聚焦、成本更可控。
+  - Want a dedicated role for database tuning or release notes? Create a custom agent with only the exact tool groups and Skills it needs.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看内置、用户、项目与当前环境可见的智能体
-  - Browse built-in, user, project, and currently visible agents
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 创建自定义智能体并设置名称、说明和角色
-  - Create custom agents with a name, description, and role
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 读取、编辑、重新加载或删除自定义智能体
-  - Inspect, edit, reload, or delete custom agents
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 创建、配置、查看和删除可委派的子智能体
-  - Create, configure, inspect, and delete delegatable subagents
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看每个智能体的工具、Skills、只读状态和能力摘要
-  - Inspect each agent's tools, Skills, read-only state, and capability summary
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按智能体选择工具组、单个工具、Skill 组与 Skills
-  - Choose tool groups, individual tools, skill groups, and Skills per agent
-- **由专用智能体工具控制 / Delegated Agent tool** · `AgentSpawn` / `AgentWait` / `AgentSendInput` / `AgentControl` / `AgentList` · 让主智能体委派并行研究、编码和评审任务并协调生命周期
-  - Let the primary agent delegate parallel research, coding, and review work and coordinate their lifecycle
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按内置、个人、项目与外部来源分类浏览当前环境可用的全部智能体
+  - Browse built-in, personal, project, and external agents available in the current environment
+  - 说明：在智能体中心一目了然区分主对话模式智能体与可被委派的子智能体，并支持按作用范围或关键词快速筛选。
+  - Why & how: Filter by level and type in the Agents gallery to see built-in modes, delegatable subagents, personal roles, and project-owned agents.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 创建自定义主对话智能体，设定专属名称、职责说明与系统提示词
+  - Create custom primary agents with their own name, description, and role instructions
+  - 说明：把你反复使用的角色设定、输出风格和工作边界沉淀成独立模式，新建会话时即可直接选用。
+  - Why & how: Turn recurring role prompts, output conventions, and guardrails into a reusable custom mode selectable right in the chat composer.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看详情、随时微调提示词、热重载配置或删除不再需要的自定义智能体
+  - Inspect, edit instructions, hot-reload, or remove custom agents anytime
+  - 说明：调整完提示词或外部修改配置文件后无需重启客户端，重新加载即可在下一轮对话生效。
+  - Why & how: Refine a custom agent’s prompt or reload definitions from disk without restarting OpenBitFun.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 创建与维护可被主智能体自动委派的个人级或项目级子智能体
+  - Create and configure personal or project-scoped subagents that primary agents can delegate to
+  - 说明：写清楚子智能体「擅长解决什么问题」，主智能体在遇到匹配子任务时就会自动把它派上场，也可为它单独指定选用哪款模型。
+  - Why & how: Give a subagent a clear specialty description and optional model preference so primary agents know exactly when to delegate bounded work to it.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 悬停或点开智能体卡片，透视它的可用工具清单、Skills 与只读安全限制
+  - Inspect each agent’s enabled tools, Skills, and read-only safety posture at a glance
+  - 说明：不确定某个角色能不能改文件或跑命令？查看能力摘要就能看清它的只读标记、已启用工具数与绑定的技能范围。
+  - Why & how: Check capability tooltips and detail views to verify whether a role is read-only and exactly which tools and Skills it can invoke.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按智能体精细开关工具组、单个工具与 Skills，并随时一键恢复默认配置
+  - Toggle tool groups, individual tools, and Skills per agent — with one-click reset to defaults
+  - 说明：既可以给内置模式增减工具与技能，也可以为自定义角色做最小权限裁剪；改乱了点一下「恢复默认」就能回到出厂推荐组合。
+  - Why & how: Tailor built-in or custom agents with minimal-privilege tool and Skill pickers, and reset any built-in profile back to defaults in one click.
+- **由专用智能体工具控制 / Delegated Agent tool** · `AgentSpawn` / `AgentFork` / `AgentWait` / `AgentSendInput` / `AgentControl` / `AgentList` · 由主智能体自动派生并行子智能体协同调研、编码与审查，并统一汇总结果
+  - Let the primary agent spawn parallel subagents for research, coding, and review and synthesize their output
+  - 说明：主智能体会把大任务拆成互不踩踏的子切片交给多个子智能体同时推进；你在对话流里还能看到可爱的子代理化身卡片并随时点开查看它的独立推理轨迹。
+  - Why & how: The primary agent breaks complex requests into non-overlapping slices, monitors running subagents, steers or cancels them if needed, and delivers a unified answer.
 
 ## 怎么用 / How to use it
 
-1. 打开智能体
-   Open Agents
-2. 选择现有智能体或创建一个角色
-   Choose an existing agent or create a role
-3. 在会话中指定角色，或让主智能体自动委派
-   Select the role in a session or let the primary agent delegate
+1. 从左侧「首页 → 智能体」卡片进入（或按 ⌘K / Ctrl+K 搜索「打开智能体」；想常驻侧边栏可在外观设置中固定）
+   Open Home → Agents (or press ⌘K / Ctrl+K and choose Open agents; pin Agents to the sidebar in Appearance settings if you visit often)
+2. 浏览内置角色的能力范围，或点击右上角「创建智能体」新建自定义对话角色与可委派子智能体
+   Browse built-in roles or click Create agent to define a custom mode or delegatable specialist subagent
+3. 在详情页用工具组与技能选择器勾选该角色允许使用的能力；项目专属子智能体也可直接从「项目资源」页创建
+   Use the tool-group and Skill pickers to scope what the agent can access — or create repo-owned subagents directly from Project Resources
+4. 回到会话直接描述复杂任务（如「并行排查这三个模块的性能瓶颈」），主智能体会自动调度合适的子智能体分工完成
+   In any Standard or Ultimate session, describe multi-part work naturally and let the primary agent spawn and coordinate subagents in parallel
 
-入口 / Entry: OpenBitFun 功能入口
+入口 / Entry: 左侧「首页 → 智能体」卡片，或按 ⌘K / Ctrl+K 搜索「打开智能体」；项目专属子智能体也可在「项目资源」页管理 / Open Home → Agents, press ⌘K / Ctrl+K for Open agents, or manage project-scoped subagents in Project Resources (`⌘K → 打开智能体`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -57,10 +82,23 @@ Manage built-in, custom, and subagents so specialized roles can handle research,
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开智能体，我想看看有哪些专门角色”
-  - “Open Agents so I can see the specialized roles”
-- “帮我进入智能体管理页”
-  - “Take me to agent management”
+- “打开智能体管理页，我想看看现在有哪些子智能体”
+  - “Open Agents so I can review my available subagents”
+- “并行派几个子智能体分别检查 auth、billing 和 gateway 三个目录里的错误处理漏洞，最后汇总给我”
+  - “Spawn parallel subagents to audit error handling across auth, billing, and gateway, then synthesize the findings”
+- “帮我用 create-agent 技能起草一个专门审查数据库迁移脚本的只读子智能体”
+  - “Help me draft a read-only subagent specialized in reviewing SQL migration safety”
+
+## 实用贴士 / Good to know
+
+- 想控制子智能体默认用哪款模型（比如让探索子智能体默认用高速高性价比模型或模型池）以及并行策略？前往「设置 → 模型与智能体 → 执行与协作」即可一键调整。
+  - Want subagents to default to your Fast model, a specific model, or a Model Pool — or tune parallel execution limits? Head to Settings → Models & Agents → Execution & Collaboration.
+- 编写自定义子智能体时，「描述（Description）」写得越具体（说明何时该调用它、输入输出是什么），主智能体自动委派的时机就越准。
+  - Write a crisp, concrete Description on custom subagents ("Use when reviewing Prisma migrations...") so the primary agent knows exactly when to delegate.
+- 需要跨仓库复用的角色建为「个人级」，只针对当前代码库架构定制的角色建为「项目级」。
+  - Create personal subagents for cross-repo habits, and project-scoped subagents (via Project Resources) for repo-specific architecture rules.
+
+关联条目 / Related: `feature.ai-assistant`, `setting.tools.execution`, `feature.skills`, `setting.tools.acp`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

@@ -1387,6 +1387,10 @@ pub struct AIConfig {
     #[serde(default = "default_review_team_rate_limit_status")]
     pub review_team_rate_limit_status: serde_json::Value,
 
+    /// Allow model-issued collaboration calls to override configured subagent models.
+    #[serde(default = "default_true")]
+    pub allow_subagent_model_override: bool,
+
     /// Maximum number of subagents that may execute concurrently.
     #[serde(default = "default_subagent_max_concurrency")]
     pub subagent_max_concurrency: usize,
@@ -2796,6 +2800,7 @@ impl Default for AIConfig {
             skill_settings: SkillSettingsConfig::default(),
             review_teams: default_review_team_configs(),
             review_team_rate_limit_status: default_review_team_rate_limit_status(),
+            allow_subagent_model_override: true,
             subagent_max_concurrency: default_subagent_max_concurrency(),
             swarm_max_concurrency: default_swarm_max_concurrency(),
             subagent_batch_execution_policy: default_subagent_batch_execution_policy(),
@@ -5556,5 +5561,41 @@ mod media_config_tests {
         };
 
         assert!(media.effective_image_service().is_none());
+    }
+}
+
+#[cfg(test)]
+mod subagent_model_override_tests {
+    use super::AIConfig;
+    use serde_json::json;
+
+    #[test]
+    fn legacy_ai_payload_defaults_to_allowed_and_round_trips() {
+        let legacy = json!({"subagent_max_concurrency": 3, "max_rounds": 12});
+        let config: AIConfig = serde_json::from_value(legacy).unwrap();
+        assert!(config.allow_subagent_model_override);
+        assert!(AIConfig::default().allow_subagent_model_override);
+        let restored: AIConfig =
+            serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
+        assert!(restored.allow_subagent_model_override);
+        assert_eq!(restored.subagent_max_concurrency, 3);
+        assert_eq!(restored.max_rounds, 12);
+    }
+
+    #[test]
+    fn explicit_opt_out_survives_serialization() {
+        let config: AIConfig = serde_json::from_value(json!({
+            "allow_subagent_model_override": false,
+            "agent_model_defaults": {"subagents": {"default": {"kind": "fixed", "model_id": "fast"}}}
+        })).unwrap();
+        assert!(!config.allow_subagent_model_override);
+        let encoded = serde_json::to_value(&config).unwrap();
+        assert_eq!(encoded["allow_subagent_model_override"], false);
+        let restored: AIConfig = serde_json::from_value(encoded).unwrap();
+        assert!(!restored.allow_subagent_model_override);
+        assert_eq!(
+            serde_json::to_value(restored.agent_model_defaults).unwrap(),
+            serde_json::to_value(config.agent_model_defaults).unwrap()
+        );
     }
 }

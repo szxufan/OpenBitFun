@@ -3,47 +3,70 @@
 id: feature.remote-connect
 kind: feature
 category: connect
-title_zh: "Remote Connect 与多设备"
-title_en: "Remote Connect & devices"
+title_zh: "Remote Connect 远控与多设备互控"
+title_en: "Remote Connect, Bots & Peer Devices"
 ---
 
-# Remote Connect 与多设备 / Remote Connect & devices
+# Remote Connect 远控与多设备互控 / Remote Connect, Bots & Peer Devices
 
 > 功能 / Feature
 
-从手机、Bot 或另一台 OpenBitFun 设备远程查看会话、回答权限并继续工作。手机与同账号设备互控默认使用官方 Relay，无需部署服务器；官方与局域网模式登录时均需联网。
+离开工位也能用手机网页，或接入微信、飞书、Telegram 中的聊天机器人查看对话进度、审批权限并继续指挥；同账号多台电脑还能开启 Peer Device Mode，在一个窗口里直接切换操作另一台机器的工作区与会话。
 
-Inspect sessions, answer permissions, and continue work from mobile, a bot, or another OpenBitFun device. Mobile and same-account device control use the official Relay by default, with no server deployment; both official and LAN modes need internet access for sign-in.
+Follow sessions, approve permissions, and keep working from Mobile Web or a WeChat, Feishu, or Telegram bot—or enter Peer Device Mode to browse and drive another same-account computer right from your current OpenBitFun window.
+
+## 适用场景 / When to use it
+
+- 在工位发起复杂改码任务后下楼买咖啡，用手机网页或微信机器人实时看输出、点一下放行命令权限
+  - Step away from your desk while a refactor runs, then check progress and approve tool permissions from your phone or WeChat
+- 家里 MacBook 想接着推进公司台式机上没关的会话：同账号登录后直接在左侧边栏点开公司电脑（Peer Mode），像本机一样无缝续聊
+  - Open your laptop at home and switch to your office desktop via Peer Device Mode in the sidebar to continue an open session in place
+- 在常驻开发机上用 CLI 启动机器人监听（自动拉起后台 daemon），退出终端后依然全天候响应你的飞书或微信指令
+  - Start a Feishu or Telegram bot from the CLI (backed by the background daemon) so your workstation stays reachable after closing the terminal
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 使用官方 Relay 或桌面内置局域网 Relay；两者可同时运行，登录均需联网
-  - Use the official or Desktop-hosted LAN Relay; both can run together and need internet for sign-in
-- **智能体可直接控制 / Direct Agent control** · 启动、停止 Remote Connect 并查看实时连接状态和设备信息
-  - Start or stop Remote Connect and inspect live status and device information
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看局域网 IP、网络信息与可分享的连接配置
-  - Inspect LAN IP, network details, and shareable connection configuration
-- **智能体可直接控制 / Direct Agent control** · 配置飞书、Telegram、微信等 Bot 并单独停止 Bot
-  - Configure Feishu, Telegram, WeChat, and other bots, and stop a bot independently
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 通过共享登录页使用 GitHub 或邮箱验证码登录、退出并查看身份状态
-  - Sign in through the shared page with GitHub or an email code, sign out, and inspect identity status
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 列出、连接、查看设备型号与系统、设置别名和删除同账户设备
-  - List, connect, inspect model and OS, set aliases, and remove same-account devices
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 进入 Peer Device Mode，把另一台 OpenBitFun 设备作为命令与事件数据面
-  - Enter Peer Device Mode and use another OpenBitFun device as the command and event data plane
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 使用免部署官方 Relay 或桌面端局域网 Relay（可同时开启）
+  - Use the zero-setup official Relay or Desktop LAN Relay concurrently
+  - 说明：外网出门走官方加密中继即开即用，内网高速互连可同时打开桌面端局域网 Relay；首次身份认证均需联网登录。
+  - Why & how: Use the official Relay anywhere with zero server setup, and optionally run the Desktop LAN Relay alongside it on local networks (sign-in requires internet access).
+- **智能体可直接控制 / Direct Agent control** · 一键启动、停用远控渠道并查看实时连接与设备信息
+  - Start or stop Remote Connect channels and inspect live connection status
+  - 说明：无论是手机网页远控还是各平台机器人，都能随时独立启停并查看监听状态、配对情况与异常提示，停用不会清空历史会话。
+  - Why & how: Start or stop Mobile Web and individual bots independently while inspecting live listener state, pairing status, and recovery hints without losing sessions.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看本机局域网地址、网络网卡状态与扫码邀请链接
+  - Inspect LAN IP addresses, network interfaces, and shareable QR invitations
+  - 说明：直观展示当前可用局域网 IP 与二维码邀请卡片；二维码仅用于引导识别目标主机，仍需账号权限校验才可访问。
+  - Why & how: View available LAN IPs and invitation QR cards; scanning identifies the host while still enforcing full account authorization.
+- **智能体可直接控制 / Direct Agent control** · 接入微信扫码、飞书或 Telegram 聊天机器人（每次连接一个聊天应用，与手机远控并行不悖）
+  - Connect a WeChat (QR login), Feishu, or Telegram bot alongside Mobile Web
+  - 说明：支持微信扫码登录或从本机私有凭据文件加载飞书 / Telegram 配置；同一主机一次连接一个聊天应用（切换前先断开当前机器人，与「手机或浏览器」远控互不影响），凭据安全保存在执行主机。
+  - Why & how: Launch WeChat QR login in chat or load Feishu/Telegram configs from a private host file—one chat app stays connected at a time (disconnect before switching, while Mobile/Browser Relay runs independently alongside it), and credentials never enter model context.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 通过 GitHub 或邮箱验证码登录账号并查看身份状态
+  - Sign in with GitHub or an email verification code and check account status
+  - 说明：统一承载多设备发现、手机远控与 Pages 发布的身份认证，随时查看当前登录账号或安全退出。
+  - Why & how: Powers device discovery, mobile remote control, and Pages publishing through one account sign-in flow, with clear status and sign-out controls.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看同账号在线设备、系统型号、自定义设备别名与移除旧设备
+  - Browse same-account devices, OS/model info, custom aliases, and device removal
+  - 说明：在首页「设备」栏或设备管理弹窗查看所有关联机器的在线状态与平台图标，给常用机器起个顺口别名（如“办公室台式机”）。
+  - Why & how: See every linked machine’s online status and OS badge on Home or in Device Management, set friendly display aliases, and remove retired devices.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 开启 Peer Device Mode，在当前窗口无缝接管另一台电脑的工作区
+  - Use Peer Device Mode to operate another computer’s workspaces in your current window
+  - 说明：无需远程桌面推流画面——本地保留丝滑原生界面，文件、会话、命令和实时事件直接由对端桌面或 CLI 主机驱动。
+  - Why & how: No laggy screen-sharing video: keep a crisp local UI shell while workspaces, sessions, commands, and live events stream directly from the peer Desktop or CLI host.
 
 ## 怎么用 / How to use it
 
-1. 打开 Remote Connect，选择网络、Bot 或账户入口
-   Open Remote Connect and choose Network, Bot, or Account
-2. 手机或设备互控：宿主与控制端以相同方式登录同一账号，官方 Relay 无需部署
-   For mobile or device control, sign in on the host and controller with the same method and account; the official Relay needs no deployment
-3. 手机可扫描官方或桌面局域网邀请，确认目标设备；二维码不授予访问权，目标宿主须保持在线
-   On mobile, scan an official or Desktop LAN invitation and confirm the target; the QR code grants no access and the host must stay online
-4. Bot 远控：在对应平台完成机器人配置与配对，检查监听状态
-   For bot control, configure and pair the bot on its platform, then check listener status
+1. 点击左下角设备状态按钮打开「管理设备」（即「设备与连接」弹窗），先在「概览」或「我的设备」中登录账号；登录后左侧会显示「手机或浏览器」与「聊天应用」
+   Click the bottom-left device status control → Manage devices to open Devices & Connections, and sign in under Overview or My devices; once signed in, Phone or browser and Chat apps appear in the dialog sidebar
+2. 手机或跨电脑互控：在两台设备使用同一种方式（同为 GitHub 或同为邮箱验证码）登录同一账号；官方 Relay 无需额外部署
+   For mobile or cross-computer control, sign in on every device using the exact same login method (GitHub or email code) and account; the official Relay works out of the box
+3. 手机远控可在「手机或浏览器」中扫描官方或桌面局域网邀请二维码并确认目标设备；跨电脑互控直接在左侧边栏展开对应设备即可进入 Peer Mode
+   On mobile, scan the official or LAN invitation QR under Phone or browser and confirm the host; on another computer, simply expand that device in the left sidebar to enter Peer Device Mode
+4. 机器人远控：在「聊天应用」选择微信扫码（或加载飞书 / Telegram 凭据配置），把返回的配对码发给机器人完成绑定
+   For IM bots, open Chat apps to scan the WeChat QR (or supply your Feishu / Telegram bot config) and send the pairing code to the bot chat to finish linking
 
-入口 / Entry: OpenBitFun 内的对应控制界面
+入口 / Entry: 左侧边栏左下角点击设备状态按钮 → 管理设备（设备与连接） / Click the device status button at the bottom-left of the sidebar → Manage devices (Devices & Connections)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -65,18 +88,25 @@ Inspect sessions, answer permissions, and continue work from mobile, a bot, or a
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开 Remote Connect”
-  - “Open Remote Connect”
-- “我想配置手机远程控制”
-  - “I want to configure mobile remote control”
-- “带我管理已连接设备”
-  - “Take me to connected-device management”
-- “启动微信机器人并持续监听消息”
-  - “Start the WeChat bot and keep listening”
-- “关闭 Telegram 机器人”
-  - “Stop the Telegram bot”
-- “开启手机网页远控”
-  - “Enable Mobile Web remote control”
+- “开启手机网页远控，我想在手机上接着看进度”
+  - “Enable Mobile Web remote control so I can follow this session from my phone”
+- “帮我启动微信机器人登录二维码，配好消息监听”
+  - “Start WeChat bot QR login and set up message listening”
+- “查看当前远控和机器人的运行状态”
+  - “Check the current Remote Connect and bot status”
+- “暂时停用 Telegram 机器人，保留已有配置”
+  - “Stop the Telegram bot for now while keeping its configuration”
+
+## 实用贴士 / Good to know
+
+- 四种远程模式一秒分清：① 代码在服务器、窗口在本机 → 选「远程工作区」；② 用手机或微信遥控当前电脑 → 选「Remote Connect」；③ 用电脑 A 窗口直接操作电脑 B → 选「Peer Mode」；④ 把任务派给别处跑完再同步、本机直接合盖离线 → 选「Detached Dispatch」。
+  - Which remote mode fits? ① Code on SSH server, UI here → Remote Workspaces; ② Phone or IM bot driving an online host → Remote Connect; ③ Computer A operating Computer B live → Peer Device Mode; ④ Hand off a job and close your laptop → Detached Dispatch.
+- 统一登录方式：GitHub 与邮箱验证码对应两套独立账户，多设备互认时请确保两端都用同一种方式登录。
+  - Keep sign-in methods consistent: GitHub and email-code logins create separate accounts—use the same method across all your devices.
+- 保持被控主机在线：手机远控与 Peer Mode 都直接读取目标主机的实时流（中继服务器不存聊天记录），建议在桌面端「通用设置」开启「阻止系统睡眠」。
+  - Keep the host awake: Mobile Web and Peer Mode stream directly from the online host (the Relay stores zero chat history); enable Prevent system sleep in General settings for unattended use.
+
+关联条目 / Related: `feature.remote-workspaces`, `feature.detached-dispatch`, `setting.application.general`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

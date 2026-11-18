@@ -69,3 +69,23 @@ test('message times and quiet tool failures work at compact and wide sizes', { t
     assert.equal(await page.$('.chat-tool-list--collapsed'), null, 'approval stays reachable');
   } finally { await browser.close(); await source.close(); }
 });
+
+test('agent launch tools retain their child branch cards', { timeout: 60000 }, async () => {
+  const source = await startSourceServer();
+  const browser = await launchBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.goto(source.origin);
+    for (const width of [390, 1280]) {
+      await page.setViewport({ width, height: 844 });
+      for (const launchTool of ['AgentSpawn', 'AgentFork']) {
+        await page.evaluate(async name => (await import('/tests/helpers/mobile-chat-regressions-fixture.tsx')).showTranscript(false, 'subagent', 'completed', name), launchTool);
+        await page.waitForSelector('.chat-task-card');
+        assert.equal(await page.$$eval('.chat-task-card', nodes => nodes.length), 1, launchTool);
+      }
+    }
+  } finally {
+    await browser.close();
+    await source.close();
+  }
+});

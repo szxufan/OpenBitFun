@@ -4,54 +4,89 @@ id: feature.computer-use
 kind: feature
 category: workspace
 title_zh: "浏览器与桌面控制"
-title_en: "Browser & desktop control"
+title_en: "Browser & Desktop Control"
 ---
 
-# 浏览器与桌面控制 / Browser & desktop control
+# 浏览器与桌面控制 / Browser & Desktop Control
 
 > 功能 / Feature
 
-授权智能体操作浏览器或本机界面，并明确管理辅助功能、屏幕录制与浏览器连接。
+让智能体连接你平时用的 Chrome / Edge 等外部浏览器（直接复用已登录的网页账号），或在你的明确授权下共享指定应用窗口与桌面画面，完成截图观察、点击、输入和滚动操作，并提供实时预览卡片与一键急停。
 
-Allow agents to operate a browser or local UI while explicitly managing accessibility, screen-recording, and browser connection access.
+Let agents connect to your everyday Chrome or Edge browser (reusing signed-in web sessions) or, with explicit authorization, share a specific App window or screen to inspect, click, type, and scroll—complete with a live preview card and instant stop.
+
+## 适用场景 / When to use it
+
+- 要在已经登录了企业 SSO、云厂商后台或内部系统的外部 Chrome 里查工单、抓报错或填复杂表单，不用重新导 Cookie
+  - Automate repetitive form filling or inspect dashboards inside your main Chrome browser where corporate SSO is already signed in
+- 开发桌面端软件或跨软件联调时，把目标应用窗口单独共享给智能体，看着它自动点按验证交互流程
+  - Share just your native desktop app window with the agent so it can click through UI flows and verify visual behavior
+- 对经常配合测试的本地软件选择「记住授权」，后续同一程序同模式复测无需每次重走繁琐确认
+  - Remember control grants for trusted local test apps while automatically re-prompting if the executable or input mode changes
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 检查 Computer Use 可用性、辅助功能和屏幕录制授权状态
-  - Check Computer Use availability plus accessibility and screen-recording permission status
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 请求桌面控制所需的系统权限
-  - Request the operating-system permissions required for desktop control
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 直接打开对应的系统隐私与安全设置
-  - Open the matching operating-system privacy and security settings
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发现受支持的浏览器并查看当前 CDP 连接状态
-  - Discover supported browsers and inspect the current CDP connection state
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 启动浏览器控制，以及连接或断开已经配置 CDP 的浏览器
-  - Launch browser control, or connect to and disconnect from a browser configured for CDP
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 启用默认 CDP 配置并按需要重启浏览器
-  - Enable the default CDP setup and restart the browser when required
-- **由专用智能体工具控制 / Delegated Agent tool** · `ComputerUse` · 授权后让智能体截图、点击、输入、滚动并读取可见界面
-  - After authorization, let agents capture, click, type, scroll, and inspect the visible interface
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在控制状态卡片查看当前目标、模式与授权画面预览
-  - Inspect the current target, mode, and authorized capture preview in the control card
-- **由专用智能体工具控制 / Delegated Agent tool** · `ComputerUse` · 停止当前桌面控制会话并释放捕获与输入资源
-  - Stop the current desktop-control session and release capture and input resources
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择 App 窗口并单独授权或撤销控制
-  - Select an App window and separately grant or revoke control
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在共享预览中点击、拖动、滚动及输入
-  - Click, drag, scroll and type through the shared preview
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按应用执行文件和控制模式记住或忘记授权
-  - Remember or forget control by application executable and input mode
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 一键检查桌面控制可用性及「辅助功能」「屏幕录制」授权状态
+  - Check Computer Use availability plus Accessibility and Screen Recording status
+  - 说明：清楚告诉你当前系统环境支持哪些能力、还差哪一项系统权限没开，不用盲目猜为什么点不动。
+  - Why & how: See immediately whether your OS session supports desktop control and exactly which system permissions are granted or missing.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在界面内一键触发桌面控制所需的操作系统权限申请
+  - Request required operating-system permissions for desktop control
+  - 说明：直接唤起 macOS 等系统的原生授权弹窗，按指引勾选 OpenBitFun（或在 CLI 下勾选所用终端应用）即可。
+  - Why & how: Trigger the native OS consent prompt directly so you can authorize OpenBitFun without hunting through menus.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 直达系统「隐私与安全性」对应设置面板
+  - Jump straight to the matching OS Privacy & Security settings pane
+  - 说明：如果之前点过拒绝导致系统不再弹窗，点一下就能精准跳到系统设置的对应权限列表手动勾选。
+  - Why & how: If an OS prompt was previously dismissed, jump directly to the exact system privacy pane to flip the toggle on.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 自动发现本机受支持的浏览器并查看实时 CDP 连接状态
+  - Discover installed supported browsers and inspect live CDP connection status
+  - 说明：自动扫描本机已安装的 Chrome、Edge 等 Chromium 内核浏览器，展示当前是否已就绪连通。
+  - Why & how: Automatically scan installed Chromium-based browsers such as Chrome and Edge and show whether a live CDP link is active.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 启动受控浏览器，或随时连接 / 断开已开启 CDP 的浏览器
+  - Launch browser control, or connect to and disconnect from a CDP-enabled browser
+  - 说明：要用的时候连上让 AI 协作操作，处理私密事务时随时点「断开」切断智能体访问。
+  - Why & how: Connect your browser when you want AI assistance, and disconnect in one click whenever you want private manual browsing.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 一键配置默认 CDP 远程调试参数并按需优雅重启浏览器
+  - Enable default CDP debugging setup and restart the browser when needed
+  - 说明：不用自己去命令行拼 `--remote-debugging-port` 启动参数，在界面按提示确认即可自动配好并重启生效。
+  - Why & how: Skip manual `--remote-debugging-port` flags—enable the default CDP setup from the UI and restart your browser cleanly when prompted.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ComputerUse` · 获权后由智能体完成画面读取、元素定位、点击、输入与滚动
+  - Let authorized agents capture, locate elements, click, type, and scroll
+  - 说明：授权完成后，智能体会结合最新画面与无障碍树稳健执行点击、填表和快捷键操作；缺权限时会主动停下提示你。
+  - Why & how: Once authorized, the agent combines fresh captures and accessibility trees to click, type, and scroll reliably—and stops to tell you if permissions are missing.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在会话控制卡片中实时查看当前受控目标、模式与授权画面预览
+  - Watch the current target, control mode, and live capture preview in the session card
+  - 说明：展开聊天流里的控制状态卡片，就能看清 AI 正在看哪个窗口、虚拟鼠标指在哪里，全程透明不黑盒。
+  - Why & how: Expand the in-chat control status card to see the exact window being shared and where the virtual pointer is acting in real time.
+- **由专用智能体工具控制 / Delegated Agent tool** · `ComputerUse` · 随时一键停止桌面控制会话并立即释放截图与输入占用
+  - Stop the active desktop-control session immediately and release all resources
+  - 说明：无论是对 AI 说“停下”还是直接点控制卡片上的停止按钮，都会立刻终止当前接管并释放屏幕捕获资源。
+  - Why & how: Click Stop on the control card or ask the agent to stop—screen capture and input hooks are released immediately.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按单个 App 窗口精细共享，先确认画面再独立授权键鼠控制
+  - Share an individual App window and grant or revoke input control separately
+  - 说明：不必把整个桌面暴露出来——你可以只选定某一个软件窗口给 AI 看，并随时单独开启或收回输入控制权。
+  - Why & how: Keep the rest of your desktop private by picking a single application window to share and toggling input permissions independently.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 直接在共享预览画面中点击、拖拽、滚动与输入交互
+  - Click, drag, scroll, and type directly through the authorized shared preview
+  - 说明：在获权预览画面上的交互严格绑定当前共享窗口与坐标版本，不会误点到窗口外的其他软件。
+  - Why & how: Interactions inside the preview stay strictly bound to the shared window and authorization revision so clicks never stray elsewhere.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按应用可执行文件与控制模式记住常用授权，或随时撤销记忆
+  - Remember or revoke control grants per application executable and input mode
+  - 说明：对信任的常测应用勾选记住后更省心；一旦程序文件更新或请求更高控制模式，会自动重新向你确认。
+  - Why & how: Save time on trusted apps you test repeatedly—if the app binary changes or a different input mode is requested, OpenBitFun asks again automatically.
 
 ## 怎么用 / How to use it
 
-1. 打开执行控制设置
-   Open Execution Control settings
-2. 启用需要的能力
-   Enable the required capability
-3. 按提示授予系统权限或连接浏览器
-   Grant OS access or connect a browser when prompted
+1. 按 ⌘, / Ctrl+, 打开设置，进入「工具与集成 → 浏览器与桌面控制」
+   Open Settings (⌘, / Ctrl+,) and go to Tools & Integrations → Browser & Desktop Control
+2. 若需操控外部浏览器：在「浏览器控制」区域选择已安装的浏览器，按提示启用默认 CDP 调试端口并连接（必要时按提示重启浏览器）
+   For external browser automation: pick your installed browser, enable default CDP setup (restarting the browser if prompted), and connect
+3. 若需操控桌面或原生应用：开启桌面控制并按引导在系统设置中授予「辅助功能」与「屏幕录制」权限
+   For desktop/app control: enable Computer Use and grant OS Accessibility and Screen Recording access via the one-click system settings buttons
+4. 在会话中发起任务后，选择要共享的 App 窗口与输入模式；执行期间可在聊天控制卡片查看画面预览，或随时点击「停止」收回控制
+   When an agent requests access in chat, pick the target App window and input mode; monitor the live preview card or click Stop anytime
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 工具与集成 → 浏览器与桌面控制 / Settings (⌘, / Ctrl+,) → Tools & Integrations → Browser & Desktop Control (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -67,10 +102,23 @@ Allow agents to operate a browser or local UI while explicitly managing accessib
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开桌面控制设置”
-  - “Open desktop-control settings”
-- “带我配置浏览器控制”
-  - “Take me to browser-control setup”
+- “打开浏览器与桌面控制设置，我想把 Chrome 连进来”
+  - “Open Browser & Desktop Control settings so I can connect Chrome”
+- “检查一下当前电脑的桌面控制权限是不是都已经配好了”
+  - “Check whether Computer Use permissions are ready on this machine”
+- “停止当前的桌面控制会话”
+  - “Stop the active desktop control session right now”
+
+## 实用贴士 / Good to know
+
+- 设置位置更新提示：旧版文档中的「执行控制」已拆分为独立的「工具与集成 → 浏览器与桌面控制」，查找外部浏览器和屏幕权限直接来这里即可。
+  - Updated settings path: Browser & Desktop Control now has its own dedicated page under Settings → Tools & Integrations → Browser & Desktop Control.
+- 内置浏览器 vs 外部浏览器：调试本地无需登录的前端页面直接用「内置浏览器」最快；需要复用日常账号 Cookie 时再连接外部浏览器。
+  - Built-in vs External browser: use the Built-in Browser for zero-setup localhost previews, and connect your external CDP browser when you need existing login cookies.
+- 远程安全红线：在手机远控或远程 SSH 工作区场景下，绝不会静默截取或操控你手头控制端电脑的屏幕。
+  - Strict remote safety: remote SSH workspaces and headless hosts never fall back to capturing or controlling your local controller screen.
+
+关联条目 / Related: `feature.browser`, `setting.tools.desktop-control`, `setting.tools.browser-control`, `setting.tools.execution`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

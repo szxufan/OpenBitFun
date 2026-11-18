@@ -245,6 +245,9 @@ jobs:
           node-version-file: package.json
           package-manager-cache: false
 
+      - name: Verify Rust stack diagnostic contracts
+        run: node --test scripts/ci/rust-stack-diagnostics.test.mjs
+
       # Tauri code generation only requires its configured resource roots to
       # exist during check/test; distributable assets remain frontend-build's owner.
       - name: Create Tauri resource directories
@@ -346,19 +349,28 @@ jobs:
         run: cargo check --manifest-path OpenBitFun-Installer/src-tauri/Cargo.toml
 
       - name: Run core library tests
+        id: core-library-tests
         if: runner.os != 'Linux'
-        run: cargo test --locked -p openbitfun-core --lib
+        run: node scripts/ci/rust-stack-diagnostics.mjs --output "${{ runner.temp }}/rust-stack-diagnostics" -- --locked -p openbitfun-core --lib
 
       - name: Run portable Office document engine tests
         run: cargo test --locked -p openbitfun-office-documents
 
       - name: Run full core library tests on Linux
+        id: full-core-library-tests
         if: runner.os == 'Linux'
-        # The product-full feature union makes debug-mode async futures much
-        # larger; the scheduler suites overflow the default test-thread stack.
-        env:
-          RUST_MIN_STACK: "33554432"
-        run: cargo test --locked -p openbitfun-core --features product-full --lib
+        # Capture the existing run; only stack overflows trigger bounded reruns.
+        # See scripts/ci/AGENTS.md for reuse and diagnostic limitations.
+        run: node scripts/ci/rust-stack-diagnostics.mjs --output "${{ runner.temp }}/rust-stack-diagnostics" -- --locked -p openbitfun-core --features product-full --lib
+
+      - name: Upload Rust stack diagnostics
+        if: ${{ failure() && (steps.core-library-tests.outputs.stack_overflow == 'true' || steps.full-core-library-tests.outputs.stack_overflow == 'true') }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: rust-stack-diagnostics-${{ runner.os }}
+          path: ${{ runner.temp }}/rust-stack-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Run desktop library tests
         if: runner.os != 'Windows'

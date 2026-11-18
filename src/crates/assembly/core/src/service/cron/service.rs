@@ -1054,8 +1054,11 @@ fn reconcile_loaded_job(job: &mut CronJob, now_ms: i64) -> OpenBitFunResult<bool
     }
 
     // Older versions kept failed submissions pending and retried every five
-    // seconds, creating another workspace session on each attempt.
+    // seconds, creating another workspace session on each attempt. A pending
+    // trigger without a retry deadline may still be unattempted: the failure
+    // can belong to an earlier turn that finished after this trigger was queued.
     if job.state.last_run_status == Some(CronJobRunStatus::Error)
+        && job.state.retry_at_ms.is_some()
         && matches!(
             (job.state.pending_trigger_at_ms, job.state.last_run_finished_at_ms),
             (Some(pending_at), Some(finished_at)) if pending_at <= finished_at
@@ -1068,11 +1071,11 @@ fn reconcile_loaded_job(job: &mut CronJob, now_ms: i64) -> OpenBitFunResult<bool
         job.updated_at_ms = now_ms;
     }
 
+    // Pending triggers already wake at their trigger time. Do not synthesize a
+    // retry deadline, which would misclassify them as failed retries on restart.
     if !job.enabled {
         job.state.mark_disabled();
-    } else if job.state.pending_trigger_at_ms.is_some() {
-        job.state.ensure_pending_retry_at(now_ms);
-    } else if job.state.next_run_at_ms.is_none() {
+    } else if job.state.pending_trigger_at_ms.is_none() && job.state.next_run_at_ms.is_none() {
         job.state.next_run_at_ms = compute_initial_next_run_at_ms(job, now_ms)?;
     }
 
@@ -1507,8 +1510,8 @@ mod tests {
 
         assert!(job.enabled);
         assert_eq!(job.state.pending_trigger_at_ms, Some(100));
-        assert_eq!(job.state.retry_at_ms, Some(1_000));
-        assert_eq!(next_wakeup_for_job(&job), Some(1_000));
+        assert_eq!(job.state.retry_at_ms, None);
+        assert_eq!(next_wakeup_for_job(&job), Some(100));
     }
 
     #[test]
@@ -1526,7 +1529,70 @@ mod tests {
 
         assert!(job.enabled);
         assert_eq!(job.state.pending_trigger_at_ms, Some(200));
-        assert_eq!(next_wakeup_for_job(&job), Some(1_000));
+        assert_eq!(job.state.retry_at_ms, None);
+        assert_eq!(next_wakeup_for_job(&job), Some(200));
+    }
+
+    #[test]
+    fn restart_preserves_unattempted_manual_trigger_after_active_turn_failure() {
+        let mut job = sample_job(CronSchedule::Every {
+            every_ms: 60_000,
+            anchor_ms: Some(0),
+        });
+        job.state.next_run_at_ms = Some(60_000);
+        job.state
+            .mark_enqueued("previous-turn".to_string(), 100, false);
+        job.state.mark_turn_started(150);
+        job.state.mark_manual_trigger(200);
+        job.state
+            .mark_turn_failed(300, "Previous turn failed".to_string());
+
+        // Both the first restore and another restart before submission must
+        // preserve the manual trigger, which has never been attempted.
+        for restart_at_ms in [400, 500] {
+            let saved = serde_json::to_string(&job).unwrap();
+            let mut restored: CronJob = serde_json::from_str(&saved).unwrap();
+            assert!(!reconcile_loaded_job(&mut restored, restart_at_ms).unwrap());
+            assert_eq!(restored, job);
+            assert!(restored.enabled);
+            assert_eq!(restored.state.pending_trigger_at_ms, Some(200));
+            assert_eq!(restored.state.retry_at_ms, None);
+            assert_eq!(restored.state.next_run_at_ms, Some(60_000));
+            assert_eq!(next_wakeup_for_job(&restored), Some(200));
+            assert!(restored.state.pending_is_due(restart_at_ms));
+            assert_eq!(
+                restored.state.last_error.as_deref(),
+                Some("Previous turn failed")
+            );
+            assert_eq!(restored.state.last_run_finished_at_ms, Some(300));
+            assert_eq!(restored.state.consecutive_failures, 1);
+            job = restored;
+        }
+    }
+
+    #[test]
+    fn restart_preserves_unattempted_overdue_trigger_after_enqueue_failure() {
+        let mut job = sample_job(CronSchedule::Every {
+            every_ms: 100,
+            anchor_ms: Some(0),
+        });
+        job.state.apply_due_scheduled_trigger(100, Some(200));
+        job.state
+            .mark_enqueue_failed(250, "Submission failed".to_string(), false);
+        // Submission took longer than the interval. The next occurrence is
+        // persisted before submission, with the previous failure still present.
+        job.state.apply_due_scheduled_trigger(200, Some(300));
+
+        for restart_at_ms in [260, 270] {
+            let saved = serde_json::to_string(&job).unwrap();
+            let mut restored: CronJob = serde_json::from_str(&saved).unwrap();
+            assert!(!reconcile_loaded_job(&mut restored, restart_at_ms).unwrap());
+            assert_eq!(restored, job);
+            assert_eq!(restored.state.pending_trigger_at_ms, Some(200));
+            assert_eq!(restored.state.retry_at_ms, None);
+            assert!(restored.state.pending_is_due(restart_at_ms));
+            job = restored;
+        }
     }
 
     #[tokio::test]

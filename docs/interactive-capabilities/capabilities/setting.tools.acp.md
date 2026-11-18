@@ -11,39 +11,66 @@ title_en: "ACP external agents"
 
 > 设置 / Setting
 
-配置通过 Agent Client Protocol 接入的外部智能体，并检查适配器、命令与会话选项。
+通过 Agent Client Protocol（ACP）把外部命令行智能体接入同一工作台，利用“本机”、“SSH”与“高级 JSON”三页签管理预设安装、“预下载 ACP”、远端探测与会话权限策略。
 
-Configure external agents connected through Agent Client Protocol and inspect adapters, commands, and session options.
+Connect external CLI coding agents into OpenBitFun over Agent Client Protocol (ACP) across Local, SSH, and Advanced JSON tabs—covering presets, Predownload ACP, remote detection, and per-agent tool confirmation.
+
+## 适用场景 / When to use it
+
+- 习惯在同一个 OpenBitFun 窗口里对比原生智能体与 Claude Code / Codex / OpenCode 的解法：在“本机”页签启用对应预设、点一下“预下载 ACP”并完成探测，回到聊天输入框就能直接切换外部执行模式。
+  - Running Claude Code, Codex, or OpenCode side-by-side inside OpenBitFun: enable the preset on the Local tab, click Predownload ACP if needed, run Probe to confirm readiness, and pick it right from the chat composer.
+- 在无外网或网络较慢的环境使用 Claude Code / Codex ACP：提前在网络通畅时点击“预下载 ACP”，避免首次发起会话时卡在 `npx` 拉包。
+  - Avoiding first-turn `npx` download delays for Claude Code or Codex: click Predownload ACP ahead of time while on a fast connection.
+- 连上 SSH 开发机后想直接调用服务器上装好的 `opencode` 或 `dsh`：切到“SSH”页签点击刷新探测，勾选需要的远端智能体并隐藏不用的条目。
+  - Using ACP agents already installed on a remote Linux dev box: open the SSH tab while connected to that workspace, refresh detection, and hide any unused entries.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 使用 OpenCode、dsh、OMP、Claude Code 和 Codex 等预设
-  - Use presets for OpenCode, dsh, OMP, Claude Code, Codex, and others
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 通过 JSON 查看、添加和保存 ACP 智能体配置
-  - View, add, and save ACP agent configuration through JSON
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 探测 CLI、适配器、路径、版本、连接与权限要求
-  - Probe CLI, adapter, path, version, connection, and permission requirements
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 安装外部智能体 CLI 并预下载 ACP 客户端适配器
-  - Install external-agent CLIs and predownload ACP client adapters
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在 SSH 远程工作区探测可用外部智能体并显示不支持原因
-  - Detect available external agents in SSH workspaces and show explicit unsupported reasons
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为 ACP 会话选择模型并修改客户端声明的配置选项
-  - Choose an ACP session model and edit client-declared configuration options
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看并执行外部智能体暴露的会话命令
-  - Browse and run session commands exposed by an external agent
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 开始或取消 ACP 对话，并远程回答外部智能体权限请求
-  - Start or cancel ACP turns and answer external-agent permission requests remotely
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在“本机”页签启用原生 ACP CLI（opencode、dsh、omp）或 npx 桥接预设（Claude Code、Codex）
+  - Enable native ACP CLIs (opencode, dsh, omp) or npx-bridged presets (Claude Code, Codex) on the Local tab
+  - 说明：OpenCode、DeepSeek Harness（dsh）与 Oh My Pi（omp）直接通过自身原生 ACP 命令通信；Claude Code 与 Codex 则通过官方 `npx` ACP 适配器桥接接入，并支持为每个智能体选择工具调用“询问”或“自动通过”。
+  - Why & how: OpenCode, DeepSeek Harness (`dsh`), and Oh My Pi (`omp`) speak ACP natively, while Claude Code and Codex connect via official `npx` ACP adapters—with per-agent Ask or Auto-approve tool posture.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 一键探测 CLI 可执行路径、版本号、适配器状态与连接就绪度
+  - Probe CLI binary paths, versions, adapter cache status, and connection readiness
+  - 说明：不确定为什么某个外部智能体置灰不可选？点一下探测即可逐项看清是缺 CLI、缺 Node/`npx` 适配器，还是尚未在对应终端完成账号登录。
+  - Why & how: Run a probe whenever an external agent appears unavailable to pinpoint missing binaries, missing Node/`npx` adapters, or unauthenticated CLI accounts.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 一键安装受支持的外部智能体 CLI 或点击“预下载 ACP”缓存适配器
+  - Install supported external-agent CLIs or click Predownload ACP to cache adapters
+  - 说明：对支持应用内安装的预设可直接触发 CLI 安装，并通过“预下载 ACP”为 Claude Code / Codex 预热适配器缓存；注意 `Oh My Pi (omp)` 需你在系统终端手动安装并加入 `PATH` 后再回来探测。
+  - Why & how: Install supported preset CLIs and click Predownload ACP to warm `npx` adapter caches right from Settings; note that `Oh My Pi (omp)` must be installed manually in your system `PATH` before probing.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在“SSH”页签探测远程工作区服务器上的可用 ACP 智能体并查看不支持原因
+  - Detect available ACP agents on SSH remote hosts on the SSH tab with explicit unsupported reasons
+  - 说明：连接 SSH 远程工作区时直接检测远端机器环境，支持刷新探测与按需隐藏条目，绝不拿本机安装的 CLI 冒充远端能力。
+  - Why & how: Inspects the remote SSH host directly when a remote workspace is active, lets you refresh or hide entries, and never confuses local binaries with remote availability.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在“高级 JSON”页签直接查看、添加自定义命令与保存 ACP 配置
+  - View, add custom commands, and save raw ACP configuration on the Advanced JSON tab
+  - 说明：适合接入预设之外的自研 ACP 兼容智能体，或为启动命令自定义特定参数、工作目录与环境变量。
+  - Why & how: Ideal for registering custom ACP-compatible agents beyond built-in presets or customizing startup flags and environment variables.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在 ACP 会话中选择外部智能体暴露的模型与客户端配置项
+  - Choose models and client-declared configuration options inside ACP sessions
+  - 说明：连接成功后，会话内会动态读取该外部智能体自身声明的模型列表与可调开关，无需回到设置页硬编码。
+  - Why & how: Once connected, ACP sessions dynamically surface the models and options advertised by that external agent.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 浏览并执行外部 ACP 智能体在会话中公开的斜杠或专属命令
+  - Browse and execute session commands exposed by an external ACP agent
+  - 说明：不同 ACP 智能体自带的特色命令会自动同步到当前会话中供你调用。
+  - Why & how: Surfaces agent-specific slash or session commands advertised over ACP right inside the conversation.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 发起或取消 ACP 会话轮次，并在本地或远程回答外部智能体的权限请求
+  - Start or cancel ACP dialog turns and answer external-agent permission prompts locally or remotely
+  - 说明：外部智能体请求读写或执行命令时，同样接入统一的权限确认卡片链路，即使在远程控制场景下也不会卡死在不可见终端。
+  - Why & how: Routes external-agent permission prompts through OpenBitFun’s interactive approval cards so turns stay answerable locally and remotely.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“工具 > ACP”
-   Go to Tools > ACP
-3. 添加客户端并通过探测检查可用性
-   Add a client and probe its availability
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“工具与集成 → ACP”
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Tools & Integrations → ACP
+2. 本机使用选“本机”页签：从预设中启用 OpenCode、dsh、omp、Claude Code 或 Codex，按提示安装 CLI 或点击“预下载 ACP”（`omp` 需自行在终端安装并加入 `PATH`）
+   On the Local tab, enable a preset (`opencode`, `dsh`, `omp`, `Claude Code`, or `Codex`) and install the CLI or click Predownload ACP (`omp` requires manual CLI installation in `PATH`)
+3. 点击探测确认可执行文件与登录状态就绪，并按习惯将该智能体的工具确认设为“询问”或“自动通过”
+   Run Probe to confirm the binary and account login are ready, then pick Ask or Auto-approve for that agent’s tool calls
+4. 连接 SSH 远程项目时可切到“SSH”页签刷新远端可用智能体；自定义命令参数则切到“高级 JSON”页签保存
+   Switch to the SSH tab to detect agents installed on active SSH workspaces, or use Advanced JSON for custom ACP commands
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 工具与集成 → ACP / Settings (⌘, / Ctrl+,) → Tools & Integrations → ACP (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -59,10 +86,21 @@ Configure external agents connected through Agent Client Protocol and inspect ad
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开 ACP 设置”
-  - “Open ACP settings”
-- “带我配置外部智能体”
-  - “Take me to external-agent setup”
+- “打开 ACP 设置，我想把本地装好的 Claude Code 接进来”
+  - “Open ACP settings so I can connect Claude Code”
+- “带我看看当前 SSH 远程服务器上探测到了哪些 ACP 智能体”
+  - “Take me to the SSH tab in ACP settings to check remote agents”
+
+## 实用贴士 / Good to know
+
+- `Claude Code` 与 `Codex` 并非其 CLI 本身直接监听 ACP，而是通过官方 `npx` ACP 客户端适配器桥接，因此机器上需要可用的 Node.js / `npx` 环境，首次使用前点一下“预下载 ACP”体验最流畅。
+  - `Claude Code` and `Codex` connect via official `npx` ACP adapter packages rather than built-in native flags, so Node.js/`npx` is required—clicking Predownload ACP avoids first-session startup lag.
+- `Oh My Pi (omp)` 不提供应用内自动安装脚本，需你先在外部终端自行安装并确保 `omp` 在系统 `PATH` 可执行后再回来启用探测。
+  - `Oh My Pi (omp)` does not offer one-click in-app CLI installation; install `omp` in your system `PATH` manually first, then probe it on the Local tab.
+- 只是想把之前在 Codex 或 ZCode 里聊到一半的历史会话接过来用 OpenBitFun 继续聊，或者导入 Claude Code 的 Skills / MCP / Hooks？请去隔壁的“工具与集成 → 外部导入”。
+  - Want to continue past Codex/ZCode conversation histories or import Claude Code Skills, MCP servers, and Hooks instead? Head to Tools & Integrations → External import.
+
+关联条目 / Related: `feature.ecosystem-compatibility`, `setting.workspace.session`, `feature.remote-workspaces`, `setting.ai.permissions`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

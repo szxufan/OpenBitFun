@@ -3,45 +3,68 @@
 id: setting.workspace.session
 kind: setting
 category: assistant
-title_zh: "会话与工作区设置"
-title_en: "Session & workspace settings"
+title_zh: "会话与工作区搜索设置"
+title_en: "Session & workspace search settings"
 ---
 
-# 会话与工作区设置 / Session & workspace settings
+# 会话与工作区搜索设置 / Session & workspace search settings
 
 > 设置 / Setting
 
-控制默认智能体执行框架、会话标题生成、工作区加速搜索和与项目上下文相关的行为。
+管理新建会话的默认智能体执行模式、会话标题自动生成与选型、答复后的下一步候选建议，以及本地项目的加速全文搜索开关。
 
-Control the default Agent Harness, session-title generation, accelerated workspace search, and project-context behavior.
+Configure the Default agent execution mode for new sessions, automatic session titles and their model, post-reply next-step suggestions, and accelerated local workspace search.
+
+## 适用场景 / When to use it
+
+- 每天在多个会话间来回切换总是分不清哪个是哪个：保持“自动生成会话标题”开启，并把标题模型设为轻量快速模型，几秒内就能生成一目了然的主题名。
+  - Keeping dozens of parallel threads recognizable: leave Automatic session titles enabled and point the title model to your Fast slot so every new chat gets a concise topic title in seconds.
+- 习惯固定用同一种智能体执行模式开工：在“默认智能体执行模式”中从“跟随上一次选择”改为“固定默认模式”，以后每次新建普通会话都保持一致体验。
+  - Starting every fresh chat in the same mode: under Default agent execution mode, switch from following your last chat input selection to a fixed default mode.
+- 本地几十万行代码仓库全文检索偏慢：前往“编程与开发 → 工作区与 Git”确认开启“启用加速工作区搜索”；连接 SSH 远程工作区时该本地开关会自动隐藏，搜索直接走远端主机。
+  - Speeding up code search across a large local monorepo: enable Accelerated workspace search under Programming & Development → Workspace & Git; on SSH remote workspaces the local-only toggle hides automatically and search runs directly on the remote host.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 让普通新会话跟随 ChatInput 上次选择，或固定使用指定执行框架
-  - Make regular new sessions follow the last ChatInput selection or use a fixed Harness
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 设置默认智能体执行模式：跟随聊天输入框上一次选择，或固定默认模式
+  - Set Default agent execution mode: follow the last chat input selection or fix a default mode
+  - 说明：经常在不同执行模式间切换时选“跟随上一次选择”最顺手；希望每次新建普通会话都使用固定模式时可直接锁定目标。
+  - Why & how: Follow your last chat input choice when you switch modes often, or fix a default execution mode so every new regular session starts identically.
 - **智能体可直接控制 / Direct Agent control** · 启用或停用根据会话内容自动生成标题
   - Enable or disable automatic titles generated from session content
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 让标题模型继承主模型、快速模型或使用指定模型
-  - Make title generation inherit the primary or fast model, or use a selected model
-- **智能体可直接控制 / Direct Agent control** · 启用或停用 Agent 答复后在输入框中显示的一句话候选输入
-  - Enable or disable the one-sentence next input suggested in the input box after an Agent reply
+  - 说明：开启后会在对话起步阶段自动提炼简短标题替换默认的“新会话”，省去手动重命名的麻烦。
+  - Why & how: Summarizes early conversation context into a concise session title so your sidebar stays organized without manual renaming.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 让标题模型继承快速模型、主模型或使用指定轻量模型
+  - Make title generation inherit the Fast or Primary model, or use a selected lightweight model
+  - 说明：推荐继承“快速模型”或单独选一个响应快、价格低的轻量模型，避免为生成几字标题占用昂贵推理模型额度。
+  - Why & how: Pointing this to your Fast model or a small low-latency model keeps title generation instant without spending flagship reasoning tokens.
+- **智能体可直接控制 / Direct Agent control** · 启用或停用智能体答复后在聊天输入框显示的一句话候选建议
+  - Enable or disable the one-sentence next-step suggestion in the chat input after replies
+  - 说明：答复结束后在聊天输入框给出贴合上下文的下一步追问提示，按 Tab 或方向右键即可填入输入框继续编辑；喜欢纯净界面可随时关闭。
+  - Why & how: Displays a context-aware follow-up suggestion inside the chat input after a turn finishes—press Tab or Right Arrow to accept and edit, or turn it off for a clean composer.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 远程工作区明确走远端搜索数据面，绝不静默回退到本机文件
+  - Use an explicit remote-workspace search path without silently falling back to local files
+  - 说明：当当前项目位于 SSH 或容器远程工作区时，系统会自动隐藏仅限本机的索引开关并在远端主机执行搜索，杜绝本机与远端内容混淆。
+  - Why & how: When working in an SSH or container remote workspace, local-only index toggles hide automatically and searches execute on the remote host without leaking local files.
 - **智能体可直接控制 / Direct Agent control** · 为本地工作区启用 Flashgrep 加速搜索
   - Enable Flashgrep-backed accelerated search for local workspaces
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看索引状态并在需要时重建工作区索引
-  - Inspect index status and rebuild the workspace index when needed
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 远程工作区明确降级搜索实现，不把远程路径回退到本机
-  - Use an explicit remote-workspace search path without silently falling back to local files
+  - 说明：位于“设置 → 编程与开发 → 工作区与 Git”中的“加速工作区搜索”区块，开启“启用加速工作区搜索”即可为本地大型代码库显著提速文件名与全文检索。
+  - Why & how: Located under Settings → Programming & Development → Workspace & Git as Enable accelerated workspace search, speeding up filename and full-text search across large local repositories.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 后台自动维护本地 Flashgrep 搜索索引并在文件搜索入口查看状态
+  - Maintain local Flashgrep search indexes automatically and inspect status from search surfaces
+  - 说明：开启“启用加速工作区搜索”后索引会在后台自动构建与增量更新（设置页本身只提供启用开关，不设手动重建按钮；如需查看仓库索引状态或触发重建，可通过文件搜索服务完成）。
+  - Why & how: Once Enable accelerated workspace search is turned on, indexes build and update automatically in the background (the Settings page intentionally has only the toggle, while index status and rebuild hooks belong to the workspace search service).
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“工作区 > 会话与工作区”
-   Go to Workspace > Session & Workspace
-3. 调整默认执行框架、标题或搜索选项
-   Tune the default Harness, title, or search controls
+1. 按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“模型与智能体 → 会话与记忆”
+   Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Models & Agents → Sessions & Memory
+2. 在“默认智能体执行模式”中选择跟随上一次选择或固定默认模式，并按需调整自动生成会话标题（及标题模型）与候选输入建议开关
+   Under Default agent execution mode, choose whether new sessions follow your last selection or use a fixed mode, then adjust automatic session titles (and title model) and prompt suggestions
+3. 如需调整本地项目的代码加速搜索开关，切换到左侧“编程与开发 → 工作区与 Git”开启或关闭“启用加速工作区搜索”
+   To toggle accelerated local repository search, switch to Programming & Development → Workspace & Git in the sidebar and toggle Enable accelerated workspace search
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 模型与智能体 → 会话与记忆（工作区搜索位于：编程与开发 → 工作区与 Git） / Settings (⌘, / Ctrl+,) → Models & Agents → Sessions & Memory (Workspace search: Programming & Development → Workspace & Git) (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -53,22 +76,29 @@ Control the default Agent Harness, session-title generation, accelerated workspa
 
 | 选项 / Option | 可用值 / Values | 中文说明 | English description |
 | --- | --- | --- | --- |
-| 自动生成会话标题 / Automatic session titles | `boolean` | 根据会话内容生成易识别的标题。 | Generate a recognizable title from session content. |
-| 候选输入建议 / Next input suggestion | `boolean` | Agent 答复完成后，在输入框中给出一句话的下一步输入建议。 | Suggest a one-sentence next message in the input box after the Agent replies. |
-| 工作区加速搜索 / Accelerated workspace search | `boolean` | 为本地项目启用 Flashgrep 加速搜索。 | Enable Flashgrep-backed search for local projects. |
+| 自动生成会话标题 / Automatic session titles | `boolean` | 在新会话首轮交流后自动生成简明易辨认的标题。 | Automatically summarize early conversation turns into a recognizable session title. |
+| 候选输入建议 / Next input suggestion | `boolean` | 智能体答复完成后，在聊天输入框中提示一句话的下一步追问建议（按 Tab 或 → 采纳）。 | Suggest a one-sentence follow-up in the chat input after an agent reply (press Tab or → to accept). |
+| 启用加速工作区搜索 / Enable accelerated workspace search | `boolean` | 为本地工作区启用 Flashgrep 加速索引搜索（位于“编程与开发 → 工作区与 Git”，远程工作区自动停用隐藏）。 | Enable Flashgrep-backed indexed search for local workspaces (under Programming & Development → Workspace & Git; hidden on remote workspaces). |
 
 ## 可以直接对智能体说 / Try saying
 
-- “让新会话跟随 ChatInput 上一次选择的执行框架”
-  - “Make new sessions follow the last Harness selected in ChatInput”
-- “把新会话固定为 Ultimate 执行框架”
-  - “Fix Ultimate as the Harness for new sessions”
-- “关闭自动生成会话标题”
-  - “Turn off automatic session titles”
 - “关闭答复后的候选输入建议”
-  - “Turn off next input suggestions after replies”
-- “启用工作区加速搜索”
-  - “Enable accelerated workspace search”
+  - “Turn off next-input suggestions after replies”
+- “把默认智能体执行模式设为跟随聊天输入框上一次选择”
+  - “Set Default agent execution mode to follow my last chat input selection”
+- “为本地项目开启工作区加速搜索”
+  - “Enable accelerated workspace search for local projects”
+
+## 实用贴士 / Good to know
+
+- 原本合并展示的会话与工作区搜索项，在实际设置界面中分属两处：会话相关项都在“模型与智能体 → 会话与记忆”，而“加速工作区搜索”开关在“编程与开发 → 工作区与 Git”。
+  - In the Settings sidebar, session preferences live under Models & Agents → Sessions & Memory, whereas Accelerated workspace search lives under Programming & Development → Workspace & Git.
+- 聊天输入框出现灰色一句话候选建议时，按 Tab 或右方向键（→）才会采纳；直接打字输入自己的内容会立即覆盖它，完全不影响正常输入。
+  - When a gray follow-up suggestion appears in the chat input, press Tab or Right Arrow (→) to accept it—simply typing your own message replaces it immediately.
+- “加速工作区搜索”在界面中只有一个启用开关，开启后后台自动维护本地索引，没有手动重建按钮；在远程工作区下该区块会自动隐藏。
+  - Accelerated workspace search exposes just a clean Enable toggle in Settings (indexes maintain themselves automatically with no manual rebuild button on that page) and hides automatically on remote workspaces.
+
+关联条目 / Related: `setting.ai.memory`, `feature.ai-assistant`, `feature.files-editor`, `feature.remote-workspaces`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

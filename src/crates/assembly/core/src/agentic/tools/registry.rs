@@ -61,6 +61,7 @@ pub use openbitfun_agent_tools::GET_TOOL_SPEC_TOOL_NAME;
 /// Tool registry - manages all available tools (using IndexMap to maintain registration order)
 pub struct ToolRegistry {
     inner: AgentToolRegistry<dyn Tool>,
+    collaboration_model_override: bool,
 }
 
 impl Default for ToolRegistry {
@@ -95,7 +96,10 @@ impl ToolRegistry {
     }
 
     pub(in crate::agentic::tools) fn from_inner(inner: AgentToolRegistry<dyn Tool>) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            collaboration_model_override: true,
+        }
     }
 
     /// Dynamically register MCP tools
@@ -243,6 +247,13 @@ impl ToolRegistry {
 
     pub fn current_snapshot_generation(&self) -> u64 {
         self.inner.current_snapshot_generation()
+    }
+
+    pub(crate) fn refresh_collaboration_model_policy(&mut self, allowed: bool) {
+        if self.collaboration_model_override != allowed {
+            self.collaboration_model_override = allowed;
+            self.inner.invalidate_tool_specs();
+        }
     }
 
     /// Get all tool names
@@ -574,6 +585,7 @@ mod tests {
             "ListModels",
             "Task",
             "AgentSpawn",
+            "AgentFork",
             "AgentSendInput",
             "AgentControl",
             "AgentList",

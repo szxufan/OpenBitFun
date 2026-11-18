@@ -22,8 +22,8 @@ describe('tool interaction history projection', () => {
     }))).toEqual({ agent_id: 'maintainer', prompt: 'Keep working' });
   });
 
-  it('resolves only an explicit matching agent link in the current parent history', () => {
-    const launch = item({ id: 'launch', toolName: 'AgentSpawn', subagentSessionId: 'remote-child' });
+  it.each(['AgentSpawn', 'AgentFork'])('resolves an explicit %s link in the current parent history', (toolName) => {
+    const launch = item({ id: 'launch', toolName, subagentSessionId: 'remote-child' });
     const unrelated = item({ id: 'other', toolName: 'AgentSpawn', subagentSessionId: 'different-child',
       toolCall: { id: 'other', input: { agent_id: 'triage' } } });
     expect(resolveInteractionAgentSessionId(item(), parent([launch, unrelated]))).toBe('remote-child');
@@ -45,9 +45,9 @@ describe('tool interaction history projection', () => {
     expect(resolveInteractionAgentSessionId(send, parent([first, send, later]))).toBe('first-child');
   });
 
-  it('does not attach an unlinked relaunch or its messages to a previous child', () => {
+  it.each(['AgentSpawn', 'AgentFork'])('does not attach an unlinked %s or its messages to a previous child', (toolName) => {
     const first = item({ id: 'first-launch', toolName: 'AgentSpawn', subagentSessionId: 'first-child' });
-    const relaunch = item({ id: 'new-launch', toolName: 'AgentSpawn' });
+    const relaunch = item({ id: 'new-launch', toolName });
     const send = item();
     const history = parent([first, relaunch, send]);
     expect(resolveInteractionAgentSessionId(relaunch, history)).toBe('');

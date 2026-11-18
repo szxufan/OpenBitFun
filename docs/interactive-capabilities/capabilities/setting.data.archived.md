@@ -11,33 +11,50 @@ title_en: "Archived sessions"
 
 > 设置 / Setting
 
-查找、恢复或永久删除已归档的会话，管理长期会话历史。
+按工作区折叠分组盘点已归档的对话历史，支持一键恢复回原项目侧栏、单条删除或移除外部导入来源，以及二次确认清空全部归档。
 
-Find, restore, or permanently delete archived sessions and manage long-term conversation history.
+Review archived conversations grouped by collapsible workspace headers, restore sessions back to their original workspace, delete individual native or imported entries, or clear all archives.
+
+## 适用场景 / When to use it
+
+- 平时在项目侧边栏随手把阶段性完结的会话归档保持列表清爽；几周后客户突然追问当时的排查细节，来此展开对应工作区分组点“恢复”，整段上下文原封不动回到项目里。
+  - Keep your daily workspace sidebar clean by archiving finished feature threads — then unfold that project here weeks later and click Restore when you need the full conversation back.
+- 大版本发布结束后想彻底清理早期废弃试验的归档记录，展开对应项目逐条删除，或确认无留存必要后一键清空全部归档释放本地存储。
+  - Do a clean sweep after a major milestone by removing obsolete archived threads individually or clicking Delete All after confirming nothing else needs to be kept.
 
 ## 完整功能清单 / Everything included
 
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按工作区浏览分页归档会话及其元数据
-  - Browse paged archived sessions and metadata by workspace
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按标题、内容和工作区搜索已归档会话
-  - Search archived sessions by title, content, and workspace
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 恢复会话、轮次和原工作区视图并取消归档
-  - Restore a session, its turns, and original workspace view, then unarchive it
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 明确确认后永久删除选中的归档会话
-  - Permanently delete a selected archived session after explicit confirmation
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 明确确认后永久删除全部归档会话
-  - Permanently delete all archived sessions after explicit confirmation
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 按可折叠的工作区分组浏览全部已归档会话与更新时间
+  - Browse archived sessions and timestamps grouped by collapsible workspace sections
+  - 说明：自动按项目路径聚合归档记录并显示每组条数；默认折叠所有工作区，点开目标项目即可查看标题、归档时间与来源标记，右上角支持手动刷新。
+  - Why & how: Groups archived threads under collapsible project headers with session counts (collapsed by default for easy scanning) plus a top Refresh button.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 一键取消归档并将选中会话连同完整轮次恢复回原工作区
+  - Unarchive and restore a selected session with all its turns back to its original workspace
+  - 说明：恢复后该会话会重新出现在对应项目的会话侧栏中，过往对话轮次、工具调用记录与上下文均可继续查看或接着追问。
+  - Why & how: Restoring puts the thread right back in its project’s session list with full message turns and tool transcripts ready to read or continue.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 二次确认后永久删除单条归档会话，或移除导入的外部会话来源
+  - Permanently delete a selected archived session or remove an imported external source after confirmation
+  - 说明：删除原生会话会彻底清理本机持久化记录；若条目来自 Codex / Zcode 等外部工具导入视图，按钮会变为“移除来源”，只从 OpenBitFun 列表移除而不触碰外部工具的原始数据。
+  - Why & how: Deleting a native session permanently removes its local persisted record; for imported external history (like Codex or Zcode), Remove Source detaches it from OpenBitFun without touching the external tool’s files.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 明确确认后一键永久清空全部已归档会话
+  - Permanently delete all archived sessions at once after explicit confirmation
+  - 说明：适合定期大扫除一次性清理所有项目的归档积压；正在活跃使用、尚未归档的工作区会话不受任何影响。
+  - Why & how: Clears every archived thread across workspaces in one confirmed action while leaving all active unarchived sessions completely untouched.
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 通过会话侧栏或聊天框 @ 引用按标题与正文检索历史会话
+  - Search historical sessions by title and content from the session panel or `@` picker
+  - 说明：“已归档会话”设置页专注按工作区分组清点与恢复，未放置独立搜索框；想按关键词全文检索过往对话内容，可在工作区会话列表或输入框输入 `@` 调出历史会话搜索。
+  - Why & how: The Archived Sessions settings page focuses on per-workspace browsing and cleanup rather than hosting its own search box; to search session titles and full message content, use the workspace session panel or type `@` in the chat composer.
 
 ## 怎么用 / How to use it
 
-1. 打开设置
-   Open Settings
-2. 进入“数据 > 已归档会话”
-   Go to Data > Archived Sessions
-3. 选择会话后恢复或删除
-   Choose a session to restore or delete
+1. 打开设置（⌘, / Ctrl+,），进入“数据与维护 → 已归档会话”
+   Open Settings (⌘, / Ctrl+,) and go to Data & Maintenance → Archived Sessions
+2. 点击任意工作区分组标题展开该项目下的已归档会话列表
+   Click any workspace header to expand the archived threads belonging to that project
+3. 对需要继续使用的会话点“恢复”，对不再保留的记录点“删除 / 移除来源”或右上角“全部删除”
+   Click Restore to return a session to its workspace, or click Delete / Remove Source (or Delete All) and confirm
 
-入口 / Entry: OpenBitFun 设置
+入口 / Entry: 设置 (⌘, / Ctrl+,) → 数据与维护 → 已归档会话 / Settings (⌘, / Ctrl+,) → Data & Maintenance → Archived Sessions (`⌘, / Ctrl+,`)
 
 ## 智能体可替你做什么 / What an agent can do for you
 
@@ -53,10 +70,21 @@ Find, restore, or permanently delete archived sessions and manage long-term conv
 
 ## 可以直接对智能体说 / Try saying
 
-- “打开已归档会话”
-  - “Open archived sessions”
-- “带我恢复一个旧会话”
-  - “Take me to restore an old session”
+- “打开已归档会话管理页”
+  - “Open Archived Sessions settings”
+- “带我恢复之前归档的一个旧会话”
+  - “Take me to restore an archived session”
+
+## 实用贴士 / Good to know
+
+- 小贴士：归档不等于删除！平时做完一个需求把会话归档，既能让项目侧栏干干净净，又能在需要时随时从这里完整恢复。
+  - Archiving is reversible! Archive completed task threads to keep your daily sidebar focused, knowing you can restore any of them in one click.
+- 本设置页没有顶部搜索框——如果你只记得以前聊过某个报错关键词，直接在会话面板搜索或在聊天输入框敲 `@` 搜历史会话会更快。
+  - Looking for a search bar? This page groups archives by project folder — to full-text search across past conversations by keyword, use the workspace session list or type `@` in the chat composer.
+- 外部导入的 Codex / Zcode 会话在这里点“移除来源”非常安全，不会删掉你电脑上外部 CLI 自己的会话记录。
+  - Clicking Remove Source on an imported Codex or Zcode entry only detaches it from OpenBitFun and never deletes the external CLI’s own transcript files.
+
+关联条目 / Related: `feature.ai-assistant`, `feature.projects`, `setting.workspace.session`
 
 智能体会先查找相关功能或设置，确认目标后再替你打开、执行或修改。完整能力目录不会预先塞进对话上下文。
 

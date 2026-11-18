@@ -25,6 +25,7 @@ impl CoworkMode {
                 "create_goal".to_string(),
                 "update_goal".to_string(),
                 "AgentSpawn".to_string(),
+                "AgentFork".to_string(),
                 "AgentSendInput".to_string(),
                 "AgentControl".to_string(),
                 "AgentList".to_string(),

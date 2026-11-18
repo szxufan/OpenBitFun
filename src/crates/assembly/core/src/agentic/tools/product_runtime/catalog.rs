@@ -2,6 +2,7 @@
 
 use crate::agentic::agents::{get_agent_registry, AgentToolPolicyOverrides};
 use crate::agentic::tools::framework::{Tool, ToolExposure, ToolResult};
+use crate::agentic::tools::implementations::agent_collaboration::with_collaboration_model_policy;
 use crate::agentic::tools::registry::{get_global_tool_registry, ToolRef};
 use crate::agentic::tools::tool_context_runtime::ToolUseContext;
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
@@ -57,19 +58,22 @@ pub struct ToolInfoDto {
 /// same `dynamic_tool_info`. Desktop now delegates here; CLI reuses the same
 /// path so the two hosts never drift.
 pub async fn build_tool_info(tool: &Arc<dyn Tool>) -> ToolInfoDto {
-    let description = tool
-        .description()
-        .await
-        .unwrap_or_else(|_| "No description available".to_string());
-    ToolInfoDto {
-        name: tool.name().to_string(),
-        description,
-        input_schema: tool.input_schema_for_model().await,
-        output_schema: tool.output_schema(),
-        is_readonly: tool.is_readonly(),
-        is_concurrency_safe: tool.is_concurrency_safe(None),
-        dynamic_info: tool.dynamic_tool_info(),
-    }
+    with_collaboration_model_policy(async {
+        let description = tool
+            .description()
+            .await
+            .unwrap_or_else(|_| "No description available".to_string());
+        ToolInfoDto {
+            name: tool.name().to_string(),
+            description,
+            input_schema: tool.input_schema_for_model().await,
+            output_schema: tool.output_schema(),
+            is_readonly: tool.is_readonly(),
+            is_concurrency_safe: tool.is_concurrency_safe(None),
+            dynamic_info: tool.dynamic_tool_info(),
+        }
+    })
+    .await
 }
 
 /// Build the catalog DTO for every tool in the global registry, in registry
@@ -339,46 +343,49 @@ pub(crate) async fn resolve_product_tool_manifest(
     exposure_overrides: &AgentToolPolicyOverrides,
     context: &ToolUseContext,
 ) -> ContextualToolManifest<dyn Tool> {
-    let (mut allowed_tools, exposure_overrides) =
-        ProductToolCatalogProvider::resolve_manifest_inputs(
-            allowed_tools,
-            exposure_overrides,
+    with_collaboration_model_policy(async {
+        let (mut allowed_tools, exposure_overrides) =
+            ProductToolCatalogProvider::resolve_manifest_inputs(
+                allowed_tools,
+                exposure_overrides,
+                context,
+            );
+        let tool_snapshot = contextual_tool_snapshot(context).await;
+        append_selected_plugin_tool_names(&mut allowed_tools, &tool_snapshot, context).await;
+        let mut manifest = resolve_contextual_tool_manifest(
+            &tool_snapshot,
+            &allowed_tools,
+            &exposure_overrides,
             context,
-        );
-    let tool_snapshot = contextual_tool_snapshot(context).await;
-    append_selected_plugin_tool_names(&mut allowed_tools, &tool_snapshot, context).await;
-    let mut manifest = resolve_contextual_tool_manifest(
-        &tool_snapshot,
-        &allowed_tools,
-        &exposure_overrides,
-        context,
-        GET_TOOL_SPEC_TOOL_NAME,
-    )
-    .await;
+            GET_TOOL_SPEC_TOOL_NAME,
+        )
+        .await;
 
-    #[cfg(feature = "ptc-runtime")]
-    if context_is_ptc_mode(context) {
-        // PTC keeps deferred tools out of the initial full schema. Their
-        // generated SDK is attached to the prompt reminder by the resolved
-        // manifest facade below.
-        let language = ptc_language(context);
-        manifest.tool_definitions = vec![ToolManifestDefinition::new(
-            PTC_RUN_CODE_TOOL_NAME,
-            ptc_run_code_description_for_language(language),
-            ptc_run_code_input_schema_for_language(language),
-        )];
-        if !manifest
-            .allowed_tool_names
-            .iter()
-            .any(|name| name == PTC_RUN_CODE_TOOL_NAME)
-        {
-            manifest
+        #[cfg(feature = "ptc-runtime")]
+        if context_is_ptc_mode(context) {
+            // PTC keeps deferred tools out of the initial full schema. Their
+            // generated SDK is attached to the prompt reminder by the resolved
+            // manifest facade below.
+            let language = ptc_language(context);
+            manifest.tool_definitions = vec![ToolManifestDefinition::new(
+                PTC_RUN_CODE_TOOL_NAME,
+                ptc_run_code_description_for_language(language),
+                ptc_run_code_input_schema_for_language(language),
+            )];
+            if !manifest
                 .allowed_tool_names
-                .push(PTC_RUN_CODE_TOOL_NAME.to_string());
+                .iter()
+                .any(|name| name == PTC_RUN_CODE_TOOL_NAME)
+            {
+                manifest
+                    .allowed_tool_names
+                    .push(PTC_RUN_CODE_TOOL_NAME.to_string());
+            }
         }
-    }
 
-    manifest
+        manifest
+    })
+    .await
 }
 
 #[cfg(feature = "ptc-runtime")]
@@ -555,48 +562,51 @@ pub(crate) async fn resolve_product_resolved_tool_manifest(
     exposure_overrides: &AgentToolPolicyOverrides,
     context: &ToolUseContext,
 ) -> ResolvedToolManifest {
-    let contextual_manifest =
-        resolve_product_tool_manifest(allowed_tools, exposure_overrides, context).await;
-    #[cfg(feature = "ptc-runtime")]
-    let ptc_tool_calling_guide = if context_is_ptc_mode(context) {
-        let include_deferred_tool_apis =
-            ProductToolCatalogProvider::deferred_tool_loading_enabled(context)
-                && !contextual_manifest.deferred_tool_names.is_empty();
-        let mut ptc_tools = contextual_manifest.direct_tools.clone();
-        for tool in &contextual_manifest.deferred_tools {
-            if !ptc_tools
-                .iter()
-                .any(|existing| existing.name() == tool.name())
-            {
-                ptc_tools.push(tool.clone());
+    with_collaboration_model_policy(async {
+        let contextual_manifest =
+            resolve_product_tool_manifest(allowed_tools, exposure_overrides, context).await;
+        #[cfg(feature = "ptc-runtime")]
+        let ptc_tool_calling_guide = if context_is_ptc_mode(context) {
+            let include_deferred_tool_apis =
+                ProductToolCatalogProvider::deferred_tool_loading_enabled(context)
+                    && !contextual_manifest.deferred_tool_names.is_empty();
+            let mut ptc_tools = contextual_manifest.direct_tools.clone();
+            for tool in &contextual_manifest.deferred_tools {
+                if !ptc_tools
+                    .iter()
+                    .any(|existing| existing.name() == tool.name())
+                {
+                    ptc_tools.push(tool.clone());
+                }
             }
-        }
-        let contracts = build_ptc_contracts(
-            &ptc_tools,
-            &contextual_manifest.deferred_tool_names,
-            context,
-        )
-        .await;
-        let language = ptc_language(context);
-        let sdk_source =
-            render_ptc_sdk_with_options(&contracts, language, include_deferred_tool_apis);
-        Some(render_ptc_tool_calling_guide_for_language(
-            &sdk_source,
-            language,
-            include_deferred_tool_apis,
-        ))
-    } else {
-        None
-    };
+            let contracts = build_ptc_contracts(
+                &ptc_tools,
+                &contextual_manifest.deferred_tool_names,
+                context,
+            )
+            .await;
+            let language = ptc_language(context);
+            let sdk_source =
+                render_ptc_sdk_with_options(&contracts, language, include_deferred_tool_apis);
+            Some(render_ptc_tool_calling_guide_for_language(
+                &sdk_source,
+                language,
+                include_deferred_tool_apis,
+            ))
+        } else {
+            None
+        };
 
-    let mut manifest: ResolvedToolManifest = contextual_manifest.into();
-    let provider = ProductToolCatalogProvider;
-    manifest.catalog_generation = provider.catalog_generation().await;
-    #[cfg(feature = "ptc-runtime")]
-    {
-        manifest.ptc_tool_calling_guide = ptc_tool_calling_guide;
-    }
-    manifest
+        let mut manifest: ResolvedToolManifest = contextual_manifest.into();
+        let provider = ProductToolCatalogProvider;
+        manifest.catalog_generation = provider.catalog_generation().await;
+        #[cfg(feature = "ptc-runtime")]
+        {
+            manifest.ptc_tool_calling_guide = ptc_tool_calling_guide;
+        }
+        manifest
+    })
+    .await
 }
 
 pub(crate) async fn resolve_product_readonly_enabled_tools() -> Vec<ToolRef> {
@@ -611,10 +621,13 @@ pub(crate) async fn resolve_product_get_tool_spec_results(
     context: &ToolUseContext,
     get_tool_spec_tool_name: &str,
 ) -> Result<Vec<ToolResult>, GetToolSpecExecutionError> {
-    let provider = ProductToolCatalogProvider;
-    GetToolSpecRuntime::new(&provider, get_tool_spec_tool_name)
-        .call_results(input, &context.loaded_deferred_tool_specs, context)
-        .await
+    with_collaboration_model_policy(async {
+        let provider = ProductToolCatalogProvider;
+        GetToolSpecRuntime::new(&provider, get_tool_spec_tool_name)
+            .call_results(input, &context.loaded_deferred_tool_specs, context)
+            .await
+    })
+    .await
 }
 
 #[cfg(test)]

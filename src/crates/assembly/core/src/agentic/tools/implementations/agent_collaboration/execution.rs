@@ -244,6 +244,7 @@ impl AgentExecutionTool {
         context: &ToolUseContext,
         is_deep_review_parent: bool,
     ) -> OpenBitFunResult<Vec<ToolResult>> {
+        ModelOverridePolicy::enforce(input).await?;
         let start_time = std::time::Instant::now();
         let invocation = Self::parse_invocation(input, is_deep_review_parent)?;
 

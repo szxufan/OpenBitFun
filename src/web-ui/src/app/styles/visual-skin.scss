@@ -44,6 +44,10 @@
         overflow: hidden;
         border-radius: inherit;
         pointer-events: none;
+        // Keep the backdrop in a stable composited layer while masked transcript
+        // rows reveal hover controls. Otherwise WebKit can re-composite the video
+        // and its scrim together for a frame, briefly darkening the whole shell.
+        transform: translateZ(0);
 
         &::before,
         &::after {

@@ -102,6 +102,7 @@ describe('PeerConnectionManager attach', () => {
             btw_initial_model_selection_v1: true,
             btw_model_pool_selection_v1: true,
             magpie_discovery_v1: true,
+            subagent_model_override_policy_v1: true,
           },
         },
       }),
@@ -121,6 +122,7 @@ describe('PeerConnectionManager attach', () => {
     expect(caps.sessionTrajectoryV1).toBe(true);
     expect(caps.btwInitialModelSelectionV1).toBe(true);
     expect(caps.btwModelPoolSelectionV1).toBe(true);
+    expect(caps.subagentModelOverridePolicyV1).toBe(true);
     expect(caps.magpieDiscoveryV1).toBe(true);
   });
 

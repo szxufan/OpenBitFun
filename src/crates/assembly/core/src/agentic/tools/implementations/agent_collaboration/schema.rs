@@ -74,8 +74,35 @@ impl AgentExecutionTool {
         })
     }
 
-    pub(super) fn render_description(&self) -> String {
-        r#"Run or manage a subagent that handles complex, multi-step tasks autonomously.
+    pub(super) fn render_description(&self, allow_model_override: bool) -> String {
+        let send_model_hint = if allow_model_override {
+            r#" Optionally provide `model_id` to switch the subagent model for this and later turns."#
+        } else {
+            r#""#
+        };
+        let prompt_model_field = if allow_model_override {
+            r#", or `model_id`"#
+        } else {
+            r#""#
+        };
+        let model_guidance = if allow_model_override {
+            r#"`model_id` usage:
+- Set it only when the user requests a particular model.
+- Omit it to use the subagent's configured model, which may differ from your model.
+- Special values: `inherit` explicitly uses the same model as yours; `primary` and `fast` use the user's configured model slots.
+- For a configured model, call ListModels first and use its returned `model_id`.
+
+"#
+        } else {
+            r#""#
+        };
+        let continue_example = if allow_model_override {
+            r#"- Continue an existing subagent with a specific model: `{ "action": "send_input", "agent_id": "parser-review", "model_id": "fast", "prompt": "Continue from your prior parser review and focus on the error recovery paths." }`"#
+        } else {
+            r#"- Continue an existing subagent: `{ "action": "send_input", "agent_id": "parser-review", "prompt": "Continue from your prior parser review and focus on the error recovery paths." }`"#
+        };
+        format!(
+            r#"Run or manage a subagent that handles complex, multi-step tasks autonomously.
 
 When to use:
 - Delegate when a specialized subagent or separate context is likely to improve coverage, independence, or parallelism.
@@ -83,7 +110,7 @@ When to use:
 
 Supported actions:
 - `spawn`: create and run a new subagent. Choose a meaningful unique `agent_id`.
-- `send_input`: continue an existing subagent. Provide its `agent_id` and a `prompt`. Optionally provide `model_id` to switch the subagent model for this and later turns.
+- `send_input`: continue an existing subagent. Provide its `agent_id` and a `prompt`.{send_model_hint}
 - `cancel`: cancel a background subagent. Provide `agent_id`.
 
 Two modes for action='spawn':
@@ -97,7 +124,7 @@ The two modes are mutually exclusive: do not provide `subagent_type` when `fork_
   - In this mode, the subagent inherits the full conversation history up to this point — all prior user messages, assistant responses, and tool results. You do not need to repeat information already covered in the conversation.
 
 `prompt` writing guidelines:
-- Do not put `action`, `subagent_type`, `agent_id`, or `model_id` inside the prompt string.
+- Do not put `action`, `subagent_type`, `agent_id`{prompt_model_field} inside the prompt string.
 - Keep it under 180 lines / 16KB. For large delegations, split the work into multiple AgentSpawn calls with clear ownership.
 - Pass file paths, symbols, constraints, and exact questions instead of pasting large file contents.
 - Clearly tell the agent whether you expect code changes or research only (searches, file reads, web fetches, etc.), because it does not know the user's intent unless you state it.
@@ -106,13 +133,7 @@ The two modes are mutually exclusive: do not provide `subagent_type` when `fork_
 - false: Wait for the agent to finish and return its result to you.
 - true: Run the agent in the background without blocking you. The response includes a `bg_task_id`; use AgentWait when you need the results.
 
-`model_id` usage:
-- Set it only when the user requests a particular model.
-- Omit it to use the subagent's configured model, which may differ from your model.
-- Special values: `inherit` explicitly uses the same model as yours; `primary` and `fast` use the user's configured model slots.
-- For a configured model, call ListModels first and use its returned `model_id`.
-
-Usage notes:
+{model_guidance}Usage notes:
 - Provide a clear prompt for `spawn` and `send_input` so the agent can work autonomously and return the information you need.
 - The subagent inherits your workspace. If the subagent should inspect or operate on a path outside the current workspace, say that target path and scope clearly in the prompt.
 - Launch independent agents concurrently when that improves coverage or latency or when the user explicitly requests it. To do this, send parallel AgentSpawn calls in a single assistant message.
@@ -122,13 +143,13 @@ Usage notes:
 
 Examples (assume "example-reviewer" is present in the agent listing):
 <examples>
-- Start a new specialized subagent: `{ "action": "spawn", "agent_id": "parser-review", "subagent_type": "example-reviewer", "prompt": "Inspect the parser flow in src/parser.rs and report risks, key functions, and any missing tests." }`
-- Start by forking the current context: `{ "action": "spawn", "agent_id": "migration-impact", "fork_context": true, "prompt": "Using the current context, check whether the migration affects config loading. Stay read-only and report the answer with file references." }`
-- Continue an existing subagent with a specific model: `{ "action": "send_input", "agent_id": "parser-review", "model_id": "fast", "prompt": "Continue from your prior parser review and focus on the error recovery paths." }`
-- Cancel a background subagent: `{ "action": "cancel", "agent_id": "parser-review" }`
+- Start a new specialized subagent: `{{ "action": "spawn", "agent_id": "parser-review", "subagent_type": "example-reviewer", "prompt": "Inspect the parser flow in src/parser.rs and report risks, key functions, and any missing tests." }}`
+- Start by forking the current context: `{{ "action": "spawn", "agent_id": "migration-impact", "fork_context": true, "prompt": "Using the current context, check whether the migration affects config loading. Stay read-only and report the answer with file references." }}`
+{continue_example}
+- Cancel a background subagent: `{{ "action": "cancel", "agent_id": "parser-review" }}`
 </examples>
 "#
-            .to_string()
+        )
     }
 }
 
@@ -159,12 +180,20 @@ impl AgentSpawnTool {
         })
     }
 
-    pub(super) fn render_agent_spawn_description(&self) -> String {
-        r#"Launch a new agent to work independently in the background.
+    pub(super) fn render_agent_spawn_description(&self, allow_model_override: bool) -> String {
+        let model_guidance = if allow_model_override {
+            r#"Set `model_id` only when the user explicitly requests a particular model. Omit it to use the agent's configured model. `inherit` selects the current model; `primary` and `fast` select the corresponding configured model slots. Call ListModels before using a configured model ID.
+
+"#
+        } else {
+            r#""#
+        };
+        format!(
+            r#"Launch a new agent to work independently in the background.
 
 Choose an `agent_type` permitted by the current system prompt. Pass the exact `type` value from the <available_agents> catalog. Each type has its own role and tool set.
 
-Choose a meaningful `agent_id` for this agent. It must be unique among agents launched by you and match `[a-z][a-z0-9_-]{0,31}`.
+Choose a meaningful `agent_id` for this agent. It must be unique among agents launched by you and match `[a-z][a-z0-9_-]{{0,31}}`.
 
 Write a self-contained `prompt` that gives the agent everything it needs to complete the work:
 - State the objective, scope, relevant paths or symbols, constraints, and expected result.
@@ -176,12 +205,40 @@ The agent shares your workspace. If the task targets a different workspace, expl
 
 The agent starts with a fresh conversation, and does not inherit your conversation history.
 
-Set `model_id` only when a particular model is required. Omit it to use the agent's configured model. `inherit` selects the current model; `primary` and `fast` select the corresponding configured model slots. Call ListModels before using a configured model ID.
-
-Independent agents can be launched together when that improves coverage or latency. Give agents that may write files non-overlapping scopes so their edits and side effects do not conflict.
+{model_guidance}Independent agents can be launched together when that improves coverage or latency. Give agents that may write files non-overlapping scopes so their edits and side effects do not conflict.
 
 The result includes a `bg_task_id`. Use `bg_task_id` with AgentWait to collect the result. For agents that support follow-up turns, use the requested `agent_id` with AgentSendInput; use AgentControl with `action="interrupt"` to stop active work or `action="delete"` to remove an agent subtree."#
-            .to_string()
+        )
+    }
+}
+
+impl AgentForkTool {
+    pub(super) fn agent_fork_input_schema() -> Value {
+        let mut schema = AgentSpawnTool::agent_spawn_input_schema();
+        schema["properties"]
+            .as_object_mut()
+            .unwrap()
+            .remove("agent_type");
+        schema["required"] = json!(["agent_id", "prompt"]);
+        schema["properties"]["prompt"]["description"] = json!("The fork's objective, scope, constraints, and expected result. May refer to the inherited conversation context.");
+        schema
+    }
+
+    pub(super) fn render_agent_fork_description(&self, allow_model_override: bool) -> String {
+        let model_guidance = if allow_model_override {
+            "\n\nSet `model_id` only when the user explicitly requests a particular model. Omit it to use the configured subagent model. `inherit` selects the current model; `primary` and `fast` select the corresponding configured model slots. Call ListModels before using a configured model ID."
+        } else {
+            ""
+        };
+        format!(
+            r#"Launch a new agent in the background with a copy of the current conversation context. Use this when the delegated work benefits from the discussion and findings already in this conversation.
+
+Choose a meaningful unique `agent_id` matching `[a-z][a-z0-9_-]{{0,31}}`. State the fork's objective, scope, constraints, and expected result in `prompt`. It can refer to the inherited conversation instead of repeating it. The fork runs independently after launch; later messages are not automatically shared.
+
+The agent shares your workspace. Give agents that may write files non-overlapping scopes so their edits and side effects do not conflict.{model_guidance}
+
+The result includes a `bg_task_id`. Use AgentWait with this ID to collect the result, AgentSendInput with `agent_id` to send follow-up instructions, and AgentControl to interrupt or delete the agent."#
+        )
     }
 }
 

@@ -92,6 +92,11 @@
     // fits. Overflow restores these defaults without changing layout geometry.
     -webkit-mask-size: 100% 100%;
     mask-size: 100% 100%;
+    // Runtime status spinners, hover controls, and streaming rows continuously
+    // invalidate this masked subtree. Keep its offscreen surface alive via
+    // opacity will-change (never `transform`, which traps non-portaled
+    // `position: fixed` views such as expanded GenUI maps inside the scroller).
+    will-change: opacity;
   }
 
   // At the actual scroll start there is no content entering from above, so

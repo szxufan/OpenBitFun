@@ -171,7 +171,7 @@ const AgentSpawnCard: React.FC<ToolCardProps> = ({
     ? status
     : statusForLifecycle(lifecycle, status);
   const canOpenSession = Boolean(linkedSubagentSessionId && sessionId);
-  const isSpawn = toolItem.toolName === 'AgentSpawn';
+  const isSpawn = ['AgentSpawn', 'AgentFork'].includes(toolItem.toolName);
 
   const handleOpenSession = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
@@ -263,5 +263,5 @@ const AgentSpawnCard: React.FC<ToolCardProps> = ({
   );
 };
 
-export const AgentControlToolCard: React.FC<ToolCardProps> = props => props.toolItem.toolName === 'AgentSpawn'
+export const AgentControlToolCard: React.FC<ToolCardProps> = props => ['AgentSpawn', 'AgentFork'].includes(props.toolItem.toolName)
   ? <AgentSpawnCard {...props} /> : <AgentInteractionToolCard {...props} />;

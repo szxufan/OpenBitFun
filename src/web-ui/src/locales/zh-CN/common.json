@@ -2266,6 +2266,7 @@
       "copyAuthFailed": "复制 GitHub CLI 登录命令失败。",
       "unresolvedPullRequest": "无法从当前工作区的远程仓库中找到此拉取请求。",
       "ghAuthRequired": "需要 GitHub CLI 认证",
+      "ghAuthHostTerminal": "请在运行 OpenBitFun 的主机终端中执行此命令，完成登录后重试。",
       "tokenRequiredTitle": "需要令牌",
       "tokenScopeTitle": "需要令牌权限",
       "tokenUpdateTitle": "需要更新令牌",

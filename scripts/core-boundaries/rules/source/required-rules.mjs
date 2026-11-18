@@ -2497,7 +2497,7 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/deep_review.rs',
+    path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/deep_review.rs',
     reason:
       'TaskTool must keep DeepReview retry/result presentation as a facade call instead of re-owning provider-neutral policy text or data shaping',
     patterns: [
@@ -2520,7 +2520,7 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/execution.rs',
+    path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/execution.rs',
     reason:
       'TaskTool execution must keep DeepReview retry/result presentation as facade calls instead of re-owning provider-neutral policy text or data shaping',
     patterns: [
@@ -7826,7 +7826,7 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/input.rs',
+    path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/input.rs',
     reason:
       'core Task input must continue owning fork-aware background subagent launch semantics until a reviewed agent-runtime port preserves delivery behavior',
     patterns: [
@@ -7845,7 +7845,7 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/execution.rs',
+    path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/execution.rs',
     reason:
       'core Task execution must continue owning background subagent launch semantics until a reviewed agent-runtime port preserves delivery behavior',
     patterns: [
@@ -7868,7 +7868,7 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/background.rs',
+    path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/background.rs',
     reason:
       'core Task background acknowledgement must remain assistant-visible and expose the task id needed for explicit result collection',
     patterns: [
@@ -7879,7 +7879,7 @@ export const requiredContentRules = [
     ],
   },
   {
-    path: 'src/crates/assembly/core/src/agentic/tools/implementations/task/tests.rs',
+    path: 'src/crates/assembly/core/src/agentic/tools/implementations/agent_collaboration/tests.rs',
     reason:
       'core Task tests must preserve background acknowledgement shape',
     patterns: [

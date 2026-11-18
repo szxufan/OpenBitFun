@@ -767,7 +767,7 @@ fn permission_decision_input(
     }
 }
 
-const SUBAGENT_LAUNCH_TOOL_NAMES: &[&str] = &["Task", "AgentSpawn"];
+const SUBAGENT_LAUNCH_TOOL_NAMES: &[&str] = &["Task", "AgentSpawn", "AgentFork"];
 
 /// Native hook session facts derived from one tool task.
 fn native_hook_session_facts<'a>(
@@ -3742,7 +3742,7 @@ mod tests {
         DialogRoundInjectionInterrupt, SessionRoundInjectionBuffer,
     };
     use crate::agentic::tools::framework::{Tool, ToolResult, ValidationResult};
-    use crate::agentic::tools::implementations::task::AgentExecutionTool;
+    use crate::agentic::tools::implementations::agent_collaboration::AgentExecutionTool;
     use crate::agentic::tools::tool_context_runtime::ToolUseContext;
     use crate::agentic::tools::ToolRuntimeRestrictions;
     use crate::agentic::WorkspaceBinding;

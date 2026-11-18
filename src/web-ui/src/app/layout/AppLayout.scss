@@ -157,6 +157,7 @@ html[data-openbitfun-native-material='sidebar'] body {
   overflow: hidden;
   background-repeat: no-repeat;
   pointer-events: none;
+  transform: translateZ(0);
 }
 
 .openbitfun-appearance-background-media__video {
