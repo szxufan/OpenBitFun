@@ -3029,7 +3029,7 @@ mod wait_interrupt_tests {
     #[tokio::test]
     async fn wait_interrupt_returns_partial_output_and_resumes_at_committed_cursor() {
         let (manager, output, mut input) = session().await;
-        output.push_text("before".into()).await;
+        output.push_text(ExecOutputStream::Stdout, "before".into()).await;
         let token = CancellationToken::new();
         let (tx, mut rx) = mpsc::channel(8);
         let waiting_manager = manager.clone();
@@ -3037,7 +3037,7 @@ mod wait_interrupt_tests {
         let wait =
             tokio::spawn(async move { waiting_manager.write_stdin_streaming(request, tx).await });
         assert_eq!(rx.recv().await.as_deref(), Some("before"));
-        output.push_text("-tail".into()).await;
+        output.push_text(ExecOutputStream::Stdout, "-tail".into()).await;
         token.cancel();
         let response = tokio::time::timeout(Duration::from_secs(2), wait)
             .await
@@ -3055,7 +3055,7 @@ mod wait_interrupt_tests {
         assert_eq!(rx.recv().await.as_deref(), Some("-tail"));
         assert!(rx.recv().await.is_none());
 
-        output.push_text("after".into()).await;
+        output.push_text(ExecOutputStream::Stdout, "after".into()).await;
         output.close(Some(0)).await;
         let next = manager.write_stdin(poll(None)).await.unwrap();
         assert_eq!(next.output, "after");
@@ -3115,7 +3115,7 @@ mod wait_interrupt_tests {
     #[tokio::test]
     async fn wait_interrupt_does_not_override_drained_process_exit() {
         let (manager, output, _input) = session().await;
-        output.push_text("final".into()).await;
+        output.push_text(ExecOutputStream::Stdout, "final".into()).await;
         output.close(Some(7)).await;
         let token = CancellationToken::new();
         token.cancel();
