@@ -111,10 +111,14 @@ jobs:
             WEBKIT_PKG=libwebkit2gtk-4.0-dev
           fi
 
-          if apt-cache show libappindicator3-dev >/dev/null 2>&1; then
-            APPINDICATOR_PKG=libappindicator3-dev
-          else
+          # Upstream's AppImage tray runtime bundles the Ayatana indicator
+          # libraries (linuxTrayLibraryDir pkg-config lookup), so prefer the
+          # Ayatana dev package wherever it exists; the legacy package is only
+          # a fallback for older distributions.
+          if apt-cache show libayatana-appindicator3-dev >/dev/null 2>&1; then
             APPINDICATOR_PKG=libayatana-appindicator3-dev
+          else
+            APPINDICATOR_PKG=libappindicator3-dev
           fi
 
           # Tauri pins AppImage GTK input methods to its bundled cache, so the
