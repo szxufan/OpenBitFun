@@ -2143,7 +2143,12 @@ fn param_str(params: &serde_json::Value, keys: &[&str]) -> String {
 
 /// Extract the Skill tool's command, retaining legacy parameter aliases.
 fn skill_display_name(params: &serde_json::Value) -> String {
-    param_str(params, &["command", "name", "skill_name"])
+    ["command", "skill", "name", "skill_name"]
+        .iter()
+        .filter_map(|key| params.get(*key)?.as_str().map(str::trim))
+        .find(|name| !name.is_empty())
+        .unwrap_or("unknown")
+        .to_string()
 }
 
 /// Extract an optional string parameter
@@ -2323,6 +2328,20 @@ mod tests {
     fn skill_name_is_read_from_command_parameter() {
         let params = serde_json::json!({"command": "arkts-error-fixes"});
 
+        for command in [
+            serde_json::Value::Null,
+            serde_json::json!(" "),
+            serde_json::json!(3),
+        ] {
+            assert_eq!(
+                skill_display_name(&serde_json::json!({"command":command,"skill":" visualize "})),
+                "visualize"
+            );
+        }
         assert_eq!(skill_display_name(&params), "arkts-error-fixes");
+        assert_eq!(
+            skill_display_name(&serde_json::json!({"skill": "visualize"})),
+            "visualize"
+        );
     }
 }

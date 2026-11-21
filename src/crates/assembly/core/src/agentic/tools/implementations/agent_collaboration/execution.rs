@@ -1383,10 +1383,11 @@ mod target_context_tests {
 
     #[tokio::test]
     async fn agent_lifecycle_mode_switch_preserves_ordinary_child_policy() {
-        let (coordinator, _) = crate::agentic::coordination::coordinator::tests::test_coordinator();
+        let (coordinator, _) =
+            crate::agentic::coordination::coordinator::test_support::test_coordinator();
         let workspace = tempfile::tempdir().unwrap();
         crate::service::workspace::legacy_compat::register_local_fixture_blocking(workspace.path());
-        let child = crate::agentic::coordination::coordinator::tests::agent_lifecycle_child(
+        let child = crate::agentic::coordination::coordinator::test_support::agent_lifecycle_child(
             &coordinator,
             workspace.path(),
             "parent",

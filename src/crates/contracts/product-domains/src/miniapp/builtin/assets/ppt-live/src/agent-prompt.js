@@ -70,7 +70,7 @@ export function buildAgentPrompt(input) {
 ## 约束
 
 - 用户从 OpenBitFun 会话气泡发起请求、在 PPT Live 画布上看结果，生成过程中不会回答提问。如有歧义自行判断最优方案并记录假设。
-- 不要调用 AskUserQuestion、ControlHub、GenerativeUI、ComputerUse 等交互工具。
+- 不要调用 AskUserQuestion、ControlHub、ComputerUse 等交互工具。
 
 ## Authoring subset（生成规则）
 

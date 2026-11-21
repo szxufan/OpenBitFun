@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 // ============ Stage 1: Data Collection ============
 
@@ -9,7 +9,8 @@ pub struct SessionTranscript {
     pub session_id: String,
     pub agent_type: String,
     pub session_name: String,
-    pub workspace_path: Option<String>,
+    #[serde(default, alias = "workspace_path")]
+    pub session_storage_scope: Option<String>,
     /// For facet cache fingerprinting (`SessionSummary.last_activity_at`).
     #[serde(default)]
     pub last_activity_unix_secs: u64,
@@ -37,6 +38,8 @@ pub struct BaseStats {
     pub tool_usage: HashMap<String, u32>,
     pub tool_errors: HashMap<String, u32>,
     pub hour_counts: HashMap<u32, u32>,
+    #[serde(default)]
+    pub activity_by_utc_minute: BTreeMap<u64, u32>,
     pub agent_types: HashMap<String, u32>,
     /// Raw response time intervals in seconds (intermediate, not serialized to report)
     #[serde(skip)]
@@ -230,6 +233,9 @@ pub struct InsightsStats {
     pub session_types: HashMap<String, u32>,
     pub languages: HashMap<String, u32>,
     pub hour_counts: HashMap<u32, u32>,
+    /// UTC minute buckets for timezone conversion in exported reports.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub activity_by_utc_minute: BTreeMap<u64, u32>,
     pub agent_types: HashMap<String, u32>,
     #[serde(default)]
     pub response_time_buckets: HashMap<String, u32>,
@@ -255,9 +261,14 @@ pub struct InsightsStats {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InsightsReport {
     pub generated_at: u64,
+    /// The language requested from the model when this report was generated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
     pub date_range: DateRange,
     pub total_sessions: u32,
     pub analyzed_sessions: u32,
+    #[serde(default)]
+    pub failed_sections: u32,
     pub total_messages: u32,
     pub days_covered: u32,
 
@@ -322,6 +333,8 @@ pub struct InsightsReportMeta {
     pub generated_at: u64,
     pub total_sessions: u32,
     pub analyzed_sessions: u32,
+    #[serde(default)]
+    pub failed_sections: u32,
     pub date_range: DateRange,
     pub path: String,
     #[serde(default)]

@@ -63,15 +63,6 @@ pub const DISPATCH_SUBSCRIPTION_ACCOUNT_CAPABILITIES: &[&str] = &[
     DISPATCH_SUBSCRIPTION_PROVIDER_ACCOUNTS_CAPABILITY,
 ];
 
-/// Optional capability for an SSH controller to turn a freshly installed CLI
-/// into an account-backed, always-on device. It is deliberately not part of
-/// [`dispatch_required_target_capabilities`]: detached SSH jobs work without
-/// an account daemon, while one-click account provisioning must fail closed on
-/// older CLIs that do not understand the secret-bearing bootstrap contract.
-pub const DISPATCH_ACCOUNT_DAEMON_PROVISIONING_CAPABILITY: &str = "account_daemon_provisioning";
-
-pub const DISPATCH_ACCOUNT_DAEMON_PROVISIONING_SCHEMA_VERSION: u32 = 1;
-
 /// Setup-audit action every target has accepted since the audit channel
 /// existed. A target rejects a submission carrying any action it does not
 /// know, so this list — not the controller's journal — bounds what may be
@@ -135,37 +126,6 @@ pub fn dispatch_supported_setup_audit_actions() -> impl Iterator<Item = &'static
         .iter()
         .copied()
         .chain(std::iter::once(DISPATCH_MODEL_SYNC_SETUP_AUDIT_ACTION))
-}
-
-/// Non-secret identity returned by the target before the relay issues a token.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DispatchAccountDaemonIdentity {
-    pub device_id: String,
-    pub device_name: String,
-}
-
-/// Owner-only bootstrap document staged over SFTP for one target invocation.
-///
-/// This value contains an account bearer token and master key. Callers must
-/// never log it, return it to a frontend, or leave it on disk after the target
-/// command finishes.
-#[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DispatchAccountDaemonProvisionRequest {
-    pub schema_version: u32,
-    pub token: String,
-    pub user_id: String,
-    pub master_key_base64: String,
-    pub relay_url: String,
-    pub device_id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DispatchAccountDaemonProvisionResponse {
-    pub device_id: String,
-    pub service_installed: bool,
 }
 
 /// Everything a controller refuses to submit without: the unconditional set
@@ -258,7 +218,6 @@ mod tests {
         for capability in DISPATCH_BASE_TARGET_CAPABILITIES {
             assert!(required.contains(capability));
         }
-        assert!(!required.contains(&DISPATCH_ACCOUNT_DAEMON_PROVISIONING_CAPABILITY));
         assert!(!required.contains(&DISPATCH_SETUP_AUDIT_MODEL_SYNC_CAPABILITY));
         assert!(!required.contains(&DISPATCH_READ_FILE_CAPABILITY));
     }
@@ -292,19 +251,5 @@ mod tests {
         for action in DISPATCH_BASE_SETUP_AUDIT_ACTIONS {
             assert!(supported.contains(action));
         }
-    }
-
-    #[test]
-    fn account_daemon_bootstrap_contract_rejects_unknown_fields() {
-        let value = serde_json::json!({
-            "schemaVersion": DISPATCH_ACCOUNT_DAEMON_PROVISIONING_SCHEMA_VERSION,
-            "token": "a".repeat(64),
-            "userId": "user-1",
-            "masterKeyBase64": "key",
-            "relayUrl": "https://relay.example.test",
-            "deviceId": "b".repeat(32),
-            "unexpected": true,
-        });
-        assert!(serde_json::from_value::<DispatchAccountDaemonProvisionRequest>(value).is_err());
     }
 }

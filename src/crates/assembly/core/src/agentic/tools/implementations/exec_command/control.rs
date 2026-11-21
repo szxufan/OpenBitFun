@@ -1,5 +1,7 @@
 use super::completion::{exec_command_local_completion, exec_command_remote_completion};
-use crate::agentic::tools::framework::{Tool, ToolResult, ToolUseContext, ValidationResult};
+use crate::agentic::tools::framework::{
+    PermissionIntent, Tool, ToolResult, ToolUseContext, ValidationResult,
+};
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use async_trait::async_trait;
 use openbitfun_runtime_ports::{
@@ -307,6 +309,19 @@ Output is only what was produced during this tool call's wait window."#
 
     fn manages_own_execution_timeout(&self) -> bool {
         true
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        _context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        let parsed = exec_command_control_tool_input_from_input(input)
+            .ok_or_else(|| OpenBitFunError::validation("Invalid ExecControl input".to_string()))?;
+        Ok(vec![PermissionIntent::new(
+            "process.control",
+            vec![format!("exec:{}", parsed.session_id)],
+        )])
     }
 
     async fn validate_input(

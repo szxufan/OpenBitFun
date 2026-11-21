@@ -7,13 +7,14 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use tokio::sync::Mutex as AsyncMutex;
 
-use openbitfun_agent_runtime::sdk::AgentUserAnswersRequest;
+use openbitfun_agent_runtime::sdk::{AgentUserAnswersRequest, PortErrorKind, RuntimeError};
 use openbitfun_runtime_ports::{
-    AgentDialogTurnRequest, AgentInputAttachment, AgentSubmissionSource,
-    AgentTurnCancellationRequest, DialogSubmissionPolicy, DialogTriggerSource,
+    AgentDialogTurnRecoveryRequest, AgentDialogTurnRequest, AgentInputAttachment,
+    AgentSubmissionSource, AgentTurnCancellationRequest, AgentTurnInterruptionRequest,
+    DialogSubmissionPolicy, DialogTriggerSource,
 };
 
-use crate::peer_host::args::{get_string, optional_string, request_value};
+use crate::peer_host::args::{get_string, optional_bool, optional_string, request_value};
 use crate::peer_host::state::{PeerHostState, PeerTurnKey};
 
 /// How long an accepted submission stays replayable.
@@ -370,6 +371,163 @@ pub(crate) async fn cancel_dialog_turn(
         .await
         .map_err(|error| format!("Failed to cancel dialog turn: {}", error.into_message()))?;
     Ok(json!({ "success": true }))
+}
+
+/// Stop a Turn so it can be resumed later, like Desktop `interrupt_dialog_turn`.
+///
+/// Sessions the runtime cannot interrupt recoverably (external routes, Goal,
+/// remote, non-standard sessions) or an interruption that times out fall back
+/// to the hard cancellation `cancel_dialog_turn` performs, so Stop always works.
+pub(crate) async fn interrupt_dialog_turn(
+    state: &PeerHostState,
+    args: &Value,
+) -> Result<Value, String> {
+    let request = request_value(args);
+    let session_id = get_string(request, "sessionId")?;
+    let dialog_turn_id = get_string(request, "dialogTurnId")?;
+    let interruption = state
+        .agent_runtime
+        .interrupt_turn(AgentTurnInterruptionRequest {
+            session_id: session_id.clone(),
+            turn_id: dialog_turn_id.clone(),
+            source: Some(AgentSubmissionSource::Cli),
+            wait_timeout_ms: Some(30_000),
+        })
+        .await;
+    match interruption {
+        Ok(_) => Ok(Value::Null),
+        Err(RuntimeError::Port(error))
+            if matches!(
+                error.kind,
+                PortErrorKind::InvalidRequest | PortErrorKind::Timeout
+            ) =>
+        {
+            let reason = if error.kind == PortErrorKind::Timeout {
+                "recoverable interruption timed out"
+            } else {
+                "recoverable interruption unavailable"
+            };
+            state
+                .agent_runtime
+                .cancel_turn(AgentTurnCancellationRequest {
+                    session_id,
+                    turn_id: Some(dialog_turn_id),
+                    source: Some(AgentSubmissionSource::Cli),
+                    requester_session_id: None,
+                    reason: Some(reason.to_string()),
+                    wait_timeout_ms: None,
+                    cancel_descendants: true,
+                })
+                .await
+                .map(|_| Value::Null)
+                .map_err(|error| format!("Failed to cancel dialog turn: {}", error.into_message()))
+        }
+        Err(error) => Err(format!(
+            "Failed to interrupt dialog turn: {}",
+            error.into_message()
+        )),
+    }
+}
+
+/// Resume a Turn that `interrupt_dialog_turn` stopped, like Desktop
+/// `recover_interrupted_dialog_turn`. The runtime compares the caller's
+/// execution generation, so a stale controller cannot resume twice.
+pub(crate) async fn recover_interrupted_dialog_turn(
+    state: &PeerHostState,
+    args: &Value,
+) -> Result<Value, String> {
+    let request = request_value(args);
+    let execution_generation = request
+        .get("executionGeneration")
+        .or_else(|| request.get("execution_generation"))
+        .and_then(Value::as_u64)
+        .and_then(|value| u32::try_from(value).ok())
+        .ok_or("executionGeneration is required")?;
+    let outcome = state
+        .agent_runtime
+        .recover_interrupted_turn(AgentDialogTurnRecoveryRequest {
+            session_id: get_string(request, "sessionId")?,
+            turn_id: get_string(request, "dialogTurnId")?,
+            execution_generation,
+            workspace_path: optional_string(request, "workspacePath"),
+            workspace_id: optional_string(request, "workspaceId"),
+            remote_connection_id: optional_string(request, "remoteConnectionId"),
+            remote_ssh_host: optional_string(request, "remoteSshHost"),
+        })
+        .await
+        .map_err(|error| {
+            format!(
+                "Failed to recover interrupted dialog turn: {}",
+                error.into_message()
+            )
+        })?;
+    serde_json::to_value(outcome).map_err(|error| error.to_string())
+}
+
+/// Compact a session's context on request (`/compact`), like Desktop
+/// `compact_session`. The compaction runs as a detached Turn whose events reach
+/// the controller through the normal session stream.
+pub(crate) async fn compact_session(state: &PeerHostState, args: &Value) -> Result<Value, String> {
+    let request = request_value(args);
+    let session_id = get_string(request, "sessionId")?;
+    let session_id = session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err("session_id is required".to_string());
+    }
+    let coordinator = openbitfun_core::agentic::coordination::get_global_coordinator()
+        .ok_or("Conversation coordinator is unavailable")?;
+    if coordinator
+        .get_session_manager()
+        .get_session(&session_id)
+        .is_none()
+    {
+        let storage = super::session::resolved_session_storage_path(state, request).await?;
+        coordinator
+            .restore_session_from_storage_path(&storage, &session_id)
+            .await
+            .map_err(|error| format!("Failed to restore session before compacting: {error}"))?;
+    }
+    let turn_id = coordinator
+        .start_manual_compaction_detached(session_id, optional_string(request, "turnId"))
+        .await
+        .map_err(|error| format!("Failed to compact session: {error}"))?;
+    Ok(json!({
+        "success": true,
+        "message": "Session compaction accepted",
+        "turnId": turn_id,
+    }))
+}
+
+/// Cancel whatever Turn the Session is running, without naming it.
+///
+/// Mirrors the Desktop `cancel_session` command and its response shape. A
+/// controller needs it when it does not know the active Turn id, for example
+/// closing a `/btw` side question whose first events have not arrived yet.
+/// Like `cancel_dialog_turn`, cancellation follows visibility, not ownership.
+pub(crate) async fn cancel_session(state: &PeerHostState, args: &Value) -> Result<Value, String> {
+    let request = request_value(args);
+    let session_id = get_string(request, "sessionId")?;
+    if session_id.trim().is_empty() {
+        return Err("sessionId is required".to_string());
+    }
+    let result = state
+        .agent_runtime
+        .cancel_turn(AgentTurnCancellationRequest {
+            session_id,
+            turn_id: None,
+            source: Some(AgentSubmissionSource::Cli),
+            requester_session_id: None,
+            reason: Some("Peer controller requested cancellation".to_string()),
+            wait_timeout_ms: Some(5_000),
+            // Tree cancellation opts out so a parent does not stop its children.
+            cancel_descendants: optional_bool(request, "cancelDescendants").unwrap_or(true),
+        })
+        .await
+        .map_err(|error| format!("Failed to cancel session: {}", error.into_message()))?;
+    Ok(json!({
+        "cancelled": result.requested,
+        "dialogTurnId": result.turn_id,
+    }))
 }
 
 /// Cancel a single running tool execution on this host.

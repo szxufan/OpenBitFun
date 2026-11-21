@@ -30,10 +30,6 @@ Send long-running coding, test, or refactoring jobs from your current Git worksp
   - List same-account devices and saved SSH dispatch targets
   - 说明：一次看清哪些同账号电脑当前在线（含系统与机型信息）以及哪些 SSH 主机可直接投递任务。
   - Why & how: See every device on your account—with live online status, OS, and model info—alongside saved SSH hosts ready to accept jobs.
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为目标主机自动检测、安装或更新 OpenBitFun CLI 运行环境
-  - Provision the target host and install or update the OpenBitFun CLI
-  - 说明：首次向全新的 SSH 服务器派发时，可在向导中一键检测并在远端部署匹配的 CLI 执行端，省去手工登录装环境。
-  - Why & how: Preparing a fresh SSH server? Detect its environment and install or update the matching OpenBitFun CLI right from the setup flow.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在派发前按需将任务所选的模型配置同步给目标主机
   - Sync required model configuration to the target before job submission
   - 说明：确保远端机器拥有执行本次任务所需的模型通道配置，避免任务启动后才发现远端没配模型。
@@ -65,12 +61,12 @@ Send long-running coding, test, or refactoring jobs from your current Git worksp
 
 ## 怎么用 / How to use it
 
-1. 确保目标机器已登录同一账号在线，或已在本地保存好可用的 SSH 连接配置
-   Make sure your target device is signed in to the same account and online, or save an SSH connection profile first
-2. 在当前 Git 项目的聊天输入框底部点击「本机」芯片打开「这个任务在哪运行」菜单（或直接对智能体说明要派发到哪台设备），选定目标与权限审批策略
-   Click the "This computer" chip at the bottom of the chat input to open the "Where this task runs" menu (or ask the agent explicitly to dispatch to a named device), and pick your target and approval policy
-3. 发送任务提示词；目标主机会自动准备环境、同步所需模型配置并在独立 Git Worktree 中启动执行
-   Submit your prompt; the target provisions its runtime if needed, syncs model settings, and starts working in a dedicated Git worktree
+1. 先在 SSH 目标上安装兼容的 OpenBitFun CLI，并保存 SSH 连接。
+   Install a compatible OpenBitFun CLI on the SSH target and save its SSH connection.
+2. 在聊天输入框底部点击「本机」，选择 SSH 主机。要派发到同账号设备时，直接告诉智能体目标设备和任务。
+   Select an SSH host from the This computer menu in the composer. To use a same-account device, ask the Agent to dispatch your task to that device.
+3. 发送任务后，目标主机会同步所需的模型配置，并在独立的 Git worktree 中执行任务。
+   Submit the task. The target syncs the required model configuration and runs the job in a dedicated Git worktree.
 4. 执行期间可随时离线；重新打开会话即可查看最新进度、批复等待中的权限，完成后一键将结果同步回本机工作区
    Disconnect anytime; reopen the session later to catch up on streamed events, approve pending permissions, or sync finished changes back locally
 

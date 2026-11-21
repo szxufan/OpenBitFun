@@ -31,7 +31,7 @@ export function ContextUsagePopover({
   currentTokens: number;
   maxTokens: number;
   loadContext?: () => Promise<UsageContextEstimate | undefined>;
-  previewSession?: { sessionId: string; workspaceId?: string };
+  previewSession?: { sessionId: string; canvasSessionId?: string; workspaceId?: string };
   compactDisabled?: boolean;
   onCompact?: () => void;
   onClose: () => void;

@@ -101,6 +101,7 @@ fn get_tool_spec_load_observation(message: &Message) -> Option<GetToolSpecLoadOb
     };
 
     Some(GetToolSpecLoadObservation {
+        spec_fingerprint: result.get("spec_fingerprint").and_then(|v| v.as_str()),
         tool_name,
         loaded_tool_name: result.get("tool_name").and_then(|v| v.as_str()),
         catalog_generation: result.get("catalog_generation").and_then(|v| v.as_u64()),
@@ -123,6 +124,7 @@ mod tests {
         openbitfun_agent_tools::LoadedDeferredToolSpec {
             tool_name: tool_name.to_string(),
             catalog_generation: 42,
+            spec_fingerprint: None,
         }
     }
 
@@ -186,6 +188,7 @@ mod tests {
                 &deferred_tools,
                 &loaded,
                 42,
+                None,
                 GET_TOOL_SPEC_TOOL_NAME,
             );
             let names = loaded
@@ -219,6 +222,7 @@ mod tests {
                     &deferred_tools,
                     &reloaded,
                     42,
+                    None,
                     GET_TOOL_SPEC_TOOL_NAME,
                 )
                 .expect("a fresh spec should remain valid after compaction");
@@ -234,6 +238,7 @@ mod tests {
             effective_tool_name: None,
             result: json!({
                 "tool_name": "WebFetch",
+                "spec_fingerprint": "tool-definition",
                 "catalog_generation": 42,
             }),
             result_for_assistant: None,
@@ -277,7 +282,13 @@ mod tests {
             &["WebFetch".to_string(), "GetFileDiff".to_string()],
         );
 
-        assert_eq!(loaded_specs, vec![loaded_spec("WebFetch")]);
+        assert_eq!(
+            loaded_specs,
+            vec![openbitfun_agent_tools::LoadedDeferredToolSpec {
+                spec_fingerprint: Some("tool-definition".into()),
+                ..loaded_spec("WebFetch")
+            }]
+        );
     }
 
     #[test]

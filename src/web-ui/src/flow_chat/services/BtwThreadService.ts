@@ -15,8 +15,12 @@ import type { ImagePayload } from '../utils/imagePayload';
 import { absoluteSessionTurnIndexForId } from '../utils/flowChatTurnOrdinal';
 import { requireSessionWorkspaceId, sessionWorkspaceId } from '../utils/sessionWorkspace';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
+import { isPeerReplyLost } from '@/infrastructure/peer-device/peerReplyLost';
 import { assertSessionConversationCanSubmit } from '../session-drivers/conversationCapability';
 import { trackBtwSessionSubmission } from './btwSessionSubmission';
+import { createLogger } from '@/shared/utils/logger';
+
+const log = createLogger('BtwThreadService');
 
 export function createBtwRequestId(prefix = 'btw'): string {
   try {
@@ -298,6 +302,48 @@ export function createBtwSessionPlaceholder(params: {
   return { childSessionId, parentDialogTurnId, parentTurnIndex };
 }
 
+/**
+ * A peer host only streams a session's events to a controller that subscribed
+ * to it, and the surface subscribes only its active session. A side question
+ * renders beside that session, so without its own subscription the host runs
+ * the turn while the panel stays empty. The host has created the child once
+ * `btw_ask_stream` is accepted; the subscription replays from its records, so
+ * events emitted before it opens are not lost. It closes with the session.
+ */
+function followBtwSessionOnPeer(
+  scope: ReturnType<typeof getActiveSurfaceScope>,
+  childSessionId: string,
+): void {
+  if (scope.surfaceId === 'local' || !scope.isCurrent()) return;
+  void flowChatStore.loadRelaySessionHistory(childSessionId).catch(error => {
+    if (!scope.isCurrent()) return;
+    log.warn('Side question stream subscription failed', { childSessionId, error });
+  });
+}
+
+/**
+ * A Relay reconnect can lose the reply after the host already admitted the
+ * question, and `btw_ask_stream` is not replayed. Confirm by reading the
+ * host's records for the Turn its request id names instead of resubmitting,
+ * as a dialog turn with an unknown outcome is confirmed.
+ */
+async function btwQuestionReachedHost(
+  scope: ReturnType<typeof getActiveSurfaceScope>,
+  childSessionId: string,
+  requestId: string,
+  error: unknown,
+): Promise<boolean> {
+  if (scope.surfaceId === 'local' || !isPeerReplyLost(error) || !scope.isCurrent()) return false;
+  try {
+    await flowChatStore.loadRelaySessionHistory(childSessionId);
+  } catch {
+    // The host never created the child, so it never admitted the question.
+    return false;
+  }
+  return scope.isCurrent()
+    && flowChatStore.relayHostHasTurn(childSessionId, `btw-turn-${requestId.trim()}`);
+}
+
 export async function sendMessageToBtwSession(params: {
   parentSessionId: string;
   childSessionId: string;
@@ -348,7 +394,16 @@ export async function sendMessageToBtwSession(params: {
     ...(params.userMessageMetadata ? { userMessageMetadata: params.userMessageMetadata } : {}),
     ...(params.initialModelSelection ? { initialModelSelection: params.initialModelSelection } : {}),
     ...(params.initialModelTarget ? { initialModelTarget: params.initialModelTarget } : {}),
+  }).catch(async error => {
+    // Closing waits for this confirmation as part of the submission.
+    if (!await btwQuestionReachedHost(scope, params.childSessionId, requestId, error)) throw error;
+    log.info('Side question was admitted before its reply was lost', {
+      childSessionId: params.childSessionId,
+      requestId,
+    });
+    return { ok: true };
   }));
+  followBtwSessionOnPeer(scope, params.childSessionId);
   if (scope.isCurrent() && params.initialModelTarget?.selection.kind === 'pool') {
     const current = flowChatStore.getState().sessions.get(params.childSessionId);
     if (current?.config.modelPoolId === params.initialModelTarget.selection.pool_id) {

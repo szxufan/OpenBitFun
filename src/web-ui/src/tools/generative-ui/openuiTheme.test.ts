@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 const theme = readFileSync(new URL('./components/openui/theme.css', import.meta.url), 'utf8');
 const components = readFileSync(new URL('./components/openui/components.css', import.meta.url), 'utf8');
 const map = readFileSync(new URL('./components/openui/map/map.css', import.meta.url), 'utf8');
-const scheme = readFileSync(new URL('./components/openui/scheme.ts', import.meta.url), 'utf8');
+const scheme = readFileSync(new URL('../../infrastructure/appearance/hooks/useHostAppearance.ts', import.meta.url), 'utf8');
 const openbitfunMap = readFileSync(new URL('./components/map/MapView.tsx', import.meta.url), 'utf8');
 
 describe('OpenBitFun GenUI theme integration', () => {

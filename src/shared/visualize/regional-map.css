@@ -1,0 +1,29 @@
+/* Embedded in the published SVG. These are Visualize guest palette tokens. */
+svg[data-visual-atlas-map] {
+  display: block;
+  width: 100%;
+  height: auto;
+  --atlas-water: color-mix(in srgb, var(--background) 75%, var(--blue));
+  --atlas-land: color-mix(in srgb, var(--background) 88%, var(--green));
+  --atlas-shore: color-mix(in srgb, var(--muted-foreground) 44%, var(--atlas-water));
+  --atlas-water-ink: color-mix(in srgb, var(--foreground) 65%, var(--blue));
+  color: var(--foreground);
+}
+svg[data-visual-atlas-map] rect, svg[data-visual-atlas-map] [data-map-layer="lakes"] { fill: var(--atlas-water); }
+svg[data-visual-atlas-map] [data-map-layer="land"] { fill: var(--atlas-land); stroke: var(--atlas-shore); }
+svg[data-visual-atlas-map] [data-map-layer="borders"] { stroke: var(--muted-foreground); }
+svg[data-visual-atlas-map] [data-map-layer="rivers"] { stroke: var(--atlas-water-ink); }
+svg[data-visual-atlas-map] [data-map-context], svg[data-visual-atlas-map] [data-map-north] { fill: var(--atlas-water-ink); }
+svg[data-visual-atlas-map] [data-map-context="provinces"], svg[data-visual-atlas-map] [data-map-scale] { fill: var(--muted-foreground); }
+svg[data-visual-atlas-map] [data-visual-marker] circle { fill: var(--red); stroke: var(--background); }
+svg[data-visual-atlas-map] [data-visual-marker] text { fill: var(--foreground); stroke: var(--background); }
+svg[data-visual-atlas-map] [data-street-ground] { fill: var(--background); }
+svg[data-visual-atlas-map] [data-street-layer="land"] { fill: var(--atlas-land); }
+svg[data-visual-atlas-map] [data-street-layer="water_polygons"],
+svg[data-visual-atlas-map] [data-street-layer="ocean"] { fill: var(--atlas-water); }
+svg[data-visual-atlas-map] [data-street-layer="water_lines"] { fill: none; stroke: var(--atlas-water); stroke-width: 2; }
+svg[data-visual-atlas-map] [data-street-layer="streets"],
+svg[data-visual-atlas-map] [data-street-layer="main-roads"] { fill: none; stroke: var(--muted-foreground); opacity: .36; stroke-width: .85; }
+svg[data-visual-atlas-map] [data-street-layer="main-roads"] { opacity: .62; stroke-width: 1.4; }
+svg[data-visual-atlas-map] [data-map-context="street_labels_points"],
+svg[data-visual-atlas-map] [data-map-context="place_labels"] { fill: var(--muted-foreground); }

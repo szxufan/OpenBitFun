@@ -7,12 +7,19 @@ use serde::Deserialize;
 pub struct GenerateInsightsRequest {
     pub days: Option<u32>,
     pub model_id: Option<String>,
+    pub generation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LoadInsightsReportRequest {
     pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CancelInsightsRequest {
+    pub generation_id: Option<String>,
 }
 
 #[tauri::command]
@@ -24,7 +31,7 @@ pub async fn generate_insights(request: GenerateInsightsRequest) -> Result<Insig
         days, model_id
     );
 
-    InsightsService::generate(days, model_id)
+    InsightsService::generate(days, model_id, request.generation_id)
         .await
         .map_err(|e| {
             error!("Failed to generate insights: {}", e);
@@ -62,9 +69,34 @@ pub async fn has_insights_data(request: GenerateInsightsRequest) -> Result<bool,
 }
 
 #[tauri::command]
-pub async fn cancel_insights_generation() -> Result<(), String> {
-    InsightsService::cancel().await.map_err(|e| {
-        error!("Failed to cancel insights generation: {}", e);
-        e
-    })
+pub async fn cancel_insights_generation(
+    request: Option<CancelInsightsRequest>,
+) -> Result<(), String> {
+    let generation_id = request.and_then(|request| request.generation_id);
+    InsightsService::cancel(generation_id.as_deref())
+        .await
+        .map_err(|e| {
+            error!("Failed to cancel insights generation: {}", e);
+            e
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_legacy_generation_requests_and_correlated_requests() {
+        let legacy: GenerateInsightsRequest =
+            serde_json::from_value(serde_json::json!({ "days": 7, "modelId": "primary" })).unwrap();
+        assert_eq!(legacy.days, Some(7));
+        assert_eq!(legacy.model_id.as_deref(), Some("primary"));
+        assert_eq!(legacy.generation_id, None);
+
+        let current: GenerateInsightsRequest =
+            serde_json::from_value(serde_json::json!({ "generationId": "run-new" })).unwrap();
+        let cancel: CancelInsightsRequest =
+            serde_json::from_value(serde_json::json!({ "generationId": "run-new" })).unwrap();
+        assert_eq!(current.generation_id, cancel.generation_id);
+    }
 }

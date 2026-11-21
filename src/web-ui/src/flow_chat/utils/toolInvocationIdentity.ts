@@ -3,6 +3,14 @@ import { importedToolDisplayName, projectImportedToolItem } from './importedTool
 
 export const DEFERRED_TOOL_GATEWAY_NAME = 'CallDeferredTool';
 
+/** Recover the same skill identity from live parameters and historical receipts. */
+export function skillInvocationName(item: FlowToolItem): string | undefined {
+  const input = item.toolCall?.input;
+  const result = item.toolResult?.result;
+  return [result?.skill_name, result?.name, input?.command, input?.skill, input?.skill_name]
+    .find((name): name is string => typeof name === 'string' && name.trim().length > 0)?.trim();
+}
+
 export interface EffectiveToolInvocation {
   toolName: string;
   input: unknown;

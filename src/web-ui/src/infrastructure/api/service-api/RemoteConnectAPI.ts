@@ -105,6 +105,7 @@ export interface ConnectionResult {
 }
 
 export interface RemoteConnectStatus {
+  remote_control_allowed?: boolean;
   /** Present only when the host supports independently managed Relay routes. */
   connections?: Array<{
     method: 'lan' | 'openbitfun_server';
@@ -260,6 +261,10 @@ class RemoteConnectAPIService {
       log.error('getStatus failed', e);
       throw e;
     }
+  }
+
+  async setRemoteControlAllowed(allowed: boolean): Promise<void> {
+    await this.adapter.request<void>('remote_connect_set_allowed', { request: { allowed } });
   }
 
   async getFormState(): Promise<RemoteConnectFormState> {

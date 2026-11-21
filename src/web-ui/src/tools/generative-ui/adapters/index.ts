@@ -23,11 +23,7 @@ Object.assign(openbitfunRendererSources, sourcesFor(openbitfunComponents, {
   kind: 'openbitfun-host',
   source: '@openbitfun/ui component adapter',
 }));
-/**
- * Concrete adapter boundaries. OpenUI supplies the language runtime; these
- * objects own the component renderer, inspector, event and capability bridge
- * for one registered library family.
- */
+/** Trusted renderers and functions for the recorded OpenBitFun component family. */
 export const openbitfunAdapter: GenUIImplementations = {
   components: openbitfunAdapterComponents,
   rendererSources: openbitfunRendererSources,

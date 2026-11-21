@@ -764,6 +764,7 @@ mod tests {
             interruption_reason: None,
         };
         let turn = crate::service::session::DialogTurnData {
+            published_figures: Default::default(),
             turn_id: "assistant-message".to_string(),
             turn_index: 0,
             session_id: "session-a".to_string(),

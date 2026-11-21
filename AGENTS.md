@@ -191,3 +191,9 @@ Read the listed documents before editing in these areas. The sub-bullets are har
 - Keep this file to cross-cutting rules and stable repository entry points. Module ownership details, surface- or crate-specific commands, and focused test lists belong in the nearest guide; add a command there only when a real workflow needs it.
 - Layer guides own the crate tables; do not enumerate crates here.
 - Update `AGENTS.md` and `AGENTS-CN.md` in the same change.
+
+## Native mobile repository
+
+Android, iOS and HarmonyOS apps, their Kotlin shared core, native WebView assets
+and mobile design tooling are maintained in [OpenBitFun-Mobile](https://github.com/openBitFun/OpenBitFun-Mobile).
+`src/mobile-web` and host-side mobile/Relay protocol contracts remain here.

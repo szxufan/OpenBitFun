@@ -147,10 +147,19 @@ test('maps representative changes to the smallest predictive validation', () => 
       }),
     },
     {
-      paths: ['scripts/ci/verify-appimage-fcitx.sh'],
+      paths: ['scripts/ci/verify-linux-desktop-package.sh'],
       result: expected({
         rustRequired: true,
         desktopPlatforms: ['linux-x64', 'linux-arm64'],
+        reason: 'platform-package-input',
+      }),
+    },
+    {
+      paths: ['scripts/ci/check-glibc-floor.sh'],
+      result: expected({
+        rustRequired: true,
+        desktopPlatforms: ['linux-x64', 'linux-arm64'],
+        linuxBinariesRequired: true,
         reason: 'platform-package-input',
       }),
     },

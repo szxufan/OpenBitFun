@@ -4,7 +4,9 @@ use super::background_command_output::{
 };
 use super::completion::{exec_command_local_completion, exec_command_remote_completion};
 use super::env_snapshot::{remote_env_snapshot_for, RemoteEnvSnapshot};
-use super::local_shell::{resolve_local_exec_shell, ResolvedLocalExecShell};
+use super::local_shell::{
+    resolve_local_exec_shell, resolve_local_exec_shell_for_preflight, ResolvedLocalExecShell,
+};
 use super::progress::ExecOutputProgressBridge;
 use super::shell_kind::{exec_command_shell_kind, terminal_shell_type};
 use crate::agentic::tools::framework::{
@@ -138,8 +140,8 @@ enum PreparedShell {
 }
 
 pub struct ExecCommandTool {
-    // Execution selections only, never cached permission decisions. Bounded
-    // retained plans also cover original-input Hook checks that never execute.
+    // Invocation-owned selections only, never cached permission decisions.
+    // The pipeline releases original/re-written plans on completion or cancellation.
     prepared_shells: Mutex<HashMap<String, PreparedShell>>,
     #[cfg(test)]
     pub(crate) guard_fixture_state:
@@ -173,15 +175,23 @@ impl ExecCommandTool {
         }
     }
 
-    fn plan_key(input: &Value, context: &ToolUseContext) -> String {
+    fn plan_scope(context: &ToolUseContext) -> String {
         crate::agentic::execution::edit_constraint_guard::message_sha256(&format!(
-            "{:?}|{:?}|{:?}|{:?}|{}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}",
             context.tool_call_id,
             context.session_id,
+            context.dialog_turn_id,
             context.workspace,
-            context.remote_exec_port().map(Arc::as_ptr),
-            input
+            context.remote_exec_port().map(Arc::as_ptr)
         ))
+    }
+
+    fn plan_key(input: &Value, context: &ToolUseContext) -> String {
+        format!(
+            "{}:{}",
+            Self::plan_scope(context),
+            crate::agentic::execution::edit_constraint_guard::message_sha256(&input.to_string())
+        )
     }
 
     async fn prepare_shell(
@@ -207,11 +217,8 @@ impl ExecCommandTool {
             })?;
             PreparedShell::Remote(Self::resolve_remote_shell(port, connection).await)
         } else {
-            PreparedShell::Local(resolve_local_exec_shell().await)
+            PreparedShell::Local(resolve_local_exec_shell_for_preflight().await)
         };
-        if plans.len() >= 128 {
-            plans.clear();
-        }
         plans.insert(key, shell.clone());
         Ok(shell)
     }
@@ -391,6 +398,37 @@ impl ExecCommandTool {
         RemoteShell {
             path: fallback.path,
             shell_type: terminal_shell_type(fallback.kind),
+        }
+    }
+
+    async fn has_posix_null_device(context: &ToolUseContext) -> bool {
+        if context.is_remote() {
+            let Some(connection) = context
+                .workspace
+                .as_ref()
+                .and_then(|workspace| workspace.connection_id())
+            else {
+                return false;
+            };
+            let Some(port) = context.remote_exec_port() else {
+                return false;
+            };
+            // Fixed metadata-only probe on the execution host; never inspect a local mirror.
+            return matches!(tokio::time::timeout(std::time::Duration::from_secs(3), port.exec_command_once(RemoteExecOneShotCommandRequest {
+                connection_id: connection.into(),
+                command: "test -c /dev/null && test ! -L /dev/null".into(),
+                timeout_ms: Some(3000),
+            })).await, Ok(Ok(result)) if result.exit_code == 0 && !result.timed_out && !result.interrupted);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::FileTypeExt;
+            std::fs::symlink_metadata("/dev/null")
+                .is_ok_and(|metadata| metadata.file_type().is_char_device())
+        }
+        #[cfg(not(unix))]
+        {
+            false
         }
     }
 
@@ -663,6 +701,7 @@ impl ExecCommandTool {
             tty,
             yield_time_ms: Some(yield_time_ms),
             max_output_chars: Some(EXEC_TOOL_MAX_OUTPUT_CHARS),
+            wait_interrupt: context.round_injection_preemption_token().cloned(),
             lifecycle_sink: Self::start_remote_lifecycle_bridge(context, self.name()),
             output_sink: output_capture_tx,
         };
@@ -719,7 +758,7 @@ impl ExecCommandTool {
             }
         }
 
-        let data = exec_command_result_value(ExecCommandResultData {
+        let mut data = exec_command_result_value(ExecCommandResultData {
             fields: ExecCommandResultFields {
                 chunk_id: response.chunk_id,
                 wall_time_seconds: response.wall_time_seconds,
@@ -735,6 +774,9 @@ impl ExecCommandTool {
             shell: Self::remote_shell_metadata(&workdir, &shell, env_snapshot.is_some()),
             output_ref: context.tool_call_id.clone(),
         });
+        if response.wait_interrupted {
+            data["wait_end_reason"] = json!("steered");
+        }
         let result_for_assistant = Self::response_for_assistant(&data);
 
         Ok(vec![ToolResult::Result {
@@ -778,6 +820,7 @@ TTY modes:
 
 Waiting and continuation:
 - yield_time_ms waits for output until the process exits or the deadline is reached. It does not stop the process.
+- User steering can end the wait early and return output collected so far. The process continues running; use the returned session_id with WriteStdin instead of launching the command again.
 - `background=true` starts the command and returns promptly with a session handle; poll and slice its output with ExecReadOutput instead of waiting here.
 - `timeout_ms` is a hard deadline: a process still running at the deadline is killed and reported with a killed completion; the initial wait is capped to the deadline.
 - If the process is still running after the wait, the result includes a numeric session_id.
@@ -848,6 +891,7 @@ Output:
                 "output": {"type": "string"},
                 "session_id": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
                 "exit_code": {"anyOf": [{"type": "integer"}, {"type": "null"}]},
+                "wait_end_reason": {"type": "string", "enum": ["steered"]},
                 "completion": {
                     "anyOf": [
                         {"type": "null"},
@@ -880,7 +924,7 @@ Output:
             .map(|parsed| parsed.cmd.trim().to_string())
             .filter(|command| !command.is_empty())
             .ok_or_else(|| OpenBitFunError::validation("cmd is required".to_string()))?;
-        let mut intent = PermissionIntent::new("bash", vec![command]);
+        let mut intent = PermissionIntent::new("process.execute", vec![command]);
         if let Some(description) = exec_command_description_from_input(input) {
             intent
                 .display_metadata
@@ -889,7 +933,157 @@ Output:
         Ok(vec![intent])
     }
 
+    async fn prepare_permission_intents(
+        &self,
+        input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        use tool_runtime::shell_analysis::{
+            parse_permission_program, powershell_permission_program, CommandProgram,
+        };
+        let mut intents = self.permission_intents(input, context)?;
+        let shell = self.prepare_shell(input, context).await?;
+        let (kind, path, cwd) = match &shell {
+            PreparedShell::Local(shell) => (
+                shell.shell_type.to_string(),
+                shell.path.to_string_lossy().into_owned(),
+                Self::resolve_workdir(input, context)?
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            PreparedShell::Remote(shell) => (
+                shell.shell_type.to_string(),
+                shell.path.clone(),
+                Self::resolve_remote_workdir(input, context)?,
+            ),
+        };
+        let source = intents[0].resources[0].clone();
+        let mut program = if matches!(kind.as_str(), "powershell" | "pwsh") && !context.is_remote()
+        {
+            match super::powershell_parser::parse(Path::new(&path), &source).await {
+                Ok(json) => powershell_permission_program(&json, &cwd),
+                Err(reason) => CommandProgram::unsupported(reason),
+            }
+        } else {
+            parse_permission_program(&source, &kind, &cwd)
+        };
+        if program.requires_default_cdpath
+            && (context.is_remote()
+                || std::env::var_os("CDPATH").is_some_and(|value| !value.is_empty()))
+        {
+            program.complete = false;
+            program.reason = Some("directory search via CDPATH cannot be confirmed; use an explicit ./ or absolute target".into());
+        }
+        if program.requires_null_device && !Self::has_posix_null_device(context).await {
+            program.complete = false;
+            program.reason =
+                Some("the execution host's /dev/null device could not be confirmed".into());
+        }
+        let mut targets = vec![("read".to_string(), cwd.clone())];
+        if program.complete {
+            for (action, target) in &program.accesses {
+                let absolute = if context.is_remote() {
+                    if target.starts_with('/') {
+                        target.clone()
+                    } else {
+                        format!("{}/{}", cwd.trim_end_matches('/'), target)
+                    }
+                } else {
+                    let target = Path::new(target);
+                    if target.is_absolute() {
+                        target.to_string_lossy().into_owned()
+                    } else {
+                        Path::new(&cwd).join(target).to_string_lossy().into_owned()
+                    }
+                };
+                targets.push((action.clone(), absolute));
+            }
+            let inspect = async {
+                let expanded =
+                    super::permission_glob::expand(context, &program.glob_accesses).await?;
+                let mut confirmed = Vec::new();
+                for (action, path) in targets.iter().chain(&expanded) {
+                    let candidates = crate::agentic::execution::edit_constraint_guard::inspect_shell_permission_path(context, path).await?;
+                    confirmed.push((action.clone(), candidates[0].clone()));
+                }
+                Ok::<_, &'static str>(confirmed)
+            };
+            match tokio::time::timeout(std::time::Duration::from_secs(3), inspect).await {
+                Ok(Ok(confirmed)) => {
+                    targets = confirmed;
+                    program.glob_accesses.clear();
+                }
+                result => {
+                    program.complete = false;
+                    program.reason = Some(match result {
+                        Ok(Err(reason)) => reason.to_string(),
+                        _ => "command path inspection timed out".into(),
+                    });
+                }
+            }
+        }
+        // Bind remembered approvals to this exact host-selected execution context.
+        let scope = serde_json::to_string(&(
+            &kind,
+            &path,
+            &cwd,
+            &source,
+            input.get("tty").and_then(Value::as_bool).unwrap_or(false),
+        ))
+        .map_err(|error| OpenBitFunError::tool(error.to_string()))?;
+        intents[0].save_resources = vec![format!(
+            "exec-plan:{}",
+            crate::agentic::execution::edit_constraint_guard::message_sha256(&scope)
+        )];
+        intents[0].command = Some(program.plan(&kind, &path, &cwd));
+        if let Some(reason) = &program.reason {
+            intents[0]
+                .display_metadata
+                .insert("commandAnalysisReason".into(), json!(reason));
+        }
+        intents[0]
+            .display_metadata
+            .insert("shellKind".into(), json!(kind));
+        intents[0]
+            .display_metadata
+            .insert("shellPath".into(), json!(path));
+        intents[0]
+            .display_metadata
+            .insert("workdir".into(), json!(cwd));
+        // The cwd remains a directory permission boundary even for opaque commands.
+        let paths = if program.complete {
+            targets
+        } else {
+            vec![("read".to_string(), cwd)]
+        };
+        for (action, target) in paths {
+            intents.extend(
+                crate::agentic::tools::file_permissions::file_permission_intents(
+                    &action,
+                    [target.as_str()],
+                    context,
+                )?,
+            );
+        }
+
+        Ok(intents)
+    }
+
+    async fn release_permission_preparation(&self, input: &Value, context: &ToolUseContext) {
+        let mut plans = self.prepared_shells.lock().await;
+        if context.tool_call_id.is_some() {
+            let prefix = format!("{}:", Self::plan_scope(context));
+            plans.retain(|key, _| !key.starts_with(&prefix));
+        } else {
+            plans.remove(&Self::plan_key(input, context));
+        }
+    }
+
     fn manages_own_execution_timeout(&self) -> bool {
+        true
+    }
+
+    fn round_injection_yieldable(&self) -> bool {
         true
     }
 
@@ -1002,6 +1196,7 @@ Output:
             tty,
             yield_time_ms: Some(yield_time_ms),
             max_output_chars: Some(EXEC_TOOL_MAX_OUTPUT_CHARS),
+            wait_interrupt: context.round_injection_preemption_token().cloned(),
             lifecycle_sink: Self::start_local_lifecycle_bridge(context, self.name()),
             output_sink: output_capture_tx,
         };
@@ -1058,7 +1253,7 @@ Output:
             }
         }
 
-        let data = exec_command_result_value(ExecCommandResultData {
+        let mut data = exec_command_result_value(ExecCommandResultData {
             fields: ExecCommandResultFields {
                 chunk_id: response.chunk_id,
                 wall_time_seconds: response.wall_time_seconds,
@@ -1074,6 +1269,9 @@ Output:
             shell: Self::shell_metadata_value(&shell),
             output_ref: context.tool_call_id.clone(),
         });
+        if response.wait_interrupted {
+            data["wait_end_reason"] = json!("steered");
+        }
         let result_for_assistant = Self::response_for_assistant(&data);
 
         Ok(vec![ToolResult::Result {
@@ -1114,6 +1312,8 @@ mod tests {
     #[derive(Debug)]
     struct ShellProbeRemoteExecPort {
         probes: std::sync::atomic::AtomicUsize,
+        requests:
+            tokio::sync::Mutex<Vec<openbitfun_runtime_ports::RemoteExecOneShotCommandRequest>>,
         response: openbitfun_runtime_ports::RemoteExecOneShotCommandResponse,
     }
 
@@ -1127,10 +1327,11 @@ mod tests {
     impl openbitfun_runtime_ports::RemoteExecPort for ShellProbeRemoteExecPort {
         async fn exec_command_once(
             &self,
-            _request: openbitfun_runtime_ports::RemoteExecOneShotCommandRequest,
+            request: openbitfun_runtime_ports::RemoteExecOneShotCommandRequest,
         ) -> openbitfun_runtime_ports::PortResult<
             openbitfun_runtime_ports::RemoteExecOneShotCommandResponse,
         > {
+            self.requests.lock().await.push(request);
             self.probes
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(self.response.clone())
@@ -1190,6 +1391,7 @@ mod tests {
     async fn complete_shell_remote_selection_is_reused_until_dispatch() {
         let port = Arc::new(ShellProbeRemoteExecPort {
             probes: Default::default(),
+            requests: Default::default(),
             response: openbitfun_runtime_ports::RemoteExecOneShotCommandResponse {
                 stdout: "/bin/zsh\n".into(),
                 stderr: String::new(),
@@ -1217,7 +1419,7 @@ mod tests {
         assert!(tool.prepared_shells.lock().await.is_empty());
     }
 
-    fn local_tool_context(workspace: &Path) -> ToolUseContext {
+    pub(super) fn local_tool_context(workspace: &Path) -> ToolUseContext {
         ToolUseContext {
             tool_call_id: None,
             agent_type: Some("Standard".to_string()),
@@ -1234,7 +1436,7 @@ mod tests {
         }
     }
 
-    fn remote_tool_context(root: &str) -> ToolUseContext {
+    pub(super) fn remote_tool_context(root: &str) -> ToolUseContext {
         let session_identity =
             workspace_session_identity(root, Some("conn-1"), Some("remote-host"))
                 .expect("remote session identity should build");
@@ -1480,6 +1682,7 @@ mod tests {
         let remote_exec_port: Arc<dyn openbitfun_runtime_ports::RemoteExecPort> =
             Arc::new(ShellProbeRemoteExecPort {
                 probes: Default::default(),
+                requests: Default::default(),
                 response: openbitfun_runtime_ports::RemoteExecOneShotCommandResponse {
                     stdout: "/bin/bash\n".to_string(),
                     stderr: "/tmp/not-a-shell-from-stderr\n".to_string(),
@@ -1822,8 +2025,287 @@ mod tests {
             vec![TerminalExecControlAction::Kill]
         );
     }
+    // POSIX shell dialect and workdir assumptions: the automatic approval
+    // analyzer rejects Windows working directories, so this runs on Unix only.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn command_permission_preflight_matches_nodes_and_protects_file_targets() {
+        use openbitfun_agent_runtime::permission::{plan_permission_intents, PermissionIntentPlan};
+        use openbitfun_runtime_ports::{
+            PermissionEffect, PermissionPolicyPreset, PermissionResourceCaseSensitivity,
+            PermissionRule, ResolvedPermissionPolicy,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("sub")).unwrap();
+        let context = local_tool_context(directory.path());
+        let tool = ExecCommandTool::new();
+        let mut rules = PermissionPolicyPreset::Ask.baseline_rules();
+        rules.push(PermissionRule::new(
+            "process.execute",
+            "git clone *",
+            PermissionEffect::Allow,
+        ));
+        rules.push(PermissionRule::new(
+            "process.execute",
+            "echo *",
+            PermissionEffect::Allow,
+        ));
+        let policy = ResolvedPermissionPolicy::new(rules, vec![]);
+        for (source, allowed) in [
+            ("git status --short", true),
+            ("ls -la", true),
+            ("cd ./sub", true),
+            ("cd ./sub && cat README.md", true),
+            ("cd ./sub; cat README.md", true),
+            ("pushd ./sub && popd && pwd", true),
+            ("cd ./sub && cat .env", false),
+            ("cd / && pwd", false),
+            ("cd ./sub && touch marker", false),
+            ("git clone 'url with spaces'", true),
+            ("git clone repo && git status", true),
+            ("git clone repo && touch marker", false),
+            ("cat .env", false),
+            ("echo data > .env", false),
+            ("echo data > output.txt", true),
+            ("git clone $(touch marker)", false),
+            ("cat *.txt", true),
+        ] {
+            let input = json!({"cmd":source});
+            tool.prepared_shells.lock().await.insert(
+                ExecCommandTool::plan_key(&input, &context),
+                super::PreparedShell::Local(super::ResolvedLocalExecShell {
+                    display_name: "Bash".into(),
+                    path: PathBuf::from("/bin/bash"),
+                    shell_type: ShellType::Bash,
+                }),
+            );
+            let intents = tool
+                .prepare_permission_intents(&input, &context)
+                .await
+                .unwrap();
+            assert_eq!(intents[0].action, "process.execute");
+            assert!(intents[0].save_resources[0].starts_with("exec-plan:"));
+            let decision = plan_permission_intents(
+                intents,
+                &policy,
+                &[],
+                PermissionResourceCaseSensitivity::Sensitive,
+            );
+            assert_eq!(
+                decision == PermissionIntentPlan::Allowed,
+                allowed,
+                "{source}: {decision:?}"
+            );
+            tool.release_permission_preparation(&input, &context).await;
+            assert!(tool.prepared_shells.lock().await.is_empty());
+        }
+        assert!(!directory.path().join("marker").exists());
+        assert!(!directory.path().join("output.txt").exists());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn command_permission_read_pipeline_regressions_use_only_default_policy() {
+        use openbitfun_agent_runtime::permission::{plan_permission_intents, PermissionIntentPlan};
+        use openbitfun_runtime_ports::{
+            PermissionEffect, PermissionPolicyPreset, PermissionResourceCaseSensitivity,
+            PermissionRule, ResolvedPermissionPolicy,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("games")).unwrap();
+        for name in ["README.md", "app.js", "styles.css", ".env"] {
+            std::fs::write(directory.path().join(name), "fixture").unwrap();
+        }
+        std::fs::write(directory.path().join("games/snake.js"), "fixture").unwrap();
+        let context = local_tool_context(directory.path());
+        let tool = ExecCommandTool::new();
+        let baseline = PermissionPolicyPreset::Ask.baseline_rules();
+        let policy = ResolvedPermissionPolicy::new(baseline.clone(), vec![]);
+        for (source, allowed) in [
+            ("cat README.md 2>/dev/null | head -100", true),
+            ("ls -la games; echo ---; wc -l app.js styles.css; echo ---; git log --oneline -10 2>/dev/null", true),
+            ("head -c 600 styles.css; echo; echo '---'; grep -o 'snake-[a-z-]\\*' styles.css | sort -u | head; echo '--- git'; git rev-parse --is-inside-work-tree 2>&1", true),
+            ("ls -la && printf '\n--- git ---\n' && git log --oneline -10 && printf '\n--- files ---\n' && find . -maxdepth 2 -type f -not -path './.git/*' | head -100", true),
+            ("find . -maxdepth 3 -type f | sort && printf '\n--- sizes ---\n' && wc -l $(find . -type f -name '*.js' -o -name '*.html' -o -name '*.css' | sort)", false),
+            ("grep -h -E \"name: '|subtitle: '\" games/*.js", true),
+            ("cd ./games && grep -h -E 'name' *.js", true),
+            ("cat .e*", false),
+            ("find . -delete", false),
+            ("find . -exec touch marker \\;", false),
+            ("find . -fprint output", false),
+            ("printf -v CDPATH %s outside; cat README.md", false),
+            ("printf '%n' CDPATH; cat README.md", false),
+            ("echo '.env'", true),
+            ("grep -o '.env' styles.css", true),
+            ("echo hello > output", false),
+            ("echo hello 2>/dev/tty", false),
+            ("echo $(touch marker)", false),
+            ("head -c 600 .env", false),
+            ("grep -f .env styles.css", false),
+            ("sort .env", false),
+            ("sort -o output styles.css", false),
+            ("git log --output=output", false),
+        ] {
+            for shell_type in [ShellType::Bash, ShellType::Zsh, ShellType::Sh] {
+                let input = json!({"cmd":source});
+                tool.prepared_shells.lock().await.insert(ExecCommandTool::plan_key(&input, &context),
+                    super::PreparedShell::Local(super::ResolvedLocalExecShell {display_name: shell_type.to_string(), path: PathBuf::from("/bin/sh"), shell_type}));
+                let intents = tool.prepare_permission_intents(&input, &context).await.unwrap();
+                if allowed { assert!(!intents.iter().any(|intent| intent.action == "external_directory"), "{source}: {intents:?}"); }
+                let decision = plan_permission_intents(intents.clone(), &policy, &[], PermissionResourceCaseSensitivity::Sensitive);
+                assert_eq!(decision == PermissionIntentPlan::Allowed, allowed, "{source}: {decision:?}");
+                if allowed {
+                    let mut rules = baseline.clone();
+                    rules.push(PermissionRule::new("process.execute", "*", PermissionEffect::Deny));
+                    assert_ne!(plan_permission_intents(intents, &ResolvedPermissionPolicy::new(rules, vec![]), &[], PermissionResourceCaseSensitivity::Sensitive), PermissionIntentPlan::Allowed);
+                }
+                tool.release_permission_preparation(&input, &context).await;
+            }
+        }
+        assert!(!directory.path().join("output").exists());
+        assert!(!directory.path().join("marker").exists());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn command_permission_glob_keeps_symlink_targets_protected() {
+        use openbitfun_agent_runtime::permission::{plan_permission_intents, PermissionIntentPlan};
+        use openbitfun_runtime_ports::{
+            PermissionPolicyPreset, PermissionResourceCaseSensitivity, ResolvedPermissionPolicy,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("private.js"), "fixture").unwrap();
+        std::fs::create_dir(directory.path().join("games")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("private.js"),
+            directory.path().join("games/link.js"),
+        )
+        .unwrap();
+        let context = local_tool_context(directory.path());
+        let tool = ExecCommandTool::new();
+        let input = json!({"cmd":"grep -E name games/*.js"});
+        tool.prepared_shells.lock().await.insert(
+            ExecCommandTool::plan_key(&input, &context),
+            super::PreparedShell::Local(super::ResolvedLocalExecShell {
+                display_name: "Bash".into(),
+                path: PathBuf::from("/bin/bash"),
+                shell_type: ShellType::Bash,
+            }),
+        );
+        let intents = tool
+            .prepare_permission_intents(&input, &context)
+            .await
+            .unwrap();
+        assert!(intents
+            .iter()
+            .any(|intent| intent.action == "external_directory"));
+        assert_ne!(
+            plan_permission_intents(
+                intents,
+                &ResolvedPermissionPolicy::new(
+                    PermissionPolicyPreset::Ask.baseline_rules(),
+                    vec![]
+                ),
+                &[],
+                PermissionResourceCaseSensitivity::Sensitive
+            ),
+            PermissionIntentPlan::Allowed
+        );
+        tool.release_permission_preparation(&input, &context).await;
+    }
+
+    #[tokio::test]
+    async fn command_permission_null_device_checks_the_execution_host() {
+        for (exit_code, timed_out, interrupted, expected) in [
+            (0, false, false, true),
+            (1, false, false, false),
+            (0, true, false, false),
+            (0, false, true, false),
+        ] {
+            let port = Arc::new(ShellProbeRemoteExecPort {
+                probes: Default::default(),
+                requests: Default::default(),
+                response: openbitfun_runtime_ports::RemoteExecOneShotCommandResponse {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code,
+                    timed_out,
+                    interrupted,
+                },
+            });
+            let mut context = remote_tool_context("/remote/project");
+            context.runtime_handles = context
+                .runtime_handles
+                .with_remote_exec_port(Some(port.clone()));
+            assert_eq!(
+                ExecCommandTool::has_posix_null_device(&context).await,
+                expected
+            );
+            let requests = port.requests.lock().await;
+            assert_eq!(requests.len(), 1);
+            assert_eq!(
+                requests[0].connection_id,
+                context.workspace.as_ref().unwrap().connection_id().unwrap()
+            );
+            assert_eq!(
+                requests[0].command,
+                "test -c /dev/null && test ! -L /dev/null"
+            );
+        }
+        // A controller's device is never evidence about an unavailable target.
+        assert!(
+            !ExecCommandTool::has_posix_null_device(&remote_tool_context("/remote/project")).await
+        );
+    }
+
+    #[tokio::test]
+    async fn command_permission_remote_preflight_uses_target_shell_and_posix_paths() {
+        let port = Arc::new(ShellProbeRemoteExecPort {
+            probes: Default::default(),
+            requests: Default::default(),
+            response: openbitfun_runtime_ports::RemoteExecOneShotCommandResponse {
+                stdout: "/bin/zsh\n".into(),
+                stderr: String::new(),
+                exit_code: 0,
+                interrupted: false,
+                timed_out: false,
+            },
+        });
+        let mut context = remote_tool_context("/remote/project");
+        context.runtime_handles = context
+            .runtime_handles
+            .with_remote_exec_port(Some(port.clone()));
+        let tool = ExecCommandTool::new();
+        let input = json!({"cmd":"cat README.md","workdir":"/remote/project"});
+        let first = tool
+            .prepare_permission_intents(&input, &context)
+            .await
+            .unwrap();
+        let second = tool
+            .prepare_permission_intents(&input, &context)
+            .await
+            .unwrap();
+        assert_eq!(first[0].save_resources, second[0].save_resources);
+        let plan = first[0].command.as_ref().unwrap();
+        assert_eq!(plan.shell_kind, "zsh");
+        assert_eq!(plan.shell_path, "/bin/zsh");
+        assert!(!plan.complete); // No workspace metadata provider: never inspect a local mirror.
+        assert!(first[0]
+            .display_metadata
+            .contains_key("commandAnalysisReason"));
+        assert!(first
+            .iter()
+            .any(|intent| intent.resources.contains(&"/remote/project".into())));
+        assert_eq!(port.probes.load(std::sync::atomic::Ordering::SeqCst), 1);
+        tool.release_permission_preparation(&input, &context).await;
+    }
 }
 
 #[cfg(all(test, unix))]
 #[path = "guard_tests.rs"]
 mod guard_tests;
+
+#[cfg(test)]
+#[path = "command_steering_tests.rs"]
+mod steering_tests;

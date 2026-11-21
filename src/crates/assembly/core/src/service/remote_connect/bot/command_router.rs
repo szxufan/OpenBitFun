@@ -19,7 +19,8 @@ use crate::service_agent_runtime::{
 };
 use log::{error, info, warn};
 use serde_json::Value;
-use std::sync::{Arc, OnceLock};
+#[cfg(test)]
+use std::sync::Arc;
 
 pub use super::locale::{current_bot_language, BotLanguage};
 use super::locale::{fmt_count, strings_for, BotStrings};
@@ -60,35 +61,8 @@ const REMOTE_POLL_MAX_BACKOFF: std::time::Duration = std::time::Duration::from_s
 
 // ── Global delegated identity provider (set by desktop layer) ─────
 
-/// Returns `(relay_url, token, master_key)` if the desktop is logged into an
-/// account. Set by the desktop layer via `set_delegated_identity_provider` so
-/// the bot can inherit the account identity when pairing succeeds, enabling
-/// multi-device control without going through the room channel.
-type DelegateFn = Arc<
-    dyn Fn() -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Option<(String, String, Vec<u8>)>> + Send>,
-        > + Send
-        + Sync,
->;
-
-static DELEGATE_PROVIDER: OnceLock<DelegateFn> = OnceLock::new();
-
-/// Called by the desktop layer after account login. Installs a closure that
-/// returns `(relay_url, delegated_token, master_key_bytes)` on demand.
-pub fn set_delegated_identity_provider<F, Fut>(f: F)
-where
-    F: Fn() -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Option<(String, String, Vec<u8>)>> + Send + 'static,
-{
-    let _ = DELEGATE_PROVIDER.set(Arc::new(move || Box::pin(f())));
-}
-
-/// Try to obtain the delegated identity from the global provider. Returns
-/// `None` if the desktop is not logged in or the provider is not set.
-async fn try_get_delegated_identity() -> Option<(String, String, Vec<u8>)> {
-    let provider = DELEGATE_PROVIDER.get()?;
-    provider().await
-}
+use openbitfun_services_integrations::remote_connect::bot::delegation;
+pub use openbitfun_services_integrations::remote_connect::bot::delegation::set_delegated_identity_provider;
 
 // ── Per-chat state ─────────────────────────────────────────────────
 
@@ -660,6 +634,9 @@ pub async fn bootstrap_im_chat_after_pairing(state: &mut BotChatState) -> String
 
 /// Mark chat paired, run assistant/session bootstrap, return main menu.
 pub async fn complete_im_bot_pairing(state: &mut BotChatState) -> HandleResult {
+    if let Err(error) = super::super::device::require_remote_control() {
+        return result_from_menu(state, MenuView::plain(error.to_string()));
+    }
     state.paired = true;
     let language = current_bot_language().await;
     let s = strings_for(language);
@@ -667,9 +644,9 @@ pub async fn complete_im_bot_pairing(state: &mut BotChatState) -> HandleResult {
     // If the desktop is logged into an account, inject the delegated
     // identity + relay_url so the bot can use /devices and remote RPC.
     if state.relay_url.is_none() || !state.has_delegated_identity() {
-        if let Some((relay_url, token, master_key)) = try_get_delegated_identity().await {
+        if let Some((relay_url, account)) = delegation::issue().await {
             state.relay_url = Some(relay_url);
-            state.set_delegated_identity(token, master_key);
+            state.delegated_account = Some(account);
             info!("Bot inherited account identity for multi-device control");
         }
     }
@@ -843,6 +820,9 @@ pub async fn handle_command(
     cmd: BotCommand,
     images: Vec<super::super::remote_server::ImageAttachment>,
 ) -> HandleResult {
+    if let Err(error) = super::super::device::require_remote_control() {
+        return result_from_menu(state, MenuView::plain(error.to_string()));
+    }
     if state.active_remote_device.is_none()
         && !state.account_remote_context
         && state.current_workspace.as_ref().is_some_and(|workspace| {
@@ -997,11 +977,10 @@ fn devices_unavailable_view(s: &'static BotStrings) -> MenuView {
 }
 
 async fn list_devices(state: &mut BotChatState, s: &'static BotStrings) -> HandleResult {
-    // Lazy-inject delegated identity if not yet set (e.g. after restart restore).
-    if state.relay_url.is_none() {
-        if let Some((relay_url, token, master_key)) = try_get_delegated_identity().await {
-            state.relay_url = Some(relay_url);
-            state.set_delegated_identity(token, master_key);
+    if !state.has_delegated_identity() || state.relay_url.is_none() {
+        if let Some((relay, account)) = delegation::issue().await {
+            state.relay_url = Some(relay);
+            state.delegated_account = Some(account);
         }
     }
     let Some(relay_url) = state.relay_url.clone() else {
@@ -1011,8 +990,7 @@ async fn list_devices(state: &mut BotChatState, s: &'static BotStrings) -> Handl
         return result_from_menu(state, devices_unavailable_view(s));
     };
 
-    let client = crate::service::remote_connect::AccountClient::new();
-    let devices = match client.list_devices(&relay_url, session).await {
+    let devices = match session.list_devices(&relay_url).await {
         Ok(d) => d,
         Err(e) => {
             error!("Bot list_devices failed: {e}");
@@ -1120,10 +1098,13 @@ async fn exec_remote_rpc(state: &BotChatState, command_json: &str) -> Result<Str
     let session = state
         .delegated_account
         .as_ref()
-        .ok_or("no delegated identity")?;
+        .ok_or("no delegated identity")?
+        .session(relay_url)
+        .await
+        .map_err(|e| e.to_string())?;
     let client = crate::service::remote_connect::AccountClient::new();
     client
-        .device_rpc(relay_url, session, &device.device_id, command_json)
+        .device_rpc(relay_url, &session, &device.device_id, command_json)
         .await
         .map_err(|e| format!("{e}"))
 }
@@ -5152,7 +5133,8 @@ mod state_tests {
                 "token".into(),
                 String::new(),
                 [5; 32],
-            ),
+            )
+            .into(),
         };
         let ids = vec!["approval-a".to_string()];
         assert!(retire_completed_remote_tools(&mut state, Some(&remote), &ids).is_none());
@@ -5735,7 +5717,8 @@ mod handle_chat_tests {
                 "old-token".into(),
                 String::new(),
                 [3; 32],
-            ),
+            )
+            .into(),
         };
         let forward = ForwardRequest {
             remote_target: Some(target),
@@ -5785,7 +5768,8 @@ mod handle_chat_tests {
                         "test-secret-token".into(),
                         String::new(),
                         [5; 32],
-                    ),
+                    )
+                    .into(),
                 }),
                 reply: view.render_text_block(),
                 actions: vec![],
@@ -5832,7 +5816,8 @@ mod handle_chat_tests {
                         "test".into(),
                         String::new(),
                         [5; 32],
-                    ),
+                    )
+                    .into(),
                 }),
                 reply: menu.render_text_block(),
                 actions: vec![],

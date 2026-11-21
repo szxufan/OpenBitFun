@@ -6,6 +6,7 @@
 mod external_history;
 #[cfg(feature = "external-sources")]
 pub(crate) use external_history::external_history_catalog;
+mod inline_figures;
 mod session_catalog;
 mod turn_window_index;
 mod usage_context;
@@ -3102,7 +3103,7 @@ impl PersistenceManager {
 
         let read_started_at = Instant::now();
         let turn_file_count = indexed_paths.len();
-        let read_result = self.read_turn_paths(indexed_paths).await?;
+        let read_result = self.read_turn_paths(indexed_paths, true).await?;
         let read_duration_ms = elapsed_ms_u64(read_started_at);
         let missing_turn_file_count = read_result.missing_turn_file_count;
         let max_turn_read_duration_ms = read_result.max_turn_read_duration_ms;
@@ -3284,7 +3285,7 @@ impl PersistenceManager {
             let selected_paths = indexed_paths.into_iter().skip(start).collect::<Vec<_>>();
 
             let read_started_at = Instant::now();
-            let read_result = self.read_turn_paths(selected_paths).await?;
+            let read_result = self.read_turn_paths(selected_paths, true).await?;
             let read_duration = read_started_at.elapsed();
 
             (
@@ -3766,7 +3767,7 @@ impl PersistenceManager {
             .iter()
             .map(|(index, _)| *index)
             .collect::<Vec<_>>();
-        let read_result = self.read_turn_paths(selected_paths).await?;
+        let read_result = self.read_turn_paths(selected_paths, true).await?;
 
         if read_result.missing_turn_file_count > 0
             || read_result.turns.len() != selected_indices.len()
@@ -3922,7 +3923,7 @@ impl PersistenceManager {
             }
             build_turn_catalog(&turn.session_id, entries)
         } else {
-            let read_result = self.read_turn_paths(indexed_paths).await?;
+            let read_result = self.read_turn_paths(indexed_paths, false).await?;
             let loaded_by_index = read_result
                 .turns
                 .iter()
@@ -4069,6 +4070,16 @@ impl PersistenceManager {
         // after the host resolved delivery. Preserve that host-owned decision
         // while keeping every raw message and other projected field unchanged.
         let mut committed_turn = turn.clone();
+        // An older observer can replay a checkpoint without the host's sealed sources.
+        if let Some(previous) = previous_turn.as_ref().filter(|previous| {
+            previous.turn_id == turn.turn_id
+                && previous.recovery_epoch.unwrap_or(0) == turn.recovery_epoch.unwrap_or(0)
+                && !previous.published_figures.is_empty()
+        }) {
+            committed_turn
+                .published_figures
+                .clone_from(&previous.published_figures);
+        }
         if let Some(delivery) = previous_turn
             .as_ref()
             .and_then(|previous| {
@@ -4247,6 +4258,7 @@ impl PersistenceManager {
     async fn read_turn_paths(
         &self,
         indexed_paths: Vec<(usize, PathBuf)>,
+        for_display: bool,
     ) -> OpenBitFunResult<ReadTurnPathsResult> {
         let mut turns = Vec::with_capacity(indexed_paths.len());
         let mut missing_turn_file_count = 0usize;
@@ -4255,9 +4267,13 @@ impl PersistenceManager {
             let manager = self;
             async move {
                 let started_at = Instant::now();
-                let result = manager
-                    .read_json_optional::<StoredDialogTurnFile>(&path)
-                    .await;
+                let result = if for_display {
+                    manager.read_turn_for_display(&path).await
+                } else {
+                    manager
+                        .read_json_optional::<StoredDialogTurnFile>(&path)
+                        .await
+                };
                 (result, elapsed_ms_u64(started_at))
             }
         }))
@@ -4303,7 +4319,7 @@ impl PersistenceManager {
         let indexed_paths = (start..total_turn_count)
             .map(|index| (index, self.turn_path(workspace_path, session_id, index)))
             .collect::<Vec<_>>();
-        let result = self.read_turn_paths(indexed_paths).await?;
+        let result = self.read_turn_paths(indexed_paths, true).await?;
         if result.missing_turn_file_count > 0 {
             return Ok(None);
         }
@@ -4315,6 +4331,16 @@ impl PersistenceManager {
         &self,
         workspace_path: &Path,
         session_id: &str,
+    ) -> OpenBitFunResult<Vec<DialogTurnData>> {
+        self.read_session_turns(workspace_path, session_id, false)
+            .await
+    }
+
+    async fn read_session_turns(
+        &self,
+        workspace_path: &Path,
+        session_id: &str,
+        for_display: bool,
     ) -> OpenBitFunResult<Vec<DialogTurnData>> {
         Self::validate_session_id(session_id)?;
         #[cfg(feature = "external-sources")]
@@ -4335,7 +4361,7 @@ impl PersistenceManager {
 
         let read_started_at = Instant::now();
         let turn_file_count = indexed_paths.len();
-        let read_result = self.read_turn_paths(indexed_paths).await?;
+        let read_result = self.read_turn_paths(indexed_paths, for_display).await?;
         let read_duration = read_started_at.elapsed();
         let missing_turn_file_count = read_result.missing_turn_file_count;
         let max_turn_read_duration_ms = read_result.max_turn_read_duration_ms;
@@ -4422,7 +4448,7 @@ impl PersistenceManager {
             return Ok((Vec::new(), None));
         };
         let file = self
-            .read_json_optional::<StoredDialogTurnFile>(&path)
+            .read_turn_for_display(&path)
             .await?
             .ok_or_else(|| OpenBitFunError::NotFound("History changed during page read".into()))?;
         if file.turn.session_id != session_id || file.turn.turn_index != index {
@@ -4471,7 +4497,7 @@ impl PersistenceManager {
             return Ok(None);
         }
         let Some(file) = self
-            .read_json_optional::<StoredDialogTurnFile>(&self.turn_path(
+            .read_turn_for_display(&self.turn_path(
                 workspace_path,
                 session_id,
                 entry.storage_turn_index,
@@ -4498,7 +4524,9 @@ impl PersistenceManager {
             .load_session_revert_state(workspace_path, session_id)
             .await?
             .map(|state| state.boundary_turn);
-        let mut turns = self.load_session_turns(workspace_path, session_id).await?;
+        let mut turns = self
+            .read_session_turns(workspace_path, session_id, true)
+            .await?;
         if let Some(boundary_turn) = boundary_turn {
             turns.retain(|turn| turn.turn_index < boundary_turn);
         }
@@ -4579,7 +4607,7 @@ impl PersistenceManager {
             let selected_paths = indexed_paths.into_iter().skip(start).collect::<Vec<_>>();
 
             let read_started_at = Instant::now();
-            let read_result = self.read_turn_paths(selected_paths).await?;
+            let read_result = self.read_turn_paths(selected_paths, true).await?;
             let read_duration = read_started_at.elapsed();
 
             (
@@ -5385,6 +5413,233 @@ mod tests {
     impl Drop for TestWorkspace {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[tokio::test]
+    async fn visual_artifact_seals_terminal_edits_once_on_the_producing_host() {
+        let workspace = TestWorkspace::new();
+        let manager = PersistenceManager::new(workspace.path_manager()).unwrap();
+        let uri = "openbitfun://current-session/artifacts/visualizations/v2/map.html";
+        let mut turn = DialogTurnData::new(
+            "answer".into(),
+            0,
+            "session".into(),
+            UserMessageData {
+                id: "u".into(),
+                content: "map".into(),
+                timestamp: 0,
+                metadata: None,
+            },
+        );
+        turn.model_rounds.push(serde_json::from_value(serde_json::json!({
+            "id":"r","turnId":"answer","roundIndex":0,"timestamp":0,"startTime":0,"status":"completed",
+            "toolItems":[{"id":"write","toolName":"Write","toolCall":{"id":"c","input":{"payload":format!("+++ {uri}\ndraft")}},
+                "toolResult":{"success":true,"result":{"file_path":uri,"visualization_uri":uri,"content_bytes":5}},
+                "status":"completed","startTime":0}]
+        })).unwrap());
+        turn.model_rounds[0].text_items.push(serde_json::from_value(serde_json::json!({
+            "id":"answer-text", "content":format!("visualize{}",serde_json::json!({"path":uri})),
+            "isStreaming":false,"timestamp":2,"isMarkdown":true
+        })).unwrap());
+        let dir = manager
+            .session_layout(workspace.path())
+            .session_dir("session")
+            .join("artifacts/visualizations/v2");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("map.html"), "地图").unwrap();
+        manager
+            .seal_completed_figures(workspace.path(), &mut turn)
+            .await;
+        std::fs::write(dir.join("map.html"), "a subsequent revision").unwrap();
+        manager
+            .seal_completed_figures(workspace.path(), &mut turn)
+            .await;
+        let result = &turn.model_rounds[0].tool_items[0]
+            .tool_result
+            .as_ref()
+            .unwrap()
+            .result;
+        assert_eq!(result["content_bytes"], 5);
+        let saved = turn.published_figures[uri].as_ref().unwrap();
+        assert_eq!(saved.source, "地图");
+        assert_eq!(saved.content_bytes, 6);
+        let mut checked = turn.clone();
+        checked.published_figures.clear();
+        let receipt = &mut checked.model_rounds[0].tool_items[0]
+            .tool_result
+            .as_mut()
+            .unwrap()
+            .result;
+        receipt["visualization_checked"] = true.into();
+        receipt["visualization_rendered_source"] = "<svg/>".into();
+        receipt["visualization_rendered_bytes"] = 6.into();
+        receipt["visualization_bindings"] =
+            serde_json::json!({"rows":{"kind":"json","value":[1,2]}});
+        manager
+            .seal_completed_figures(workspace.path(), &mut checked)
+            .await;
+        assert_eq!(
+            checked.published_figures[uri].as_ref().unwrap().source,
+            "<svg/>"
+        );
+        let persisted = serde_json::to_value(&checked).unwrap();
+        assert_eq!(
+            persisted["publishedFigures"][uri]["bindings"]["rows"]["value"],
+            serde_json::json!([1, 2])
+        );
+        for n in [0, 1024 * 1024 + 1] {
+            let mut overwritten = checked.clone();
+            let mut replacement = overwritten.model_rounds[0].tool_items[0].clone();
+            replacement.tool_result.as_mut().unwrap().result =
+                serde_json::json!({"file_path":uri, "content_bytes":n});
+            overwritten.model_rounds[0].tool_items.push(replacement);
+            manager
+                .seal_completed_figures(workspace.path(), &mut overwritten)
+                .await;
+            assert_eq!(overwritten.published_figures[uri], None);
+            overwritten.published_figures.clear();
+            manager
+                .seal_completed_figures(workspace.path(), &mut overwritten)
+                .await;
+            assert_eq!(overwritten.published_figures[uri], None);
+        }
+        checked.published_figures.clear();
+        checked.model_rounds[0].tool_items[0]
+            .tool_result
+            .as_mut()
+            .unwrap()
+            .result["visualization_checked"] = false.into();
+        manager
+            .seal_completed_figures(workspace.path(), &mut checked)
+            .await;
+        assert_eq!(checked.published_figures[uri], None);
+        let mut wire = serde_json::to_value(&turn).unwrap();
+        assert_eq!(wire["publishedFigures"][uri]["contentBytes"], 6);
+        wire.as_object_mut().unwrap().remove("publishedFigures");
+        let mut scripted: DialogTurnData = serde_json::from_value(wire).unwrap();
+        assert!(scripted.published_figures.is_empty());
+        let tool = &mut scripted.model_rounds[0].tool_items[0];
+        tool.tool_name = "Skill".into();
+        tool.tool_result.as_mut().unwrap().result = serde_json::json!({"skill_name":"visualize"});
+        scripted.start_time = 0;
+        manager
+            .seal_completed_figures(workspace.path(), &mut scripted)
+            .await;
+        assert_eq!(
+            scripted.published_figures[uri].as_ref().unwrap().source,
+            "a subsequent revision"
+        );
+        scripted.start_time = u64::MAX;
+        scripted.published_figures.clear();
+        manager
+            .seal_completed_figures(workspace.path(), &mut scripted)
+            .await;
+        assert_eq!(scripted.published_figures[uri], None);
+    }
+
+    #[tokio::test]
+    async fn visual_artifact_history_restores_legacy_absolute_edits_in_a_single_turn_page() {
+        use serde_json::json;
+        let workspace = TestWorkspace::new();
+        let manager = PersistenceManager::new(workspace.path_manager()).unwrap();
+        let owner = "clock-session";
+        let mut metadata = SessionMetadata::new(
+            owner.into(),
+            "clock".into(),
+            "Standard".into(),
+            "model".into(),
+        );
+        metadata.workspace_hostname = Some(super::LOCAL_WORKSPACE_SSH_HOST.into());
+        manager
+            .save_session_metadata(workspace.path(), &metadata)
+            .await
+            .unwrap();
+        let uri = "openbitfun://current-session/artifacts/visualizations/v2/clock.html";
+        let root = manager.session_layout(workspace.path()).session_dir(owner);
+        let disk = root.join("artifacts/visualizations/v2/clock.html");
+        let other = root
+            .parent()
+            .unwrap()
+            .join("another-session/artifacts/visualizations/v2/clock.html");
+        let edit = |path: &Path, old: &str, new: &str| {
+            let args = json!({"file_path":path, "old_string":old, "new_string":new});
+            let mut result = args.clone();
+            result["match_count"] = json!(1);
+            ("Edit", args, result)
+        };
+        let turns = [
+            vec![(
+                "Write",
+                json!({"payload":format!("+++ {uri}\n<b>1</b>")}),
+                json!({"file_path":uri, "bytes_written":8}),
+            )],
+            vec![edit(&disk, "1", "2"), edit(&other, "2", "wrong")],
+            vec![edit(&disk, "2", "3")],
+        ];
+        for (index, calls) in turns.into_iter().enumerate() {
+            let mut turn = DialogTurnData::new(
+                format!("t{index}"),
+                index,
+                owner.into(),
+                UserMessageData {
+                    id: "u".into(),
+                    content: "clock".into(),
+                    timestamp: 0,
+                    metadata: None,
+                },
+            );
+            let items: Vec<_> = calls.into_iter().enumerate().map(|(n,(name,input,result))| json!({
+                "id":format!("item{n}"),"toolName":name,"toolCall":{"id":format!("call{n}"),"input":input},
+                "toolResult":{"success":true,"result":result},"status":"completed","startTime":0
+            })).collect();
+            turn.model_rounds.push(
+                serde_json::from_value(json!({
+                    "id":"round","turnId":turn.turn_id,"roundIndex":0,"timestamp":0,"startTime":0,
+                    "status":"completed","toolItems":items
+                }))
+                .unwrap(),
+            );
+            let path = manager.turn_path(workspace.path(), owner, index);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                path,
+                serde_json::to_vec(&StoredDialogTurnFile::new(turn)).unwrap(),
+            )
+            .unwrap();
+        }
+        for (index, expected) in [(2, "<b>3</b>"), (1, "<b>2</b>")] {
+            let (page, _) = manager
+                .load_visible_history_turn(workspace.path(), owner, Some(index + 1))
+                .await
+                .unwrap();
+            let items = &page[0].model_rounds[0].tool_items;
+            let result = &items[0].tool_result.as_ref().unwrap().result;
+            assert_eq!(result["visualization_uri"], uri);
+            assert_eq!(result["visualization_source"], expected);
+            assert_eq!(result["content_bytes"], expected.len());
+            assert_eq!(result["file_path"], json!(disk));
+            if let Some(unrelated) = items.get(1) {
+                assert!(unrelated
+                    .tool_result
+                    .as_ref()
+                    .unwrap()
+                    .result
+                    .get("visualization_source")
+                    .is_none());
+            }
+            let raw = manager
+                .load_dialog_turn(workspace.path(), owner, index)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(raw.model_rounds[0].tool_items[0]
+                .tool_result
+                .as_ref()
+                .unwrap()
+                .result
+                .get("visualization_uri")
+                .is_none());
         }
     }
 

@@ -7,6 +7,7 @@
 
 const fs = require('fs');
 const net = require('net');
+const { visualizeDevGuide } = require('./visualize-dev-kit.cjs');
 const { execSync, spawn } = require('child_process');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -817,6 +818,7 @@ async function main() {
         // Point Remote Connect at the live workspace dist so a newly generated
         // QR code never uploads a stale mobile-web bundle.
         OPENBITFUN_MOBILE_WEB_DIR: path.join(ROOT_DIR, 'src/mobile-web/dist'),
+        OPENBITFUN_VISUALIZE_DEV_GUIDE: visualizeDevGuide(ROOT_DIR),
       };
       try {
         const args = ['dev', '--config', tauriConfig, '--config', JSON.stringify({ build: { devUrl: `http://localhost:${DEV_SERVER_PORT}` } })];
@@ -828,10 +830,7 @@ async function main() {
           await runWindowsCommandArgs(tauriBin, args, desktopDir, tauriDevEnv);
         } else {
           const tauriBin = path.join(ROOT_DIR, 'node_modules', '.bin', 'tauri');
-          await spawnCommand(tauriBin, args, desktopDir, {
-            CARGO_PROFILE_DEV_CODEGEN_UNITS: tauriDevEnv.CARGO_PROFILE_DEV_CODEGEN_UNITS,
-            OPENBITFUN_MOBILE_WEB_DIR: tauriDevEnv.OPENBITFUN_MOBILE_WEB_DIR,
-          });
+          await spawnCommand(tauriBin, args, desktopDir, tauriDevEnv);
         }
       } finally {
         // Option B: prune only when the desktop:dev session ends, not on each rebuild.

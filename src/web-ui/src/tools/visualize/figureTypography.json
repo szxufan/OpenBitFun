@@ -1,0 +1,6 @@
+{
+  "--font-sans": "body",
+  "--font-mono": "code",
+  "--font-text-md-size": "size",
+  "--font-size-base": "size"
+}

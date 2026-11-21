@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import type { Library } from '@openuidev/react-lang';
 import type { GenUILibraryContract } from './genUIContract';
 import type { GenUIRenderNode } from './genUITypes';
-import type { GenUIAsyncRuntime } from './genUIAsyncCapabilities';
 export interface GenUIComponentProps {
   view: GenUIRenderNode;
   slots: Record<string, ReactNode>;
@@ -10,18 +9,11 @@ export interface GenUIComponentProps {
   renderNode: (node: unknown) => ReactNode;
   disabled: boolean;
   emit: (event: string, value?: unknown) => void;
-  /** Host-owned async capabilities; components never perform privileged I/O directly. */
-  asyncRuntime?: GenUIAsyncRuntime;
   /** OpenUI renderer state; adapters can defer expensive work while source streams. */
   isStreaming?: boolean;
-  /** Product-controlled opt-in for local HtmlView animation scripts. */
-  htmlScriptEnabled?: boolean;
 }
 export interface GenUIComponentImplementation {
   render: (props: GenUIComponentProps) => ReactNode;
-  inspect: (element: HTMLElement, view: GenUIRenderNode) => boolean;
-  /** Host implementation of a declared event for isolated delivery checks. */
-  exercise?: (element: HTMLElement, event: string, value: unknown) => void;
 }
 export interface GenUIRendererSource {
   /** Stable source family used for review and revision diagnostics. */
@@ -64,10 +56,8 @@ export function createGenUILibrary(contract: GenUILibraryContract, implementatio
   }
   for (const name of Object.keys(contract.components)) {
     const component = implementations.components[name];
-    if (!component || typeof component.render !== 'function' || typeof component.inspect !== 'function')
+    if (!component || typeof component.render !== 'function')
       throw new Error(contract.id + ': missing component implementation: ' + name);
-    if (contract.components[name].events?.length && typeof component.exercise !== 'function')
-      throw new Error(contract.id + ': missing mounted event adapter: ' + name);
     const source = implementations.rendererSources[name];
     if (!source || !source.kind || !source.source)
       throw new Error(contract.id + ': missing renderer provenance: ' + name);

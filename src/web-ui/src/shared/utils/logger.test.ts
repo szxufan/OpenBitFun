@@ -31,7 +31,7 @@ describe('error formatting', () => {
     const error = new Error('Target CLI installation failed');
     error.stack = '@tauri://localhost/assets/ChatPane.js:96:14836';
 
-    createLogger('DispatchInstallDialog').warn('Failed to prepare SSH dispatch target', {
+    createLogger('DispatchTargetDialog').warn('Failed to prepare SSH dispatch target', {
       connectionId: 'ssh-a',
       error,
     });

@@ -20,15 +20,7 @@ const BRAND_SIZE = 512;
 const APP_ICON_SIZE = 1024;
 const APP_ICON_CORNER_RADIUS = 96;
 const APP_MARK_LIFT = 28;
-const ANDROID_FOREGROUND_SCALE = 0.66;
 
-const ANDROID_DENSITIES = {
-  mdpi: { icon: 48, adaptive: 108 },
-  hdpi: { icon: 72, adaptive: 162 },
-  xhdpi: { icon: 96, adaptive: 216 },
-  xxhdpi: { icon: 144, adaptive: 324 },
-  xxxhdpi: { icon: 192, adaptive: 432 },
-};
 
 const DESKTOP_HICOLOR_SIZES = [16, 32, 48, 64, 96, 128, 256, 512];
 const EXPORT_SIZES = [16, 24, 32, 48, 64, 96, 128, 192, 256, 512, 1024, 2048];
@@ -57,20 +49,6 @@ const LEGACY_APPLICATION_ASSETS = [
   'OpenBitFun-Installer/src-tauri/icons/icon.png',
   'OpenBitFun-Installer/src-tauri/icons/icon.ico',
   'OpenBitFun-Installer/src-tauri/icons/icon.icns',
-  'src/apps/mobile/harmonyos/AppScope/resources/base/media/openbitfun_icon.png',
-  'src/apps/mobile/harmonyos/AppScope/resources/base/media/openbitfun-app-icon.png',
-  'src/apps/mobile/harmonyos/AppScope/resources/base/media/background.png',
-  'src/apps/mobile/harmonyos/AppScope/resources/base/media/foreground.png',
-  'src/apps/mobile/harmonyos/AppScope/resources/base/media/layered_image.json',
-  'src/apps/mobile/harmonyos/entry/src/main/resources/base/media/openbitfun_icon.png',
-  'src/apps/mobile/harmonyos/entry/src/main/resources/base/media/openbitfun-app-icon.png',
-  'src/apps/mobile/harmonyos/entry/src/main/resources/base/media/openbitfun-start-window.png',
-  'src/apps/mobile/harmonyos/entry/src/main/resources/base/media/background.png',
-  'src/apps/mobile/harmonyos/entry/src/main/resources/base/media/foreground.png',
-  'src/apps/mobile/harmonyos/entry/src/main/resources/base/media/layered_image.json',
-  'src/apps/mobile/harmonyos/entry/src/main/resources/base/media/startIcon.png',
-  'src/apps/mobile/ios/OpenBitFun/Resources.xcassets/AppIcon.appiconset/openbitfun_icon.png',
-  'src/apps/mobile/ios/OpenBitFun/Resources.xcassets/OpenBitFunLogo.imageset',
   'src/apps/relay-server/static/assets/Logo-ICON-BOaKcXgO.png',
 ];
 
@@ -178,26 +156,6 @@ async function createApplicationIcon(applicationMark) {
     .toBuffer();
 }
 
-async function createAdaptiveForeground(applicationMark, size) {
-  const artworkSize = Math.round(size * ANDROID_FOREGROUND_SCALE);
-  const artwork = await resizePng(applicationMark, artworkSize);
-
-  return sharp({
-    create: {
-      width: size,
-      height: size,
-      channels: 4,
-      background: { r: 255, g: 255, b: 255, alpha: 0 },
-    },
-  })
-    .composite([{
-      input: artwork,
-      left: Math.floor((size - artworkSize) / 2),
-      top: Math.floor((size - artworkSize) / 2),
-    }])
-    .png({ compressionLevel: 9, adaptiveFiltering: true })
-    .toBuffer();
-}
 
 async function generateWindowsIcon(applicationIcon, renderIcon) {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'openbitfun-tauri-icons-'));
@@ -348,39 +306,6 @@ async function generateBrandAssets() {
       await writePng(path.join(directory, `openbitfun-app-icon-${size}.png`), await renderIcon(size));
     }
   }
-
-  for (const [density, sizes] of Object.entries(ANDROID_DENSITIES)) {
-    const legacyIcon = await renderIcon(sizes.icon);
-    const adaptiveForeground = await createAdaptiveForeground(applicationMark, sizes.adaptive);
-    const androidDir = outputPath('src', 'apps', 'mobile', 'android', 'app', 'src', 'main', 'res', `mipmap-${density}`);
-    await writePng(path.join(androidDir, 'ic_launcher.png'), legacyIcon);
-    await writePng(path.join(androidDir, 'ic_launcher_round.png'), legacyIcon);
-    await writePng(path.join(androidDir, 'ic_launcher_foreground.png'), adaptiveForeground);
-    await writePng(path.join(androidDir, 'ic_launcher_monochrome.png'), adaptiveForeground);
-  }
-
-  await writePng(
-    outputPath('src', 'apps', 'mobile', 'ios', 'OpenBitFun', 'Resources.xcassets', 'AppIcon.appiconset', 'openbitfun-app-icon.png'),
-    // App Store icons must be opaque; iOS applies its own corner mask.
-    await sharp(applicationIconLarge).flatten({ background: '#000000' }).png().toBuffer(),
-  );
-  await writePng(
-    outputPath('src', 'apps', 'mobile', 'ios', 'OpenBitFun', 'Resources.xcassets', 'OpenBitFunMark.imageset', 'openbitfun-mark-light.png'),
-    lightMark,
-  );
-
-  await writePng(
-    outputPath('src', 'apps', 'mobile', 'harmonyos', 'AppScope', 'resources', 'base', 'media', 'openbitfun_app_icon.png'),
-    applicationIconLarge,
-  );
-  await writePng(
-    outputPath('src', 'apps', 'mobile', 'harmonyos', 'entry', 'src', 'main', 'resources', 'base', 'media', 'openbitfun_app_icon.png'),
-    applicationIconLarge,
-  );
-  await writePng(
-    outputPath('src', 'apps', 'mobile', 'harmonyos', 'entry', 'src', 'main', 'resources', 'base', 'media', 'openbitfun_start_window.png'),
-    await resizePng(lightMark, 144),
-  );
 
   await removeLegacyApplicationAssets();
 

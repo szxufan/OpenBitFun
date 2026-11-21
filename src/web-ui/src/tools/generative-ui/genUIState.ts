@@ -15,28 +15,11 @@ export function genUIContentKey(value: unknown): string {
   return JSON.stringify(value, (_key, entry) => entry && typeof entry === 'object' && !Array.isArray(entry)
     ? Object.fromEntries(Object.keys(entry).sort().map(key => [key, entry[key]])) : entry);
 }
-/** Defaults may change during generation; user and persisted values always win. */
-export class GenUIStateStore {
-  private values: GenUIAppState = {};
-  private pristine = new Set<string>();
-  initialize(app: GenUIAppDefinition, persisted?: GenUIAppState) {
-    const next = { ...this.values, ...persisted };
-    for (const key of Object.keys(persisted ?? {}))
-      this.pristine.delete(key);
-    for (const [key, declaration] of Object.entries(app.state ?? {})) {
-      if (!Object.prototype.hasOwnProperty.call(next, key) || this.pristine.has(key)) {
-        next[key] = structuredClone(declaration.default);
-        this.pristine.add(key);
-      }
-    }
-    this.values = next;
-    return next;
+/** Recorded values (including null) take precedence over declaration defaults. */
+export function recordedGenUIState(app: GenUIAppDefinition, persisted?: GenUIAppState): GenUIAppState {
+  const values = { ...persisted };
+  for (const [key, declaration] of Object.entries(app.state ?? {})) {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) values[key] = structuredClone(declaration.default);
   }
-  get() { return this.values; }
-  commit(next: GenUIAppState) {
-    for (const key of Object.keys(next))
-      if (genUIContentKey(next[key]) !== genUIContentKey(this.values[key]))
-        this.pristine.delete(key);
-    this.values = next;
-  }
+  return values;
 }

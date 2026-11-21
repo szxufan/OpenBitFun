@@ -8,6 +8,8 @@ pub struct RemoteExecCommandRequest {
     pub tty: bool,
     pub yield_time_ms: Option<u64>,
     pub max_output_chars: Option<usize>,
+    /// End only the initial output wait; the launched process remains active.
+    pub wait_interrupt: Option<tokio_util::sync::CancellationToken>,
     pub lifecycle_sink: Option<RemoteExecLifecycleSink>,
     pub output_sink: Option<RemoteExecOutputSink>,
 }

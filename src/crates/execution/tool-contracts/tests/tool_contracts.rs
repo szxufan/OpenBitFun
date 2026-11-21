@@ -1467,6 +1467,7 @@ fn deferred_tool_usage_allows_calls_without_a_loaded_spec() {
         &deferred_tools,
         &loaded_deferred_tool_specs,
         0,
+        None,
         GET_TOOL_SPEC_TOOL_NAME,
     )
     .expect("deferred exposure must not block execution when no spec is loaded");
@@ -1474,12 +1475,14 @@ fn deferred_tool_usage_allows_calls_without_a_loaded_spec() {
     let loaded_deferred_tool_specs = vec![LoadedDeferredToolSpec {
         tool_name: "WebFetch".to_string(),
         catalog_generation: 0,
+        spec_fingerprint: None,
     }];
     validate_deferred_tool_usage(
         "WebFetch",
         &deferred_tools,
         &loaded_deferred_tool_specs,
         0,
+        None,
         GET_TOOL_SPEC_TOOL_NAME,
     )
     .expect("loaded deferred tool should be executable");
@@ -1490,8 +1493,10 @@ fn deferred_tool_usage_allows_calls_without_a_loaded_spec() {
         &[LoadedDeferredToolSpec {
             tool_name: "WebFetch".to_string(),
             catalog_generation: 41,
+            spec_fingerprint: None,
         }],
         42,
+        None,
         GET_TOOL_SPEC_TOOL_NAME,
     )
     .expect_err("stale deferred spec should require a reload");
@@ -1504,6 +1509,7 @@ fn deferred_tool_usage_allows_calls_without_a_loaded_spec() {
         &deferred_tools,
         &[],
         0,
+        None,
         GET_TOOL_SPEC_TOOL_NAME,
     )
     .expect("GetToolSpec remains executable");
@@ -1514,8 +1520,10 @@ fn deferred_tool_usage_allows_calls_without_a_loaded_spec() {
         &[LoadedDeferredToolSpec {
             tool_name: "WebFetch".to_string(),
             catalog_generation: 41,
+            spec_fingerprint: None,
         }],
         42,
+        None,
         GET_TOOL_SPEC_TOOL_NAME,
     )
     .expect("a stale receipt must not affect a tool that is no longer deferred");
@@ -1537,8 +1545,8 @@ fn tool_allowed_list_gate_preserves_pipeline_rejection_contract() {
     );
 }
 
-#[test]
-fn tool_execution_admission_gate_preserves_pipeline_rejection_order() {
+#[tokio::test]
+async fn tool_execution_admission_gate_preserves_pipeline_rejection_order() {
     let mut restrictions = ToolRuntimeRestrictions::default();
     restrictions
         .denied_tool_names
@@ -1554,7 +1562,8 @@ fn tool_execution_admission_gate_preserves_pipeline_rejection_order() {
         get_tool_spec_tool_name: GET_TOOL_SPEC_TOOL_NAME,
     };
 
-    let err = validate_tool_execution_admission(request)
+    let err = validate_tool_execution_admission(request, async { None })
+        .await
         .expect_err("allowed-list should be evaluated before runtime restrictions");
 
     assert!(matches!(
@@ -1576,7 +1585,8 @@ fn tool_execution_admission_gate_preserves_pipeline_rejection_order() {
         get_tool_spec_tool_name: GET_TOOL_SPEC_TOOL_NAME,
     };
 
-    let err = validate_tool_execution_admission(request)
+    let err = validate_tool_execution_admission(request, async { None })
+        .await
         .expect_err("runtime restrictions should run before collapsed unlock");
 
     assert!(matches!(
@@ -1593,18 +1603,21 @@ fn tool_execution_admission_gate_preserves_pipeline_rejection_order() {
         allowed_tools: &["WebFetch".to_string()],
         runtime_tool_restrictions: &ToolRuntimeRestrictions::default(),
         deferred_tools: &["WebFetch".to_string()],
-        loaded_deferred_tool_specs: &[],
+        loaded_deferred_tool_specs: &[LoadedDeferredToolSpec {
+            tool_name: "WebFetch".into(),
+            catalog_generation: 41,
+            spec_fingerprint: None,
+        }],
         current_catalog_generation: 0,
         get_tool_spec_tool_name: GET_TOOL_SPEC_TOOL_NAME,
     };
 
-    let err = validate_tool_execution_admission(request)
-        .expect_err("deferred tool should require GetToolSpec after access gates pass");
+    let err = validate_tool_execution_admission(request, async { None })
+        .await
+        .expect_err("stale receipt should be checked after access gates pass");
 
     assert!(matches!(err, ToolExecutionAdmissionRejection::Deferred(_)));
-    assert!(err
-        .to_string()
-        .contains("Call GetToolSpec first with {\"tool_name\":\"WebFetch\"}"));
+    assert!(err.to_string().contains("is stale"));
 }
 
 #[test]
@@ -1866,30 +1879,35 @@ fn get_tool_spec_load_collector_preserves_collapsed_runtime_contract() {
             tool_name: GET_TOOL_SPEC_TOOL_NAME,
             loaded_tool_name: Some("WebFetch"),
             catalog_generation: Some(42),
+            spec_fingerprint: None,
             is_error: false,
         },
         GetToolSpecLoadObservation {
             tool_name: GET_TOOL_SPEC_TOOL_NAME,
             loaded_tool_name: Some("Read"),
             catalog_generation: Some(42),
+            spec_fingerprint: None,
             is_error: false,
         },
         GetToolSpecLoadObservation {
             tool_name: GET_TOOL_SPEC_TOOL_NAME,
             loaded_tool_name: Some("GetFileDiff"),
             catalog_generation: Some(42),
+            spec_fingerprint: None,
             is_error: true,
         },
         GetToolSpecLoadObservation {
             tool_name: "Read",
             loaded_tool_name: Some("WebFetch"),
             catalog_generation: Some(42),
+            spec_fingerprint: None,
             is_error: false,
         },
         GetToolSpecLoadObservation {
             tool_name: GET_TOOL_SPEC_TOOL_NAME,
             loaded_tool_name: Some("WebFetch"),
             catalog_generation: Some(42),
+            spec_fingerprint: None,
             is_error: false,
         },
     ];
@@ -1902,6 +1920,7 @@ fn get_tool_spec_load_collector_preserves_collapsed_runtime_contract() {
         vec![LoadedDeferredToolSpec {
             tool_name: "WebFetch".to_string(),
             catalog_generation: 42,
+            spec_fingerprint: None,
         }]
     );
 }
@@ -2071,6 +2090,8 @@ fn get_tool_spec_contract_builds_duplicate_load_result() {
 #[test]
 fn get_tool_spec_contract_builds_detail_result() {
     let result = build_get_tool_spec_detail_result(&openbitfun_agent_tools::GetToolSpecDetail {
+        output_schema: json!({}),
+        spec_fingerprint: "test-fingerprint".into(),
         tool_name: "Git".to_string(),
         description: "Use <repo> & inspect changes.".to_string(),
         input_schema: json!({
@@ -3086,7 +3107,8 @@ async fn get_tool_spec_detail_resolver_preserves_contextual_detail_contract() {
                     }
                 }
             },
-            "catalog_generation": 0
+            "catalog_generation": 0,
+            "spec_fingerprint": detail.spec_fingerprint
         }),
         "detail JSON shape must stay compatible with GetToolSpec execution output"
     );
@@ -3132,6 +3154,66 @@ async fn get_tool_spec_catalog_provider_preserves_runtime_catalog_contract() {
 }
 
 #[tokio::test]
+async fn deferred_spec_freshness_tracks_context_and_upgrades_legacy_receipts() {
+    let provider = ContextualManifestSnapshotProvider {
+        tools: vec![contextual_manifest_tool(
+            "WebFetch",
+            ToolExposure::Deferred,
+            None,
+        )],
+    };
+    let runtime = GetToolSpecRuntime::new(&provider, GET_TOOL_SPEC_TOOL_NAME);
+    let input = json!({"tool_name": "WebFetch"});
+    let context = ManifestTestContext { agent: "Standard" };
+    let old_payload = json!({"tool_name": "WebFetch", "catalog_generation": 41});
+    let legacy: LoadedDeferredToolSpec = serde_json::from_value(old_payload.clone()).unwrap();
+    assert_eq!(serde_json::to_value(&legacy).unwrap(), old_payload);
+    let ToolResult::Result { data, .. } =
+        runtime.execute(&input, &[legacy], &context).await.unwrap()
+    else {
+        panic!("expected definition")
+    };
+    let mut receipt: LoadedDeferredToolSpec = serde_json::from_value(data).unwrap();
+    assert!(receipt.spec_fingerprint.is_some());
+    receipt.catalog_generation = 100;
+    let ToolResult::Result { data, .. } = runtime
+        .execute(&input, std::slice::from_ref(&receipt), &context)
+        .await
+        .unwrap()
+    else {
+        panic!("expected duplicate hint")
+    };
+    assert_eq!(data["already_loaded"], true);
+
+    // A different contextual schema must invalidate even when the generation matches.
+    receipt.catalog_generation = 0;
+    let changed_context = ManifestTestContext { agent: "Explore" };
+    let ToolResult::Result { data, .. } = runtime
+        .execute(&input, std::slice::from_ref(&receipt), &changed_context)
+        .await
+        .unwrap()
+    else {
+        panic!("expected updated definition")
+    };
+    let updated: LoadedDeferredToolSpec = serde_json::from_value(data).unwrap();
+    assert_ne!(receipt.spec_fingerprint, updated.spec_fingerprint);
+    for (loaded, valid) in [(receipt, false), (updated.clone(), true)] {
+        assert_eq!(
+            validate_deferred_tool_usage(
+                "WebFetch",
+                &["WebFetch".into()],
+                &[loaded],
+                0,
+                updated.spec_fingerprint.as_deref(),
+                GET_TOOL_SPEC_TOOL_NAME
+            )
+            .is_ok(),
+            valid
+        );
+    }
+}
+
+#[tokio::test]
 async fn get_tool_spec_provider_execution_returns_duplicate_result_without_detail_lookup() {
     let context = ManifestTestContext { agent: "Standard" };
     let input = json!({ "tool_name": "WebFetch" });
@@ -3142,6 +3224,7 @@ async fn get_tool_spec_provider_execution_returns_duplicate_result_without_detai
         &[LoadedDeferredToolSpec {
             tool_name: "WebFetch".to_string(),
             catalog_generation: 0,
+            spec_fingerprint: None,
         }],
         &context,
         GET_TOOL_SPEC_TOOL_NAME,
@@ -3330,6 +3413,7 @@ async fn get_tool_spec_runtime_facade_owns_tool_result_vector_adapter_shape() {
             &[LoadedDeferredToolSpec {
                 tool_name: "WebFetch".to_string(),
                 catalog_generation: 0,
+                spec_fingerprint: None,
             }],
             &context,
         )

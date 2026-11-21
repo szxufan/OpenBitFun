@@ -135,7 +135,7 @@ pub(crate) async fn check_with_state(
     None
 }
 
-async fn resolved_candidates(
+pub(crate) async fn resolved_candidates(
     context: &ToolUseContext,
     path: &str,
 ) -> Result<Vec<String>, &'static str> {

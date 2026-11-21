@@ -1,5 +1,6 @@
 import { createStore } from 'zustand/vanilla';
 import { useStore } from 'zustand';
+import type { SplitViewMode } from '@openbitfun/ui';
 import { surfaceScopedKey } from '@/infrastructure/peer-device/deviceSurface';
 import { RIGHT_PANEL_CONFIG, STORAGE_KEYS } from '../layout/panelConfig';
 import type { WorkbenchPane } from './scenePaneModel';
@@ -55,9 +56,17 @@ const DISPLAY_MODE_KEY = 'openbitfun:sessionPaneDisplayMode';
 const OVERLAY_WIDTH_KEY = 'openbitfun:sessionOverlayWidth';
 const scopeKey = (surfaceId: string, sessionId: string | null) => surfaceScopedKey(surfaceId, sessionId);
 
+export const selectWorkbenchPaneHasSession = (state: WorkbenchPaneLayoutState): boolean => (
+  state.activeKey !== scopeKey(state.surfaceId, null)
+);
+
 export const selectWorkbenchPaneMode = (state: WorkbenchPaneLayoutState): SessionPaneMode => (
   state.modes.get(state.activeKey) ?? 'chat-only'
 );
+
+export function workbenchSplitMode(mode: SessionPaneMode, standalonePane: WorkbenchPane | null): SplitViewMode {
+  return standalonePane ?? (mode === 'chat-only' ? 'primary' : mode === 'content-only' ? 'secondary' : 'split');
+}
 
 export function projectLegacySessionPaneLayout(state: WorkbenchPaneLayoutState): LegacySessionPaneLayout {
   const mode = selectWorkbenchPaneMode(state);
@@ -195,11 +204,12 @@ export type WorkbenchPaneLayoutStore = ReturnType<typeof createWorkbenchPaneLayo
 
 export function useWorkbenchPaneLayout() {
   const mode = useStore(workbenchPaneLayoutStore, selectWorkbenchPaneMode);
+  const hasSession = useStore(workbenchPaneLayoutStore, selectWorkbenchPaneHasSession);
   const contentSide = useStore(workbenchPaneLayoutStore, state => state.contentSide);
   const preferredRightPaneWidth = useStore(workbenchPaneLayoutStore, state => state.preferredRightPaneWidth);
   const displayMode = useStore(workbenchPaneLayoutStore, state => state.displayMode);
   const preferredOverlayWidth = useStore(workbenchPaneLayoutStore, state => state.preferredOverlayWidth);
   const { showContent, hideContent, toggleContent, toggleMaximized, swapPanes, resizeRightPane, resizeOverlay } = workbenchPaneLayoutStore.getState();
-  return { mode, contentSide, displayMode, preferredOverlayWidth, preferredRightPaneWidth,
+  return { mode, hasSession, contentSide, displayMode, preferredOverlayWidth, preferredRightPaneWidth,
     showContent, hideContent, toggleContent, toggleMaximized, swapPanes, resizeRightPane, resizeOverlay };
 }

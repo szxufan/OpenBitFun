@@ -87,6 +87,7 @@ async fn remote_ssh_disabled_file_terminal_and_exec_paths_return_unsupported() {
             tty: false,
             yield_time_ms: None,
             max_output_chars: None,
+            wait_interrupt: None,
             lifecycle_tx: None,
             output_capture_tx: None,
         })

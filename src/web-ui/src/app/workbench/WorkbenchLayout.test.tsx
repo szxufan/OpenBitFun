@@ -9,6 +9,7 @@ import SessionPanelSettingsSection from '../scenes/settings/pages/application/Se
 import { useSceneStore, resetSceneStoreForTest } from '../stores/sceneStore';
 import { getSessionSceneTabId } from '../components/SceneBar/types';
 import { useWindowResizeLayout } from '../layout/windowResizeScheduler';
+import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 
 const mocks = vi.hoisted(() => ({ selectLayout: null as null | ((value: string) => void), terminalPosition: 'right' }));
 
@@ -72,6 +73,7 @@ describe('workbench pane layout integration', () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    activateSurface('local');
     useWindowResizeLayout.setState(useWindowResizeLayout.getInitialState());
     container.remove();
     sessionPaneLayoutStore.setState(sessionPaneLayoutStore.getInitialState());
@@ -253,5 +255,51 @@ describe('workbench pane layout integration', () => {
     await act(async () => { await scenes.moveScene(id, 'primary'); scenes.revealCanvas(); });
     expect(container.querySelector('iframe')).toBe(canvas);
     expect(host().getAttribute('data-split-surface')).toBe('secondary');
+  });
+
+  it.each([
+    ['split', 'primary', 'local'],
+    ['overlay', 'secondary', 'peer:review'],
+  ] as const)('hides the session canvas beside Settings in %s layout with Settings in %s on %s', async (layout, settingsPane, surfaceId) => {
+    activateSurface(surfaceId);
+    const panes = sessionPaneLayoutStore.getState();
+    const scenes = useSceneStore.getState();
+    const target = { surfaceId, workspaceKey: 'project', sessionId: 'session' };
+    panes.activate(target.surfaceId, target.sessionId);
+    panes.setDisplayMode(layout);
+    scenes.openScene('settings');
+    await scenes.moveScene('settings', settingsPane);
+    scenes.openSessionScene(target);
+    await scenes.moveScene(getSessionSceneTabId(target), settingsPane);
+    scenes.revealCanvas();
+
+    act(() => root.render(<WorkbenchLayout><main /></WorkbenchLayout>));
+    const canvas = container.querySelector('iframe')!;
+    const host = canvas.closest('[data-split-surface]')!;
+    const savedModes = sessionPaneLayoutStore.getState().modes;
+    expect(split().getAttribute('data-mode')).toBe('split');
+    expect(host.getAttribute('data-split-active')).toBe('true');
+
+    act(() => scenes.openScene('settings'));
+    expect(split().getAttribute('data-mode')).toBe(settingsPane);
+    expect(host.getAttribute('data-split-active')).toBe('false');
+    expect(host.hasAttribute('hidden')).toBe(true);
+    expect(sessionPaneLayoutStore.getState().modes).toBe(savedModes);
+
+    act(() => scenes.goBack());
+    expect(split().getAttribute('data-mode')).toBe('split');
+    expect(container.querySelector('iframe')).toBe(canvas);
+    expect(host.getAttribute('data-split-active')).toBe('true');
+  });
+
+  it('keeps Settings and a deliberately split session visible together', async () => {
+    const scenes = useSceneStore.getState();
+    sessionPaneLayoutStore.getState().activate('local', 'session');
+    scenes.openSessionScene({ surfaceId: 'local', workspaceKey: 'project', sessionId: 'session' });
+    scenes.openScene('settings');
+    await scenes.moveScene('settings', 'secondary');
+
+    act(() => root.render(<WorkbenchLayout><main /></WorkbenchLayout>));
+    expect(split().getAttribute('data-mode')).toBe('split');
   });
 });

@@ -65,6 +65,10 @@ pub(super) const BUILTIN_SKILL_SPECS: &[BuiltinSkillSpec] = &[
         group: BuiltinSkillGroup::MiniApp,
     },
     BuiltinSkillSpec {
+        dir_name: "visualize",
+        group: BuiltinSkillGroup::Creation,
+    },
+    BuiltinSkillSpec {
         dir_name: "openbitfun-frontend-dev",
         group: BuiltinSkillGroup::Creation,
     },

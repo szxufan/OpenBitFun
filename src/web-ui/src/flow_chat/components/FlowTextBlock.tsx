@@ -17,7 +17,12 @@ import { parseDeepResearchContent } from '../deep-research/deepResearchProtocol'
 import { hasSessionFileProvider, readImageThroughSession, downloadFileThroughSession } from '../session-drivers/sessionFileNavigation';
 import { resolveSessionDriverId } from '../session-drivers/resolve';
 import { markdownSections } from '@/infrastructure/markdown/markdownSections';
+import { visualReplyParts, visualArtifactRoot, visualArtifactUri } from '@/tools/visualize/reference';
+import { missingInlineFigures } from '@/tools/visualize/writeSnapshot';
+import { flowChatStore } from '../store/FlowChatStore';
 import './FlowTextBlock.scss';
+
+const VisualAnswer = React.lazy(() => import('@/tools/visualize/VisualAnswer'));
 
 // Idle timeout (ms) after content stops growing.
 const CONTENT_IDLE_TIMEOUT = 500;
@@ -79,6 +84,20 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
     ? resolveSessionDriverId(activeSessionOverride.sessionId, activeSessionOverride) === 'dispatch'
     : hasSessionFileProvider(sessionId);
   const fileSessionId = activeSessionOverride?.sessionId || sessionId;
+  const mayRecoverFigures = textItem.status === 'completed' && !textItem.isStreaming && !markdownSection?.start;
+  const subscribeToTurn = useCallback((notify: () => void) =>
+    mayRecoverFigures && fileSessionId && !activeSessionOverride
+      ? flowChatStore.subscribeSelector(state => state.sessions.get(fileSessionId), notify)
+      : () => {}, [mayRecoverFigures, fileSessionId, activeSessionOverride]);
+  const getMissingFigures = useCallback(() => {
+    if (!mayRecoverFigures || !fileSessionId) return '';
+    const session = activeSessionOverride ?? flowChatStore.getState().sessions.get(fileSessionId);
+    const turn = traceContext?.turnId
+      ? session?.dialogTurns.find(t => t.id === traceContext.turnId)
+      : session?.dialogTurns.find(t => t.modelRounds[t.modelRounds.length - 1]?.items.some(i => i.id === textItem.id));
+    return missingInlineFigures(turn, textItem).join('\n');
+  }, [mayRecoverFigures, fileSessionId, activeSessionOverride, textItem, traceContext?.turnId]);
+  const missingFigures = React.useSyncExternalStore(subscribeToTurn, getMissingFigures, getMissingFigures);
   const readImage = useCallback((path: string, refresh?: boolean) => readImageThroughSession(fileSessionId, path, refresh), [fileSessionId]);
   const downloadFile = useCallback((path: string) => downloadFileThroughSession(fileSessionId, path), [fileSessionId]);
   // Stable callback so the memoized Markdown component is not re-rendered
@@ -173,6 +192,12 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
     ? [{ start: 0, end: displayContent.length }] : markdownSections(displayContent, { streaming: isVisuallyStreaming }),
   [displayContent, isVisuallyStreaming, markdownSection, parsedContent.hasProtocol, textItem.isMarkdown]);
 
+  const renderArtifactLink = useCallback((uri: string, summary: string, wide = false) => {
+    if (!visualArtifactUri.test(uri)) return null;
+    if (textItem.status !== 'completed' || textItem.isStreaming) return <p>{summary}</p>;
+    return <React.Suspense fallback={<p>{summary}</p>}><VisualAnswer uri={uri} textId={textItem.id} turnId={traceContext?.turnId} summary={summary} wide={wide} /></React.Suspense>;
+  }, [textItem.id, textItem.status, textItem.isStreaming, traceContext?.turnId]);
+
   const renderMarkdown = (markdownContent: string, key?: React.Key, streaming = markdownStreaming, continuation = false) => (
     <MarkdownRenderer
       key={key}
@@ -194,9 +219,18 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
       onTabOpen={onTabOpen}
       onHttpLinkClick={onHttpLinkClick}
       onOpenVisualization={handleOpenVisualization}
+      renderArtifactLink={markdownContent.includes(visualArtifactRoot) ? renderArtifactLink : undefined}
       traceContext={markdownTraceContext}
     />
   );
+
+  const renderReply = (source: string, key?: React.Key, streaming = markdownStreaming, continuation = false) =>
+    visualReplyParts(source).map((part, index) => {
+      const partKey = `${key ?? 'text'}:${index}`;
+      if (typeof part !== 'string') return <React.Fragment key={partKey}>{renderArtifactLink(part.path, part.title, part.wide)}</React.Fragment>;
+      if (!part) return null;
+      return textItem.isMarkdown ? renderMarkdown(part, partKey, streaming, continuation) : part;
+    });
 
   const renderStructuredContent = () => (
     <div className="deep-research-protocol" data-openbitfun-component="flow-text-block" data-openbitfun-part="protocol">
@@ -210,7 +244,7 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
               />
             )
           : textItem.isMarkdown
-            ? renderMarkdown(segment.content, `markdown:${index}`)
+            ? renderReply(segment.content, `markdown:${index}`)
             : (
                 <div
                   className="text-content"
@@ -218,7 +252,7 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
                   data-openbitfun-part="protocolTextContent"
                   key={`text:${index}`}
                 >
-                  {segment.content}
+                  {renderReply(segment.content)}
                 </div>
               )
       ))}
@@ -239,14 +273,17 @@ export const FlowTextBlock = React.memo<FlowTextBlockProps>(({
       data-streaming={isVisuallyStreaming ? 'true' : 'false'}
       {...testAttributes}
     >
+      {missingFigures && missingFigures.split('\n').map(uri => (
+        <React.Fragment key={uri}>{renderArtifactLink(uri, uri.split('/').pop()!.slice(0, -5))}</React.Fragment>
+      ))}
       {parsedContent.hasProtocol ? (
         renderStructuredContent()
       ) : textItem.isMarkdown ? (
-        sections.map((section, index) => renderMarkdown(displayContent.slice(section.start, section.end),
+        sections.map((section, index) => renderReply(displayContent.slice(section.start, section.end),
           `markdown:${section.start}`, markdownStreaming && index === sections.length - 1, index > 0))
       ) : (
         <div data-openbitfun-component="flow-text-block" data-openbitfun-part="textContent" className="text-content">
-          {displayContent}
+          {renderReply(displayContent)}
         </div>
       )}
     </div>

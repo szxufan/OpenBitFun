@@ -1,0 +1,82 @@
+{
+  "chart-v1.8.1.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/charts/1.8.1/element.js",
+    "sha256": "d187ad9ddf2eb7e459ae9b25281378382241716a352f9ce74a20ebc022d56062"
+  },
+  "chart-element-v1.8.1.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/charts/4f0917bb6b04d2a66330a984e928d18fa5e5fc65d8312efc14b5f50d99cce179/element.js",
+    "sha256": "5c2f1b79b4302ca7b0fd9675a0ab9db5dcc5c8297b0a81579aebb83c6dc2a3c4"
+  },
+  "chart-runtime-v1.8.1.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/charts/4f0917bb6b04d2a66330a984e928d18fa5e5fc65d8312efc14b5f50d99cce179/runtime.js",
+    "sha256": "41e2dcff10997e8f9fbde499ba6dbef634765a690f7723a5b3f8251228efafd5"
+  },
+  "chart.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/charts/1.6.5/element.js",
+    "sha256": "362ce1cc20f78f2658b405dbd95b2d99d0fd1995970c8b7a16833206357e8d99"
+  },
+  "chart-element.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/charts/50a1b46ecdc22ebd7e99163bce392ce5b3eb4ff766f305c651fdee6e1915272f/element.js",
+    "sha256": "711d68704d73a6fbe213ca9721cf29e11c76441546f686e76f0106a0a26de87c"
+  },
+  "chart-runtime.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/charts/50a1b46ecdc22ebd7e99163bce392ce5b3eb4ff766f305c651fdee6e1915272f/runtime.js",
+    "sha256": "1e50473d8ae35b0377f3e02ec276b72bdb9d825c4683a84a5d470f0e4032022c"
+  },
+  "lucide.js": {
+    "url": "https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js",
+    "sha256": "fde878a4f7aebe548b071eaaf343d898f66d275e93970abe95d8ca5fda290b51"
+  },
+  "floating-core.js": {
+    "url": "https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js",
+    "sha256": "6985ce661153c01d97f6be9babb6a9566f923c716c2b7fbead48fbb09f419ba8"
+  },
+  "floating-dom.js": {
+    "url": "https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js",
+    "sha256": "b8199f76adccb9b17b3ab57124c42585dc19197127d1a5d19307d1983f80bd89"
+  },
+  "d3.js": {
+    "url": "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js",
+    "sha256": "f2094bbf6141b359722c4fe454eb6c4b0f0e42cc10cc7af921fc158fceb86539"
+  },
+  "topojson.js": {
+    "url": "https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js",
+    "sha256": "25cd02ae486cc5063e0215a4e4cfb15de83700c87ac48bac4d57dc6aaf3ebb89"
+  },
+  "counties.json": {
+    "url": "https://cdn.jsdelivr.net/npm/us-atlas@3.0.1/counties-10m.json",
+    "sha256": "145aaf5d1433352a6a1d8e86b5f149c7c653f9171baf14aaf75ee66575def1b0"
+  },
+  "calendar.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/widgets/1.0.59/calendar.js",
+    "sha256": "d1e4ab68b00b44107313835e268ff67368d1589de78ee197a9b12b92443fe228"
+  },
+  "waterfall.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/widgets/1.0.59/waterfall.js",
+    "sha256": "2f7e4b080cccdd1349e78b986b47c3a7d0ec083abea187a6f3c14efc4a151515"
+  },
+  "flame-chart.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/widgets/1.0.59/flame-chart.js",
+    "sha256": "2bade27bd38d919d52821c97734178e7bbe8ba7468f8c7476e67a49c056ccb01"
+  },
+  "stack-trace.js": {
+    "url": "https://persistent.oaistatic.com/plugins/visualize/widgets/1.0.59/stack-trace.js",
+    "sha256": "f0641111248c4b81e794b6d9034dc53a9f563fc5e29205c59397af3f4e8b446f"
+  },
+  "countries.json": {
+    "url": "https://cdn.jsdelivr.net/npm/@d3-maps/atlas@1.0.0/dist/world/countries/countries-110m.json",
+    "sha256": "2cc668368e972284e34d21bdcd3f38b5a4697a8114888076040bdbbe8511ed0d"
+  },
+  "d3-geo-3.1.0.js": {
+    "url": "https://esm.sh/d3-geo@3.1.0/es2022/d3-geo.bundle.mjs",
+    "sha256": "4a4ebd2c911a578f123357bb40dba07d81185237c7fe600469219a689d3039a0"
+  },
+  "d3-array-3.2.4.umd.js": {
+    "url": "https://cdn.jsdelivr.net/npm/d3-array@3.2.4/dist/d3-array.min.js",
+    "sha256": "80aa70d0cd17dabddf6d056494ea17926a45a69da8b7850220aace331bad671d"
+  },
+  "d3-geo-3.1.1.umd.js": {
+    "url": "https://cdn.jsdelivr.net/npm/d3-geo@3.1.1/dist/d3-geo.min.js",
+    "sha256": "23e574f1e8d4716d622bce45356a379b66a277162b145f5f147e4c8daefb73d2"
+  }
+}

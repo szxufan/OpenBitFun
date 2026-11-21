@@ -49,6 +49,7 @@ impl RemoteExecRuntimePort {
             tty: request.tty,
             yield_time_ms: request.yield_time_ms,
             max_output_chars: request.max_output_chars,
+            wait_interrupt: request.wait_interrupt,
             lifecycle_tx: bridge_lifecycle_sink(request.lifecycle_sink),
             output_capture_tx: request.output_sink,
         })
@@ -293,6 +294,40 @@ fn error_from_service(error: RemoteExecError) -> ports::PortError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct ManagerProvider(std::path::PathBuf);
+
+    #[async_trait]
+    impl RemoteExecSshManagerProvider for ManagerProvider {
+        async fn ssh_manager(&self) -> ports::PortResult<SSHConnectionManager> {
+            Ok(SSHConnectionManager::new(self.0.clone()))
+        }
+    }
+
+    #[tokio::test]
+    async fn exec_command_wait_interrupt_crosses_port_adapter() {
+        let directory = tempfile::tempdir().unwrap();
+        let port = RemoteExecRuntimePort::new(Arc::new(ManagerProvider(directory.path().into())));
+        let token = tokio_util::sync::CancellationToken::new();
+        let request = port
+            .command_request(ports::RemoteExecCommandRequest {
+                connection_id: "simulated-ssh".into(),
+                command: "echo before".into(),
+                tty: false,
+                yield_time_ms: Some(600_000),
+                max_output_chars: None,
+                wait_interrupt: Some(token.clone()),
+                lifecycle_sink: None,
+                output_sink: None,
+            })
+            .await
+            .unwrap();
+        token.cancel();
+        assert!(request.wait_interrupt.unwrap().is_cancelled());
+        assert_eq!(request.command, "echo before");
+        assert_eq!(request.yield_time_ms, Some(600_000));
+    }
 
     #[test]
     fn wait_interrupt_crosses_port_adapter_without_becoming_process_completion() {

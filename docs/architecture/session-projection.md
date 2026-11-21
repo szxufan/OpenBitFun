@@ -44,6 +44,35 @@ at delayed delivery time; replacement listeners cannot receive old events.
 A Session restore fences only that Session. Events buffered for other Sessions
 during the read must be flushed, never cleared with the restored projection.
 
+### ACP execution authority
+
+Desktop ACP prompts record their portable lifecycle, text and tool facts in the
+same host journal before delivery to local views and Peer host streams. The ACP
+service owns prompt admission and terminal facts independently of its long-held
+protocol session mutex. Repeated admission of the same Turn/input is idempotent;
+a different Turn cannot replace a running or cancelling prompt.
+
+`restore_session_view` advertises this additive authority with
+`executionProjection: "acp"`. Its state comes from the ACP owner, not the native
+coordinator's idle shell. Both active and terminal ACP journal snapshots can be
+replayed through the existing Session read fence. A terminal replay must clear
+the repaired gap and wake the queue after the fence settles. A reloaded ACP queue
+waits for history/execution hydration before using an idle frontend machine.
+When replay reconstructs an ACP turn, the hydrated history supplies its storage
+index so terminal output is saved with the conversation.
+Older hosts without this marker keep persisted-history loading; a required ACP
+execution repair fails visibly and retains queued input rather than claiming
+that the native idle shell repaired it. CLI Peer hosts still explicitly reject
+ACP client-host operations; this change does not add that capability.
+
+ACP model/options/command reads use a session-scoped metadata watch snapshot
+while the protocol receiver is owned by a running request. The single receiver
+publishes command, configuration and context updates before their frontend
+notifications. Cold reads wait for initialization/publication; idle reads retain
+the existing bounded notification drain. Model/config mutations publish accepted
+state before returning. This is an in-memory observation projection, with no wire
+or persisted-shape changes; reconnect creates a fresh session snapshot.
+
 ## The problem this replaces
 
 Seven independent writers currently produce a Session's on-screen state:

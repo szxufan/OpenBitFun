@@ -86,6 +86,8 @@ export interface StartAcpDialogTurnRequest {
 export interface CancelAcpDialogTurnRequest {
   sessionId: string;
   clientId: string;
+  /** New hosts bind cancellation to this turn; old hosts ignore it. */
+  turnId?: string;
   /** Workspace identity; authoritative when present. Paths below are IO projections. */
   workspaceId?: string;
   workspacePath?: string;

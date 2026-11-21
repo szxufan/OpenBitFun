@@ -360,6 +360,27 @@ fn check_output(output: &Output) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `wsl.exe --list` fails both when WSL is not installed and when it has no
+/// distribution yet. Its message is localized, but the command it suggests is
+/// not, so classify by that: a Chinese Windows host must not report a plain
+/// "not installed" state as a failed discovery.
+fn classify_list_failure(detail: &str) -> Option<WslDistributions> {
+    let detail = detail.to_ascii_lowercase();
+    if detail.contains("--list --online") {
+        return Some(WslDistributions {
+            supported: true,
+            distributions: Vec::new(),
+        });
+    }
+    if detail.contains("wsl.exe --install") || detail.contains("wsl --install") {
+        return Some(WslDistributions {
+            supported: false,
+            distributions: Vec::new(),
+        });
+    }
+    None
+}
+
 pub async fn list_distributions() -> anyhow::Result<WslDistributions> {
     if !cfg!(windows) {
         return Ok(WslDistributions {
@@ -372,6 +393,16 @@ pub async fn list_distributions() -> anyhow::Result<WslDistributions> {
         Duration::from_secs(15),
     )
     .await?;
+    if !result.status.success() {
+        let detail = format!(
+            "{}\n{}",
+            decode_cli_output(&result.stderr),
+            decode_cli_output(&result.stdout)
+        );
+        if let Some(state) = classify_list_failure(&detail) {
+            return Ok(state);
+        }
+    }
     check_output(&result)?;
     Ok(WslDistributions {
         supported: true,
@@ -427,6 +458,30 @@ pub(crate) async fn signal(config: &WslWorkspaceConfig, command: &str) -> anyhow
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wsl_list_failures_are_classified_by_the_unlocalized_command_hint() {
+        // Chinese Windows without WSL, as reported by a peer host.
+        let not_installed = classify_list_failure(
+            "未安装适用于 Linux 的 Windows 子系统。可通过运行 “wsl.exe --install” 进行安装。",
+        )
+        .unwrap();
+        assert!(!not_installed.supported);
+        let english = classify_list_failure(
+            "The Windows Subsystem for Linux is not installed. You can install by running 'wsl.exe --install'.",
+        )
+        .unwrap();
+        assert!(!english.supported);
+
+        let no_distributions = classify_list_failure(
+            "Windows Subsystem for Linux has no installed distributions.\nUse 'wsl.exe --list --online' to list available distributions\nand 'wsl.exe --install <Distro>' to install.",
+        )
+        .unwrap();
+        assert!(no_distributions.supported);
+        assert!(no_distributions.distributions.is_empty());
+
+        assert!(classify_list_failure("Access is denied.").is_none());
+    }
 
     #[test]
     fn wsl_cli_decodes_utf16_and_utf8_distribution_lists() {

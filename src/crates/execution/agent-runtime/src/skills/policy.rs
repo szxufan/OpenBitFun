@@ -118,6 +118,11 @@ const ENABLE_PLAN: SkillPolicyRule = SkillPolicyRule {
     effect: PolicyEffect::Enable,
 };
 
+const ENABLE_VISUALIZE: SkillPolicyRule = SkillPolicyRule {
+    selector: SkillSelector::DirName("visualize"),
+    effect: PolicyEffect::Enable,
+};
+
 const ENABLE_GENERATE_IMAGE: SkillPolicyRule = SkillPolicyRule {
     selector: SkillSelector::DirName("generate-image"),
     effect: PolicyEffect::Enable,
@@ -136,6 +141,7 @@ const AGENTIC_POLICY: ModeSkillPolicy = ModeSkillPolicy {
         DISABLE_MINIAPP,
         DISABLE_CREATION,
         ENABLE_GENERATE_IMAGE,
+        ENABLE_VISUALIZE,
     ],
 };
 
@@ -148,6 +154,7 @@ const CLAW_POLICY: ModeSkillPolicy = ModeSkillPolicy {
         DISABLE_CREATION,
         DISABLE_DEBUGGING,
         ENABLE_GENERATE_IMAGE,
+        ENABLE_VISUALIZE,
     ],
 };
 
@@ -164,6 +171,7 @@ const COWORK_POLICY: ModeSkillPolicy = ModeSkillPolicy {
         ENABLE_COORDINATION,
         ENABLE_PLANNING,
         ENABLE_GENERATE_IMAGE,
+        ENABLE_VISUALIZE,
     ],
 };
 
@@ -226,6 +234,22 @@ mod tests {
     use super::*;
     use crate::agents::{STANDARD_HARNESS_CONFIG_ID, STANDARD_HARNESS_CONFIG_MEMBERS};
     use crate::skills::catalog::BUILTIN_SKILL_SPECS;
+
+    #[test]
+    fn visualize_defaults_to_conversational_workflows() {
+        for mode in ["Standard", "Creative", "Cowork", "Claw"] {
+            assert_eq!(
+                resolve_builtin_default_enabled("visualize", mode),
+                Some(true)
+            );
+        }
+        for mode in ["SwarmWorker", "DeepResearch", "ComputerUse"] {
+            assert_eq!(
+                resolve_builtin_default_enabled("visualize", mode),
+                Some(false)
+            );
+        }
+    }
 
     #[test]
     fn image_generation_defaults_on_in_main_workflows_and_remains_opt_in_for_specialist_agents() {

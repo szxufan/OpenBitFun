@@ -17,6 +17,7 @@ import type { FlowChatState, ModelRound, Session } from '../types/flow-chat';
 import { startupTrace } from '@/shared/utils/startupTrace';
 import { projectEffectiveToolItem } from '../utils/toolInvocationIdentity';
 import { SessionRecordReplica } from '../session-stream/SessionRecordReplica';
+import { markRuntimeSessionProjectionStale } from '@/infrastructure/peer-device/runtimeSessionEventGate';
 import { resetSessionStreamsForTest, sessionStream } from '../session-stream/SessionStream';
 import { isSessionBindingLocked } from '../utils/sessionLifecycle';
 import { isHostIssuedTurnCatalogRevision } from '../utils/flowChatTurnIdentity';
@@ -4799,7 +4800,11 @@ describe('FlowChatStore historical session hydration state', () => {
     });
   });
 
-  it('does not restore ACP historical sessions through the normal backend path', async () => {
+  it('keeps persisted ACP history fallback when an older host has no execution projection', async () => {
+    apiMocks.restoreSessionView.mockResolvedValueOnce({
+      session: { sessionId: 'acp-1', agentType: 'acp:test', state: 'Idle' },
+      turns: [], contextRestoreState: 'pending',
+    });
     apiMocks.loadSessionTurns.mockResolvedValueOnce([]);
     flowChatStore.setState(() => ({
       sessions: new Map([
@@ -4817,8 +4822,49 @@ describe('FlowChatStore historical session hydration state', () => {
     await flowChatStore.loadSessionHistory('acp-1');
 
     expect(apiMocks.restoreSession).not.toHaveBeenCalled();
-    expect(apiMocks.restoreSessionView).not.toHaveBeenCalled();
+    expect(apiMocks.restoreSessionView).toHaveBeenCalledTimes(1);
     expect(apiMocks.restoreSessionWithTurns).not.toHaveBeenCalled();
+    expect(apiMocks.loadSessionTurns).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['Processing', 'Idle'])('restores ACP journal authority including terminal snapshots (%s)', async state => {
+    const snapshot = {
+      sessionId: 'acp-1', streamId: 'acp-host', cursor: 4, activeTurnId: 'acp-turn',
+      events: [
+        { eventName: 'agentic://dialog-turn-started', payload: { sessionId: 'acp-1', turnId: 'acp-turn', userInput: 'Continue' } },
+        { eventName: 'agentic://dialog-turn-completed', payload: { sessionId: 'acp-1', turnId: 'acp-turn' } },
+      ],
+    };
+    apiMocks.restoreSessionView.mockResolvedValueOnce({
+      executionProjection: 'acp',
+      session: { sessionId: 'acp-1', agentType: 'acp:test', state, turnCount: 0, createdAt: 1 },
+      turns: [], runtimeEventSnapshot: snapshot, contextRestoreState: 'pending',
+    });
+    flowChatStore.setState(() => ({
+      sessions: new Map([['acp-1', createSession({
+        sessionId: 'acp-1', workspaceId: 'workspace-1', mode: 'acp:test',
+        config: { agentType: 'acp:test' }, historyState: 'ready', isHistorical: false,
+      })]]), activeSessionId: 'acp-1',
+    }));
+    const result = await flowChatStore.refreshPeerSessionSnapshot('acp-1');
+    expect(result.runtimeEventSnapshot).toEqual(snapshot);
+    expect(result.backendState).toBe(state);
+  });
+
+  it('does not claim that an older host repaired an ACP execution gap', async () => {
+    flowChatStore.setState(() => ({
+      sessions: new Map([['acp-1', createSession({
+        sessionId: 'acp-1', mode: 'acp:test', config: { agentType: 'acp:test' },
+        historyState: 'ready', isHistorical: false,
+      })]]), activeSessionId: 'acp-1',
+    }));
+    markRuntimeSessionProjectionStale(LOCAL_SURFACE_ID, 'acp-1');
+    apiMocks.restoreSessionView.mockResolvedValueOnce({
+      session: { sessionId: 'acp-1', state: 'Idle' }, turns: [], contextRestoreState: 'pending',
+    });
+    await expect(flowChatStore.refreshPeerSessionSnapshot('acp-1'))
+      .rejects.toThrow('ACP execution recovery is not supported');
+    expect(flowChatStore.getState().sessions.get('acp-1')?.historyState).toBe('failed');
   });
 
   it('uses view-restored turns without reading the turn files a second time', async () => {
@@ -8942,6 +8988,56 @@ describe('FlowChatStore device surfaces', () => {
       await vi.waitFor(() => expect(texts('peer-live', 2)).toHaveLength(2));
       expect(flowChatStore.getState().sessions.get('peer-live')!.dialogTurns.map(turn => turn.id))
         .toEqual(['turn-0', 'turn-2']);
+    });
+
+    it('subscribes a mounted side transcript that is not the active session', async () => {
+      activateSurface(PEER_SURFACE_ID);
+      flowChatStore.setState(() => ({
+        sessions: new Map([
+          ['parent', createSession({ sessionId: 'parent' })],
+          ['review-child', createSession({ sessionId: 'review-child', sessionKind: 'review' })],
+        ]),
+        activeSessionId: 'parent',
+      }));
+      apiMocks.subscribeRelaySession.mockClear();
+      apiMocks.subscribeRelaySession.mockImplementationOnce(async () => {
+        apiMocks.relayReady?.({ sessionId: 'review-child', hasMore: false, oldestSeq: 1, cursor: 0 });
+        return 'review-child-subscription';
+      });
+
+      const release = flowChatStore.retainSessionHistory('review-child');
+      await vi.waitFor(() => expect(flowChatStore.getState().sessions.get('review-child')?.historyState).toBe('ready'));
+      expect(apiMocks.subscribeRelaySession).toHaveBeenCalledExactlyOnceWith(PEER_SURFACE_ID, 'review-child');
+
+      // A second mount reuses the live subscription.
+      const again = flowChatStore.retainSessionHistory('review-child');
+      expect(apiMocks.subscribeRelaySession).toHaveBeenCalledOnce();
+      again();
+      release();
+    });
+
+    it('leaves the active session, unsent side drafts, historical shells, and local mounts to their owners', () => {
+      activateSurface(PEER_SURFACE_ID);
+      flowChatStore.setState(() => ({
+        sessions: new Map([
+          ['active', createSession({ sessionId: 'active' })],
+          ['btw-draft', createSession({ sessionId: 'btw-draft', sessionKind: 'btw', dialogTurns: [] })],
+          ['shell', createSession({ sessionId: 'shell', isHistorical: true, historyState: 'metadata-only' })],
+        ]),
+        activeSessionId: 'active',
+      }));
+      apiMocks.subscribeRelaySession.mockClear();
+      const releases = ['active', 'btw-draft', 'shell'].map(id => flowChatStore.retainSessionHistory(id));
+      expect(apiMocks.subscribeRelaySession).not.toHaveBeenCalled();
+      releases.forEach(release => release());
+
+      activateSurface(LOCAL_SURFACE_ID);
+      flowChatStore.setState(() => ({
+        sessions: new Map([['local-side', createSession({ sessionId: 'local-side' })]]),
+        activeSessionId: null,
+      }));
+      flowChatStore.retainSessionHistory('local-side')();
+      expect(apiMocks.subscribeRelaySession).not.toHaveBeenCalled();
     });
 
     it('marks the replica-derived Turn catalog revision as controller-local', async () => {

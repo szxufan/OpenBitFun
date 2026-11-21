@@ -81,6 +81,10 @@ export interface PeerHostCapabilities {
   readonly modelChannelRoutingV1?: boolean;
   readonly responsesWebsocketV1?: boolean;
   readonly wholeSessionCopyV1?: boolean;
+  /** `fork_session`; every Desktop host has it, CLI hosts advertise this key. */
+  readonly sessionForkV1?: boolean;
+  /** Stop interrupts recoverably instead of hard-cancelling the Turn. */
+  readonly recoverableInterruptionV1?: boolean;
   readonly sessionTrajectoryV1?: boolean;
   readonly modelRoutingV1?: boolean;
   readonly modelPoolSelectionV1?: boolean;
@@ -263,6 +267,8 @@ const NO_CAPABILITIES: PeerHostCapabilities = {
   modelChannelRoutingV1: false,
   responsesWebsocketV1: false,
   wholeSessionCopyV1: false,
+  sessionForkV1: false,
+  recoverableInterruptionV1: false,
   sessionTrajectoryV1: false,
   modelRoutingV1: false,
   modelPoolSelectionV1: false,
@@ -311,6 +317,7 @@ interface ConnectionEntry {
   presenceOnline: boolean | null;
   probeRequested: boolean;
   needsReattach: boolean;
+  verifyHiddenAttachment: boolean;
   healthCheckInFlight: Promise<void> | null;
   reattachInFlight: Promise<void> | null;
   hostStarting: boolean;
@@ -511,13 +518,18 @@ export class PeerConnectionManager {
    * omit an otherwise running host. Retain the attachment and verify it with
    * a handshake. Repeated roster updates must not postpone an existing retry.
    */
-  reportPresence(onlineDeviceIds: Iterable<string>): void {
+  reportPresence(onlineDeviceIds: Iterable<string>, controllerOnly = false): void {
     const online = new Set(onlineDeviceIds);
     for (const entry of this.entries.values()) {
       const wasOnline = entry.presenceOnline;
       entry.presenceOnline = online.has(entry.deviceId);
       if (!entry.presenceOnline && wasOnline !== false) {
         this.requestRecovery(entry, 'presence');
+      } else if (controllerOnly && entry.presenceOnline && entry.health === 'ready') {
+        // Hosts may prune an invisible controller when their roster changes.
+        // Verify the attachment while the peer remains reachable.
+        entry.verifyHiddenAttachment = true;
+        void this.runHealthCheck(entry);
       } else if (entry.presenceOnline && wasOnline === false && (entry.health === 'degraded' || entry.probeRequested)) {
         this.cancelTimer(entry);
         void this.runHealthCheck(entry);
@@ -570,6 +582,7 @@ export class PeerConnectionManager {
       presenceOnline: null,
       probeRequested: false,
       needsReattach: false,
+      verifyHiddenAttachment: false,
       healthCheckInFlight: null,
       reattachInFlight: null,
       hostStarting: false,
@@ -740,6 +753,8 @@ export class PeerConnectionManager {
       modelChannelRoutingV1: caps?.model_channel_routing_v1 === true,
       responsesWebsocketV1: caps?.responses_websocket_v1 === true,
       wholeSessionCopyV1: caps?.whole_session_copy_v1 === true,
+      sessionForkV1: caps?.session_fork_v1 === true,
+      recoverableInterruptionV1: caps?.recoverable_interruption_v1 === true,
       sessionTrajectoryV1: caps?.session_trajectory_v1 === true,
       genUiLibrariesV1: caps?.gen_ui_libraries_v1 === true,
       modelRoutingV1: caps?.model_routing_v1 === true,
@@ -947,7 +962,9 @@ export class PeerConnectionManager {
       // The host may have dropped this controller (presence loss, routing
       // restart) while every request still succeeded; re-attach instead of
       // reporting `ready` for a link that receives no events.
-      const lostAttachment = status.callerAttached === false;
+      const lostAttachment = status.callerAttached === false
+        || (entry.verifyHiddenAttachment && status.callerAttached === null);
+      entry.verifyHiddenAttachment = false;
       if (lostAttachment) {
         log.info('Peer host no longer has this controller attached; re-attaching', {
           deviceId: entry.deviceId,

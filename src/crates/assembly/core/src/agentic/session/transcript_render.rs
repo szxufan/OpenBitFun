@@ -629,6 +629,7 @@ mod search_projection_tests {
             status: "completed".to_string(),
         };
         let turn = DialogTurnData {
+            published_figures: Default::default(),
             turn_id: "turn_1".to_string(),
             turn_index: 0,
             session_id: "session_1".to_string(),

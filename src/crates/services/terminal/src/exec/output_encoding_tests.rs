@@ -168,6 +168,7 @@ async fn git_bash_cat_preserves_utf8_fixture_through_exec_command() {
                 tty: false,
                 yield_time_ms: Some(10_000),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: Some(capture_tx),
             },

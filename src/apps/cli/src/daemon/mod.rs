@@ -9,11 +9,9 @@
 
 pub(crate) mod control;
 mod pid;
-mod provision;
 mod runner;
 mod service;
 
 pub(crate) use pid::{is_daemon_running, request_daemon_shutdown};
-pub(crate) use provision::{deprovision, print_identity, provision};
 pub(crate) use runner::run_daemon;
 pub(crate) use service::{install_service, print_status, uninstall_service};

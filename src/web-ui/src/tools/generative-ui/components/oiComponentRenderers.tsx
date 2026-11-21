@@ -1,9 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { ImageIcon } from 'lucide-react';
 import { i18nService } from '@/infrastructure/i18n';
 import type { GenUIComponentProps } from '../genUILibrary';
-import type { GenUIAsyncRuntime, GenUIAsyncExecuteOptions } from '../genUIAsyncCapabilities';
-import { isAbortError } from '../genUIAsyncCapabilities';
 import { str, safeUrl, inlineText, color, length, radius, space, chartColor } from './oiComponentHelpers';
 
 export function Layout({ view, slots }: GenUIComponentProps) {
@@ -13,123 +11,14 @@ export function Layout({ view, slots }: GenUIComponentProps) {
   return <div className={`gen-ui-oi-box ${direction === 'row' ? 'gen-ui-oi-row' : 'gen-ui-oi-col'} ${direction === 'column' && props.gap == null ? 'gen-ui-oi-flow' : ''}`} data-openbitfun-component="gen-ui-components" data-openbitfun-part="layout" style={style}>{slots.children}</div>;
 }
 
-function imageUrls(value: unknown): string[] {
-  const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-  const nested = record && Array.isArray(record.results) ? record.results : [];
-  const providerBuckets = record
-    ? ['wiki', 'imageSearch', 'image_search', 'search'].flatMap(key => {
-      const bucket = record[key];
-      if (!bucket || typeof bucket !== 'object') return [];
-      const nestedRecord = bucket as Record<string, unknown>;
-      return [
-        ...(Array.isArray(nestedRecord.photos) ? nestedRecord.photos : []),
-        ...(Array.isArray(nestedRecord.images) ? nestedRecord.images : []),
-        ...(Array.isArray(nestedRecord.results) ? nestedRecord.results : []),
-      ];
-    })
-    : [];
-  const values = Array.isArray(value) ? value : record
-    ? [
-      ...(Array.isArray(record.images) ? record.images : []),
-      ...(Array.isArray(record.photos) ? record.photos : []),
-      ...(Array.isArray(record.urls) ? record.urls : []),
-      ...nested,
-      ...providerBuckets,
-      record.src,
-      record.url,
-      record.image_url,
-    ]
-    : [value];
-  const normalized = values.flatMap(item => item && typeof item === 'object' ? [
-    (item as Record<string, unknown>).src,
-    (item as Record<string, unknown>).url,
-    (item as Record<string, unknown>).image_url,
-    (item as Record<string, unknown>).imageUrl,
-    (item as Record<string, unknown>).thumbnail,
-    (item as Record<string, unknown>).thumbnailUrl,
-    (item as Record<string, unknown>).original,
-    (item as Record<string, unknown>).originalUrl,
-  ] : [item]);
-  return [...new Set(normalized.filter((item): item is string => typeof item === 'string' && Boolean(safeUrl(item))))];
-}
-// Provider results can be host- or target-specific, so cache only within the
-// owning async runtime rather than sharing URLs between sessions or peers.
-const imageResultCaches = new WeakMap<object, Map<string, string[]>>();
-function imageResultCacheFor(runtime: GenUIAsyncRuntime): Map<string, string[]> {
-  const owner = runtime as object;
-  let cache = imageResultCaches.get(owner);
-  if (!cache) {
-    cache = new Map<string, string[]>();
-    imageResultCaches.set(owner, cache);
-  }
-  return cache;
-}
-function useSearchImage(query: string, explicit: string | undefined, asyncRuntime?: GenUIAsyncRuntime) {
-  const [fallbackQuery, setFallbackQuery] = useState('');
-  const [state, setState] = useState<{ query: string; candidates: string[]; failed: string[]; loading?: boolean; error?: string }>({ query: '', candidates: [], failed: [] });
-  useEffect(() => {
-    const candidate = safeUrl(explicit);
-    if (!query.trim()) { setState({ query, candidates: [], failed: [] }); return undefined; }
-    const shouldSearch = !candidate || fallbackQuery === query;
-    if (!shouldSearch) {
-      setState({ query, candidates: [candidate], failed: [] });
-      return undefined;
-    }
-    const controller = new AbortController();
-    const runtime = asyncRuntime;
-    const imageCapability = runtime?.can('image.search') ? 'image.search' : runtime?.can('SearchImage') ? 'SearchImage' : undefined;
-    if (!runtime || !imageCapability) {
-      setState({ query, candidates: candidate ? [candidate] : [], failed: [], error: 'Image search is unavailable on this host' });
-      return () => controller.abort('Image search effect was replaced');
-    }
-    const imageResultCache = imageResultCacheFor(runtime);
-    const cached = imageResultCache.get(query);
-    if (cached?.length) {
-      setState({ query, candidates: cached, failed: [] });
-      return undefined;
-    }
-    setState({ query, candidates: candidate ? [candidate] : [], failed: [], loading: true });
-    const timer = window.setTimeout(() => {
-      const options: GenUIAsyncExecuteOptions = { kind: 'image-search', signal: controller.signal };
-      void runtime.execute(imageCapability, { query }, options).then(result => {
-        if (!controller.signal.aborted) {
-          const candidates = imageUrls(result);
-          if (candidates.length) {
-            if (imageResultCache.size >= 200) imageResultCache.delete(imageResultCache.keys().next().value!);
-            imageResultCache.set(query, candidates);
-          }
-          setState({ query, candidates, failed: [], error: candidates.length ? undefined : 'No image found' });
-        }
-      }).catch(error => {
-        if (!controller.signal.aborted && !isAbortError(error)) setState({ query, candidates: [], failed: [], error: error instanceof Error ? error.message : String(error) });
-      });
-    }, 500);
-    return () => { controller.abort('Image query was replaced'); window.clearTimeout(timer); };
-  }, [asyncRuntime, explicit, fallbackQuery, query]);
-  const current = state.query === query ? state.candidates.find(src => !state.failed.includes(src)) : undefined;
-  const onError = current ? () => {
-    const shouldFallback = state.query === query
-      && state.candidates.filter(src => !state.failed.includes(src)).length <= 1
-      && Boolean(safeUrl(explicit))
-      && fallbackQuery !== query;
-    if (shouldFallback) setFallbackQuery(query);
-    setState(previous => {
-      if (previous.query !== query || previous.failed.includes(current)) return previous;
-      const failed = [...previous.failed, current];
-      if (previous.candidates.some(src => !failed.includes(src))) return { ...previous, failed };
-      if (shouldFallback) return { ...previous, failed, loading: true, error: undefined };
-      return { ...previous, failed, error: 'Image could not be loaded' };
-    });
-  } : undefined;
-  return { src: current, onError, loading: state.query === query && state.loading === true, error: state.query === query ? state.error : undefined };
-}
-export function ImageView({ view, asyncRuntime }: Pick<GenUIComponentProps, 'view' | 'asyncRuntime'>) {
+export function ImageView({ view }: Pick<GenUIComponentProps, 'view'>) {
   const alt = str(view.props.alt ?? view.props.query);
-  const image = useSearchImage(str(view.props.query ?? alt), str(view.props.src), asyncRuntime);
+  const src = safeUrl(str(view.props.src));
+  const [failed, setFailed] = useState<string>();
   const aspectRatio = typeof view.props.aspectRatio === 'number' && view.props.aspectRatio > 0.2 && view.props.aspectRatio < 5 ? view.props.aspectRatio : 1.5;
-  return <figure className="gen-ui-oi-image" data-openbitfun-component="gen-ui-components" data-openbitfun-part="media" data-gen-ui-loading={image.loading || undefined} data-gen-ui-error={image.error || undefined} style={{ aspectRatio, borderRadius: radius(view.props.radius ?? 'lg') }}>
-    {image.src ? <img src={image.src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={image.onError} style={{ objectFit: view.props.fit === 'contain' ? 'contain' : 'cover' }} /> : image.loading ? null : <div className="gen-ui-oi-image-empty" role="img" aria-label={alt}><ImageIcon aria-hidden strokeWidth={1.5} /></div>}
-    <figcaption>{view.props.caption ? inlineText(str(view.props.caption)) : image.error ? image.error : null}</figcaption>
+  return <figure className="gen-ui-oi-image" data-openbitfun-component="gen-ui-components" data-openbitfun-part="media" style={{ aspectRatio, borderRadius: radius(view.props.radius ?? 'lg') }}>
+    {src && src !== failed ? <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(src)} style={{ objectFit: view.props.fit === 'contain' ? 'contain' : 'cover' }} /> : <div className="gen-ui-oi-image-empty" role="img" aria-label={alt}><ImageIcon aria-hidden strokeWidth={1.5} /></div>}
+    <figcaption>{view.props.caption ? inlineText(str(view.props.caption)) : alt}</figcaption>
   </figure>;
 }
 

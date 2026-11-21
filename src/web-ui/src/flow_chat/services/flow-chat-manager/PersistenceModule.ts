@@ -622,6 +622,7 @@ export function convertDialogTurnToBackendFormat(dialogTurn: DialogTurn, turnInd
     finishReason: dialogTurn.finishReason,
     recovery: dialogTurn.recovery,
     recoveryEpoch: dialogTurn.recovery?.executionGeneration ?? dialogTurn.recoveryEpoch,
+    publishedFigures: dialogTurn.publishedFigures,
     hasFinalResponse: dialogTurn.hasFinalResponse,
     error: dialogTurn.error,
     errorDetail: dialogTurn.errorDetail,

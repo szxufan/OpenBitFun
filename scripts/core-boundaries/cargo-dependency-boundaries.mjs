@@ -1079,7 +1079,6 @@ export function findServicesIntegrationsReqwestFeatureViolations(pkg) {
     ['miniapp-runtime', ['reqwest/stream']],
     ['models-dev', ['reqwest/system-proxy']],
     ['remote-connect', ['reqwest/json', 'reqwest/multipart', 'reqwest/query']],
-    ['remote-ssh-concrete', ['reqwest/stream']],
     ['review-platform', ['reqwest/json', 'reqwest/query', 'reqwest/stream']],
     ['speech', ['reqwest/stream']],
     ['web-tools', ['reqwest/json']],

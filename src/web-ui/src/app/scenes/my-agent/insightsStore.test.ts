@@ -145,6 +145,72 @@ describe('insightsStore generation lifecycle', () => {
     expect(useInsightsStore.getState().view).toBe('report');
   });
 
+  it('discards old-generation events delivered to the current listener', async () => {
+    const pendingReport = deferred<InsightsReport>();
+    let progressHandler: ((event: InsightsProgressEvent) => void) | undefined;
+    apiMocks.generateInsights.mockReturnValueOnce(pendingReport.promise);
+    apiMocks.listenProgress.mockImplementationOnce(async (handler) => {
+      progressHandler = handler;
+      return vi.fn();
+    });
+
+    const run = useInsightsStore.getState().generateReport();
+    const generationId = useInsightsStore.getState().activeGenerationRunId;
+    await vi.waitFor(() => expect(apiMocks.generateInsights).toHaveBeenCalledTimes(1));
+    const event = { stage: 'analysis', message: 'Analysis', current: 0, total: 0 };
+    progressHandler?.({ ...event, generationId: 'older-generation' });
+    expect(useInsightsStore.getState().progress.stage).toBe('starting');
+    progressHandler?.({ ...event, generationId });
+    expect(useInsightsStore.getState().progress.stage).toBe('analysis');
+
+    await useInsightsStore.getState().cancelGeneration();
+    expect(apiMocks.cancelGeneration).toHaveBeenCalledWith(generationId);
+    pendingReport.reject(new Error('cancelled'));
+    await run;
+  });
+
+  it('cancels locally before the progress listener finishes registering', async () => {
+    const listener = deferred<() => void>();
+    const unlisten = vi.fn();
+    apiMocks.listenProgress.mockReturnValueOnce(listener.promise);
+    const run = useInsightsStore.getState().generateReport();
+
+    await useInsightsStore.getState().cancelGeneration();
+    listener.resolve(unlisten);
+    await run;
+
+    expect(apiMocks.generateInsights).not.toHaveBeenCalled();
+    expect(apiMocks.cancelGeneration).not.toHaveBeenCalled();
+    expect(unlisten).toHaveBeenCalledOnce();
+    expect(useInsightsStore.getState().generating).toBe(false);
+  });
+
+  it('keeps a failed cancellation visible while the report is still running', async () => {
+    const pendingReport = deferred<InsightsReport>();
+    apiMocks.generateInsights.mockReturnValueOnce(pendingReport.promise);
+    apiMocks.cancelGeneration.mockRejectedValueOnce(new Error('Service unavailable'));
+    const run = useInsightsStore.getState().generateReport();
+    await vi.waitFor(() => expect(apiMocks.generateInsights).toHaveBeenCalledTimes(1));
+
+    await useInsightsStore.getState().cancelGeneration();
+    expect(useInsightsStore.getState().generating).toBe(true);
+    expect(useInsightsStore.getState().error).toContain('Service unavailable');
+    pendingReport.resolve(report(1));
+    await run;
+    expect(useInsightsStore.getState().view).toBe('report');
+  });
+
+  it('keeps a provider failure on the error screen instead of displaying a report', async () => {
+    apiMocks.generateInsights.mockRejectedValueOnce(new Error('The selected model could not analyze any sessions'));
+    await useInsightsStore.getState().generateReport();
+
+    const state = useInsightsStore.getState();
+    expect(state.generating).toBe(false);
+    expect(state.currentReport).toBeNull();
+    expect(state.view).toBe('list');
+    expect(state.error).toContain('could not analyze any sessions');
+  });
+
   it('marks backend analysis retries as retrying progress', async () => {
     const pendingReport = deferred<InsightsReport>();
     let progressHandler: ((event: InsightsProgressEvent) => void) | undefined;
@@ -176,7 +242,7 @@ describe('insightsStore generation lifecycle', () => {
 
     const run = useInsightsStore.getState().generateReport();
     await vi.waitFor(() => {
-      expect(apiMocks.generateInsights).toHaveBeenCalledWith(30, 'model-insights');
+      expect(apiMocks.generateInsights).toHaveBeenCalledWith(30, 'model-insights', expect.any(String));
     });
 
     await useInsightsStore.getState().cancelGeneration();

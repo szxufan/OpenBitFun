@@ -180,8 +180,9 @@ function createDependencies(): PeerDeviceSurfaceControllerDependencies {
     clearDeviceActivity,
     listenPresence: listener => api.listen<{
       devices: Array<{ device_id: string }>;
+      controllerOnly?: boolean;
     }>('account://device-presence', payload => {
-      listener((payload?.devices ?? []).map(device => device.device_id));
+      listener((payload?.devices ?? []).map(device => device.device_id), payload?.controllerOnly);
     }),
     listenLoginState: listener => api.listen<{ logged_in: boolean }>(
       'account://login-state',

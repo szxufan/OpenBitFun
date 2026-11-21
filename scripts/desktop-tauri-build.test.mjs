@@ -9,6 +9,7 @@ import {
   configureWindowsSigning,
   prepareMacOSFlashgrepForSigning,
   prepareTauriConfig,
+  requestsLinuxAppImage,
   requestsMacosBundle,
   shouldRetryMacDmgBuild,
 } from './desktop-tauri-build.mjs';
@@ -448,6 +449,26 @@ test('Desktop packaging includes only the selected Flashgrep target', () => {
   } finally {
     rmSync(fixture, { force: true, recursive: true });
   }
+});
+
+test('Linux AppImage embeds the tray runtime under its SONAMEs', (t) => {
+  const fixture = mkdtempSync(join(tmpdir(), 'openbitfun-appimage-tray-'));
+  t.after(() => rmSync(fixture, { recursive: true, force: true }));
+  const baseConfig = join(ROOT, 'src/apps/desktop/tauri.conf.json');
+  const libraries = JSON.parse(readFileSync(join(ROOT, 'scripts/ci/linux-appimage-tray-libraries.json'), 'utf8'));
+  const options = { desktopDir: fixture, appImageLibraryDir: fixture };
+  assert.throws(() => prepareTauriConfig(baseConfig, options), /Missing AppImage tray runtime library/);
+
+  for (const soname of libraries) writeFileSync(join(fixture, soname), 'tray library');
+  const config = JSON.parse(readFileSync(prepareTauriConfig(baseConfig, options), 'utf8'));
+  assert.deepEqual(config.bundle.linux.appimage.files,
+    Object.fromEntries(libraries.map((soname) => [`/usr/lib/${soname}`, join(fixture, soname)])));
+  assert.ok(config.bundle.linux.deb.depends.includes('libayatana-appindicator3-1'));
+  assert.equal(requestsLinuxAppImage([], 'linux'), true);
+  assert.equal(requestsLinuxAppImage(['--target', 'aarch64-unknown-linux-gnu', '--bundles', 'deb,rpm,appimage'], 'linux'), true);
+  assert.equal(requestsLinuxAppImage(['--bundles=deb'], 'linux'), false);
+  assert.equal(requestsLinuxAppImage(['--no-bundle'], 'linux'), false);
+  assert.equal(requestsLinuxAppImage([], 'darwin'), false);
 });
 
 test('Windows updater installs NSIS packages without showing its progress window', () => {

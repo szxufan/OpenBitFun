@@ -1013,7 +1013,7 @@ async fn validate_input_accepts_fork_context_with_caller_selected_agent_id() {
 }
 
 #[tokio::test]
-async fn call_impl_rejects_nested_subagent_delegation() {
+async fn visible_launch_tools_reject_nested_subagent_delegation() {
     let policy = DelegationPolicy::top_level().spawn_child();
     let context = ToolUseContext {
         tool_call_id: Some("tool-call-1".to_string()),
@@ -1039,6 +1039,19 @@ async fn call_impl_rejects_nested_subagent_delegation() {
         runtime_handles: openbitfun_runtime_ports::ToolRuntimeHandles::default(),
     };
 
+    let manifest = crate::agentic::tools::resolve_tool_manifest(
+        &["AgentSpawn".into(), "AgentFork".into()],
+        &Default::default(),
+        &context,
+    )
+    .await;
+    for tool_name in ["AgentSpawn", "AgentFork"] {
+        assert!(manifest
+            .tool_definitions
+            .iter()
+            .any(|definition| definition.name == tool_name));
+    }
+
     let error = AgentExecutionTool::new()
         .call_impl(
             &json!({
@@ -1055,6 +1068,20 @@ async fn call_impl_rejects_nested_subagent_delegation() {
     assert!(error
         .to_string()
         .contains("Recursive subagent delegation is blocked. Use direct tools instead."));
+    let spawn_error = AgentSpawnTool::new()
+        .call_impl(
+            &json!({
+                "agent_id": "repo-inspector",
+                "prompt": "Inspect the repo",
+                "agent_type": "Explore"
+            }),
+            &context,
+        )
+        .await
+        .expect_err("visible launch tools must enforce nested delegation restrictions");
+    assert!(spawn_error
+        .to_string()
+        .contains("Recursive subagent delegation is blocked"));
     let fork_error = AgentForkTool::new()
         .call_impl(
             &json!({"agent_id":"review-fork", "prompt":"Review the inherited findings"}),

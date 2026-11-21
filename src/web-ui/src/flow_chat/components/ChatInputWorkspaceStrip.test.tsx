@@ -431,6 +431,27 @@ describe('ChatInputWorkspaceStrip git refresh behavior', () => {
     expect(container.querySelector('[data-openbitfun-part="runtime"]')).toBeNull();
   });
 
+  it('passes the child context and parent canvas through overview category actions', async () => {
+    const estimate = { capturedAt: 123, contents: { rules: 'Child rules' }, composition: {
+      systemPrompt: 100, toolDefinitions: 100, rules: 100, skills: 0,
+      mcpTools: 0, subagentDefinitions: 0, summarizedConversation: 0,
+      conversation: 100, contextWindow: 1000,
+    } };
+    await act(async () => root.render(
+      <ChatInputWorkspaceStrip workspaceId="workspace-1" repositoryPath="/project" workspaceLabel="Project"
+        usageReport={{ visible: true, currentTokens: 400, maxTokens: 1000, onOpen: vi.fn(),
+          loadContext: async () => estimate,
+          previewSession: { sessionId: 'child-session', canvasSessionId: 'parent-session', workspaceId: 'workspace-1' } }} />,
+    ));
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-openbitfun-part="usageAction"]')!.click());
+    const rulePreview = document.querySelector<HTMLButtonElement>('[data-testid="context-usage-popover"] dl [data-usage-category="rules"] button')!;
+    await act(async () => rulePreview.click());
+    expect(mocks.openContextPreview).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      sessionId: 'child-session', reportSessionId: 'child-session', canvasSessionId: 'parent-session',
+      workspaceId: 'workspace-1', category: 'rules', estimate,
+    }));
+  });
+
   it('opens the overview from the context ring, highlights categories and offers explicit preview and report actions', async () => {
     const onOpen = vi.fn();
     const onCompact = vi.fn();

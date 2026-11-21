@@ -59,6 +59,7 @@ async fn capture_remote_env_snapshot(
             tty: true,
             yield_time_ms: Some(policy.timeout_ms),
             max_output_chars: Some(policy.max_output_chars),
+            wait_interrupt: None,
             lifecycle_sink: None,
             output_sink: None,
         })

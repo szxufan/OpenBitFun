@@ -10,7 +10,6 @@
     feature = "miniapp-runtime",
     feature = "models-dev",
     feature = "remote-connect",
-    feature = "remote-ssh-concrete",
     feature = "review-platform",
     feature = "speech",
     feature = "skillhub",

@@ -684,6 +684,21 @@ mod tests {
     }
 
     #[test]
+    fn old_controllers_receive_a_retirement_reason_for_the_genui_provider() {
+        let command = "gen_ui_provider_call";
+        assert_eq!(
+            operation(command).unwrap().surface,
+            OperationSurface::HostInvokeOnly
+        );
+        for host in [PeerHostKind::Desktop, PeerHostKind::Cli] {
+            assert!(matches!(
+                peer_host_verdict(command, host),
+                PeerHostVerdict::Refuse(PeerRefusal::Retired { .. })
+            ));
+        }
+    }
+
+    #[test]
     fn refusal_messages_keep_legacy_wire_strings() {
         assert_eq!(
             PeerRefusal::ControllerLocal.message("account_login"),
@@ -810,18 +825,19 @@ mod tests {
     }
 
     #[test]
-    fn whole_session_copy_runs_on_desktop_and_is_explicitly_unsupported_on_cli() {
-        let copy = operation("copy_session").unwrap();
-        assert_eq!(copy.remote_workspace, RemoteWorkspaceStance::Routed);
-        assert_eq!(copy.peer, PeerStance::Proxied);
-        assert_eq!(
-            peer_host_verdict("copy_session", PeerHostKind::Desktop),
-            PeerHostVerdict::Execute
-        );
-        assert!(matches!(
-            peer_host_verdict("copy_session", PeerHostKind::Cli),
-            PeerHostVerdict::Refuse(PeerRefusal::HostUnsupported { .. })
-        ));
+    fn session_fork_and_whole_session_copy_run_on_both_peer_hosts() {
+        for command in ["copy_session", "fork_session"] {
+            let operation = operation(command).unwrap();
+            assert_eq!(operation.remote_workspace, RemoteWorkspaceStance::Routed);
+            assert_eq!(operation.peer, PeerStance::Proxied);
+            for host in [PeerHostKind::Desktop, PeerHostKind::Cli] {
+                assert_eq!(
+                    peer_host_verdict(command, host),
+                    PeerHostVerdict::Execute,
+                    "{command} must run on {host:?}"
+                );
+            }
+        }
     }
 
     #[test]

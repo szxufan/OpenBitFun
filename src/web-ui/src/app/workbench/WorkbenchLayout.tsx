@@ -10,11 +10,11 @@ import { useSceneStore } from '../stores/sceneStore';
 import { dropSceneTab, isSceneTabDrag } from './sceneTabTransfer';
 import { dropSessionTabOnWorkbench, isSessionTabDrag } from './canvasTabTransfer';
 import { observeTabDragLifecycle } from './tabDragLifecycle';
-import { selectedScene, type WorkbenchPane } from './scenePaneModel';
+import { selectedScene, standaloneSettingsPane, type WorkbenchPane } from './scenePaneModel';
 import { SceneTopBar } from '../components/SceneTopBar';
 import { CanvasToolbarHost, CanvasToolbarProvider } from '../components/panels/content-canvas/CanvasToolbar';
 import AuxPane from '../scenes/session/AuxPane';
-import { useWorkbenchPaneLayout } from './workbenchPaneLayoutStore';
+import { useWorkbenchPaneLayout, workbenchSplitMode } from './workbenchPaneLayoutStore';
 import { WorkbenchResizeContext } from './workbenchResize';
 import { useWindowResizeLayout } from '../layout/windowResizeScheduler';
 import { PANEL_COMMON_CONFIG, RIGHT_PANEL_CONFIG } from '../layout/panelConfig';
@@ -40,9 +40,11 @@ export default function WorkbenchLayout({ workspacePath, navigationResizing = fa
   }), [resizing, navigationResizing, settling, windowMeasurementSuspended]);
   const [offeredTab, setOfferedTab] = useState(false);
   const [dropTarget, setDropTarget] = useState<'leading' | 'trailing' | null>(null);
-  const panelOpen = pane.mode !== 'chat-only';
-  const panelMaximized = pane.mode === 'content-only';
   const selections = useSceneStore(state => state.paneSelections);
+  const settingsPane = standaloneSettingsPane(selections, pane.hasSession);
+  const mode = workbenchSplitMode(pane.mode, settingsPane);
+  const panelOpen = mode !== 'primary';
+  const panelMaximized = mode === 'secondary';
   const hasSecondaryScenes = useSceneStore(state => state.openTabs.some(tab => tab.pane === 'secondary'));
   const canvasPane = useSceneStore(state => state.canvasPane);
   const canvasActive = selections[canvasPane].kind === 'canvas';
@@ -66,9 +68,9 @@ export default function WorkbenchLayout({ workspacePath, navigationResizing = fa
       frame = requestAnimationFrame(() => setSettling(false));
     });
     return () => cancelAnimationFrame(frame);
-  }, [pane.mode, pane.contentSide, pane.displayMode, pane.preferredRightPaneWidth, pane.preferredOverlayWidth, navigationResizing]);
+  }, [mode, pane.contentSide, pane.displayMode, pane.preferredRightPaneWidth, pane.preferredOverlayWidth, navigationResizing]);
   const panelLabel = tCommon(panelOpen ? 'header.collapseRightPanel' : 'header.expandRightPanel');
-  const maximizeLabel = t(pane.mode === 'content-only' ? 'canvas.restorePanel' : 'canvas.maximizePanel');
+  const maximizeLabel = t(panelMaximized ? 'canvas.restorePanel' : 'canvas.maximizePanel');
   const dropOnPane = (event: React.DragEvent, location: WorkbenchPane) => {
     if (!accepts(event.dataTransfer)) return;
     event.preventDefault();
@@ -119,10 +121,10 @@ export default function WorkbenchLayout({ workspacePath, navigationResizing = fa
         event.dataTransfer.dropEffect = 'move';
       }}
       onPanelDrop={event => dropOnPane(event, trailingPane)}
-      panelToggle={<ToolbarGroup gap="sm">
+      panelToggle={settingsPane === null && <ToolbarGroup gap="sm">
         {panelOpen && <Tooltip content={maximizeLabel}>
-          <IconButton size="xs" aria-label={maximizeLabel} aria-pressed={pane.mode === 'content-only'}
-            data-testid="workbench-maximize-panel" icon={<Icon glyph={pane.mode === 'content-only' ? Minimize2 : Maximize2} size="sm" />}
+          <IconButton size="xs" aria-label={maximizeLabel} aria-pressed={panelMaximized}
+            data-testid="workbench-maximize-panel" icon={<Icon glyph={panelMaximized ? Minimize2 : Maximize2} size="sm" />}
             onClick={pane.toggleMaximized} />
         </Tooltip>}
         <Tooltip content={panelLabel}>
@@ -135,7 +137,7 @@ export default function WorkbenchLayout({ workspacePath, navigationResizing = fa
   return <WorkbenchResizeContext.Provider value={resizeState}><CanvasToolbarProvider>
     <div className="openbitfun-workbench-layout__body" data-openbitfun-scene="workbench" data-openbitfun-part="contentLayout">
       <SplitView header={header}
-        mode={pane.mode === 'chat-only' ? 'primary' : pane.mode === 'content-only' ? 'secondary' : 'split'}
+        mode={mode}
         layout={pane.displayMode} secondarySide={pane.contentSide}
         rightSize={pane.displayMode === 'overlay' ? pane.preferredOverlayWidth : pane.preferredRightPaneWidth}
         minLeftSize={PANEL_COMMON_CONFIG.MIN_CENTER_WIDTH}

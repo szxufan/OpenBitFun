@@ -2,7 +2,7 @@ use crate::agentic::image_generation::{
     adapter_target, has_enabled_image_service, resolve_image_service, ResolvedImageService,
 };
 use crate::agentic::tools::framework::{
-    Tool, ToolRenderOptions, ToolResult, ToolUseContext, ValidationResult,
+    PermissionIntent, Tool, ToolRenderOptions, ToolResult, ToolUseContext, ValidationResult,
 };
 use crate::service::config::types::{ImageGenerationParams, ImageServiceConfig};
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
@@ -279,6 +279,23 @@ impl Tool for GenerateImageTool {
 
     fn is_readonly(&self) -> bool {
         false
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        _context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        let service = input
+            .get("service_id")
+            .and_then(Value::as_str)
+            .unwrap_or("default");
+        let mut intent =
+            PermissionIntent::new("image.generate", vec![format!("service:{service}")]);
+        if input.get("service_id").is_none() {
+            intent.save_resources.clear();
+        }
+        Ok(vec![intent])
     }
 
     async fn validate_input(

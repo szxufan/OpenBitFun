@@ -11,12 +11,29 @@ async function closeDetails(page) {
   await page.waitForFunction(() => !document.querySelector('.chat-tool-details'));
 }
 
+test('a mobile reader opens the standalone figure through the workspace download handler', async () => {
+  const source = await startSourceServer();
+  const browser = await launchBrowser();
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 390, height: 844 });
+    await page.goto(source.origin);
+    await page.evaluate(async () => (await import('/tests/helpers/mobile-chat-regressions-fixture.tsx')).showTranscript(false, 'figure'));
+    const link = await page.waitForSelector('button.file-link');
+    await link.click();
+    await page.waitForFunction(() => document.body.dataset.downloadPath === 'artifacts/map.svg');
+  } finally {
+    await browser.close();
+    await source.close();
+  }
+});
+
 test('message times and quiet tool failures work at compact and wide sizes', { timeout: 60000 }, async () => {
   const source = await startSourceServer();
   const browser = await launchBrowser();
   try {
     const page = await browser.newPage();
-    await page.goto(source.origin);
+    await page.goto(source.origin + '/?lang=en');
     const times = await page.evaluate(async () => {
       const { messageTimestamp } = await import('/src/i18n/messageTime.ts');
       return ['1700000000', '1700000000000', '1700000000000000', '1700000000000000000', '', 'invalid']

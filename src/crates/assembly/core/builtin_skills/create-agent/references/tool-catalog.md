@@ -68,7 +68,6 @@ Use these tables to select tools for the user's tasks, then put their exact name
 | Tool name | Purpose |
 | --- | --- |
 | `AskUserQuestion` | Ask the user focused follow-up questions during execution. |
-| `GenerativeUI` | Render HTML or SVG visualizations and lightweight interactive widgets in chat. |
 
 ## Computer use and automation
 

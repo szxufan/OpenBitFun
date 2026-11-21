@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canCopySessionsOnSurface,
+  canForkSessionsOnSurface,
+  canInterruptRecoverablyOnSurface,
   canUseSshNoneAuthOnSurface,
   canViewPullRequestsOnSurface,
   canQueryToolCatalogOnSurface,
@@ -68,6 +70,26 @@ describe('canCopySessionsOnSurface', () => {
     expect(canCopySessionsOnSurface(true, caps({ hostKind: 'desktop' }))).toBe(false);
     expect(canCopySessionsOnSurface(true, caps({ hostKind: 'cli' }))).toBe(false);
     expect(canCopySessionsOnSurface(true, caps({ wholeSessionCopyV1: true }))).toBe(true);
+  });
+});
+
+describe('canForkSessionsOnSurface', () => {
+  it('trusts every Desktop host and only CLI hosts that advertise forking', () => {
+    expect(canForkSessionsOnSurface(false, null)).toBe(true);
+    expect(canForkSessionsOnSurface(true, null)).toBe(true);
+    expect(canForkSessionsOnSurface(true, caps({ hostKind: 'desktop' }))).toBe(true);
+    expect(canForkSessionsOnSurface(true, caps({ hostKind: 'cli' }))).toBe(false);
+    expect(canForkSessionsOnSurface(true, caps({ hostKind: 'cli', sessionForkV1: true }))).toBe(true);
+  });
+});
+
+describe('canInterruptRecoverablyOnSurface', () => {
+  it('keeps older hosts of both kinds on hard cancellation', () => {
+    expect(canInterruptRecoverablyOnSurface(false, null)).toBe(true);
+    expect(canInterruptRecoverablyOnSurface(true, null)).toBe(false);
+    expect(canInterruptRecoverablyOnSurface(true, caps({ hostKind: 'desktop' }))).toBe(false);
+    expect(canInterruptRecoverablyOnSurface(true, caps({ hostKind: 'cli' }))).toBe(false);
+    expect(canInterruptRecoverablyOnSurface(true, caps({ recoverableInterruptionV1: true }))).toBe(true);
   });
 });
 

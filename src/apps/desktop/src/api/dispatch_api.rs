@@ -10,16 +10,13 @@ use async_trait::async_trait;
 use openbitfun_core::infrastructure::PathManager;
 use openbitfun_core::service::dispatch::{
     answer_device_dispatch, answer_dispatch, append_device_dispatch, append_dispatch,
-    cancel_device_dispatch, cancel_dispatch, cancel_dispatch_cli_install,
-    continue_device_dispatch_job, continue_dispatch_job, decode_device_dispatch_response,
-    encode_device_dispatch_command, get_device_dispatch_status, get_dispatch_status,
-    list_device_dispatch_jobs, list_dispatch_jobs, list_dispatch_targets,
-    poll_dispatch_cli_install, probe_device_dispatch_target, probe_dispatch_target,
-    query_device_dispatch_job, query_dispatch_job, start_dispatch_cli_install,
-    submit_device_dispatch, submit_dispatch, sync_device_dispatch_result,
+    cancel_device_dispatch, cancel_dispatch, continue_device_dispatch_job, continue_dispatch_job,
+    decode_device_dispatch_response, encode_device_dispatch_command, get_device_dispatch_status,
+    get_dispatch_status, list_device_dispatch_jobs, list_dispatch_jobs, list_dispatch_targets,
+    probe_device_dispatch_target, probe_dispatch_target, query_device_dispatch_job,
+    query_dispatch_job, submit_device_dispatch, submit_dispatch, sync_device_dispatch_result,
     sync_dispatch_model_config, sync_dispatch_result, DeviceDispatchRpc, DispatchAnswerRequest,
-    DispatchAppendRequest, DispatchConnectionRequest, DispatchContinueRequest,
-    DispatchInstallPollRequest, DispatchInstallStartRequest, DispatchJobRequest,
+    DispatchAppendRequest, DispatchConnectionRequest, DispatchContinueRequest, DispatchJobRequest,
     DispatchListJobsRequest, DispatchListTargetsRequest, DispatchProbeTargetRequest,
     DispatchQueryJobRequest, DispatchSaveTranscriptRequest, DispatchStatusRequest,
     DispatchSubmitRequest, DispatchSyncResultRequest, DispatchTarget, DispatchTargetOption,
@@ -29,11 +26,9 @@ use openbitfun_core::service::dispatch::{
     execute_dispatch_control, DispatchAccountAccess, DispatchControlContext,
 };
 use openbitfun_core::service::remote_connect::account_runtime::AccountDevice;
-use openbitfun_core::service::remote_ssh::dispatch_ssh::{
-    self, DispatchInstallPoll, DispatchInstallStart, DispatchSshProbe,
-};
+use openbitfun_core::service::remote_ssh::dispatch_ssh::DispatchSshProbe;
 use openbitfun_product_domains::detached_dispatch_control::DetachedDispatchControlRequest;
-use serde::{Deserialize, Serialize};
+
 use serde_json::Value;
 use tauri::State;
 
@@ -123,9 +118,13 @@ pub async fn dispatch_list_targets(
         .get_ssh_manager_async()
         .await
         .map_err(|error| error.to_string())?;
+    let ssh_only = request.ssh_only;
     let mut targets = list_dispatch_targets(&manager, request)
         .await
         .map_err(|error| error.to_string())?;
+    if ssh_only {
+        return Ok(targets);
+    }
     let current_device_id = super::remote_connect_api::remote_connect_get_device_info()
         .await
         .ok()
@@ -165,125 +164,6 @@ pub async fn dispatch_probe_target(
     probe_dispatch_target(&manager, request)
         .await
         .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn dispatch_install_cli_start(
-    state: State<'_, AppState>,
-    request: DispatchInstallStartRequest,
-) -> Result<DispatchInstallStart, String> {
-    let manager = state
-        .get_ssh_manager_async()
-        .await
-        .map_err(|error| error.to_string())?;
-    start_dispatch_cli_install(&manager, request)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn dispatch_install_cli_poll(
-    state: State<'_, AppState>,
-    request: DispatchInstallPollRequest,
-) -> Result<DispatchInstallPoll, String> {
-    let manager = state
-        .get_ssh_manager_async()
-        .await
-        .map_err(|error| error.to_string())?;
-    poll_dispatch_cli_install(&manager, request)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub async fn dispatch_install_cli_cancel(
-    state: State<'_, AppState>,
-    request: DispatchConnectionRequest,
-) -> Result<(), String> {
-    let manager = state
-        .get_ssh_manager_async()
-        .await
-        .map_err(|error| error.to_string())?;
-    cancel_dispatch_cli_install(&manager, request)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DispatchAccountBootstrapStatus {
-    Synced,
-    SkippedNotLoggedIn,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DispatchProvisionTargetResult {
-    pub account_status: DispatchAccountBootstrapStatus,
-    pub daemon_installed: bool,
-}
-
-/// Finish a freshly installed SSH target without exposing account secrets to
-/// the renderer: mint a distinct relay device, stage its bootstrap over SFTP,
-/// install the user service, and prove that it connected before returning.
-#[tauri::command]
-pub async fn dispatch_provision_target(
-    state: State<'_, AppState>,
-    request: DispatchConnectionRequest,
-) -> Result<DispatchProvisionTargetResult, String> {
-    let connection_id = request.connection_id.trim();
-    if connection_id.is_empty() {
-        return Err("SSH connection id is required".to_string());
-    }
-    let manager = state
-        .get_ssh_manager_async()
-        .await
-        .map_err(|error| error.to_string())?;
-    let identity = dispatch_ssh::account_daemon_identity(&manager, connection_id)
-        .await
-        .map_err(|error| error.to_string())?;
-    let Some(provisioning) =
-        super::remote_connect_api::provision_dispatch_account_device(&identity).await?
-    else {
-        return Ok(DispatchProvisionTargetResult {
-            account_status: DispatchAccountBootstrapStatus::SkippedNotLoggedIn,
-            daemon_installed: false,
-        });
-    };
-
-    let provision_result =
-        dispatch_ssh::provision_account_daemon(&manager, connection_id, &provisioning.request)
-            .await;
-    if let Err(error) = provision_result {
-        let _ = dispatch_ssh::deprovision_account_daemon(
-            &manager,
-            connection_id,
-            provisioning.device_id(),
-            provisioning.user_id(),
-        )
-        .await;
-        let _ = super::remote_connect_api::remove_dispatch_account_device(&provisioning).await;
-        return Err(format!("provision persistent OpenBitFun daemon: {error}"));
-    }
-
-    if let Err(error) =
-        super::remote_connect_api::wait_for_dispatch_account_device_online(&provisioning).await
-    {
-        let _ = dispatch_ssh::deprovision_account_daemon(
-            &manager,
-            connection_id,
-            provisioning.device_id(),
-            provisioning.user_id(),
-        )
-        .await;
-        let _ = super::remote_connect_api::remove_dispatch_account_device(&provisioning).await;
-        return Err(error);
-    }
-
-    Ok(DispatchProvisionTargetResult {
-        account_status: DispatchAccountBootstrapStatus::Synced,
-        daemon_installed: true,
-    })
 }
 
 #[tauri::command]
@@ -617,10 +497,7 @@ pub async fn dispatch_save_transcript(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        decode_device_dispatch_response, DispatchAccountBootstrapStatus,
-        DispatchProvisionTargetResult,
-    };
+    use super::decode_device_dispatch_response;
 
     fn decode_device_dispatch_rpc(raw: &str) -> anyhow::Result<serde_json::Value> {
         decode_device_dispatch_response("dispatch_target_submit", raw)
@@ -641,17 +518,5 @@ mod tests {
         .expect_err("negative acknowledgement");
         assert!(rejected.to_string().contains("target rejected"));
         assert!(decode_device_dispatch_rpc(r#"{"sent":true}"#).is_err());
-    }
-
-    #[test]
-    fn target_provisioning_response_is_redacted_and_stable() {
-        let value = serde_json::to_value(DispatchProvisionTargetResult {
-            account_status: DispatchAccountBootstrapStatus::Synced,
-            daemon_installed: true,
-        })
-        .unwrap();
-        assert_eq!(value["accountStatus"], "synced");
-        assert_eq!(value["daemonInstalled"], true);
-        assert_eq!(value.as_object().unwrap().len(), 2);
     }
 }

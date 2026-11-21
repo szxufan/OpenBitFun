@@ -332,6 +332,7 @@
           "title": "Remote Connect 遠控與多裝置互控",
           "summary": "離開座位也能用手機網頁，或接入微信、飛書、Telegram 中的聊天機器人檢視對話進度、審批權限並繼續指揮；同帳號多台電腦還能開啟 Peer Device Mode，在一個視窗裡直接切換操作另一台機器的工作區與工作階段。",
           "items": {
+            "device-control-permission": "本機可被控制",
             "connection-methods": "使用免部署官方 Relay 或桌面端區域網路 Relay（可同時開啟）",
             "start-stop-status": "一鍵啟動、停用遠控管道並檢視即時連線與裝置資訊",
             "network": "檢視本機區域網路位址、網路介面卡狀態與掃碼邀請連結",
@@ -407,13 +408,13 @@
           }
         },
         "generative-ui": {
-          "title": "Generative UI 生成式介面",
-          "summary": "當文字解釋不夠直觀時，讓智能體直接在對話氣泡裡為你生成可點按、可調節的互動式小工具、資料看板、動態流程圖或視覺化展示卡——當場拖動滑桿看結果，填寫與勾選的狀態還會隨工作階段自動儲存，下次開啟接著用。",
+          "title": "對話視覺化",
+          "summary": "使用 visualize 技能在回覆中產生互動圖表、行事曆和效能分析檢視。",
           "items": {
-            "app-generation": "在工作階段中生成基於標準元件庫的可互動面板與迷你工具",
-            "visual-explainers": "生成自由排版的 HTML / CSS / SVG 動態圖解、示意圖與資訊卡片",
-            "interactive-state": "即時回應點擊與輸入，自動儲存元件狀態並在重開工作階段後恢復",
-            "library-verification": "自動跟隨淺色 / 深色外觀，並在呈現前完成真實視口渲染驗收"
+            "app-generation": "產生互動圖表與專用元件",
+            "visual-explainers": "產生靜態 HTML 或 SVG 圖解",
+            "interactive-state": "在此裝置還原篩選與選取項目",
+            "library-verification": "驗證元件資料並使用對話佈景主題呈現"
           }
         }
       },
@@ -579,7 +580,7 @@
         "tools": {
           "execution": {
             "title": "執行與協作",
-            "summary": "集中調校工具逾時、向使用者提問等待時間、子智能體預設模型與並行策略、按需載入工具、PTC 工具呈現、參數 JSON 修復、Deep Review 容量與 GenUI 預設元件庫，並串聯權限及裝置控制開關。",
+            "summary": "集中調校工具逾時、向使用者提問等待時間、子智能體預設模型與並行策略、按需載入工具、PTC 工具呈現、參數 JSON 修復、Deep Review 容量，並串聯權限及裝置控制開關。",
             "items": {
               "deferred-tools": "開啟「按需載入工具」（延遲載入工具），減少智能體初始上下文",
               "timeouts": "設定或取消單次工具呼叫逾時",
@@ -589,7 +590,6 @@
               "tool-presentation": "選擇模型使用原生工具呼叫、PTC TypeScript 或 PTC Python 模式",
               "json-repair": "控制是否在安全邊界內自動修復模型產生的輕微格式錯誤 JSON",
               "review-capacity": "設定 Deep Review 最大並行評審者數量與佇列等待時間",
-              "genui-library": "選擇新建生成式 UI 應用預設使用的元件庫（預設 openui）",
               "permission-mode": "選擇需要確認、自動審批或完全存取權限模式並確認高風險提示",
               "permission-selector": "控制權限模式快捷選擇器是否顯示在聊天輸入框下方",
               "global-project-rules": "建立、排序與儲存全域或專案級 Allow、Ask、Deny 規則",

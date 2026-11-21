@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   queueSetStatus: vi.fn(),
   steerDialogTurn: vi.fn(),
   items: [] as Array<Record<string, unknown>>,
+  acp: false,
 }));
 
 const queuedItem = {
@@ -104,7 +105,7 @@ vi.mock('@/shared/utils/logger', () => ({
 }));
 
 vi.mock('../utils/acpSession', () => ({
-  isAcpFlowSession: () => false,
+  isAcpFlowSession: () => mocks.acp,
 }));
 
 async function selectQueueMenuAction(container: HTMLElement, action: 'edit' | 'collapse') {
@@ -125,6 +126,7 @@ describe('PendingQueuePanel', () => {
     root = createRoot(container);
     mocks.drainPendingQueueForSession.mockResolvedValue(undefined);
     mocks.items = [queuedItem];
+    mocks.acp = false;
   });
 
   afterEach(() => {
@@ -155,6 +157,22 @@ describe('PendingQueuePanel', () => {
     expect(attachmentBadge?.getAttribute('aria-label')).toBe('pendingQueue.attachmentCount');
     await selectQueueMenuAction(container, 'collapse');
     expect(container.querySelector('[data-openbitfun-part="title"]')?.textContent).toBe('pendingQueue.title1');
+  });
+
+  it('promotes ACP send-now for terminal drain without injecting native steering', async () => {
+    mocks.acp = true;
+    await act(async () => {
+      root.render(<PendingQueuePanel sessionId="session-1" onRestoreToComposer={() => true} />);
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>(
+      'button[aria-label="pendingQueue.actions.sendNow"]',
+    )!.click());
+    expect(mocks.steerDialogTurn).not.toHaveBeenCalled();
+    expect(mocks.promoteForExplicitDrain).toHaveBeenCalledWith('session-1', 'queued-1');
+    expect(mocks.drainPendingQueueForSession).toHaveBeenCalledWith('session-1', {
+      allowInterruptedRecoveryAbandon: true,
+    });
+    expect(mocks.queueRemove).not.toHaveBeenCalled();
   });
 
   it('submits only one steering request while send-now is in flight', async () => {

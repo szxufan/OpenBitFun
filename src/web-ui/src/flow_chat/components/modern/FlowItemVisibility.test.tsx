@@ -27,6 +27,7 @@ vi.mock('../../store/FlowChatStore', () => {
   const store = {
     getState: () => ({ sessions: new Map() }),
     retainSessionHistory: () => () => {},
+    subscribeSelector: () => () => {},
   };
   return { flowChatStore: store, FlowChatStore: { getInstance: () => store } };
 });

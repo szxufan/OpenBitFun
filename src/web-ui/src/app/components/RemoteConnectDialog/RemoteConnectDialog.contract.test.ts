@@ -74,6 +74,11 @@ describe('Remote Connect safety contracts', () => {
     );
 
     expect(overview).toContain('remote-connect-my-devices-title');
+    const localSwitch = overview.slice(0, overview.indexOf('{accountLoggedIn && <section'));
+    expect(localSwitch).toContain('aria-labelledby="remote-connect-allowed-title"');
+    expect(localSwitch).toContain("t('remoteConnect.controlAllowed')");
+    expect(localSwitch).toContain('checked={status.remote_control_allowed}');
+    expect(localSwitch).toContain('onCheckedChange={(allowed) => void setRemoteControlAllowed(allowed)}');
     expect(overview).toContain('remote-connect-access-title');
     expect(overview.match(/renderOverviewAction\(\{/g)).toHaveLength(3);
     expect(overview).toContain("view: 'account'");

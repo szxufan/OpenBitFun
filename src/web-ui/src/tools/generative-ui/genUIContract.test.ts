@@ -8,17 +8,11 @@ import { preflightGenUIApp, genUICatalog } from './genUIContract';
 import { genUIProduct } from './genUIProduct';
 import { validateGenUIState } from './genUIState';
 import type { GenUIAppDefinition } from './genUITypes';
-describe('product library generation contract', () => {
+describe('archived GenUI library contract', () => {
   it.each(fixtures)('$name matches Rust validation', fixture => expect(preflightGenUIApp(fixture.app as GenUIAppDefinition).accepted).toBe(fixture.valid));
-  it('derives prompt, schema and runtime contracts from the same library declarations', () => {
+  it('derives the archive schemas and component libraries from the same declarations', () => {
     expect(compileCatalog(source)).toEqual(genUICatalog);
-    expect(genUICatalog.openuiLangReference).toContain('root = Component(...)');
-    expect(genUICatalog.genuiSystemPrompts?.openui).toContain('You are an AI assistant that responds using openui-lang');
-    expect(genUICatalog.genuiSystemPrompts?.openui).toContain('root = Card([title, stepper, list, copy])');
-    expect(genUICatalog.genuiSystemPrompts?.openui).not.toContain('Life plan');
-    expect(genUICatalog.genuiSystemPrompts?.openbitfun).not.toContain('Icon3D');
     expect(genUICatalog.libraries['openbitfun.composable.v1'].components.Icon3D).toBeUndefined();
-    expect(genUICatalog.genuiSystemPrompts?.openui).toContain('## Important Rules');
     expect(genUICatalog.profiles?.openui?.templates).toEqual(['openui.app']);
     expect(genUICatalog.profiles?.openbitfun?.templates).toEqual(['openbitfun.app']);
     const library = genUICatalog.libraries['openbitfun.composable.v1'];

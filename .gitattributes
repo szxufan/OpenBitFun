@@ -29,11 +29,6 @@
 # Windows or hosted runner cannot report newline-only generated drift.
 MiniApp/Demo/git-graph/source/** text eol=lf
 src/crates/assembly/core/builtin_skills/miniapp-dev/references/examples/demo-git-graph/source/** text eol=lf
-src/apps/mobile/**/*.json text eol=lf
-src/apps/mobile/**/*.js text eol=lf
-src/apps/mobile/**/*.ets text eol=lf
-src/apps/mobile/**/*.kt text eol=lf
-src/apps/mobile/**/*.swift text eol=lf
 
 # The Product Operation Registry embeds and compares this generated JSON byte for byte.
 src/crates/contracts/product-domains/src/generated/remote-surface-registry.json text eol=lf
@@ -66,3 +61,6 @@ Dockerfile.*        text eol=lf
 docker-compose.yml  text eol=lf
 docker-compose.*.yml text eol=lf
 Caddyfile           text eol=lf
+
+# Pinned guest scripts and map datasets are verified byte-for-byte.
+third_party/visualize/** -text -diff

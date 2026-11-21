@@ -56,7 +56,7 @@ export interface ChatInputWorkspaceStripProps {
     maxTokens: number;
     sessionKey?: string;
     anchorRef?: React.RefObject<HTMLElement>;
-    previewSession?: { sessionId: string; workspaceId?: string };
+    previewSession?: { sessionId: string; canvasSessionId?: string; workspaceId?: string };
     loadContext?: () => Promise<UsageContextEstimate | undefined>;
     compactDisabled?: boolean;
     onCompact?: () => void;

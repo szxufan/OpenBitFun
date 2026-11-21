@@ -210,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn agent_list_model_output_contains_child_ids_and_statuses() {
-        use crate::agentic::coordination::coordinator::tests::{
+        use crate::agentic::coordination::coordinator::test_support::{
             agent_lifecycle_child, test_coordinator,
         };
         let workspace = tempfile::tempdir().unwrap();
@@ -291,7 +291,7 @@ mod tests {
 
     #[tokio::test]
     async fn include_reserved_lists_deleted_ids_separately_without_restoring_sessions() {
-        use crate::agentic::coordination::coordinator::tests::{
+        use crate::agentic::coordination::coordinator::test_support::{
             agent_lifecycle_child, test_coordinator,
         };
         use crate::agentic::core::SessionConfig;

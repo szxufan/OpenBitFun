@@ -1,0 +1,194 @@
+{
+  "title": "OpenBitFun",
+  "spec": {
+    "version": 2,
+    "kind": "tabs",
+    "description": "可定制的开源 AI Agent 工作台",
+    "panels": [
+      {
+        "title": "工作台",
+        "nodes": [
+          {
+            "title": "工作入口",
+            "caption": "桌面 · CLI / TUI · 移动控制",
+            "icon": "desktop"
+          },
+          {
+            "title": "Agent 执行",
+            "caption": "Harness 定义流程，Rust Runtime 执行",
+            "icon": "runtime"
+          },
+          {
+            "title": "任务成果",
+            "caption": "代码与文件 · 会话记录 · Mini App",
+            "icon": "artifacts"
+          }
+        ],
+        "variants": [
+          {
+            "label": "极简",
+            "steps": [
+              "确认目标",
+              "直接执行",
+              "按反馈调整"
+            ],
+            "detail": "适合目标明确、希望尽快动手的任务。"
+          },
+          {
+            "label": "标准",
+            "steps": [
+              "规划步骤",
+              "逐步执行",
+              "检查结果"
+            ],
+            "detail": "适合需要多步骤处理的日常任务。"
+          },
+          {
+            "label": "极致",
+            "steps": [
+              "拆解复杂任务",
+              "多个 Agent 分工",
+              "整合结果"
+            ],
+            "detail": "适合需要深入分析和并行分工的复杂任务。"
+          },
+          {
+            "label": "创造",
+            "steps": [
+              "描述需求",
+              "生成 Mini App",
+              "在应用中迭代"
+            ],
+            "detail": "适合用 Mini App 定制工作台，也可通过 Agent、Skills、Hooks 与 MCP 扩展能力。"
+          }
+        ]
+      },
+      {
+        "title": "代码架构",
+        "text": "依赖由上层指向下层，可跨层",
+        "outline": [
+          {
+            "title": "入口与接口",
+            "path": "src/apps · src/web-ui · src/mobile-web",
+            "summary": "桌面、终端、Server 与移动 Web 等交付入口"
+          },
+          {
+            "title": "产品装配",
+            "path": "src/crates/assembly",
+            "summary": "选择产品能力、内置 Agent 内容与服务接线"
+          },
+          {
+            "title": "适配器",
+            "path": "src/crates/adapters",
+            "summary": "衔接传输协议、IPC、模型服务与外部工具生态"
+          },
+          {
+            "title": "平台服务",
+            "path": "src/crates/services",
+            "summary": "实现文件、终端、Git、远程连接与持久化"
+          },
+          {
+            "title": "执行基础",
+            "path": "src/crates/execution",
+            "summary": "提供 Agent Runtime、工作流、事件流与工具执行基础",
+            "highlight": true
+          },
+          {
+            "title": "契约与领域",
+            "path": "src/crates/contracts",
+            "summary": "定义共享数据、事件、运行时接口与产品领域规则"
+          }
+        ]
+      },
+      {
+        "title": "远程协作",
+        "variants": [
+          {
+            "label": "远程工作区",
+            "nodes": [
+              {
+                "icon": "runtime",
+                "title": "OpenBitFun 宿主",
+                "caption": "运行 Agent Runtime"
+              },
+              {
+                "icon": "relay",
+                "title": "工作区连接",
+                "caption": "SSH · Docker · WSL"
+              },
+              {
+                "icon": "workspace",
+                "title": "目标工作区",
+                "caption": "文件 · 搜索 · 终端"
+              }
+            ],
+            "detail": "Agent 在 OpenBitFun 宿主运行，文件与终端操作在目标环境执行。"
+          },
+          {
+            "label": "远程控制",
+            "nodes": [
+              {
+                "icon": "phone",
+                "title": "远程控制端",
+                "caption": "手机 · 浏览器 · 消息机器人"
+              },
+              {
+                "icon": "relay",
+                "title": "Remote Connect",
+                "caption": "Relay 或聊天平台接入"
+              },
+              {
+                "icon": "server",
+                "title": "目标宿主",
+                "caption": "Desktop 或 CLI"
+              }
+            ],
+            "detail": "从远端发送指令、查看进度和处理授权，任务由所选宿主运行。"
+          },
+          {
+            "label": "对等设备",
+            "nodes": [
+              {
+                "icon": "desktop",
+                "title": "当前电脑",
+                "caption": "本地桌面界面"
+              },
+              {
+                "icon": "relay",
+                "title": "同账号连接",
+                "caption": "转发调用与事件"
+              },
+              {
+                "icon": "server",
+                "title": "在线设备",
+                "caption": "提供会话、文件与工具"
+              }
+            ],
+            "detail": "桌面界面可切换到另一台在线设备的工作区与会话，运行中的任务继续留在原设备。"
+          },
+          {
+            "label": "分离式派发",
+            "nodes": [
+              {
+                "icon": "desktop",
+                "title": "提交端",
+                "caption": "Desktop 或 CLI"
+              },
+              {
+                "icon": "relay",
+                "title": "任务投递",
+                "caption": "SSH 或加密设备 RPC"
+              },
+              {
+                "icon": "server",
+                "title": "目标主机",
+                "caption": "持久记录并在后台执行"
+              }
+            ],
+            "detail": "目标持久确认任务后，提交端可以断开。目标负责会话、工作树、事件和权限。"
+          }
+        ]
+      }
+    ]
+  }
+}

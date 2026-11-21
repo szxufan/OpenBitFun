@@ -573,7 +573,7 @@ fn serve_model_response(
                     "index": 0,
                     "delta": {
                         "role": "assistant",
-                        "content": "DECISION=ALLOW;RISK=LOW;REASON=READ_ONLY"
+                        "content": "DECISION=ALLOW"
                     },
                     "finish_reason": "stop"
                 }]
@@ -739,7 +739,7 @@ fn is_permission_approval_request(request: &[u8]) -> bool {
         messages.iter().any(|message| {
             message["content"]
                 .as_str()
-                .is_some_and(|content| content.contains("You are a permission classifier."))
+                .is_some_and(|content| content.starts_with("# Permission review\n\n"))
         })
     })
 }

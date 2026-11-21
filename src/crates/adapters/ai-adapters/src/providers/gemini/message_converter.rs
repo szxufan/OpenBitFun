@@ -488,13 +488,31 @@ impl GeminiMessageConverter {
                                 Value::Object(
                                     properties
                                         .into_iter()
-                                        .map(|(name, schema)| {
-                                            (name, Self::strip_unsupported_schema_fields(schema))
+                                        .filter_map(|(name, schema)| match schema {
+                                            // JSON Schema boolean forms: `true` accepts any
+                                            // value, `false` forbids the property.
+                                            Value::Bool(true) => Some((name, json!({}))),
+                                            Value::Bool(false) => None,
+                                            schema => Some((
+                                                name,
+                                                Self::strip_unsupported_schema_fields(schema),
+                                            )),
                                         })
                                         .collect(),
                                 ),
                             );
                         }
+                        continue;
+                    }
+
+                    if key == "items" {
+                        // Gemini only accepts a single item schema. Tuple (`items: [...]`)
+                        // and boolean forms become an unconstrained element schema.
+                        let items = match value {
+                            Value::Object(_) => Self::strip_unsupported_schema_fields(value),
+                            _ => json!({}),
+                        };
+                        sanitized.insert(key, items);
                         continue;
                     }
 
@@ -523,6 +541,23 @@ impl GeminiMessageConverter {
                     }
                     sanitized.insert("type".to_string(), Value::String(schema_type));
                 }
+                if !sanitized.contains_key("type") {
+                    // JSON Schema allows untyped schemas whose `properties` / `items`
+                    // only constrain matching instances, but Gemini only accepts those
+                    // keywords on OBJECT / ARRAY schemas. Infer the structural type.
+                    if sanitized.contains_key("properties") {
+                        sanitized.insert("type".to_string(), json!("object"));
+                    } else if sanitized.contains_key("items") {
+                        sanitized.insert("type".to_string(), json!("array"));
+                    } else if sanitized
+                        .get("enum")
+                        .and_then(Value::as_array)
+                        .is_some_and(|values| values.iter().all(Value::is_string))
+                    {
+                        sanitized.insert("type".to_string(), json!("string"));
+                    }
+                }
+                Self::drop_keywords_incompatible_with_type(&mut sanitized);
                 if nullable {
                     sanitized.insert("nullable".to_string(), Value::Bool(true));
                 }
@@ -536,6 +571,83 @@ impl GeminiMessageConverter {
                     .collect(),
             ),
             other => other,
+        }
+    }
+
+    /// Gemini validates schema keywords against the schema `type` and rejects a request
+    /// that carries, for example, `items` on a STRING or `properties` on an ARRAY.
+    /// Mixed-type unions and `type` arrays collapse to a single type here, so drop the
+    /// keywords that the selected type cannot carry. This only loosens constraints.
+    fn drop_keywords_incompatible_with_type(schema: &mut Map<String, Value>) {
+        let Some(schema_type) = schema
+            .get("type")
+            .and_then(Value::as_str)
+            .map(str::to_ascii_lowercase)
+        else {
+            if schema
+                .get("enum")
+                .and_then(Value::as_array)
+                .is_some_and(|values| !values.iter().all(Value::is_string))
+            {
+                schema.remove("enum");
+            }
+            return;
+        };
+        let is_number = matches!(schema_type.as_str(), "number" | "integer");
+
+        if schema_type == "object" {
+            let property_names: Option<Vec<String>> = schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .map(|properties| properties.keys().cloned().collect());
+            // Gemini rejects `required` entries that are not declared in `properties`.
+            match (schema.get_mut("required"), property_names) {
+                (Some(Value::Array(required)), Some(names)) => {
+                    required.retain(|name| {
+                        name.as_str()
+                            .is_some_and(|name| names.iter().any(|known| known == name))
+                    });
+                    if required.is_empty() {
+                        schema.remove("required");
+                    }
+                }
+                (Some(_), _) => {
+                    schema.remove("required");
+                }
+                (None, _) => {}
+            }
+        } else {
+            schema.remove("properties");
+            schema.remove("required");
+        }
+        if schema_type != "array" {
+            schema.remove("items");
+            schema.remove("minItems");
+            schema.remove("maxItems");
+        }
+        if schema_type != "string" {
+            schema.remove("minLength");
+            schema.remove("maxLength");
+            schema.remove("pattern");
+        }
+        if !is_number {
+            schema.remove("minimum");
+            schema.remove("maximum");
+        }
+
+        if let Some(values) = schema.get_mut("enum") {
+            // Gemini only accepts string enums on STRING schemas.
+            let keep = schema_type == "string"
+                && match values {
+                    Value::Array(values) => {
+                        values.retain(Value::is_string);
+                        !values.is_empty()
+                    }
+                    _ => false,
+                };
+            if !keep {
+                schema.remove("enum");
+            }
         }
     }
 
@@ -902,6 +1014,101 @@ mod tests {
             schema["properties"]["typed_array"]["items"]["type"],
             json!("string")
         );
+    }
+
+    #[test]
+    fn infers_structural_type_for_untyped_properties_and_items() {
+        let schema = GeminiMessageConverter::sanitize_schema(json!({
+            "type": "object",
+            "properties": {
+                "paragraphs": {
+                    "type": "array",
+                    "items": {
+                        "description": "String or paragraph object.",
+                        "properties": { "text": { "type": "string" } },
+                        "additionalProperties": true
+                    }
+                },
+                "rows": {
+                    "description": "2-D array or integer.",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "properties": {
+                                "value": {},
+                                "formula": { "type": "string" }
+                            }
+                        }
+                    }
+                },
+                "untyped_leaf": { "description": "Anything." }
+            }
+        }));
+
+        let props = &schema["properties"];
+        assert_eq!(props["paragraphs"]["items"]["type"], json!("object"));
+        assert_eq!(props["rows"]["type"], json!("array"));
+        assert_eq!(props["rows"]["items"]["type"], json!("array"));
+        assert_eq!(props["rows"]["items"]["items"]["type"], json!("object"));
+        assert!(props["untyped_leaf"].get("type").is_none());
+        assert!(props["rows"]["items"]["items"]["properties"]["value"]
+            .get("type")
+            .is_none());
+    }
+
+    #[test]
+    fn drops_keywords_that_conflict_with_the_collapsed_union_type() {
+        let schema = GeminiMessageConverter::sanitize_schema(json!({
+            "type": "object",
+            "properties": {
+                "string_or_list": {
+                    "anyOf": [
+                        { "type": "string", "minLength": 1 },
+                        { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+                    ]
+                },
+                "list_or_string": {
+                    "type": ["array", "string"],
+                    "items": { "type": "string" },
+                    "maxLength": 10
+                },
+                "level": { "type": "integer", "enum": [1, 2, 3], "minimum": 1 },
+                "mode": { "type": ["string", "null"], "enum": ["fast", "slow", null] },
+                "untyped_choice": { "enum": ["a", "b"] },
+                "untyped_numeric_choice": { "enum": [1, 2] },
+                "tuple": { "type": "array", "items": [{ "type": "string" }, { "type": "integer" }] },
+                "any_value": true,
+                "never": false
+            },
+            "required": ["string_or_list", "never", "missing"]
+        }));
+
+        let props = &schema["properties"];
+        assert_eq!(props["string_or_list"]["type"], json!("string"));
+        assert_eq!(props["string_or_list"]["minLength"], json!(1));
+        assert!(props["string_or_list"].get("items").is_none());
+        assert!(props["string_or_list"].get("minItems").is_none());
+
+        assert_eq!(props["list_or_string"]["type"], json!("array"));
+        assert_eq!(props["list_or_string"]["items"]["type"], json!("string"));
+        assert!(props["list_or_string"].get("maxLength").is_none());
+
+        assert_eq!(props["level"]["type"], json!("integer"));
+        assert_eq!(props["level"]["minimum"], json!(1));
+        assert!(props["level"].get("enum").is_none());
+
+        assert_eq!(props["mode"]["type"], json!("string"));
+        assert_eq!(props["mode"]["nullable"], json!(true));
+        assert_eq!(props["mode"]["enum"], json!(["fast", "slow"]));
+
+        assert_eq!(props["untyped_choice"]["type"], json!("string"));
+        assert!(props["untyped_numeric_choice"].get("enum").is_none());
+        assert!(props["untyped_numeric_choice"].get("type").is_none());
+
+        assert_eq!(props["tuple"]["items"], json!({}));
+        assert_eq!(props["any_value"], json!({}));
+        assert!(props.get("never").is_none());
+        assert_eq!(schema["required"], json!(["string_or_list"]));
     }
 
     #[test]

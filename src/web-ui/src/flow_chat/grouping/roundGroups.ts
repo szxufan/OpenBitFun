@@ -196,6 +196,7 @@ export function getProjectedModelRoundGroups(item: Extract<VirtualItem, { type: 
 }
 
 interface BuildFlowItemGroupsInput extends FlowGroupPolicyOptions {
+  figureMembers?: ReadonlySet<string>;
   items: readonly FlowItem[];
   disabled?: boolean;
   /** Cross-round projection applies thresholds after collecting the visible run. */
@@ -203,7 +204,7 @@ interface BuildFlowItemGroupsInput extends FlowGroupPolicyOptions {
 }
 
 /** Pure projection: no clocks, UI density, stream timers or mutation of recorded items. */
-export function buildFlowItemGroups({ items, disabled = false, retainCandidates = false, ...policyOptions }: BuildFlowItemGroupsInput): ModelRoundItemGroup[] {
+export function buildFlowItemGroups({ items, disabled = false, retainCandidates = false, figureMembers, ...policyOptions }: BuildFlowItemGroupsInput): ModelRoundItemGroup[] {
   const groups: ModelRoundItemGroup[] = [];
   let buffer: FlowItem[] = [];
   let pending: FlowItem[] = [];
@@ -220,12 +221,15 @@ export function buildFlowItemGroups({ items, disabled = false, retainCandidates 
     category = undefined;
   };
   for (const item of items) {
-    if (!isFlowItemVisible(item)) continue;
+    // A still-undecided call is a grouping boundary even while the leaf waits
+    // for its destination. Otherwise the previous group swallows its reasoning.
+    const visible = isFlowItemVisible(item);
+    if (!visible && !(item.type === 'tool' && (item as FlowToolItem).isParamsStreaming)) continue;
     if (!disabled && isFlowGroupCompanion(item)) {
       pending.push(item);
       continue;
     }
-    const nextCategory = disabled ? undefined : classifyFlowGroupItem(item, policyOptions);
+    const nextCategory = disabled || !visible ? undefined : figureMembers?.has(item.id) ? 'visualize' : classifyFlowGroupItem(item, policyOptions);
     if (nextCategory) {
       const joinedCategory = joinedFlowGroupCategory(category, nextCategory);
       const continuing = category !== undefined && joinedCategory !== undefined

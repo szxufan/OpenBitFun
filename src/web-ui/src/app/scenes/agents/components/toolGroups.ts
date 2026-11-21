@@ -65,7 +65,6 @@ const BUILTIN_TOOL_GROUPS: BuiltinToolGroupDefinition[] = [
     labelKey: 'agentsOverview.toolGroups.interactionCanvas',
     toolNames: [
       'AskUserQuestion',
-      'GenerativeUI',
     ],
   },
   {

@@ -7,7 +7,8 @@
 use super::util::normalize_path;
 use crate::agentic::coordination::{get_global_coordinator, get_global_scheduler};
 use crate::agentic::tools::framework::{
-    Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext, ValidationResult,
+    PermissionIntent, Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext,
+    ValidationResult,
 };
 use crate::service::workspace::{get_global_workspace_service, WorkspaceService};
 use crate::service_agent_runtime::CoreServiceAgentRuntime;
@@ -520,6 +521,35 @@ Arguments:
 
     fn is_readonly(&self) -> bool {
         false
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        let action = if input.get("action").and_then(Value::as_str) == Some("list") {
+            "session.read"
+        } else {
+            "session.manage"
+        };
+        let resource = if let Some(id) = input.get("session_id").and_then(Value::as_str) {
+            format!("session:{id}")
+        } else {
+            let workspace = input
+                .get("workspace")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| {
+                    context
+                        .workspace
+                        .as_ref()
+                        .map(|workspace| workspace.root_path_string())
+                })
+                .unwrap_or_else(|| "<missing-workspace>".into());
+            format!("workspace:{workspace}")
+        };
+        Ok(vec![PermissionIntent::new(action, vec![resource])])
     }
 
     async fn validate_input(

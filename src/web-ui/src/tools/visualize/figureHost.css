@@ -1,0 +1,14 @@
+/* Leave the host chat surface visible, including artwork and translucent skins.
+   The figure still has a surface color for panels, tooltips and map fills. */
+:root { background-color: transparent !important; }
+
+.btn.btn-primary,
+.btn:not(.viz-tile):is([aria-pressed='true'], [aria-selected='true'], .is-selected) {
+  background: var(--openbitfun-color-action-primary-background);
+  border-color: var(--openbitfun-color-action-primary-background);
+  color: var(--openbitfun-color-action-primary-content);
+}
+
+.btn.btn-primary:not(:disabled):hover {
+  background: var(--openbitfun-color-action-primary-hover);
+}

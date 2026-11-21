@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { insightsApi } from '../insightsApi';
 import { ApiClient, createRetryMiddleware } from './ApiClient';
 import { workspaceAPI } from './WorkspaceAPI';
 import {
@@ -279,6 +280,30 @@ describe('ApiClient startup trace classification', () => {
         failedRequests: 0,
         activeRequests: 0,
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns an insights report that takes longer than the default deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      const report = { total_sessions: 12, analyzed_sessions: 12 };
+      adapterMocks.request.mockImplementationOnce(() => new Promise(resolve => {
+        setTimeout(() => resolve(report), 60_000);
+      }));
+
+      const result = insightsApi.generateInsights(30, 'primary');
+      await Promise.all([
+        expect(result).resolves.toEqual(report),
+        vi.advanceTimersByTimeAsync(60_000),
+      ]);
+
+      expect(adapterMocks.request).toHaveBeenCalledExactlyOnceWith(
+        'generate_insights',
+        { request: { days: 30, modelId: 'primary' } },
+        expect.any(Object),
+      );
     } finally {
       vi.useRealTimers();
     }

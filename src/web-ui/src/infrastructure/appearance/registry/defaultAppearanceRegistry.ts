@@ -62,7 +62,7 @@ import { notificationAppearanceDescriptor } from '@/shared/notification-system/a
 import { imageLightboxAppearanceDescriptor } from '@/shared/ui/ImageLightbox.appearance';
 import { productBrandIconAppearanceDescriptor } from '@/shared/ui/ProductBrandIcon.appearance';
 import { generativeWidgetAppearanceDescriptor } from '@/tools/generative-widget/appearance';
-import { genUIApplicationAppearanceDescriptor, genUIComponentsAppearanceDescriptor, genUIGalleryAppearanceDescriptor } from '@/tools/generative-ui/appearance';
+import { genUIApplicationAppearanceDescriptor, genUIComponentsAppearanceDescriptor } from '@/tools/generative-ui/appearance';
 import { editorToolAppearanceDescriptor } from '@/tools/editor/appearance';
 import { fileSystemAppearanceDescriptor } from '@/tools/file-system/appearance';
 import { gitToolAppearanceDescriptor } from '@/tools/git/appearance';
@@ -108,7 +108,6 @@ import { flexiblePanelAppearanceDescriptor } from '@/app/components/panels/base/
 import { btwSessionPanelAppearanceDescriptor } from '@/flow_chat/components/btw/BtwSessionPanel.appearance';
 import { conversationExcerptAppearanceDescriptor } from '@/flow_chat/selection/ConversationExcerpt.appearance';
 import { modernFlowChatAppearanceDescriptor, virtualMessageListAppearanceDescriptor } from '@/flow_chat/components/modern/appearance';
-import { genUILibrarySettingsAppearanceDescriptor } from '@/app/scenes/settings/pages/ai/GenUILibrarySection.appearance';
 import { modelSettingsAppearanceDescriptor } from '@/app/scenes/settings/pages/ai/ModelSettingsPage.appearance';
 import { reasoningConfigPanelAppearanceDescriptor } from '@/infrastructure/config/components/ReasoningConfigPanel.appearance';
 import { reasoningPresetEditorAppearanceDescriptor } from '@/infrastructure/config/components/ReasoningPresetEditor.appearance';
@@ -341,7 +340,6 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(generativeWidgetAppearanceDescriptor)
     .registerComponent(genUIApplicationAppearanceDescriptor)
     .registerComponent(genUIComponentsAppearanceDescriptor)
-    .registerComponent(genUIGalleryAppearanceDescriptor)
     .registerComponent(editorToolAppearanceDescriptor)
     .registerComponent(fileSystemAppearanceDescriptor)
     .registerComponent(gitToolAppearanceDescriptor)
@@ -392,7 +390,6 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(modernFlowChatAppearanceDescriptor)
     .registerComponent(virtualMessageListAppearanceDescriptor)
     .registerComponent(modelSettingsAppearanceDescriptor)
-    .registerComponent(genUILibrarySettingsAppearanceDescriptor)
     .registerComponent(reasoningConfigPanelAppearanceDescriptor)
     .registerComponent(reasoningPresetEditorAppearanceDescriptor)
     .registerComponent(externalSourcesConfigAppearanceDescriptor)

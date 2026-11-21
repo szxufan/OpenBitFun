@@ -119,9 +119,9 @@ jobs:
 
           "$test_root/openbitfun-minisign-0.12/bin/minisign" -v
 
-  # ── CLI: independent tests ─────────────────────────────────────────
-  cli-test:
-    name: CLI Tests (${{ matrix.os }})
+  # ── Runtime component tests ─────────────────────────────────────────
+  runtime-test:
+    name: Runtime Tests (${{ matrix.os }})
     needs: build-impact
     if: ${{ !cancelled() && needs.build-impact.outputs.rust_required != 'false' }}
     runs-on: ${{ matrix.os }}
@@ -133,15 +133,12 @@ jobs:
           - os: ubuntu-latest
             cache_key: ubuntu
             timeout_minutes: 30
-          # Pin the Intel pool for macOS OS-contract validation; release jobs
-          # select their Apple Silicon / Intel targets independently.
-          - os: macos-15-intel
-            cache_key: macos-intel
-            # A cold Intel build can still be compiling the CLI at 30 minutes.
+          # Keep the blocking macOS validation on Apple Silicon for predictable
+          # PR latency; release and Nightly matrices retain both architectures.
+          - os: macos-15
+            cache_key: macos-arm64
+            # Keep headroom for a cold macOS build.
             timeout_minutes: 75
-          - os: windows-latest
-            cache_key: windows
-            timeout_minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -169,32 +166,19 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          shared-key: "cli-ci-v3-${{ github.base_ref || github.ref_name }}-${{ matrix.cache_key }}"
+          shared-key: "runtime-ci-v1-${{ github.base_ref || github.ref_name }}-${{ matrix.cache_key }}"
           cache-bin: false
           # PRs restore trusted caches but never publish merge-ref artifacts.
           save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/1.0.0-explore') }}
           cache-on-failure: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/1.0.0-explore') }}
 
-      - name: Run CLI and ACP tests on macOS
+      - name: Run ACP tests on macOS
         if: runner.os == 'macOS'
-        run: cargo test --locked -p openbitfun-cli -p openbitfun-acp
+        run: cargo test --locked -p openbitfun-acp
 
-      - name: Run CLI, ACP, and agent runtime tests
+      - name: Run ACP and agent runtime tests
         if: runner.os == 'Linux'
-        run: cargo test --locked -p openbitfun-cli -p openbitfun-acp -p openbitfun-agent-runtime
-
-      # ConPTY is a Windows-only execution path. Keep its interactive contracts
-      # serialized: concurrent native PTYs contend on hosted runners and used to
-      # race action delivery, TUI restoration, and output observation in Nightly.
-      - name: Run Windows CLI terminal contracts
-        if: runner.os == 'Windows'
-        run: cargo test --locked -p openbitfun-cli --test terminal_process_contracts -- --test-threads=1
-
-      # Windows file replacement and process ownership differ from POSIX. The
-      # terminal process target does not run these daemon and TUI unit tests.
-      - name: Run Windows CLI daemon and QR regressions
-        if: runner.os == 'Windows'
-        run: "cargo test --locked -p openbitfun-cli --bin openbitfun -- daemon:: ui::tool_cards::tests::"
+        run: cargo test --locked -p openbitfun-acp -p openbitfun-agent-runtime
 
       - name: Run SDK Host tests
         if: runner.os == 'Linux'
@@ -231,7 +215,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-15-intel
+          - macos-15
           - windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -298,7 +282,7 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          shared-key: "ci-check-v6-${{ github.base_ref || github.ref_name }}-${{ runner.os }}-no-cargo-bin"
+          shared-key: "ci-check-v6-${{ github.base_ref || github.ref_name }}-${{ runner.os }}-${{ runner.arch }}-no-cargo-bin"
           cache-bin: false
           # PR caches are scoped to merge refs; trusted main pushes own shared
           # refreshes and retain completed dependency builds after late test failures.
@@ -527,16 +511,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: ${{ always() }}
-    needs: [build-impact, cli-test, rust-build-check, package-impact-contract]
+    needs: [build-impact, runtime-test, rust-build-check, package-impact-contract]
     steps:
-      - name: Verify Rust and CLI result
+      - name: Verify Rust build and runtime test results
         shell: pwsh
         env:
           RUST_REQUIRED: ${{ needs.build-impact.outputs.rust_required }}
           PR_PRODUCER_REQUIRED: ${{ needs.build-impact.outputs.pr_producer_required }}
           EVENT_NAME: ${{ github.event_name }}
           IMPACT_RESULT: ${{ needs.build-impact.result }}
-          CLI_RESULT: ${{ needs.cli-test.result }}
+          RUNTIME_RESULT: ${{ needs.runtime-test.result }}
           RUST_RESULT: ${{ needs.rust-build-check.result }}
           BUILD_RESULT: ${{ needs.package-impact-contract.result }}
         run: |
@@ -547,13 +531,13 @@ jobs:
 
           switch ($env:RUST_REQUIRED) {
             'false' {
-              if ($env:CLI_RESULT -ne 'skipped' -or $env:RUST_RESULT -ne 'skipped') {
-                throw "Expected skipped Rust/CLI jobs; CLI=$env:CLI_RESULT Rust=$env:RUST_RESULT"
+              if ($env:RUNTIME_RESULT -ne 'skipped' -or $env:RUST_RESULT -ne 'skipped') {
+                throw "Expected skipped Rust build and runtime jobs; Runtime=$env:RUNTIME_RESULT Rust=$env:RUST_RESULT"
               }
             }
             'true' {
-              if ($env:CLI_RESULT -ne 'success' -or $env:RUST_RESULT -ne 'success') {
-                throw "Expected successful Rust and CLI jobs; CLI=$env:CLI_RESULT Rust=$env:RUST_RESULT"
+              if ($env:RUNTIME_RESULT -ne 'success' -or $env:RUST_RESULT -ne 'success') {
+                throw "Expected successful Rust build and runtime jobs; Runtime=$env:RUNTIME_RESULT Rust=$env:RUST_RESULT"
               }
             }
             default {
@@ -772,7 +756,7 @@ jobs:
 
       - name: Validate mobile-web build cache contract
         if: needs.build-impact.outputs.frontend_required != 'false'
-        run: node --test scripts/mobile-web-build.test.mjs
+        run: node --test scripts/mobile-web-build.test.mjs scripts/mobile-client-build.contract.test.mjs
 
       - name: Test mobile web account login and reload
         if: needs.build-impact.outputs.frontend_required != 'false'

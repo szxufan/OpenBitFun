@@ -165,3 +165,9 @@ Core code is licensed under the [MIT License](./LICENSE). Third-party dependenci
     <img alt="OpenBitFun Star History Chart" src="https://api.star-history.com/chart?repos=gcwing/openbitfun&amp;type=date&amp;legend=top-left" />
   </picture>
 </a>
+
+### Native mobile development
+
+Android, iOS and HarmonyOS source code and releases have moved to
+[OpenBitFun-Mobile](https://github.com/openBitFun/OpenBitFun-Mobile).
+The browser mobile-web client and Desktop/CLI/Relay host implementations remain in this repository.

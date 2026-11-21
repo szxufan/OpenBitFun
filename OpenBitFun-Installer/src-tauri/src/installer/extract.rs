@@ -47,13 +47,30 @@ fn extract_zip_archive<R: io::Read + io::Seek>(
         let out_path = target_dir.join(&rel_path);
 
         if file.is_dir() {
-            fs::create_dir_all(&out_path)?;
+            fs::create_dir_all(&out_path).with_context(|| {
+                format!(
+                    "Failed to create installation directory: {}",
+                    out_path.display()
+                )
+            })?;
         } else {
             if let Some(parent) = out_path.parent() {
-                fs::create_dir_all(parent)?;
+                fs::create_dir_all(parent).with_context(|| {
+                    format!(
+                        "Failed to create installation directory: {}",
+                        parent.display()
+                    )
+                })?;
             }
-            let mut outfile = fs::File::create(&out_path)?;
-            io::copy(&mut file, &mut outfile)?;
+            let mut outfile = fs::File::create(&out_path).with_context(|| {
+                format!("Failed to create installation file: {}", out_path.display())
+            })?;
+            io::copy(&mut file, &mut outfile).with_context(|| {
+                format!(
+                    "Failed to extract installation file: {}",
+                    out_path.display()
+                )
+            })?;
         }
     }
 
@@ -78,12 +95,29 @@ fn copy_directory_internal(
     let mut bytes_copied: u64 = 0;
 
     if !target.exists() {
-        fs::create_dir_all(target)?;
+        fs::create_dir_all(target).with_context(|| {
+            format!(
+                "Failed to create installation directory: {}",
+                target.display()
+            )
+        })?;
     }
 
-    for entry in fs::read_dir(source)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
+    for entry in fs::read_dir(source)
+        .with_context(|| format!("Failed to read payload directory: {}", source.display()))?
+    {
+        let entry = entry.with_context(|| {
+            format!(
+                "Failed to read payload directory entry: {}",
+                source.display()
+            )
+        })?;
+        let file_type = entry.file_type().with_context(|| {
+            format!(
+                "Failed to inspect payload entry: {}",
+                entry.path().display()
+            )
+        })?;
         let name = entry.file_name();
         let rel = relative_prefix.join(&name);
         let dest = target.join(&name);
@@ -100,8 +134,19 @@ fn copy_directory_internal(
             if !should_copy_file(&rel) {
                 continue;
             }
-            let size = entry.metadata()?.len();
-            fs::copy(entry.path(), &dest)?;
+            let size = entry
+                .metadata()
+                .with_context(|| {
+                    format!("Failed to inspect payload file: {}", entry.path().display())
+                })?
+                .len();
+            fs::copy(entry.path(), &dest).with_context(|| {
+                format!(
+                    "Failed to copy payload file from {} to {}",
+                    entry.path().display(),
+                    dest.display()
+                )
+            })?;
             bytes_copied += size;
         }
     }
@@ -111,8 +156,103 @@ fn copy_directory_internal(
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_zip_bytes_with_filter, extract_zip_with_filter};
-    use std::{fs, path::Path};
+    use super::{
+        copy_directory_with_filter, extract_zip_bytes_with_filter, extract_zip_with_filter,
+    };
+    use std::{fs, io, path::Path};
+
+    fn assert_io_diagnostic(error: anyhow::Error, path: &Path) {
+        let cause = error.downcast_ref::<io::Error>().unwrap();
+        let os_error = cause.raw_os_error().unwrap();
+        let message = format!("{error:#}");
+        assert!(message.contains(&path.display().to_string()), "{message}");
+        assert!(message.contains(&cause.to_string()), "{message}");
+        assert!(
+            message.contains(&format!("os error {os_error}")),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn extraction_failure_preserves_target_path_and_os_error() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("installed");
+        let blocked_file = target.join("resources/readme.txt");
+        fs::create_dir_all(&blocked_file).unwrap();
+
+        let error = extract_zip_bytes_with_filter(
+            include_bytes!("fixtures/legacy-payload-zip-0.6.6.zip"),
+            &target,
+            |path| path == Path::new("resources/readme.txt"),
+        )
+        .unwrap_err();
+
+        assert_io_diagnostic(error, &blocked_file);
+    }
+
+    #[test]
+    fn extraction_directory_failure_preserves_path_and_os_error() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("installed");
+        fs::create_dir(&target).unwrap();
+        let blocked_directory = target.join("resources");
+        fs::write(&blocked_directory, b"not a directory").unwrap();
+
+        let error = extract_zip_bytes_with_filter(
+            include_bytes!("fixtures/legacy-payload-zip-0.6.6.zip"),
+            &target,
+            |path| path == Path::new("resources/readme.txt"),
+        )
+        .unwrap_err();
+
+        assert_io_diagnostic(error, &blocked_directory);
+    }
+
+    #[test]
+    fn copy_failure_preserves_source_target_and_os_error() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("payload");
+        fs::create_dir(&source).unwrap();
+        let source_file = source.join("application.exe");
+        fs::write(&source_file, b"new application").unwrap();
+        let target = root.path().join("installed");
+        let blocked_file = target.join("application.exe");
+        fs::create_dir_all(&blocked_file).unwrap();
+
+        let error = copy_directory_with_filter(&source, &target, |_| true).unwrap_err();
+        assert!(format!("{error:#}").contains(&source_file.display().to_string()));
+        assert_io_diagnostic(error, &blocked_file);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn locked_installation_file_preserves_windows_error_code() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("installed");
+        fs::create_dir_all(target.join("resources")).unwrap();
+        let locked_file = target.join("resources/readme.txt");
+        fs::write(&locked_file, b"old resource").unwrap();
+        let _locked = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&locked_file)
+            .unwrap();
+
+        let error = extract_zip_bytes_with_filter(
+            include_bytes!("fixtures/legacy-payload-zip-0.6.6.zip"),
+            &target,
+            |path| path == Path::new("resources/readme.txt"),
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error.downcast_ref::<io::Error>().unwrap().raw_os_error(),
+            Some(32)
+        );
+        assert_io_diagnostic(error, &locked_file);
+    }
 
     #[test]
     fn reads_legacy_payload_from_file_and_embedded_bytes() {

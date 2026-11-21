@@ -616,6 +616,22 @@ pub(crate) async fn resolve_product_readonly_enabled_tools() -> Vec<ToolRef> {
         .await
 }
 
+#[cfg(feature = "ptc-runtime")]
+pub(crate) async fn resolve_product_deferred_tool_detail(
+    name: &str,
+    context: &ToolUseContext,
+) -> Result<openbitfun_agent_tools::GetToolSpecDetail, String> {
+    with_collaboration_model_policy(
+        openbitfun_agent_tools::resolve_get_tool_spec_detail_from_provider(
+            &ProductToolCatalogProvider,
+            name,
+            context,
+            GET_TOOL_SPEC_TOOL_NAME,
+        ),
+    )
+    .await
+}
+
 pub(crate) async fn resolve_product_get_tool_spec_results(
     input: &Value,
     context: &ToolUseContext,

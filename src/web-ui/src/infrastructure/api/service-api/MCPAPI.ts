@@ -78,6 +78,7 @@ export interface MCPResource {
 
 export interface MCPResourceContent {
   uri: string;
+  text?: string;
   content?: string;
   blob?: string;
   mimeType?: string;

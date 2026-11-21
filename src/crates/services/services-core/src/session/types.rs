@@ -553,6 +553,11 @@ pub struct DialogTurnData {
     #[serde(alias = "user_message")]
     pub user_message: UserMessageData,
 
+    /// Immutable sources published in the final reply, keyed by canonical session URI.
+    /// A null entry records that its file was unavailable at completion.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub published_figures: std::collections::BTreeMap<String, Option<PublishedFigure>>,
+
     /// Model interaction rounds
     #[serde(alias = "model_rounds")]
     pub model_rounds: Vec<ModelRoundData>,
@@ -621,6 +626,17 @@ pub struct DialogTurnData {
 
     /// Turn status
     pub status: TurnStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishedFigure {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub inspection_deferred: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bindings: Option<serde_json::Map<String, serde_json::Value>>,
+    pub source: String,
+    pub content_bytes: usize,
 }
 
 /// Provider-reported token usage attached to a dialog turn.
@@ -1377,6 +1393,7 @@ impl DialogTurnData {
             kind,
             agent_type,
             user_message,
+            published_figures: Default::default(),
             model_rounds: Vec::new(),
             start_time: now,
             end_time: None,
@@ -1422,6 +1439,20 @@ mod tests {
         ToolItemData, UserMessageData,
     };
     use openbitfun_core_types::{SessionContinuationPolicy, SessionKind};
+
+    #[test]
+    fn published_figure_preserves_legacy_and_deferred_snapshots() {
+        let old = serde_json::json!({"source": "<p>map</p>", "contentBytes": 10});
+        let figure: super::PublishedFigure = serde_json::from_value(old.clone()).unwrap();
+        assert!(!figure.inspection_deferred);
+        assert_eq!(serde_json::to_value(figure).unwrap(), old);
+
+        let mut deferred = old;
+        deferred["inspectionDeferred"] = true.into();
+        let figure: super::PublishedFigure = serde_json::from_value(deferred.clone()).unwrap();
+        assert!(figure.inspection_deferred);
+        assert_eq!(serde_json::to_value(figure).unwrap(), deferred);
+    }
 
     #[test]
     fn dialog_turn_kind_defaults_to_user_dialog_for_legacy_payloads() {

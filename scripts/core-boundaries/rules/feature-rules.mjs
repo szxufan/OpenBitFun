@@ -8,7 +8,6 @@ export const servicesReqwestOwnerFeatures = [
   'miniapp-runtime',
   'models-dev',
   'remote-connect',
-  'remote-ssh-concrete',
   'review-platform',
   'speech',
   'skillhub',

@@ -28,7 +28,7 @@ impl Drop for PrefetchObservation {
 }
 
 pub(super) struct PrefetchedCompression {
-    task: CompressionPrefetch<CompressionCandidate, OpenBitFunError>,
+    task: CompressionPrefetch<Option<CompressionCandidate>, OpenBitFunError>,
     source_message_ids: Vec<String>,
     request_identity: serde_json::Value,
     observation: PrefetchObservation,
@@ -38,7 +38,7 @@ impl PrefetchedCompression {
     pub(super) fn claim(
         mut self,
         input: &CompressionModelSummaryInput<'_>,
-    ) -> PrefetchClaim<CompressionCandidate, OpenBitFunError> {
+    ) -> PrefetchClaim<Option<CompressionCandidate>, OpenBitFunError> {
         let latest = ContextCompressor::canonical_conversation(input.runtime_messages);
         self.observation.claimed = true;
         let request_matches = self.request_identity == CompressionJob::request_identity(input);
@@ -119,8 +119,14 @@ pub(super) struct CompressionJob {
 }
 
 impl CompressionJob {
-    pub(super) fn spawn_prefetch(self, parent: &CancellationToken) -> PrefetchedCompression {
-        self.spawn_prefetch_with(parent, |job| job.run())
+    pub(super) fn spawn_prefetch(
+        self,
+        parent: &CancellationToken,
+        contract: Option<crate::agentic::core::CompressionContract>,
+    ) -> PrefetchedCompression {
+        self.spawn_prefetch_with(parent, move |job| async move {
+            job.run_automatic(contract.as_ref()).await
+        })
     }
 
     pub(super) fn spawn_prefetch_with<F, Fut>(
@@ -130,7 +136,9 @@ impl CompressionJob {
     ) -> PrefetchedCompression
     where
         F: FnOnce(Self) -> Fut + Send + 'static,
-        Fut: std::future::Future<Output = OpenBitFunResult<CompressionCandidate>> + Send + 'static,
+        Fut: std::future::Future<Output = OpenBitFunResult<Option<CompressionCandidate>>>
+            + Send
+            + 'static,
     {
         let source_message_ids = ContextCompressor::canonical_conversation(&self.messages)
             .map(|message| message.id.clone())
@@ -162,7 +170,7 @@ impl CompressionJob {
                 info!(
                     "Compression prefetch finished: prefetch_id={}, session_id={}, turn_id={}, outcome={}, duration_ms={}",
                     id, session_id, turn_id,
-                    if result.is_ok() { "success" } else { "failed" },
+                    match &result { Ok(Some(_)) => "ready", Ok(None) => "no_gain", Err(_) => "failed" },
                     elapsed_ms_u64(started_at)
                 );
                 result
@@ -222,6 +230,19 @@ impl CompressionJob {
             &self.reminders.ordered_reminders(),
         )
         .await?;
+        // The summary request is a fresh one-shot call; signed thinking from
+        // another endpoint, credential, or older build is rejected by the
+        // provider (e.g. Anthropic "Invalid `signature` in `thinking` block").
+        let stripped = crate::infrastructure::ai::channel_client_source::ChannelClientSource::project_replay_for_client(
+            &mut messages,
+            &self.client,
+        );
+        if stripped > 0 {
+            info!(
+                "Projected incompatible model history for compression: session_id={}, turn_id={}, stripped_messages={}",
+                self.session_id, self.turn_id, stripped
+            );
+        }
         messages.push(AIMessage::user(self.compressor.build_compact_prompt()));
         super::super::compression_request::request_summary(
             self.client.clone(),
@@ -233,7 +254,24 @@ impl CompressionJob {
         .await
     }
 
-    pub(super) async fn run(self) -> OpenBitFunResult<CompressionCandidate> {
+    pub(super) async fn run_manual(self) -> OpenBitFunResult<CompressionCandidate> {
+        self.prepare(false, None).await?.ok_or_else(|| {
+            OpenBitFunError::AIClient("Context compression has no eligible plan".into())
+        })
+    }
+
+    pub(super) async fn run_automatic(
+        self,
+        contract: Option<&crate::agentic::core::CompressionContract>,
+    ) -> OpenBitFunResult<Option<CompressionCandidate>> {
+        self.prepare(true, contract).await
+    }
+
+    async fn prepare(
+        self,
+        require_savings: bool,
+        contract: Option<&crate::agentic::core::CompressionContract>,
+    ) -> OpenBitFunResult<Option<CompressionCandidate>> {
         let session_id = self.session_id.as_str();
         let dialog_turn_id = self.turn_id.as_str();
         let runtime_messages = self.messages.as_slice();
@@ -252,9 +290,7 @@ impl CompressionJob {
                 recent_target,
             )?
             else {
-                return Err(OpenBitFunError::AIClient(
-                    "Context compression has no eligible plan".to_string(),
-                ));
+                return Ok(None);
             };
             if previous_cutoff.is_some_and(|cutoff| plan.cutoff_message_index >= cutoff) {
                 return Err(OpenBitFunError::AIClient(
@@ -278,15 +314,37 @@ impl CompressionJob {
                 plan.recent_tail_messages.len()
             );
 
+            if require_savings {
+                // The leading system prompt, tools and prepended reminders are
+                // common to both requests. Compare only the replaceable history.
+                let system_count = runtime_messages
+                    .iter()
+                    .take_while(|message| message.role == MessageRole::System)
+                    .count();
+                let original = ExecutionEngine::estimate_request_tokens_internal(
+                    &runtime_messages[system_count..],
+                    None,
+                );
+                let minimum = self
+                    .compressor
+                    .minimum_replacement(&plan, contract.cloned());
+                let floor =
+                    ExecutionEngine::estimate_request_tokens_internal(&minimum.messages, None);
+                if floor >= original {
+                    debug!("Skipping compression summary: session_id={}, history_tokens={}, minimum_replacement_tokens={}", session_id, original, floor);
+                    return Ok(None);
+                }
+            }
+
             let summary_result = self.request_summary(&plan.summary_request_messages).await;
 
             match summary_result {
                 Ok(summary) => {
-                    return Ok(CompressionCandidate {
+                    return Ok(Some(CompressionCandidate {
                         plan,
                         summary,
                         request_identity: self.request_identity.clone(),
-                    });
+                    }));
                 }
                 Err(err) if err.is_recoverable_context_overflow() => {
                     warn!(

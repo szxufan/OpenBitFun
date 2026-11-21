@@ -786,12 +786,17 @@ enum DaemonAction {
     Uninstall,
     /// Show daemon and auto-start service status
     Status,
-    #[command(name = "__dispatch_identity", hide = true)]
-    DispatchIdentity,
-    #[command(name = "__dispatch_provision", hide = true)]
-    DispatchProvision { request_path: std::path::PathBuf },
-    #[command(name = "__dispatch_deprovision", hide = true)]
-    DispatchDeprovision { device_id: String, user_id: String },
+    /// Show or change whether this device accepts remote control (shared with Desktop)
+    RemoteControl {
+        #[arg(value_enum)]
+        setting: Option<RemoteControlSetting>,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum RemoteControlSetting {
+    On,
+    Off,
 }
 
 #[derive(Subcommand)]
@@ -1643,10 +1648,22 @@ async fn run_cli() -> Result<()> {
             DaemonAction::Install => daemon::install_service()?,
             DaemonAction::Uninstall => daemon::uninstall_service()?,
             DaemonAction::Status => daemon::print_status()?,
-            DaemonAction::DispatchIdentity => daemon::print_identity()?,
-            DaemonAction::DispatchProvision { request_path } => daemon::provision(request_path)?,
-            DaemonAction::DispatchDeprovision { device_id, user_id } => {
-                daemon::deprovision(device_id, user_id)?
+            DaemonAction::RemoteControl { setting } => {
+                use openbitfun_core::service::remote_connect::device;
+                if let Some(setting) = setting {
+                    device::set_remote_control_allowed(matches!(
+                        setting,
+                        RemoteControlSetting::On
+                    ))?;
+                }
+                println!(
+                    "{}",
+                    if device::remote_control_allowed()? {
+                        "on"
+                    } else {
+                        "off"
+                    }
+                );
             }
         },
 
@@ -2450,63 +2467,6 @@ mod harness_profile_compatibility_tests {
             resolved_command_harness_profile(&cli.harness_profile, harness_profile).as_deref(),
             Some("minimal")
         );
-    }
-}
-
-#[cfg(test)]
-mod daemon_command_tests {
-    use super::{Cli, Commands, DaemonAction};
-    use clap::{CommandFactory, Parser};
-
-    #[test]
-    fn dispatch_daemon_bootstrap_commands_parse_and_stay_hidden() {
-        let identity = Cli::try_parse_from(["openbitfun", "daemon", "__dispatch_identity"])
-            .expect("parse target identity command");
-        assert!(matches!(
-            identity.command,
-            Some(Commands::Daemon {
-                action: DaemonAction::DispatchIdentity
-            })
-        ));
-
-        let provision = Cli::try_parse_from([
-            "openbitfun",
-            "daemon",
-            "__dispatch_provision",
-            "/tmp/request.json",
-        ])
-        .expect("parse target provisioning command");
-        assert!(matches!(
-            provision.command,
-            Some(Commands::Daemon {
-                action: DaemonAction::DispatchProvision { ref request_path }
-            }) if request_path == std::path::Path::new("/tmp/request.json")
-        ));
-
-        let rollback = Cli::try_parse_from([
-            "openbitfun",
-            "daemon",
-            "__dispatch_deprovision",
-            "device-1",
-            "user-1",
-        ])
-        .expect("parse target rollback command");
-        assert!(matches!(
-            rollback.command,
-            Some(Commands::Daemon {
-                action: DaemonAction::DispatchDeprovision {
-                    ref device_id,
-                    ref user_id,
-                }
-            }) if device_id == "device-1" && user_id == "user-1"
-        ));
-
-        let daemon_help = Cli::command()
-            .find_subcommand_mut("daemon")
-            .expect("daemon command")
-            .render_long_help()
-            .to_string();
-        assert!(!daemon_help.contains("__dispatch_"));
     }
 }
 

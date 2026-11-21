@@ -18,9 +18,9 @@ use openbitfun_core::service::remote_connect::account_runtime::{
     BackgroundRoutingOwnerRetirementError,
 };
 use openbitfun_core::service::remote_connect::{
-    self,
+    self, device, encryption,
     relay_client::{ConnectionState, DeviceRoutingPriority, RelayClient, RelayEvent},
-    session_store, DeviceIdentity, RemoteServer,
+    DeviceIdentity, RemoteServer,
 };
 
 pub(crate) struct CliAccountRuntimeParts {
@@ -73,7 +73,12 @@ pub(crate) fn account_snapshot_projection(
 pub(crate) fn account_login_status_message(
     result: &openbitfun_core::service::remote_connect::account_runtime::AccountLoginResult,
 ) -> String {
-    if result.routing_standby {
+    if device::remote_control_allowed().ok() == Some(false) {
+        format!(
+            "Logged in as user {} on {}. Remote control is off.",
+            result.user_id, result.relay_url
+        )
+    } else if result.routing_standby {
         format!(
             "Logged in as user {} on {}. Another OpenBitFun host on this machine serves device routing; this one takes over when it exits.",
             result.user_id, result.relay_url
@@ -132,6 +137,7 @@ pub(crate) struct CliAccountRoutingHost {
         RwLock<Option<Arc<openbitfun_core::service::remote_connect::host_stream::HostStreamHub>>>,
     self_ref: Weak<CliAccountRoutingHost>,
     runtime: OnceLock<Weak<AccountRuntime>>,
+    permission_monitor: OnceLock<tokio::task::AbortHandle>,
     relay_client: RwLock<Option<Arc<RelayClient>>>,
     /// Read leases cover one routing event through its response. Routing owner
     /// changes take the write lease, so old events cannot escape through a new
@@ -140,12 +146,21 @@ pub(crate) struct CliAccountRoutingHost {
     routing_cancel: tokio::sync::watch::Sender<u64>,
 }
 
+impl Drop for CliAccountRoutingHost {
+    fn drop(&mut self) {
+        if let Some(task) = self.permission_monitor.get() {
+            task.abort();
+        }
+    }
+}
+
 impl CliAccountRoutingHost {
     fn new() -> Arc<Self> {
         Arc::new_cyclic(|self_ref| Self {
             self_ref: self_ref.clone(),
             host_stream_hub: RwLock::new(None),
             runtime: OnceLock::new(),
+            permission_monitor: OnceLock::new(),
             relay_client: RwLock::new(None),
             lifecycle: Arc::new(RwLock::new(())),
             routing_cancel: tokio::sync::watch::channel(0).0,
@@ -172,12 +187,51 @@ impl CliAccountRoutingHost {
             .ok_or_else(|| anyhow!("account runtime is unavailable"))
     }
 
+    pub(crate) fn monitor_remote_control(&self) {
+        self.permission_monitor.get_or_init(|| {
+            let host = self.self_ref.clone();
+            let mut allowed = device::remote_control_allowed().unwrap_or(false);
+            tokio::spawn(async move {
+                loop {
+                    allowed = device::wait_for_remote_control_change(allowed).await;
+                    let Some(host) = host.upgrade() else { return };
+                    let Ok(runtime) = host.runtime() else { return };
+                    if !allowed {
+                        host.stop_routing().await;
+                    }
+                    if let Some(daemon) = crate::remote_control::daemon_host() {
+                        if let Err(error) = daemon.apply_remote_control_permission(allowed).await {
+                            tracing::warn!(
+                                "Failed to apply daemon remote control setting: {error}"
+                            );
+                        }
+                    } else if allowed
+                        && runtime.device_routing_requested(runtime.account_context_generation())
+                    {
+                        if let Ok(info) = runtime.account_info().await {
+                            if let Err(error) =
+                                runtime.restore_device_routing(&info.device_name).await
+                            {
+                                tracing::warn!("Failed to resume device routing: {error}");
+                            }
+                        }
+                    }
+                }
+            })
+            .abort_handle()
+        });
+    }
+
     async fn start_routing(&self, request: AccountRoutingStartRequest) -> Result<()> {
+        self.monitor_remote_control();
         let runtime = self.runtime()?;
-        if !runtime.account_context_is_current(request.account_generation) {
+        if !runtime.device_routing_requested(request.account_generation) {
             return Err(anyhow!("account context changed"));
         }
         self.stop_routing().await;
+        if !device::remote_control_allowed()? {
+            return Ok(());
+        }
 
         // A Desktop host on this machine serves the shared device first; this
         // client stands by and takes over once that host exits.
@@ -195,13 +249,14 @@ impl CliAccountRoutingHost {
         let client = Arc::new(client);
         {
             let _routing_guard = self.lifecycle.write().await;
-            if !runtime.account_context_is_current(request.account_generation) {
+            if !runtime.device_routing_requested(request.account_generation) {
                 client.disconnect().await;
                 return Err(anyhow!("account context changed"));
             }
+            device::require_remote_control()?;
             *self.relay_client.write().await = Some(client.clone());
         }
-        if !runtime.account_context_is_current(request.account_generation) {
+        if !runtime.device_routing_requested(request.account_generation) {
             self.retire_routing_client_if_same(&client).await;
             client.disconnect().await;
             return Err(anyhow!("account context changed"));
@@ -267,6 +322,9 @@ impl CliAccountRoutingHost {
     }
 
     pub(crate) async fn stop_device_routing(&self) {
+        if let Ok(runtime) = self.runtime() {
+            runtime.cancel_device_routing();
+        }
         self.stop_routing().await;
     }
 
@@ -357,6 +415,9 @@ impl CliAccountRoutingHost {
             cancellation: Some(cancelled.clone()),
         };
         let device_rpc = matches!(&event, RelayEvent::DeviceMessageReceived { .. });
+        if device_rpc && device::require_remote_control().is_err() {
+            return;
+        }
         let mut event_cancellation = cancelled.clone();
         let handling = ACTIVE_PEER_FANOUT_OWNER.scope(
             fanout_owner,
@@ -397,7 +458,7 @@ impl CliAccountRoutingHost {
                     tracing::warn!("Failed to adopt AuthOk device_id: {error}");
                     return;
                 }
-                if let Ok((session, relay_url)) = runtime
+                if let Ok((session, _)) = runtime
                     .read_account_context_for_generation(account_generation)
                     .await
                 {
@@ -426,13 +487,9 @@ impl CliAccountRoutingHost {
                         if let Some(old) = self.host_stream_hub.write().await.replace(hub) {
                             old.close();
                         }
-                        if let Err(error) = session_store::save_session_with_device(
-                            &session.token,
-                            &session.user_id,
-                            &session.master_key,
-                            &relay_url,
-                            Some(device_id.as_str()),
-                        ) {
+                        if let Err(error) =
+                            runtime.record_authenticated_device(&session.token, &device_id)
+                        {
                             tracing::warn!("Failed to persist AuthOk device_id: {error}");
                         }
                     }
@@ -811,6 +868,10 @@ impl AccountRuntimeHost for CliAccountRoutingHost {
     async fn stop_device_routing(&self) {
         crate::remote_control::retire_daemon_account().await;
         self.stop_routing().await;
+    }
+
+    async fn device_routing_is_active(&self) -> bool {
+        self.relay_client.read().await.is_some()
     }
 
     async fn device_routing_is_standby(&self) -> bool {

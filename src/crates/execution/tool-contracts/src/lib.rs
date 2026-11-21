@@ -5,6 +5,7 @@
 
 #[cfg(feature = "acp-bridge")]
 pub mod acp_tool_bridge;
+pub mod command_permission;
 #[cfg(feature = "computer-use-contract")]
 pub mod computer_use;
 #[cfg(feature = "computer-use-contract")]
@@ -59,7 +60,7 @@ pub use framework::{
     build_openbitfun_runtime_uri, build_prompt_visible_tool_manifest_definitions,
     build_tool_manifest_policy_tools, build_tool_path_policy_denial_message,
     build_tool_runtime_artifact_reference, build_tool_session_runtime_artifact_reference,
-    collect_loaded_deferred_tool_specs, get_tool_spec_input_schema,
+    collect_loaded_deferred_tool_specs, contextual_tool_spec, get_tool_spec_input_schema,
     get_tool_spec_is_concurrency_safe, get_tool_spec_is_readonly, get_tool_spec_short_description,
     is_miniapp_headless_agent_run, is_miniapp_market_strict_agent_run,
     is_openbitfun_current_session_uri, is_openbitfun_runtime_uri, is_openbitfun_tool_uri,

@@ -38,10 +38,6 @@ pub(crate) fn product_data_path(base: &str, segments: &[&str]) -> String {
     }
 }
 
-pub(crate) fn product_home_shell_path(segments: &[&str]) -> String {
-    format!("$HOME/{}", product_data_relative_path(segments))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,12 +45,8 @@ mod tests {
     #[test]
     fn default_remote_paths_use_the_compiled_product_identity() {
         assert_eq!(
-            product_data_path("/home/user", &["dispatch", "install"]),
-            "/home/user/.openbitfun/dispatch/install"
-        );
-        assert_eq!(
-            product_home_shell_path(&["relay-deploy", "relay.port"]),
-            "$HOME/.openbitfun/relay-deploy/relay.port"
+            product_data_path("/home/user", &["dispatch", "requests"]),
+            "/home/user/.openbitfun/dispatch/requests"
         );
     }
 

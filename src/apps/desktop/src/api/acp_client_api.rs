@@ -169,6 +169,8 @@ pub struct StartAcpDialogTurnRequest {
 pub struct CancelAcpDialogTurnRequest {
     pub session_id: String,
     pub client_id: String,
+    #[serde(default)]
+    pub turn_id: Option<String>,
     /// Workspace identity; authoritative when present.
     #[serde(default)]
     pub workspace_id: Option<String>,
@@ -205,8 +207,55 @@ pub struct ProbeAcpClientRequirementsRequest {
     pub force_refresh: bool,
 }
 
+// One ordered delivery task per admitted prompt; disconnecting a WebView
+// never cancels it. Both local views and Peer host streams consume this path.
+#[derive(Clone)]
+struct AcpEventEmitter {
+    service: std::sync::Arc<openbitfun_acp::AcpClientService>,
+    sender: tokio::sync::mpsc::UnboundedSender<openbitfun_events::AgenticFrontendEvent>,
+}
+
+impl AcpEventEmitter {
+    fn new(app: AppHandle, service: std::sync::Arc<openbitfun_acp::AcpClientService>) -> Self {
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            let transport = openbitfun_transport::TauriTransportAdapter::new(app);
+            while let Some(event) = receiver.recv().await {
+                crate::deliver_projected_event(&transport, event).await;
+            }
+        });
+        Self { service, sender }
+    }
+
+    fn emit(
+        &self,
+        name: &str,
+        mut payload: serde_json::Value,
+    ) -> Result<(), openbitfun_core::util::errors::OpenBitFunError> {
+        use openbitfun_core::util::errors::OpenBitFunError;
+        self.service
+            .record_dialog_event(name, &mut payload)
+            .map_err(OpenBitFunError::service)?;
+        self.publish(name, payload)
+    }
+
+    fn publish(
+        &self,
+        name: &str,
+        payload: serde_json::Value,
+    ) -> Result<(), openbitfun_core::util::errors::OpenBitFunError> {
+        use openbitfun_core::util::errors::OpenBitFunError;
+        self.sender
+            .send(openbitfun_events::AgenticFrontendEvent {
+                event_name: name.into(),
+                payload,
+            })
+            .map_err(|_| OpenBitFunError::service("ACP event delivery stopped"))
+    }
+}
+
 fn emit_acp_model_round_completed(
-    app_handle: &AppHandle,
+    app_handle: &AcpEventEmitter,
     session_id: &str,
     turn_id: &str,
     round_id: String,
@@ -414,19 +463,19 @@ pub async fn start_acp_dialog_turn(
         None => (None, None, None),
     };
 
+    let Some(start) = service.admit_dialog_turn(
+        &session_id,
+        &turn_id,
+        &request.client_id,
+        &user_input,
+        &original_user_input,
+    )?
+    else {
+        return Ok(());
+    };
+    let app_handle = AcpEventEmitter::new(app_handle, service.clone());
     app_handle
-        .emit(
-            "agentic://dialog-turn-started",
-            serde_json::json!({
-                "sessionId": session_id,
-                "turnId": turn_id,
-                "turnIndex": null,
-                "userInput": user_input,
-                "originalUserInput": original_user_input,
-                "userMessageMetadata": null,
-                "subagentParentInfo": null,
-            }),
-        )
+        .publish("agentic://dialog-turn-started", start)
         .map_err(|e| e.to_string())?;
     tokio::spawn(async move {
         let mut current_round_id: Option<String> = None;
@@ -715,6 +764,7 @@ pub async fn cancel_acp_dialog_turn(
             &request.client_id,
             scope.map(|scope| scope.workspace_path),
             request.session_id,
+            request.turn_id.as_deref(),
         )
         .await
         .map_err(|e| e.to_string())
@@ -904,4 +954,40 @@ pub async fn submit_acp_permission_response(
         .submit_permission_response(request)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CancelAcpDialogTurnRequest;
+    use serde_json::json;
+
+    #[test]
+    fn acp_cancel_request_preserves_legacy_payload_round_trip() {
+        let legacy = json!({
+            "sessionId": "session-1",
+            "clientId": "controlled",
+            "workspacePath": "/workspace",
+            "remoteConnectionId": "remote-1"
+        });
+        let request: CancelAcpDialogTurnRequest = serde_json::from_value(legacy.clone()).unwrap();
+        assert!(request.turn_id.is_none());
+        let encoded = serde_json::to_value(&request).unwrap();
+        for (key, value) in legacy.as_object().unwrap() {
+            assert_eq!(&encoded[key], value);
+        }
+        let decoded: CancelAcpDialogTurnRequest = serde_json::from_value(encoded).unwrap();
+        assert!(decoded.turn_id.is_none());
+        assert_eq!(decoded.remote_connection_id.as_deref(), Some("remote-1"));
+    }
+
+    #[test]
+    fn acp_cancel_request_round_trips_the_optional_turn_binding() {
+        let request: CancelAcpDialogTurnRequest = serde_json::from_value(json!({
+            "sessionId": "session-1", "clientId": "controlled", "turnId": "turn-1"
+        }))
+        .unwrap();
+        let decoded: CancelAcpDialogTurnRequest =
+            serde_json::from_value(serde_json::to_value(request).unwrap()).unwrap();
+        assert_eq!(decoded.turn_id.as_deref(), Some("turn-1"));
+    }
 }

@@ -178,10 +178,6 @@ async fn probe(request: DispatchProbeRequest) -> Result<DispatchProbeResponse> {
             openbitfun_services_core::dispatch_contract::DISPATCH_DETACHED_WORKER_CAPABILITY
                 .to_string(),
         );
-        capabilities.push(
-            openbitfun_services_core::dispatch_contract::DISPATCH_ACCOUNT_DAEMON_PROVISIONING_CAPABILITY
-                .to_string(),
-        );
     }
     Ok(DispatchProbeResponse {
         product_id: openbitfun_services_core::product_identity::product_id().to_string(),

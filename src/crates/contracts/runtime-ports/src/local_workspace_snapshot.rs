@@ -32,6 +32,27 @@ pub struct LocalWorkspaceSnapshotStats {
     pub total_changes: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalWorkspaceSnapshotFileRequest {
+    pub workspace_id: String,
+    pub session_id: String,
+    pub file_path: String,
+    /// Exclusive visible turn end supplied by the session lifecycle owner.
+    pub max_turn_exclusive: Option<usize>,
+}
+
+/// Line-level change of one session file, without its contents.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalWorkspaceSnapshotFileDiffStats {
+    pub file_path: String,
+    pub lines_added: usize,
+    pub lines_removed: usize,
+    /// Derived from per-operation summaries instead of a full baseline diff.
+    pub approximate: bool,
+    /// `create`, `modify`, or `delete`.
+    pub change_kind: String,
+}
+
 #[async_trait::async_trait]
 pub trait LocalWorkspaceSnapshotPort: Send + Sync {
     /// Prepares the existing local snapshot owner for a workspace.
@@ -46,6 +67,11 @@ pub trait LocalWorkspaceSnapshotPort: Send + Sync {
         &self,
         request: LocalWorkspaceSnapshotSessionRequest,
     ) -> PortResult<LocalWorkspaceSnapshotStats>;
+
+    async fn get_session_file_diff_stats(
+        &self,
+        request: LocalWorkspaceSnapshotFileRequest,
+    ) -> PortResult<LocalWorkspaceSnapshotFileDiffStats>;
 
     /// Restores only workspace files. Conversation-history mutation remains a
     /// separate host/runtime-owner operation.

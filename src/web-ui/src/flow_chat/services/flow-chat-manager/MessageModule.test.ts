@@ -44,6 +44,7 @@ const mockDispatchRefresh = vi.fn();
 const mockBindSession = vi.fn();
 const mockEnsureBackendSession = vi.fn();
 const mockForkChatSession = vi.fn();
+const mockPrewarmHistoricalSession = vi.fn();
 const mockNotificationError = vi.fn();
 const mockNotificationWarning = vi.fn();
 const mockDispatchJobs = vi.hoisted(() => ({
@@ -159,6 +160,7 @@ vi.mock('../../../shared/notification-system', () => ({
 }));
 
 vi.mock('./SessionModule', () => ({
+  prewarmHistoricalSession: (...args: unknown[]) => mockPrewarmHistoricalSession(...args),
   forkChatSession: (...args: unknown[]) => mockForkChatSession(...args),
   ensureBackendSession: (...args: unknown[]) => mockEnsureBackendSession(...args),
   getModelMaxTokens: vi.fn(async (modelId: string) => modelId === 'primary' ? 32000 : 64000),
@@ -304,6 +306,17 @@ describe('MessageModule session writer conflict', () => {
     ]);
     await drainPendingQueue(context, session.sessionId);
     expect(mockStartDialogTurn).not.toHaveBeenCalled();
+  });
+
+  it.each(['metadata-only', 'hydrating', 'failed'])('holds restored ACP queues until execution is hydrated (%s)', async historyState => {
+    const { session, context } = conflictContext('acp-restoring');
+    Object.assign(session, { mode: 'acp:test', config: { agentType: 'acp:test' }, historyState });
+    context.userCancelledSessionIds = new Set();
+    mockPendingList.mockReturnValue([{ id: 'next', sessionId: session.sessionId, content: 'Continue', status: 'queued', retryCount: 0 }]);
+    await drainPendingQueue(context, session.sessionId);
+    expect(mockPendingSetStatus).not.toHaveBeenCalled();
+    expect(mockStartDialogTurn).not.toHaveBeenCalled();
+    expect(mockPrewarmHistoricalSession).toHaveBeenCalledTimes(historyState === 'metadata-only' ? 1 : 0);
   });
 
   it.each([false, true])('preserves the plan build turn ID while busy, host queue=%s', async hostQueue => {

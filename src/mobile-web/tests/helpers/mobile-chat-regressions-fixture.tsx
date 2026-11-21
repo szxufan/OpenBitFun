@@ -9,7 +9,7 @@ import '@openbitfun/ui/mobile.css';
 import '../../src/styles/index.scss';
 
 let root: ReturnType<typeof createRoot>;
-export function showTranscript(approval = false, variant: 'legacy' | 'ordered' | 'subagent' = 'legacy', taskStatus: RemoteToolStatus['status'] = 'completed', launchTool = 'Task') {
+export function showTranscript(approval = false, variant: 'legacy' | 'ordered' | 'subagent' | 'figure' = 'legacy', taskStatus: RemoteToolStatus['status'] = 'completed', launchTool = 'Task') {
   if (!root) {
     document.body.innerHTML = '<main id="transcript-fixture" style="padding:24px;max-width:720px;margin:auto"></main>';
     root = createRoot(document.querySelector('#transcript-fixture')!);
@@ -30,9 +30,9 @@ export function showTranscript(approval = false, variant: 'legacy' | 'ordered' |
   }
   const messages: ChatMessage[] = [
     { id: 'user', role: 'user', content: 'Check the links and summarize the findings.', timestamp: '1700000000' },
-    { id: 'assistant', role: 'assistant', content: 'The remaining sources confirm the result.', timestamp: '1700000001000', tools: displayedTools, items },
+    { id: 'assistant', role: 'assistant', content: variant === 'figure' ? '[Open map](computer://artifacts/map.svg)' : 'The remaining sources confirm the result.', timestamp: '1700000001000', tools: displayedTools, items },
   ];
-  root.render(<I18nProvider><ChatTranscript messages={messages} activeTurn={null} now={1700000001000}
+  root.render(<I18nProvider><ChatTranscript onFileDownload={variant === 'figure' ? async path => { document.body.dataset.downloadPath = path; } : undefined} messages={messages} activeTurn={null} now={1700000001000}
     expandedMessageIds={new Set()} imageAnalyzing={false} optimisticMessage={null}
     onAnswerQuestion={async () => {}} onApproveTool={async () => {}} onRejectTool={async () => {}}
     onCancelActiveTool={() => {}} onCancelLegacyTool={() => {}} onMessageContextMenu={() => {}}

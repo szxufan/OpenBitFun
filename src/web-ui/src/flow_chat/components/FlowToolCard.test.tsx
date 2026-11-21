@@ -167,7 +167,7 @@ describe('FlowToolCard deferred identity', () => {
     expect(container.querySelector('[data-tool-name="CreatePlan"]')).not.toBeNull();
   });
 
-  it('routes GenerativeUI directly to the FlowChat inline surface', () => {
+  it('routes GenerativeUI to the lazily loaded history viewer', async () => {
     const item: FlowToolItem = {
       id: 'genui-inline',
       type: 'tool',
@@ -177,7 +177,7 @@ describe('FlowToolCard deferred identity', () => {
       timestamp: 1,
     };
 
-    act(() => root.render(<FlowToolCard toolItem={item} sessionId="session-1" turnId="turn-1" />));
+    await act(async () => root.render(<FlowToolCard toolItem={item} sessionId="session-1" turnId="turn-1" />));
 
     expect(container.querySelector('[data-openbitfun-component="generative-widget-inline"]')
       ?.getAttribute('data-inline-tool-name')).toBe('GenerativeUI');
@@ -185,15 +185,15 @@ describe('FlowToolCard deferred identity', () => {
     expect(container.querySelector('[data-selected-card]')).toBeNull();
   });
 
-  it('re-renders the inline surface when a native source delta arrives', () => {
+  it('re-renders the inline surface when a native source delta arrives', async () => {
     const base: FlowToolItem = {
       id: 'genui-stream', type: 'tool', toolName: 'GenerativeUI',
       toolCall: { id: 'genui-stream', input: {} }, status: 'streaming', timestamp: 1,
       _genUIStream: { messageId: 'message', format: 'openui-lang', content: 'root = Text(', nextSeq: 1 },
     };
-    act(() => root.render(<FlowToolCard toolItem={base} />));
+    await act(async () => root.render(<FlowToolCard toolItem={base} />));
     expect(container.querySelector('[data-openbitfun-component="generative-widget-inline"]')?.getAttribute('data-inline-stream')).toBe('root = Text(');
-    act(() => root.render(<FlowToolCard toolItem={{ ...base, _genUIStream: { ...base._genUIStream!, content: 'root = Text("Hello")', nextSeq: 2 } }} />));
+    await act(async () => root.render(<FlowToolCard toolItem={{ ...base, _genUIStream: { ...base._genUIStream!, content: 'root = Text("Hello")', nextSeq: 2 } }} />));
     expect(container.querySelector('[data-openbitfun-component="generative-widget-inline"]')?.getAttribute('data-inline-stream')).toBe('root = Text("Hello")');
   });
 

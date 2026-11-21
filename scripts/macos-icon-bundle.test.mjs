@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
@@ -69,7 +70,10 @@ test('Windows autocrlf checkout preserves the committed macOS icon source digest
 
 test('CLI is locked and macOS overlays preserve the same dev/legacy icon', () => {
   for (const packagePath of ['package.json', 'OpenBitFun-Installer/package.json']) {
-    assert.equal(json(join(ROOT, packagePath)).devDependencies['@tauri-apps/cli'], '2.11.4');
+    const manifest = join(ROOT, packagePath);
+    const installed = createRequire(manifest)('@tauri-apps/cli/package.json').version;
+    assert.equal(json(manifest).devDependencies['@tauri-apps/cli'], installed,
+      `${packagePath} must pin the exact Tauri CLI used by its build`);
   }
   for (const app of ['src/apps/desktop', 'OpenBitFun-Installer/src-tauri']) {
     const directory = join(ROOT, app);

@@ -4,8 +4,7 @@
   "contracts": {
     "webSystem": "design-system/packages/design-tokens/src/system.tokens.json",
     "webTheme": "design-system/packages/theme-openbitfun/src/light.tokens.json",
-    "miniappAppearance": "src/shared/miniapp-appearance/contract.json",
-    "nativeMobile": "src/apps/mobile/design-system/tokens/mobile-tokens.json"
+    "miniappAppearance": "src/shared/miniapp-appearance/contract.json"
   },
   "discovery": {
     "miniappParents": [
@@ -200,19 +199,6 @@
       }
     },
     {
-      "id": "mobile-design-preview",
-      "label": "Native mobile comparison preview",
-      "kind": "canonical-web",
-      "owner": "canonical web tokens for chrome and generated native mobile tokens for device content",
-      "root": "src/apps/mobile/design-system/preview",
-      "audit": {
-        "engine": "theme",
-        "policy": "canonical-ui-zero",
-        "packageContracts": ["@openbitfun/design-tokens", "@openbitfun/theme-openbitfun"],
-        "excludePaths": ["generated"]
-      }
-    },
-    {
       "id": "cli",
       "label": "CLI and TUI",
       "kind": "terminal",
@@ -221,51 +207,6 @@
       "audit": {
         "engine": "cli",
         "baseline": "scripts/theme-color-governance-baseline.cli.json"
-      }
-    },
-    {
-      "id": "native-android",
-      "label": "Native Android",
-      "kind": "native-mobile",
-      "owner": "src/apps/mobile/design-system/tokens/mobile-tokens.json",
-      "root": "src/apps/mobile/android/app/src/main/kotlin",
-      "audit": {
-        "engine": "native",
-        "platform": "android",
-        "extensions": [".kt"],
-        "excludePaths": [
-          "com/openbitfun/mobile/app/ui/theme/generated",
-          "com/openbitfun/mobile/app/ui/preview/generated"
-        ]
-      }
-    },
-    {
-      "id": "native-ios",
-      "label": "Native iOS",
-      "kind": "native-mobile",
-      "owner": "src/apps/mobile/design-system/tokens/mobile-tokens.json",
-      "root": "src/apps/mobile/ios/OpenBitFun",
-      "audit": {
-        "engine": "native",
-        "platform": "ios",
-        "extensions": [".swift"],
-        "excludeFiles": [
-          "Features/DesignSystem/GeneratedMobileDesignTokens.swift",
-          "Features/DesignSystem/GeneratedMobilePreviewScenarios.swift"
-        ]
-      }
-    },
-    {
-      "id": "native-harmonyos",
-      "label": "Native HarmonyOS",
-      "kind": "native-mobile",
-      "owner": "src/apps/mobile/design-system/tokens/mobile-tokens.json",
-      "root": "src/apps/mobile/harmonyos/entry/src/main/ets",
-      "audit": {
-        "engine": "native",
-        "platform": "harmonyos",
-        "extensions": [".ets"],
-        "excludePaths": ["generated"]
       }
     },
     {
@@ -499,18 +440,6 @@
       "id": "miniapp-appearance-projection",
       "surfaceKinds": ["miniapp"],
       "command": ["node", "scripts/generate-miniapp-appearance-contract.mjs", "--check"]
-    },
-    {
-      "id": "native-mobile-token-projection",
-      "surfaceKinds": ["native-mobile"],
-      "surfaceIds": ["mobile-design-preview"],
-      "command": ["node", "scripts/mobile-ui-design-system.mjs", "--check"]
-    },
-    {
-      "id": "native-mobile-preview-assets",
-      "surfaceKinds": ["native-mobile"],
-      "surfaceIds": ["mobile-design-preview"],
-      "command": ["node", "scripts/mobile-ui-preview.mjs", "--check"]
     }
   ],
   "exclusions": [
@@ -576,34 +505,6 @@
       "kind": "generated-output",
       "owner": "PPT Live build-openbitfun.mjs",
       "reason": "Bundled JavaScript is generated from the registered PPT source owner."
-    },
-    {
-      "id": "android-template-icons",
-      "path": "src/apps/mobile/android/app/src/main/res/drawable",
-      "kind": "native-template-asset",
-      "owner": "Android resource layer",
-      "reason": "Monochrome vector templates are tinted by native semantic tokens at render time."
-    },
-    {
-      "id": "ios-template-icons",
-      "path": "src/apps/mobile/ios/OpenBitFun/Resources.xcassets",
-      "kind": "native-template-asset",
-      "owner": "iOS asset catalog",
-      "reason": "Template images and app metadata are tinted or consumed by the platform asset layer."
-    },
-    {
-      "id": "harmony-template-media",
-      "path": "src/apps/mobile/harmonyos/entry/src/main/resources/base/media",
-      "kind": "native-template-asset",
-      "owner": "HarmonyOS resource layer",
-      "reason": "Template media is tinted by semantic ResourceColor values in the native UI."
-    },
-    {
-      "id": "mobile-preview-generated",
-      "path": "src/apps/mobile/design-system/preview/generated",
-      "kind": "generated-output",
-      "owner": "scripts/mobile-ui-design-system.mjs",
-      "reason": "Preview data is generated from the native mobile token contract and checked for drift."
     },
     {
       "id": "data-tools-generated",

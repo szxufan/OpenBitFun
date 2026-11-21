@@ -532,6 +532,78 @@ struct TokenPressureSnapshot {
     usage_ratio: f32,
 }
 
+impl TokenPressureSnapshot {
+    fn fixed_tokens(&self) -> [usize; 3] {
+        [
+            self.system_tokens,
+            self.tool_tokens,
+            self.prepended_reminder_tokens,
+        ]
+    }
+
+    fn check_fixed_input_fits(&self) -> OpenBitFunResult<()> {
+        let available = self
+            .context_window
+            .saturating_sub(self.output_reserve_tokens);
+        if self
+            .system_tokens
+            .saturating_add(self.tool_tokens)
+            .saturating_add(self.prepended_reminder_tokens)
+            > available
+        {
+            return Err(OpenBitFunError::AIClient(format!(
+                "Fixed context exceeds the available input budget: system_tokens={}, tool_tokens={}, prepended_reminder_tokens={}, available_input_tokens={}, output_reserve={}",
+                self.system_tokens, self.tool_tokens, self.prepended_reminder_tokens, available, self.output_reserve_tokens
+            )));
+        }
+        Ok(())
+    }
+
+    fn trigger_budget(&self) -> CompressionTriggerBudget {
+        CompressionTriggerBudget {
+            context_window: self.context_window,
+            input_limit: self.input_limit,
+            output_reserve_tokens: self.output_reserve_tokens,
+            safety_reserve_tokens: self.safety_reserve_tokens,
+        }
+    }
+}
+
+/// A rejected summary is only evidence about the history and budget it saw.
+struct NoGainHistory {
+    conversation_ids: Vec<String>,
+    model_id: String,
+    budget: CompressionTriggerBudget,
+    fixed_tokens: [usize; 3],
+}
+
+impl NoGainHistory {
+    fn new(messages: &[Message], model_id: &str, pressure: TokenPressureSnapshot) -> Self {
+        Self {
+            conversation_ids: ContextCompressor::canonical_conversation(messages)
+                .map(|m| m.id.clone())
+                .collect(),
+            model_id: model_id.to_owned(),
+            budget: pressure.trigger_budget(),
+            fixed_tokens: pressure.fixed_tokens(),
+        }
+    }
+
+    fn matches(
+        &self,
+        messages: &[Message],
+        model_id: &str,
+        pressure: TokenPressureSnapshot,
+    ) -> bool {
+        self.model_id == model_id
+            && self.budget == pressure.trigger_budget()
+            && self.fixed_tokens == pressure.fixed_tokens()
+            && ContextCompressor::canonical_conversation(messages)
+                .map(|m| &m.id)
+                .eq(self.conversation_ids.iter())
+    }
+}
+
 // Fields are declared in reverse parameter order so dropping an unconsumed
 // input preserves the previous function-parameter drop order. Call sites keep
 // struct literal fields in the original evaluation order.
@@ -572,6 +644,7 @@ mod compression_job;
 mod compression_lifecycle;
 
 use compression_job::{CompressionJob, PrefetchedCompression};
+use compression_lifecycle::AutoCompressionOutcome;
 
 struct CompressionModelSummaryInput<'a> {
     trace_config: Option<ModelExchangeTraceConfig>,
@@ -782,7 +855,6 @@ impl ExecutionEngine {
     fn estimate_auto_compression_pressure(
         messages: &[Message],
         tools: Option<&[ToolDefinition]>,
-        context_window: usize,
         trigger_budget: CompressionTriggerBudget,
         prepended_reminder_tokens: usize,
     ) -> TokenPressureSnapshot {
@@ -792,7 +864,6 @@ impl ExecutionEngine {
             total_tokens,
             messages,
             tools,
-            context_window,
             trigger_budget,
             prepended_reminder_tokens,
         )
@@ -801,7 +872,6 @@ impl ExecutionEngine {
     fn estimate_auto_compression_pressure_with_anchor(
         messages: &[Message],
         tools: Option<&[ToolDefinition]>,
-        context_window: usize,
         trigger_budget: CompressionTriggerBudget,
         anchor: Option<&TokenAnchor>,
         prepended_reminder_tokens: usize,
@@ -810,7 +880,6 @@ impl ExecutionEngine {
             let snapshot = Self::estimate_auto_compression_pressure(
                 messages,
                 tools,
-                context_window,
                 trigger_budget,
                 prepended_reminder_tokens,
             );
@@ -843,7 +912,6 @@ impl ExecutionEngine {
             total_tokens,
             messages,
             tools,
-            context_window,
             trigger_budget,
             prepended_reminder_tokens,
         );
@@ -874,7 +942,6 @@ impl ExecutionEngine {
         total_tokens: usize,
         messages: &[Message],
         tools: Option<&[ToolDefinition]>,
-        context_window: usize,
         trigger_budget: CompressionTriggerBudget,
         prepended_reminder_tokens: usize,
     ) -> TokenPressureSnapshot {
@@ -890,6 +957,7 @@ impl ExecutionEngine {
             .saturating_add(tool_tokens)
             .saturating_add(prepended_reminder_tokens);
         let conversation_tokens = total_tokens.saturating_sub(reserved_overhead);
+        let context_window = trigger_budget.context_window;
         let usage_ratio = ContextHealthSnapshot::token_usage_ratio(total_tokens, context_window);
         TokenPressureSnapshot {
             total_tokens,
@@ -903,13 +971,6 @@ impl ExecutionEngine {
             safety_reserve_tokens: trigger_budget.safety_reserve_tokens,
             usage_ratio,
         }
-    }
-
-    fn compression_trigger_budget(
-        context_window: usize,
-        configured_max_tokens: Option<u32>,
-    ) -> CompressionTriggerBudget {
-        CompressionTriggerBudget::for_model(context_window, configured_max_tokens)
     }
 
     fn prepended_reminder_tokens_for_pressure(prepended_reminders: &[&str]) -> usize {
@@ -1745,29 +1806,11 @@ impl ExecutionEngine {
         prompt_context: Option<&PromptBuilderContext>,
         prompt_policy_id: Option<&str>,
     ) -> OpenBitFunResult<String> {
-        // The GenUI profile is a fixed product route, just like the upstream
-        // Open Intelligent UI pages. Keep its official lang-core prompt in the
-        // system message, but scope it to the GenerativeUI tool because OpenBitFun
-        // still runs a general agent whose outer response is a JSON tool call.
-        // Include the profile in the cache key so changing the setting cannot
-        // reuse a prompt generated for the previous component library.
-        let genui_scope = "|genui-profile:disabled";
         let identity = match prompt_policy_id {
-            Some(policy_id) => {
-                SystemPromptCacheIdentity::new(format!("harness:{policy_id}{genui_scope}"))
-            }
-            None => prompt_context
-                .map(|context| {
-                    let mut identity =
-                        current_agent.system_prompt_cache_identity(context.model_name.as_deref());
-                    identity.scope_key.push_str(&genui_scope);
-                    identity
-                })
-                .unwrap_or_else(|| {
-                    let mut identity = current_agent.system_prompt_cache_identity(None);
-                    identity.scope_key.push_str(&genui_scope);
-                    identity
-                }),
+            Some(policy_id) => SystemPromptCacheIdentity::new(format!("harness:{policy_id}")),
+            None => current_agent.system_prompt_cache_identity(
+                prompt_context.and_then(|context| context.model_name.as_deref()),
+            ),
         };
 
         if let Some(cached_system_prompt) = self
@@ -2802,6 +2845,7 @@ impl ExecutionEngine {
         trigger: &str,
         cancellation_token: CancellationToken,
         commit_gate: Arc<ManualCompactionCommitGate>,
+        resolved_context_window: &mut Option<usize>,
     ) -> OpenBitFunResult<ContextCompactionOutcome> {
         let mut session = self
             .session_manager
@@ -2834,25 +2878,18 @@ impl ExecutionEngine {
                 } else {
                     None
                 };
-            let context_window = pool_budget
-                .map(|budget| budget.context_window as usize)
-                .unwrap_or_else(|| (scaffold.ai_client.config.context_window as usize)
-                    .min(session.config.max_context_tokens));
+            let compression_trigger_budget =
+                CompressionTriggerBudget::for_request(&scaffold.ai_client.config, pool_budget);
+            let context_window = compression_trigger_budget.context_window;
+            *resolved_context_window = Some(context_window);
             let prepended_reminders = scaffold.prepended_prompt_reminders.ordered_reminders();
             let prepended_reminder_tokens =
                 Self::prepended_reminder_tokens_for_pressure(&prepended_reminders);
-            let compression_trigger_budget = pool_budget
-                .map(CompressionTriggerBudget::for_pool)
-                .unwrap_or_else(|| Self::compression_trigger_budget(
-                    context_window,
-                    scaffold.ai_client.config.max_tokens,
-                ));
             let mut runtime_messages = vec![scaffold.system_prompt_message.clone()];
             runtime_messages.extend(messages.clone());
             let before_pressure = Self::estimate_auto_compression_pressure(
                 &runtime_messages,
                 scaffold.tool_definitions.as_deref(),
-                context_window,
                 compression_trigger_budget,
                 prepended_reminder_tokens,
             );
@@ -2955,12 +2992,7 @@ impl ExecutionEngine {
                 return Err(manual_compaction_terminal_error(err));
             }
         };
-        let context_window = before_pressure.context_window;
-        let compression_trigger_budget = CompressionTriggerBudget {
-            input_limit: before_pressure.input_limit,
-            output_reserve_tokens: before_pressure.output_reserve_tokens,
-            safety_reserve_tokens: before_pressure.safety_reserve_tokens,
-        };
+        let compression_trigger_budget = before_pressure.trigger_budget();
         let prepended_reminders = scaffold.prepended_prompt_reminders.ordered_reminders();
         let prepended_reminder_tokens =
             Self::prepended_reminder_tokens_for_pressure(&prepended_reminders);
@@ -3008,7 +3040,6 @@ impl ExecutionEngine {
                 let after_pressure = Self::estimate_auto_compression_pressure(
                     &compressed_runtime_messages,
                     scaffold.tool_definitions.as_deref(),
-                    context_window,
                     compression_trigger_budget,
                     prepended_reminder_tokens,
                 );
@@ -3547,19 +3578,12 @@ impl ExecutionEngine {
         .await;
         let mut primary_supports_image_understanding = primary_model_facts.supports_image_inputs;
 
-        let model_context_window = ai_client.config.context_window as usize;
-        let session_max_tokens = session.config.max_context_tokens;
-        let mut context_window = if let Some((attempt, _)) = &initial_pool_attempt {
-            attempt.context_budget.context_window as usize
-        } else {
-            model_context_window.min(session_max_tokens)
-        };
-        if model_context_window != session_max_tokens {
-            debug!(
-                "Context window: model={}, session_config={}, effective={}",
-                model_context_window, session_max_tokens, context_window
-            );
-        }
+        let mut compression_trigger_budget = CompressionTriggerBudget::for_request(
+            &ai_client.config,
+            initial_pool_attempt
+                .as_ref()
+                .map(|(attempt, _)| attempt.context_budget),
+        );
 
         // 3. Get available tools list (read tool configuration for current mode from global config)
         let tool_policy = agent_registry
@@ -3581,6 +3605,10 @@ impl ExecutionEngine {
         };
         let mut execution_context_vars = context.context.clone();
         execution_context_vars.insert(
+            "max_context_tokens".into(),
+            compression_trigger_budget.context_window.to_string(),
+        );
+        execution_context_vars.insert(
             "enable_deferred_tool_loading".to_string(),
             deferred_tool_loading_enabled.to_string(),
         );
@@ -3599,7 +3627,6 @@ impl ExecutionEngine {
                 serde_json::to_string(&allowed_tools).unwrap_or_else(|_| "[]".to_string()),
             );
         }
-        let tool_manifest_context_vars = execution_context_vars.clone();
 
         let tool_description_context = tool_context_runtime::build_tool_description_context(
             &agent_type,
@@ -3609,7 +3636,7 @@ impl ExecutionEngine {
             context.terminal_port.as_ref(),
             context.remote_exec_port.as_ref(),
             Some(&primary_model_facts),
-            &tool_manifest_context_vars,
+            &execution_context_vars,
             &context.runtime_tool_restrictions,
         );
 
@@ -3879,6 +3906,7 @@ impl ExecutionEngine {
         // Execution-local ownership deliberately prevents cross-turn reuse. Drop
         // cancels both pending IO and backoff on every exit path.
         let mut compression_prefetch: Option<PrefetchedCompression> = None;
+        let mut no_gain_history: Option<NoGainHistory> = None;
         // Preserve the turn-admission model as the stable primary candidate. A routed
         // round may shadow the names below, but auxiliary/finalization requests still
         // use this baseline model and do not recursively invoke the router.
@@ -3902,13 +3930,6 @@ impl ExecutionEngine {
             baseline_ai_client.config.model.clone(),
             baseline_supports_image_understanding,
         );
-        let mut compression_trigger_budget = initial_pool_attempt
-            .as_ref()
-            .map(|(attempt, _)| CompressionTriggerBudget::for_pool(attempt.context_budget))
-            .unwrap_or_else(|| {
-                Self::compression_trigger_budget(context_window, ai_client.config.max_tokens)
-            });
-
         // Project images at the provider boundary on every round. Keep the
         // canonical pixels and paths so steering, retries, and model switches
         // retain the same attachments.
@@ -4144,9 +4165,13 @@ impl ExecutionEngine {
                 channel_client_source = selected_model.client.channel_source;
                 primary_model_facts = selected_model.model_facts;
                 primary_supports_image_understanding = primary_model_facts.supports_image_inputs;
-                context_window = (ai_client.config.context_window as usize).min(session_max_tokens);
                 compression_trigger_budget =
-                    Self::compression_trigger_budget(context_window, ai_client.config.max_tokens);
+                    CompressionTriggerBudget::for_request(&ai_client.config, None);
+
+                execution_context_vars.insert(
+                    "max_context_tokens".into(),
+                    compression_trigger_budget.context_window.to_string(),
+                );
 
                 let next_scaffold_model_key = (
                     model_id.clone(),
@@ -4182,7 +4207,7 @@ impl ExecutionEngine {
                 route,
                 model_id,
                 ai_client.config.model,
-                context_window
+                compression_trigger_budget.context_window
             );
                 if let Some(router) = turn_router.as_ref() {
                     router.record_execution_model(RoundModelExecutionRecord {
@@ -4219,14 +4244,14 @@ impl ExecutionEngine {
                         )
                         .await?
                 };
-                let next_context_window = attempt.context_budget.context_window as usize;
                 let next_budget = CompressionTriggerBudget::for_pool(attempt.context_budget);
-                if context_window != next_context_window
-                    || compression_trigger_budget != next_budget
-                {
+                if compression_trigger_budget != next_budget {
                     compression_prefetch.take();
-                    context_window = next_context_window;
                     compression_trigger_budget = next_budget;
+                    execution_context_vars.insert(
+                        "max_context_tokens".into(),
+                        next_budget.context_window.to_string(),
+                    );
                 }
                 let binding = &attempt.reservation.binding;
                 if model_id != binding.model_id
@@ -4268,7 +4293,7 @@ impl ExecutionEngine {
                         context.terminal_port.as_ref(),
                         context.remote_exec_port.as_ref(),
                         Some(&primary_model_facts),
-                        &tool_manifest_context_vars,
+                        &execution_context_vars,
                         &context.runtime_tool_restrictions,
                     );
                     if enable_tools {
@@ -4303,6 +4328,7 @@ impl ExecutionEngine {
                 None
             };
 
+            let context_window = compression_trigger_budget.context_window;
             // Check and compress before sending AI request
             //
             // NOTE: There used to be a "microcompact" pre-pass here that
@@ -4334,7 +4360,6 @@ impl ExecutionEngine {
                 Self::estimate_auto_compression_pressure_with_anchor(
                     &messages,
                     tool_definitions.as_deref(),
-                    context_window,
                     compression_trigger_budget,
                     token_anchor_selection.selected.as_ref(),
                     pressure_prepended_reminder_tokens,
@@ -4412,12 +4437,19 @@ impl ExecutionEngine {
                 token_pressure.safety_reserve_tokens
             );
 
-            let should_compress = enable_context_compression
-                && token_pressure.total_tokens >= token_pressure.input_limit;
+            if enable_context_compression {
+                token_pressure.check_fixed_input_fits()?;
+            }
+            let compression_eligible = enable_context_compression
+                && !no_gain_history
+                    .as_ref()
+                    .is_some_and(|history| history.matches(&messages, &model_id, token_pressure));
+            let should_compress =
+                compression_eligible && token_pressure.total_tokens >= token_pressure.input_limit;
             let mut send_pressure_reusable = true;
 
             if !should_compress {
-                if enable_context_compression
+                if compression_eligible
                     && prefetch_enabled
                     && compression_prefetch.is_none()
                     && openbitfun_agent_runtime::compression_prefetch::in_prefetch_window(
@@ -4474,6 +4506,10 @@ impl ExecutionEngine {
                             &self
                                 .round_executor
                                 .ensure_cancel_token(&context.dialog_turn_id),
+                            self.session_manager.compression_contract_for_session(
+                                &context.session_id,
+                                DEFAULT_COMPRESSION_CONTRACT_LIMIT,
+                            ),
                         ),
                     );
                 }
@@ -4506,7 +4542,6 @@ impl ExecutionEngine {
                         "auto",
                         messages.clone(),
                         token_pressure,
-                        context_window,
                         baseline_ai_client.clone(),
                         &model_request_context,
                         &tool_definitions,
@@ -4519,7 +4554,8 @@ impl ExecutionEngine {
                     )
                     .await
                 {
-                    Ok(Some((compressed_tokens, compressed_messages))) => {
+                    Ok(AutoCompressionOutcome::Applied(compressed_tokens, compressed_messages)) => {
+                        no_gain_history = None;
                         info!(
                             "Round {} compression completed: messages {} -> {}, tokens {} -> {}",
                             round_index,
@@ -4554,10 +4590,12 @@ impl ExecutionEngine {
                         full_compression_count += 1;
                         send_pressure_reusable = false;
                     }
-                    Ok(None) => {
-                        return Err(OpenBitFunError::AIClient(
-                            "Context compression has no eligible plan".to_string(),
-                        ));
+                    Ok(AutoCompressionOutcome::NoGain(latest)) => {
+                        no_gain_history =
+                            Some(NoGainHistory::new(&latest, &model_id, token_pressure));
+                        // Preserve any canonical suffix appended while the summary ran.
+                        send_pressure_reusable = latest.len() == messages.len();
+                        messages = latest;
                     }
                     Err(err @ OpenBitFunError::Cancelled(_)) => return Err(err),
                     Err(e) => return Err(e),
@@ -4579,7 +4617,6 @@ impl ExecutionEngine {
                 Self::estimate_auto_compression_pressure(
                     &messages,
                     tool_definitions.as_deref(),
-                    context_window,
                     compression_trigger_budget,
                     send_prepended_reminder_tokens,
                 )
@@ -4602,7 +4639,6 @@ impl ExecutionEngine {
                 send_pressure = Self::estimate_auto_compression_pressure(
                     &messages,
                     tool_definitions.as_deref(),
-                    context_window,
                     compression_trigger_budget,
                     send_prepended_reminder_tokens,
                 );
@@ -4801,6 +4837,9 @@ impl ExecutionEngine {
                 Err(err)
                     if enable_context_compression
                         && err.is_recoverable_context_overflow()
+                        && !no_gain_history.as_ref().is_some_and(|history| {
+                            history.matches(&messages, &model_id, send_pressure)
+                        })
                         && main_context_overflow_recoveries
                             < Self::MAX_MAIN_CONTEXT_OVERFLOW_RECOVERIES =>
                 {
@@ -4821,7 +4860,6 @@ impl ExecutionEngine {
                             "context_overflow_recovery",
                             messages.clone(),
                             send_pressure,
-                            context_window,
                             baseline_ai_client.clone(),
                             &model_request_context,
                             &tool_definitions,
@@ -4834,7 +4872,11 @@ impl ExecutionEngine {
                         )
                         .await
                     {
-                        Ok(Some((compressed_tokens, compressed_messages))) => {
+                        Ok(AutoCompressionOutcome::Applied(
+                            compressed_tokens,
+                            compressed_messages,
+                        )) => {
+                            no_gain_history = None;
                             info!(
                                 "Context-overflow recovery compression completed: session_id={}, turn_id={}, round_index={}, recovery={}, messages {} -> {}, tokens {} -> {}",
                                 context.session_id,
@@ -4882,7 +4924,7 @@ impl ExecutionEngine {
                             full_compression_count += 1;
                             continue;
                         }
-                        Ok(None) => {
+                        Ok(AutoCompressionOutcome::NoGain(_)) => {
                             warn!(
                                 "Context-overflow recovery found no compressible context: session_id={}, turn_id={}, round_index={}",
                                 context.session_id, context.dialog_turn_id, round_index
@@ -5054,7 +5096,6 @@ impl ExecutionEngine {
             let after_round_pressure = Self::estimate_auto_compression_pressure(
                 &messages,
                 tool_definitions.as_deref(),
-                context_window,
                 compression_trigger_budget,
                 send_prepended_reminder_tokens,
             );
@@ -5548,6 +5589,7 @@ impl ExecutionEngine {
             };
 
             if let Some(finalize_reminder) = finalize_reminder {
+                let context_window = compression_trigger_budget.context_window;
                 let finalize_round_group_id = Some(format!(
                     "{}:finalize:{}",
                     context.dialog_turn_id, completed_rounds
@@ -5957,8 +5999,8 @@ mod tests {
         build_skill_agent_tool_listing_sections_from_snapshot, deferred_tool_listing_reminder,
         manual_compaction_terminal_error, reached_fixed_model_round_limit,
         resolve_round_permission_mode, runtime_context_needs_for_manifest,
-        skill_agent_listing_reminders, ContextHealthSnapshot, ExecutionEngine,
-        ExecutionEngineConfig, RoundResult, TurnPromptScaffold,
+        skill_agent_listing_reminders, CompressionTriggerBudget, ContextHealthSnapshot,
+        ExecutionEngine, ExecutionEngineConfig, RoundResult, TurnPromptScaffold,
     };
     use crate::agentic::agents::{
         PrependedPromptReminders, PromptBuilderContext, ToolListingSections, UserContextPolicy,
@@ -7676,8 +7718,7 @@ mod tests {
         let snapshot = ExecutionEngine::estimate_auto_compression_pressure(
             &messages,
             Some(&tools),
-            128_000,
-            ExecutionEngine::compression_trigger_budget(128_000, None),
+            CompressionTriggerBudget::for_model(128_000, None),
             prepended_reminder_tokens,
         );
 
@@ -7697,7 +7738,7 @@ mod tests {
 
     #[test]
     fn compression_trigger_budget_reserves_output_and_safety_tokens() {
-        let budget = ExecutionEngine::compression_trigger_budget(128_000, Some(32_000));
+        let budget = CompressionTriggerBudget::for_model(128_000, Some(32_000));
 
         assert_eq!(budget.output_reserve_tokens, 32_000);
         assert_eq!(budget.safety_reserve_tokens, 10_000);
@@ -7706,7 +7747,7 @@ mod tests {
 
     #[test]
     fn compression_trigger_budget_uses_the_automatic_output_tier_when_max_tokens_is_unset() {
-        let budget = ExecutionEngine::compression_trigger_budget(128_000, None);
+        let budget = CompressionTriggerBudget::for_model(128_000, None);
 
         assert_eq!(budget.output_reserve_tokens, 32_000);
         assert_eq!(budget.safety_reserve_tokens, 10_000);
@@ -7741,8 +7782,7 @@ mod tests {
         let (snapshot, details) = ExecutionEngine::estimate_auto_compression_pressure_with_anchor(
             &messages,
             None,
-            1_000,
-            ExecutionEngine::compression_trigger_budget(1_000, None),
+            CompressionTriggerBudget::for_model(1_000, None),
             Some(&anchor),
             0,
         );
@@ -7788,8 +7828,7 @@ mod tests {
         let (snapshot, details) = ExecutionEngine::estimate_auto_compression_pressure_with_anchor(
             &messages,
             Some(&new_tools),
-            1_000,
-            ExecutionEngine::compression_trigger_budget(1_000, None),
+            CompressionTriggerBudget::for_model(1_000, None),
             Some(&anchor),
             0,
         );
@@ -7836,8 +7875,7 @@ mod tests {
         let (snapshot, details) = ExecutionEngine::estimate_auto_compression_pressure_with_anchor(
             &messages,
             None,
-            1_000,
-            ExecutionEngine::compression_trigger_budget(1_000, None),
+            CompressionTriggerBudget::for_model(1_000, None),
             Some(&anchor),
             new_reminder_tokens,
         );

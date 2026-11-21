@@ -13,7 +13,9 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use tokio::sync::{Mutex, MutexGuard, RwLock};
 
-use openbitfun_services_integrations::remote_connect::account::{AccountClient, AccountSession};
+use openbitfun_services_integrations::remote_connect::account::{
+    AccountClient, AccountSession, RoutingIntent,
+};
 use openbitfun_services_integrations::remote_connect::{session_store, DeviceIdentity};
 
 use super::validate_relay_base_url;
@@ -60,6 +62,10 @@ pub trait AccountRuntimeHost: Send + Sync {
     async fn start_device_routing(&self, request: AccountRoutingStartRequest) -> Result<()>;
 
     async fn stop_device_routing(&self);
+
+    async fn device_routing_is_active(&self) -> bool {
+        false
+    }
 
     /// Whether started routing is standing by because another host on this
     /// machine serves the shared device on the Relay.
@@ -124,6 +130,9 @@ pub struct AccountRuntime {
     account_context_transitions: AtomicUsize,
     account_login_lock: Mutex<()>,
     account_context_transition_lock: Mutex<()>,
+    routing_intent: RoutingIntent,
+    renewal_started: AtomicBool,
+    renewal_wake: Arc<tokio::sync::Notify>,
     routing_recovery_generation: AtomicU64,
     token_expired: AtomicBool,
 }
@@ -137,6 +146,9 @@ impl AccountRuntime {
             account_context_transitions: AtomicUsize::new(0),
             account_login_lock: Mutex::new(()),
             account_context_transition_lock: Mutex::new(()),
+            routing_intent: RoutingIntent::new(),
+            renewal_started: AtomicBool::new(false),
+            renewal_wake: Arc::new(tokio::sync::Notify::new()),
             routing_recovery_generation: AtomicU64::new(0),
             token_expired: AtomicBool::new(false),
         })
@@ -223,7 +235,78 @@ impl AccountRuntime {
         self.read_account_context().await.is_ok()
     }
 
+    pub fn record_authenticated_device(&self, token: &str, device_id: &str) -> Result<()> {
+        if session_store::record_authenticated_device(token, device_id)? {
+            self.renewal_wake.notify_one();
+        }
+        Ok(())
+    }
+
+    async fn maintain_device_session(&self) -> Result<()> {
+        let generation = self.account_context_generation();
+        let Ok((old, relay_url)) = self.read_account_context_for_generation(generation).await
+        else {
+            return Ok(());
+        };
+        let Some(saved) = session_store::renew_session_if_due(self.host.is_cli_host()).await?
+        else {
+            return Ok(());
+        };
+        let (session, generation) = if saved.replaces(&old, &relay_url) {
+            let Some(transition) = self.begin_account_transition_if_current(generation).await
+            else {
+                return Ok(());
+            };
+            let session = AccountSession::new(saved.token, saved.user_id, saved.master_key);
+            *self.account_context.write().await = Some(AccountContextState {
+                session: session.clone(),
+                relay_url: relay_url.clone(),
+            });
+            let next = transition.finish();
+            self.routing_intent.rotated(generation, next);
+            (session, next)
+        } else if saved.token == old.token && !self.host.device_routing_is_active().await {
+            (old, generation)
+        } else {
+            return Ok(());
+        };
+        if self.device_routing_requested(generation) {
+            self.host
+                .start_device_routing(AccountRoutingStartRequest {
+                    session,
+                    relay_url,
+                    device_name: current_device_identity()?.device_name,
+                    account_generation: generation,
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
     pub async fn try_restore_session(self: &Arc<Self>) -> Option<String> {
+        if !self.renewal_started.swap(true, Ordering::AcqRel) {
+            let error = session_store::renew_session_if_due(self.host.is_cli_host())
+                .await
+                .err();
+            if let Some(error) = &error {
+                log::warn!("Startup device credential maintenance failed: {error}");
+            }
+            let weak = Arc::downgrade(self);
+            session_store::schedule_renewal_checks(
+                self.renewal_wake.clone(),
+                error.is_some(),
+                move || {
+                    let runtime = weak.upgrade();
+                    async move {
+                        let Some(runtime) = runtime else {
+                            return Ok(false);
+                        };
+                        runtime.maintain_device_session().await?;
+                        Ok(true)
+                    }
+                },
+            );
+        }
         if let Ok(Some(loaded)) = session_store::load_session_detailed() {
             if openbitfun_services_integrations::remote_connect::account::persisted_relay_requires_migration(
                 &loaded.relay_url,
@@ -415,7 +498,6 @@ impl AccountRuntime {
 
         let user_id = session.user_id.clone();
         let token = session.token.clone();
-        let master_key = session.master_key;
         *self.account_context.write().await = Some(AccountContextState {
             session: session.clone(),
             relay_url: relay_url.clone(),
@@ -423,17 +505,21 @@ impl AccountRuntime {
         session_store::save_credential_hint(&pair.user.phone_masked, &relay_url);
         self.token_expired.store(false, Ordering::Relaxed);
 
-        if let Err(error) = session_store::save_session_with_device_and_refresh(
-            &token,
-            &user_id,
-            &master_key,
+        if let Err(error) = session_store::save_issued_session(
+            &session,
             &relay_url,
-            Some(device.device_id.as_str()),
+            Some(&device.device_id),
+            previous_account_context
+                .as_ref()
+                .map(|context| context.session.token.as_str()),
             Some(pair.refresh_token.as_str()),
-        ) {
+        )
+        .await
+        {
             log::warn!("Failed to persist session: {error}");
         }
         let generation = transition.finish();
+        self.routing_intent.request(generation);
         let routing = self
             .host
             .start_device_routing(AccountRoutingStartRequest {
@@ -451,15 +537,26 @@ impl AccountRuntime {
             user_id,
             relay_url,
             routing_owner_replaced: retired_background_owner,
-            routing_connected: routing.is_ok() && !routing_standby,
+            routing_connected: routing.is_ok()
+                && !routing_standby
+                && self.host.device_routing_is_active().await,
             routing_standby,
             routing_error: routing.err().map(|error| error.to_string()),
         })
     }
 
+    pub fn cancel_device_routing(&self) {
+        self.routing_intent.cancel();
+    }
+
+    pub fn device_routing_requested(&self, generation: u64) -> bool {
+        self.account_context_is_current(generation) && self.routing_intent.requested(generation)
+    }
+
     pub async fn restore_device_routing(self: &Arc<Self>, device_name: &str) -> Result<()> {
         let generation = self.account_context_generation();
         let (session, relay_url) = self.read_account_context_for_generation(generation).await?;
+        self.routing_intent.request(generation);
         self.host
             .start_device_routing(AccountRoutingStartRequest {
                 session,
@@ -476,18 +573,16 @@ impl AccountRuntime {
         if self.host.request_background_routing_owner_shutdown() {
             log::info!("Signalled the background account routing owner to shut down");
         }
-        if let Ok((session, relay_url)) = self.read_account_context_raw().await {
+        let active = self.read_account_context_raw().await.ok();
+        if let Some((session, _)) = &active {
             if let Err(error) =
                 crate::service::filesystem::upload::retire_account_uploads(&session.user_id).await
             {
                 log::warn!("Failed to clean up retired account uploads: {error}");
             }
-            let _ = AccountClient::new()
-                .revoke_token(&relay_url, &session)
-                .await;
         }
         *self.account_context.write().await = None;
-        session_store::clear_session();
+        session_store::logout_session(active, true).await;
         session_store::clear_credential_hint();
         self.token_expired.store(false, Ordering::Relaxed);
         transition.finish();
@@ -499,6 +594,18 @@ impl AccountRuntime {
         account_generation: u64,
         expected_token: &str,
     ) -> bool {
+        if let Ok((session, relay)) = self
+            .read_account_context_for_generation(account_generation)
+            .await
+        {
+            if session.token != expected_token {
+                return false;
+            }
+            if session_store::has_saved_replacement(&session, &relay) {
+                self.renewal_wake.notify_one();
+                return false;
+            }
+        }
         let Some(transition) = self
             .begin_account_transition_if_current(account_generation)
             .await
@@ -527,7 +634,9 @@ impl AccountRuntime {
             }
         }
         self.token_expired.store(true, Ordering::Relaxed);
-        session_store::clear_session();
+        if let Err(error) = session_store::clear_rejected_session(expected_token) {
+            log::warn!("Failed to clear rejected session: {error}");
+        }
         transition.finish();
         true
     }

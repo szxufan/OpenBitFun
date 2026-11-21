@@ -43,7 +43,6 @@ git2 = { workspace = true, optional = true }
 hostname = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 hex = { workspace = true, optional = true }
-minisign-verify = { version = "0.2", optional = true }
 libc = { workspace = true, optional = true }
 local-ip-address = { workspace = true, optional = true }
 mac_address = { workspace = true, optional = true }
@@ -356,19 +355,14 @@ remote-ssh-concrete = [
     "async-trait",
     "base64",
     "dep:openbitfun-core-types",
-    "openbitfun-services-core/tls-provider",
     "dep:openbitfun-runtime-ports",
+    "dep:openbitfun-services-core",
     "chrono",
     "dirs",
-    "minisign-verify",
     "rand",
-    "reqwest",
-    "reqwest/rustls-no-provider",
-    "reqwest/stream",
     "russh",
     "russh-sftp",
     "russh-keys",
-    "semver",
     "shellexpand",
     "ssh_config",
     "terminal-core",

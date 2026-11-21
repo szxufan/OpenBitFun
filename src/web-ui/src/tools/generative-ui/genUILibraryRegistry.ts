@@ -2,7 +2,7 @@ import type { GenUICatalogContract, GenUILibraryContract } from './genUIContract
 import type { GenUIAppDefinition } from './genUITypes';
 import type { GenUIImplementations } from './genUILibrary';
 
-/** A registered GenUI adapter is the unit of schema, rendering and inspection. */
+/** A registered GenUI adapter is the owner of a recorded schema and its renderer. */
 export interface GenUILibraryAdapter {
   id: string;
   revision: number;

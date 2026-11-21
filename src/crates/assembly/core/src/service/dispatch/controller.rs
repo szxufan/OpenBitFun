@@ -1,7 +1,5 @@
 use openbitfun_services_integrations::remote_ssh::{
-    dispatch_ssh::{
-        self, DispatchCliRelease, DispatchInstallPoll, DispatchInstallStart, DispatchSshProbe,
-    },
+    dispatch_ssh::{self, DispatchSshProbe},
     SSHConnectionManager,
 };
 use serde::{Deserialize, Serialize};
@@ -26,7 +24,10 @@ pub(super) const MAX_DISPATCH_TEXT_BYTES: usize = 32 * 1024;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct DispatchListTargetsRequest {}
+pub struct DispatchListTargetsRequest {
+    #[serde(default)]
+    pub ssh_only: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,21 +39,6 @@ pub struct DispatchProbeTargetRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DispatchConnectionRequest {
     pub connection_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DispatchInstallStartRequest {
-    pub connection_id: String,
-    pub release: DispatchCliRelease,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DispatchInstallPollRequest {
-    pub connection_id: String,
-    #[serde(default)]
-    pub cursor: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,27 +264,6 @@ pub async fn probe_target(
         anyhow::bail!("SSH dispatch probing requires an SSH target");
     };
     dispatch_ssh::probe(manager, &connection_id, nonempty(&workspace_path)).await
-}
-
-pub async fn install_cli_start(
-    manager: &SSHConnectionManager,
-    request: DispatchInstallStartRequest,
-) -> anyhow::Result<DispatchInstallStart> {
-    dispatch_ssh::install_cli_start(manager, request.connection_id.trim(), &request.release).await
-}
-
-pub async fn install_cli_poll(
-    manager: &SSHConnectionManager,
-    request: DispatchInstallPollRequest,
-) -> anyhow::Result<DispatchInstallPoll> {
-    dispatch_ssh::install_cli_poll(manager, request.connection_id.trim(), request.cursor).await
-}
-
-pub async fn install_cli_cancel(
-    manager: &SSHConnectionManager,
-    request: DispatchConnectionRequest,
-) -> anyhow::Result<()> {
-    dispatch_ssh::install_cli_cancel(manager, request.connection_id.trim()).await
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -560,7 +525,7 @@ pub async fn submit(
         WorktreeService::resolve_project_workspace_path(source_workspace_path)
             .await
             .map_err(|error| anyhow::anyhow!("resolve the dispatch project workspace: {error}"))?;
-    // One controller process at a time may install/provision/submit a job. The
+    // One controller process at a time may prepare and submit a job. The
     // JSON journal uses a different lock, so audit events can still be appended
     // atomically while this long-lived guard is held.
     let _preparation_run_lock = store.acquire_preparation_run_lock(&request.job_id).await?;
@@ -587,40 +552,7 @@ pub async fn submit(
         })
         .await?;
 
-    // Re-check the executable that will receive this submission, installing it
-    // when missing. The picker probe can be stale, and headless callers bypass
-    // the UI entirely. Every audit event is durably journaled before the
-    // corresponding remote mutation, then replayed into the target event log.
-    let audit_attempt = uuid::Uuid::new_v4().as_simple().to_string();
-    let mut audit_sequence = 0_u32;
-    let audit_store = store.clone();
-    let audit_job_id = request.job_id.clone();
-    let cli_probe =
-        dispatch_ssh::ensure_target_cli(manager, connection_id, move |stage, release| {
-            audit_sequence = audit_sequence.saturating_add(1);
-            let event_id = format!("{audit_attempt}:{audit_sequence}");
-            let stage = stage.to_string();
-            let audit_store = audit_store.clone();
-            let audit_job_id = audit_job_id.clone();
-            async move {
-                log::info!("Dispatch SSH CLI install: stage={stage} details={release}");
-                audit_store
-                    .append_preparation_setup_audit(
-                        &audit_job_id,
-                        &event_id,
-                        json!({
-                            "timestamp": chrono::Utc::now().to_rfc3339(),
-                            "action": "cli-install",
-                            "details": {
-                                "stage": stage,
-                                "release": release,
-                            },
-                        }),
-                    )
-                    .await
-            }
-        })
-        .await?;
+    let cli_probe = dispatch_ssh::probe(manager, connection_id, None).await?;
     recover_interrupted_cli_install_audit(store, &request.job_id, &cli_probe).await?;
     let cli_protocol = cli_probe.protocol.as_ref().ok_or_else(|| {
         anyhow::anyhow!(

@@ -26,7 +26,8 @@ use crate::agentic::tools::browser_control::session_registry::{
     BrowserSession, BrowserSessionRegistry, BrowserSessionState, DialogHandler,
 };
 use crate::agentic::tools::framework::{
-    Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext, ValidationResult,
+    PermissionIntent, Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext,
+    ValidationResult,
 };
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use crate::util::types::ToolImageAttachment;
@@ -3688,6 +3689,88 @@ impl Tool for ControlHubTool {
 
     async fn is_enabled(&self) -> bool {
         true
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        _context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        let domain = input.get("domain").and_then(Value::as_str).unwrap_or("");
+        let action = input.get("action").and_then(Value::as_str).unwrap_or("");
+        let readonly = match domain {
+            "meta" => matches!(action, "capabilities" | "route_hint"),
+            "terminal" => action == "list_sessions",
+            // A legacy URL-bearing article read navigates the selected page.
+            "browser" if action == "read_article" => input
+                .get("params")
+                .and_then(|params| params.get("url"))
+                .is_none(),
+            "browser" => matches!(
+                action,
+                "list_pages"
+                    | "tab_query"
+                    | "list_sessions"
+                    | "snapshot"
+                    | "get"
+                    | "get_text"
+                    | "get_url"
+                    | "get_title"
+                    | "get_html"
+                    | "screenshot"
+                    | "wait"
+            ),
+            _ => false,
+        };
+        let params = input.get("params");
+        let field = |name| {
+            params
+                .and_then(|params| params.get(name))
+                .and_then(Value::as_str)
+        };
+        let (permission_action, resource, concrete_target) = match domain {
+            "browser" => {
+                let target = field("target")
+                    .or_else(|| field("browser_target"))
+                    .unwrap_or("selected");
+                let page = field("session_id").or_else(|| field("page_id"));
+                (
+                    if readonly {
+                        "browser.read"
+                    } else {
+                        "browser.interact"
+                    },
+                    format!("{target}:{}", page.unwrap_or("current-page")),
+                    page.is_some()
+                        && (field("target").is_some() || field("browser_target").is_some()),
+                )
+            }
+            "terminal" => {
+                let terminal = field("terminal_session_id");
+                (
+                    if readonly {
+                        "terminal.read"
+                    } else {
+                        "terminal.control"
+                    },
+                    format!("terminal:{}", terminal.unwrap_or("all")),
+                    terminal.is_some(),
+                )
+            }
+            "meta" if readonly => ("control.describe", "capabilities".to_string(), true),
+            _ => {
+                return Err(OpenBitFunError::validation(
+                    "Unsupported control domain".to_string(),
+                ))
+            }
+        };
+        let mut intent = PermissionIntent::new(permission_action, vec![resource]);
+        // An implicit selection can change before the next call; do not save a
+        // permanent grant for an unresolved browser page or UI terminal.
+        if !concrete_target {
+            intent.save_resources.clear();
+        }
+        Ok(vec![intent])
     }
 
     async fn validate_input(

@@ -491,13 +491,21 @@ fn stream_json_malformed_sse_retries_then_completes() {
 
 #[test]
 fn stream_json_context_overflow_compresses_before_reissuing_the_model_request() {
+    use std::io::{Seek, Write};
+
     let server = MockOpenAiServer::context_overflow_then_immediate();
     let environment = CliTestEnvironment::new();
     environment.configure_mock_model(server.base_url());
+    // This log exceeds the verbatim user-message retention budget, but fits
+    // the model's input budget so only the provider's 400 triggers recovery.
+    const LOG_LINE: &str = "Recovery fixture: processed one queue entry.\n";
+    let mut log = tempfile::tempfile().expect("create input log");
+    log.write_all(LOG_LINE.repeat(1_600).as_bytes()).unwrap();
+    log.rewind().unwrap();
     let mut command = environment.std_command();
-    command.args([
+    command.stdin(log).args([
         "exec",
-        "Remember this request and continue after context recovery",
+        "Summarize the following queue log",
         "--output-format",
         "stream-json",
     ]);
@@ -511,10 +519,12 @@ fn stream_json_context_overflow_compresses_before_reissuing_the_model_request() 
         requests[0]["messages"], requests[1]["messages"],
         "overflow must enter compression instead of replaying the original request"
     );
-    assert_ne!(
-        requests[0]["messages"], requests[2]["messages"],
-        "recovery must send the compressed context"
-    );
+    let log_marker = LOG_LINE.trim_end();
+    assert!(requests[0]["messages"].to_string().contains(log_marker));
+    assert!(requests[1]["messages"].to_string().contains(log_marker));
+    let recovered = requests[2]["messages"].to_string();
+    assert!(recovered.contains(STREAM_COMPLETED_MARKER));
+    assert!(!recovered.contains(log_marker));
     let events = jsonl_events(&stdout);
     let compression_started = events
         .iter()
@@ -528,6 +538,11 @@ fn stream_json_context_overflow_compresses_before_reissuing_the_model_request() 
         .position(|value| value["event"]["type"] == "ContextCompressionCompleted")
         .expect("recovery compression should complete");
     assert!(compression_started < compression_completed);
+    let completed = &events[compression_completed]["event"];
+    assert_eq!(completed["applied"], true);
+    assert!(
+        completed["tokens_after"].as_u64().unwrap() < completed["tokens_before"].as_u64().unwrap()
+    );
     assert_eq!(
         events
             .iter()
@@ -538,6 +553,47 @@ fn stream_json_context_overflow_compresses_before_reissuing_the_model_request() 
     assert_eq!(
         events.last().unwrap()["event"]["type"],
         "DialogTurnCompleted"
+    );
+}
+
+#[test]
+fn stream_json_context_overflow_preserves_provider_error_when_compression_cannot_help() {
+    let server = MockOpenAiServer::context_overflow_then_immediate();
+    let environment = CliTestEnvironment::new();
+    environment.configure_mock_model(server.base_url());
+    let mut command = environment.std_command();
+    command.args([
+        "exec",
+        "Remember this request",
+        "--output-format",
+        "stream-json",
+    ]);
+    let output = command_output_with_timeout(&mut command, std::time::Duration::from_secs(30));
+    assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
+    server.assert_chat_completion_requests(1);
+
+    let events = jsonl_events(&stdout(&output));
+    let completed = events
+        .iter()
+        .map(|value| &value["event"])
+        .find(|event| event["type"] == "ContextCompressionCompleted")
+        .expect("recovery should report that compression was skipped");
+    assert_eq!(completed["applied"], false);
+    assert_eq!(completed["compression_count"], 0);
+    assert_eq!(completed["tokens_after"], completed["tokens_before"]);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|value| is_terminal_event(value))
+            .count(),
+        1
+    );
+    let terminal = &events.last().unwrap()["event"];
+    assert_eq!(terminal["type"], "DialogTurnFailed");
+    assert_eq!(terminal["error_category"], "context_overflow");
+    assert_eq!(
+        terminal["error_detail"]["providerCode"],
+        "context_length_exceeded"
     );
 }
 

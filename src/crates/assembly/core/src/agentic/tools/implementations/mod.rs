@@ -34,8 +34,6 @@ pub mod frontend_workbench_tool;
 pub mod gen_office_file_tool;
 #[cfg(feature = "tools-image-generation")]
 pub mod generate_image_tool;
-#[cfg(feature = "tools-miniapp")]
-pub mod generative_ui_tool;
 #[cfg(feature = "tools-git")]
 pub mod get_file_diff_tool;
 pub mod get_time_tool;
@@ -115,8 +113,6 @@ pub use frontend_workbench_tool::FrontendWorkbenchTool;
 pub use gen_office_file_tool::GenOfficeFileTool;
 #[cfg(feature = "tools-image-generation")]
 pub use generate_image_tool::GenerateImageTool;
-#[cfg(feature = "tools-miniapp")]
-pub use generative_ui_tool::GenerativeUITool;
 #[cfg(feature = "tools-git")]
 pub use get_file_diff_tool::GetFileDiffTool;
 pub use get_time_tool::GetTimeTool;

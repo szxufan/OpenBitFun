@@ -2,10 +2,6 @@ import { api } from '@/infrastructure/api/service-api/ApiClient';
 import type {
   DispatchApprovalPolicy,
   DispatchCancelResponse,
-  DispatchCliRelease,
-  DispatchInstallPoll,
-  DispatchInstallStart,
-  DispatchProvisionTargetResult,
   DispatchContinueResponse,
   DispatchJobListEntry,
   DispatchSshProbe,
@@ -28,41 +24,20 @@ export interface DispatchInlineAttachment {
 
 export const dispatchApi = {
   async listTargets(): Promise<DispatchTargetOption[]> {
-    return api.invoke<DispatchTargetOption[]>('dispatch_list_targets', {
-      request: {},
-    });
+    const list = (request: { sshOnly?: boolean }) =>
+      api.invoke<DispatchTargetOption[]>('dispatch_list_targets', { request });
+    try {
+      return await list({ sshOnly: true });
+    } catch (error) {
+      // Older hosts reject new request fields. The picker filters their response.
+      if (!/unknown field [`'"]sshOnly[`'"]/i.test(String(error))) throw error;
+      return list({});
+    }
   },
 
   async probeTarget(target: DispatchTargetRequest): Promise<DispatchSshProbe> {
     return api.invoke<DispatchSshProbe>('dispatch_probe_target', {
       request: { target },
-    });
-  },
-
-  async installCliStart(
-    connectionId: string,
-    release: DispatchCliRelease,
-  ): Promise<DispatchInstallStart> {
-    return api.invoke<DispatchInstallStart>('dispatch_install_cli_start', {
-      request: { connectionId, release },
-    });
-  },
-
-  async installCliPoll(connectionId: string, cursor: number): Promise<DispatchInstallPoll> {
-    return api.invoke<DispatchInstallPoll>('dispatch_install_cli_poll', {
-      request: { connectionId, cursor },
-    });
-  },
-
-  async installCliCancel(connectionId: string): Promise<void> {
-    return api.invoke<void>('dispatch_install_cli_cancel', {
-      request: { connectionId },
-    });
-  },
-
-  async provisionTarget(connectionId: string): Promise<DispatchProvisionTargetResult> {
-    return api.invoke<DispatchProvisionTargetResult>('dispatch_provision_target', {
-      request: { connectionId },
     });
   },
 

@@ -42,7 +42,7 @@ import type {
   AgentDialogTurnExecution,
   SessionPermissionMode,
 } from '@/infrastructure/api/service-api/AgentAPI';
-import type { PendingLargePasteMap } from '../store/sessionComposerStore';
+import { beginComposerSubmission, type PendingLargePasteMap } from '../store/sessionComposerStore';
 import { LARGE_PASTES_METADATA_KEY, pickReferencedLargePastes } from '../utils/largePasteMetadata';
 
 const log = createLogger('FlowChat');
@@ -160,6 +160,7 @@ export function useMessageSender(props: UseMessageSenderProps): UseMessageSender
       agentType: currentAgentType || 'Standard',
     });
 
+    const finishComposerSubmission = sessionId ? beginComposerSubmission(sessionId, surfaceScope.surfaceId) : undefined;
     try {
       const sendImmediately = options?.sendImmediately
         ?? (await getChatInputSendDuringTurn() === 'immediate');
@@ -353,6 +354,8 @@ export function useMessageSender(props: UseMessageSenderProps): UseMessageSender
         error: (error as Error)?.message ?? 'unknown',
       });
       throw error;
+    } finally {
+      finishComposerSubmission?.();
     }
   }, [
     canSetInitialBtwModel,

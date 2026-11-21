@@ -1119,3 +1119,301 @@ async fn grant_management_is_project_scoped_and_audit_remains_append_only() {
         PermissionWaitOutcome::Cancelled { .. }
     ));
 }
+
+#[test]
+fn business_actions_and_grants_are_scoped_without_tool_name_aliases() {
+    let baseline = PermissionPolicyPreset::Ask.baseline_rules();
+    let policy = ResolvedPermissionPolicy::new(baseline.clone(), Vec::new());
+    let write = PermissionIntent::new("process.write_input", vec!["exec:1".into()]);
+    let grant = PermissionGrant {
+        project_id: "project-a".into(),
+        action: "process.write_input".into(),
+        resource: "exec:1".into(),
+        created_at_ms: 1,
+    };
+    let evaluate = |intent: PermissionIntent, grants: &[PermissionGrant]| {
+        plan_permission_intents(
+            vec![intent],
+            &policy,
+            grants,
+            PermissionResourceCaseSensitivity::Sensitive,
+        )
+    };
+    assert_eq!(
+        evaluate(write.clone(), &[grant.clone()]),
+        PermissionIntentPlan::Allowed
+    );
+    assert!(matches!(
+        evaluate(
+            PermissionIntent::new("process.write_input", vec!["exec:2".into()]),
+            &[grant.clone()]
+        ),
+        PermissionIntentPlan::RequiresApproval(_)
+    ));
+    assert!(matches!(
+        evaluate(
+            PermissionIntent::new("terminal.control", vec!["exec:1".into()]),
+            &[grant.clone()]
+        ),
+        PermissionIntentPlan::RequiresApproval(_)
+    ));
+    let old_grant = PermissionGrant {
+        action: "custom_tool".into(),
+        resource: "WriteStdin".into(),
+        ..grant
+    };
+    assert!(matches!(
+        evaluate(write.clone(), &[old_grant]),
+        PermissionIntentPlan::RequiresApproval(_)
+    ));
+    for effect in [PermissionEffect::Allow, PermissionEffect::Deny] {
+        let mut rules = baseline.clone();
+        rules.push(PermissionRule::new("custom_tool", "WriteStdin", effect));
+        assert!(matches!(
+            plan_permission_intents(
+                vec![write.clone()],
+                &ResolvedPermissionPolicy::new(rules, Vec::new()),
+                &[],
+                PermissionResourceCaseSensitivity::Sensitive
+            ),
+            PermissionIntentPlan::RequiresApproval(_)
+        ));
+    }
+}
+
+fn structured_command(source: &str, args: &[(&[&str], bool)], complete: bool) -> PermissionIntent {
+    use openbitfun_agent_tools::command_permission::{CommandPermissionPlan, PermissionCommand};
+    let mut intent = PermissionIntent::new("process.execute", vec![source.into()]);
+    intent.command = Some(CommandPermissionPlan {
+        shell_kind: "bash".into(),
+        shell_path: "/bin/bash".into(),
+        workdir: "/repo".into(),
+        complete,
+        commands: args
+            .iter()
+            .map(|(argv, read_only)| PermissionCommand {
+                argv: argv.iter().map(|s| s.to_string()).collect(),
+                read_only: *read_only,
+            })
+            .collect(),
+    });
+    intent.save_resources = vec!["exec-plan:context-1".into()];
+    intent
+}
+
+#[test]
+fn ast_command_allow_patterns_never_authorize_an_unmatched_sibling() {
+    let mut rules = PermissionPolicyPreset::Ask.baseline_rules();
+    rules.push(PermissionRule::new(
+        "process.execute",
+        "git clone *",
+        PermissionEffect::Allow,
+    ));
+    let policy = ResolvedPermissionPolicy::new(rules, vec![]);
+    let evaluate = |intent| {
+        plan_permission_intents(
+            vec![intent],
+            &policy,
+            &[],
+            PermissionResourceCaseSensitivity::Sensitive,
+        )
+    };
+    assert_eq!(
+        evaluate(structured_command(
+            "git clone 'url with spaces'",
+            &[(&["git", "clone", "url with spaces"], false)],
+            true
+        )),
+        PermissionIntentPlan::Allowed
+    );
+    assert_eq!(
+        evaluate(structured_command(
+            "git clone repo && git status",
+            &[
+                (&["git", "clone", "repo"], false),
+                (&["git", "status"], true)
+            ],
+            true
+        )),
+        PermissionIntentPlan::Allowed
+    );
+    assert!(matches!(
+        evaluate(structured_command(
+            "git clone repo && rm -rf other",
+            &[
+                (&["git", "clone", "repo"], false),
+                (&["rm", "-rf", "other"], false)
+            ],
+            true
+        )),
+        PermissionIntentPlan::RequiresApproval(_)
+    ));
+    for source in [
+        "git clone $(evil)",
+        "git clone *",
+        "git clone repo && unknown",
+    ] {
+        assert!(
+            matches!(
+                evaluate(structured_command(source, &[], false)),
+                PermissionIntentPlan::RequiresApproval(_)
+            ),
+            "{source}"
+        );
+    }
+    // Existing bash rule names gain structured matching without raw wildcard execution.
+    let alias = ResolvedPermissionPolicy::new(
+        vec![PermissionRule::new(
+            "bash",
+            "git clone *",
+            PermissionEffect::Allow,
+        )],
+        vec![],
+    );
+    assert_eq!(
+        plan_permission_intents(
+            vec![structured_command(
+                "git clone repo",
+                &[(&["git", "clone", "repo"], false)],
+                true
+            )],
+            &alias,
+            &[],
+            PermissionResourceCaseSensitivity::Sensitive
+        ),
+        PermissionIntentPlan::Allowed
+    );
+}
+
+#[test]
+fn ast_read_only_defaults_do_not_override_rules_constraints_or_file_permissions() {
+    let read = structured_command("git status", &[(&["git", "status"], true)], true);
+    for effect in [PermissionEffect::Ask, PermissionEffect::Deny] {
+        let mut rules = PermissionPolicyPreset::Ask.baseline_rules();
+        rules.push(PermissionRule::new("process.execute", "git *", effect));
+        let result = plan_permission_intents(
+            vec![read.clone()],
+            &ResolvedPermissionPolicy::new(rules, vec![]),
+            &[],
+            PermissionResourceCaseSensitivity::Sensitive,
+        );
+        if effect == PermissionEffect::Deny {
+            assert!(matches!(result, PermissionIntentPlan::Denied(_)));
+        } else {
+            assert!(matches!(result, PermissionIntentPlan::RequiresApproval(_)));
+        }
+    }
+    let policy = ResolvedPermissionPolicy::new(
+        PermissionPolicyPreset::Ask.baseline_rules(),
+        vec![PermissionConstraintLayer::new(vec![PermissionRule::new(
+            "process.execute",
+            "git *",
+            PermissionEffect::Deny,
+        )])],
+    );
+    assert!(matches!(
+        plan_permission_intents(
+            vec![read.clone()],
+            &policy,
+            &[],
+            PermissionResourceCaseSensitivity::Sensitive
+        ),
+        PermissionIntentPlan::Denied(_)
+    ));
+    let policy =
+        ResolvedPermissionPolicy::new(PermissionPolicyPreset::Ask.baseline_rules(), vec![]);
+    assert!(matches!(
+        plan_permission_intents(
+            vec![
+                read,
+                PermissionIntent::new("read", vec!["/repo/.env".into()])
+            ],
+            &policy,
+            &[],
+            PermissionResourceCaseSensitivity::Sensitive
+        ),
+        PermissionIntentPlan::RequiresApproval(_)
+    ));
+}
+
+#[test]
+fn ast_unsupported_commands_still_accept_deliberate_exact_and_full_access_rules() {
+    let intent = structured_command("unknown $(dynamic)", &[], false);
+    for rule in [
+        PermissionRule::new(
+            "process.execute",
+            "unknown $(dynamic)",
+            PermissionEffect::Allow,
+        ),
+        PermissionRule::new("*", "*", PermissionEffect::Allow),
+    ] {
+        assert_eq!(
+            plan_permission_intents(
+                vec![intent.clone()],
+                &ResolvedPermissionPolicy::new(vec![rule], vec![]),
+                &[],
+                PermissionResourceCaseSensitivity::Sensitive
+            ),
+            PermissionIntentPlan::Allowed
+        );
+    }
+    let grant = PermissionGrant {
+        project_id: "project".into(),
+        action: "process.execute".into(),
+        resource: "exec-plan:context-1".into(),
+        created_at_ms: 1,
+    };
+    let policy =
+        ResolvedPermissionPolicy::new(PermissionPolicyPreset::Ask.baseline_rules(), vec![]);
+    assert_eq!(
+        plan_permission_intents(
+            vec![intent.clone()],
+            &policy,
+            &[grant.clone()],
+            PermissionResourceCaseSensitivity::Sensitive
+        ),
+        PermissionIntentPlan::Allowed
+    );
+    let mut changed = intent;
+    changed.save_resources = vec!["exec-plan:different-shell-or-cwd".into()];
+    assert!(matches!(
+        plan_permission_intents(
+            vec![changed],
+            &policy,
+            &[grant],
+            PermissionResourceCaseSensitivity::Sensitive
+        ),
+        PermissionIntentPlan::RequiresApproval(_)
+    ));
+}
+
+#[test]
+fn ast_partial_programs_keep_known_denials_authoritative() {
+    let mut rules = PermissionPolicyPreset::Ask.baseline_rules();
+    rules.push(PermissionRule::new(
+        "process.execute",
+        "rm *",
+        PermissionEffect::Deny,
+    ));
+    let policy = ResolvedPermissionPolicy::new(rules, vec![]);
+    let intent = structured_command(
+        "echo $VALUE; rm protected",
+        &[(&["rm", "protected"], false)],
+        false,
+    );
+    let grant = PermissionGrant {
+        project_id: "project".into(),
+        action: "process.execute".into(),
+        resource: "exec-plan:context-1".into(),
+        created_at_ms: 1,
+    };
+    assert!(matches!(
+        plan_permission_intents(
+            vec![intent],
+            &policy,
+            &[grant],
+            PermissionResourceCaseSensitivity::Sensitive
+        ),
+        PermissionIntentPlan::Denied(_)
+    ));
+}

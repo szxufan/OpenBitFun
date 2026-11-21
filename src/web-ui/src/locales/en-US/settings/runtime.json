@@ -68,7 +68,7 @@
     "sectionDescription": "Choose when tool actions need approval and which actions are allowed or denied",
     "mode": "Default permission mode",
     "ask": "Ask for confirmation",
-    "askDescription": "Confirm before files change, commands run, or external services are accessed.",
+    "askDescription": "Allow ordinary workspace edits, recognized read-only commands, scheduling, and messages between sessions. Confirm other commands, deletions, sensitive files, and publishing.",
     "fullAccess": "Full access",
     "fullAccessDescription": "Do not confirm each tool action.",
     "fullAccessWarningTitle": "Enable full access?",

@@ -11,6 +11,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 serde = { workspace = true }
+sha2 = { workspace = true }
 serde_json = { workspace = true }
 openbitfun-core-types = { path = "../../contracts/core-types" }
 openbitfun-runtime-ports = { path = "../../contracts/runtime-ports" }

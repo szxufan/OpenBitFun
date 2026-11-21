@@ -34,7 +34,13 @@ impl NativeComputerUseHost {
                 Ok(
                     crate::computer_use::macos_bg_input::frontmost_pid_macos() == Some(pid)
                         && u32::try_from(window).ok().is_some_and(|window| {
-                            crate::computer_use::macos_ax_ui::focused_window_id(pid) == Some(window)
+                            crate::computer_use::macos_ax_ui::focused_window_id(pid).is_some_and(
+                                |actual| {
+                                    crate::computer_use::macos_ax_dump::window_belongs_to_capture(
+                                        pid, window, actual,
+                                    )
+                                },
+                            )
                         }),
                 )
             })?;

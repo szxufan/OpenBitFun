@@ -54,6 +54,7 @@ import { estimateRetainedBytes, resourceBudget } from '@/shared/utils/resourceBu
 import { ProcessingPhase, SessionExecutionState } from '../state-machine/types';
 import { isTurnAwaitingRecovery } from '../utils/interruptedTurnRecovery';
 import { isUnmaterializedSessionDraft } from '../utils/sessionDraft';
+import { isBtwSessionDraft } from '../utils/modelSelectionTarget';
 import { sessionActivityStore } from './sessionActivityStore';
 import {
   getActiveSurfaceId,
@@ -66,6 +67,7 @@ import {
 } from '@/infrastructure/peer-device/deviceSurface';
 import {
   isRuntimeSessionAttachmentInFlight,
+  isRuntimeSessionProjectionStale,
   markRuntimeSessionProjectionStale,
 } from '@/infrastructure/peer-device/runtimeSessionEventGate';
 import { i18nService } from '@/infrastructure/i18n/core/I18nService';
@@ -96,7 +98,7 @@ import { sessionOwningWorkspaceId } from '../utils/sessionOrdering';
 import { sessionProjectWorkspacePath } from '../utils/sessionWorkspace';
 import type { SessionTitleDescriptor } from '../utils/sessionTitle';
 import { deriveContextUsageFromTurns } from '../utils/tokenUsageDisplay';
-import { isAcpAgentType } from '../utils/acpSession';
+import { isAcpAgentType, isAcpFlowSession } from '../utils/acpSession';
 import {
   deriveSessionTitleState,
   deriveSessionTitleStateFromMetadata,
@@ -1018,9 +1020,10 @@ function coerceRuntimeEventSnapshot(
   sessionId: string,
   backendActive: boolean,
   fallbackActiveTurnId?: string,
+  executionProjection?: 'acp',
 ): SessionRuntimeEventSnapshot | undefined {
   if (
-    !backendActive ||
+    (!backendActive && executionProjection !== 'acp') ||
     snapshot?.sessionId !== sessionId ||
     typeof snapshot.streamId !== 'string' ||
     !snapshot.streamId ||
@@ -2456,6 +2459,7 @@ export class FlowChatStore {
     const key = this.surfaceKey(sessionId);
     this.historyLeases.set(key, (this.historyLeases.get(key) ?? 0) + 1);
     this.activeSurface.relaySessionHistory.get(sessionId)?.setVisible(true);
+    this.followMountedRelaySession(sessionId);
     const resident = this.historyResidency.get(key);
     if (resident) { resident.lastUsedAt = Date.now(); resourceBudget.touch(resident.key); }
     let released = false;
@@ -2470,6 +2474,33 @@ export class FlowChatStore {
       if (retained) { retained.lastUsedAt = Date.now(); resourceBudget.touch(retained.key); }
       this.scheduleHistoryBudget();
     };
+  }
+
+  /**
+   * A peer host streams a session's events only to a controller subscribed to
+   * it, and peer session refresh subscribes only the active session. A mounted
+   * transcript beside it (side question, review, or subagent pane, docked
+   * chat) would otherwise show no live progress, including after the device
+   * switch that closes every subscription. Opening one is idempotent and
+   * replays from the host's records; it closes with the session or the device.
+   */
+  private followMountedRelaySession(sessionId: string): void {
+    const surface = this.activeSurface;
+    if (surface.surfaceId === 'local' || surface.relaySessionHistory.has(sessionId)) return;
+    // Peer session refresh owns the active session, including deferring its
+    // read while a device switch is still choosing the tab to show.
+    if (surface.state.activeSessionId === sessionId) return;
+    const session = surface.state.sessions.get(sessionId);
+    if (!session || isUnmaterializedSessionDraft(session)) return;
+    // The host knows a side question only once its first question is sent;
+    // that submission opens the subscription itself.
+    if (isBtwSessionDraft(session) && !session.btwOrigin?.requestId) return;
+    // Historical shells keep their existing hydration owner.
+    if (session.isHistorical && session.historyState === 'metadata-only') return;
+    if (resolveSessionDriverId(sessionId, session) !== 'local') return;
+    void this.loadRelaySessionHistory(sessionId).catch(error => {
+      log.warn('Mounted peer session subscription failed', { sessionId, error });
+    });
   }
 
   private scheduleHistoryBudget(): void {
@@ -9056,6 +9087,11 @@ export class FlowChatStore {
     // This snapshot describes the device it was read from; reconciling it into
     // the surface that is rendered now would merge two devices' turns.
     scope.assertCurrent('refreshPeerSessionSnapshot');
+    if (isAcpFlowSession(initialSession) && restored.executionProjection !== 'acp'
+      && isRuntimeSessionProjectionStale(scope.surfaceId, sessionId)) {
+      this.setSessionHistoryState(sessionId, 'failed');
+      throw new Error('ACP execution recovery is not supported by this host');
+    }
     if (restored.interactionSnapshot?.sessionId === sessionId) {
       liveSessionInteractionStore.reconcilePermissionSnapshot(
         scope.surfaceId,
@@ -9071,6 +9107,7 @@ export class FlowChatStore {
       sessionId,
       backendActive,
       persistTailTurnId,
+      restored.executionProjection,
     );
     const activeTurnId = backendActive
       ? runtimeEventSnapshot?.activeTurnId ?? persistTailTurnId
@@ -9375,6 +9412,7 @@ export class FlowChatStore {
       sessionId,
       backendActive,
       persistedTailTurnId,
+      restored.executionProjection,
     );
     const hostExecutingTurnId = backendActive
       ? runtimeSnapshot?.activeTurnId ?? persistedTailTurnId
@@ -9660,7 +9698,7 @@ export class FlowChatStore {
       let restoredRuntimeEventSnapshot: SessionRuntimeEventSnapshot | undefined;
 
       const stateMachineManagerPromise = import('../state-machine');
-      if (!isAcpSession) {
+      {
         const restoreStartedAt = nowMs();
         startupTrace.markPhase('historical_session_restore_start', {
           remote,
@@ -9737,24 +9775,30 @@ export class FlowChatStore {
               );
               notifyHydratingState();
               const restored = await restoredPromise;
-              restoredSessionInfo = restored.session;
-              turns = restored.turns;
-              contextRestoreState =
-                restored.contextRestoreState === 'ready' ? 'ready' : 'pending';
-              restoredHistoryPartial = restored.isPartial === true;
-              restoredLoadedTurnCount = restored.loadedTurnCount;
-              restoredTotalTurnCount = restored.totalTurnCount;
-              restoredTurnCatalog = restored.turnCatalog?.sessionId === sessionId
-                ? restored.turnCatalog
-                : undefined;
-              restoredTiming = restored.timings;
-              restoredCurrentContextUsage = restored.currentContextUsage;
-              restoredRuntimeEventSnapshot = coerceRuntimeEventSnapshot(
-                restored.runtimeEventSnapshot,
-                sessionId,
-                isBackendSessionActivelyProcessing(restored.session.state),
-                restored.turns[restored.turns.length - 1]?.turnId,
-              );
+              // Older hosts have only a native Runtime snapshot, which is
+              // not an execution fact for an ACP prompt. Keep their existing
+              // persisted-history fallback instead of treating it as idle.
+              if (!isAcpSession || restored.executionProjection === 'acp') {
+                restoredSessionInfo = restored.session;
+                turns = restored.turns;
+                contextRestoreState =
+                  restored.contextRestoreState === 'ready' ? 'ready' : 'pending';
+                restoredHistoryPartial = restored.isPartial === true;
+                restoredLoadedTurnCount = restored.loadedTurnCount;
+                restoredTotalTurnCount = restored.totalTurnCount;
+                restoredTurnCatalog = restored.turnCatalog?.sessionId === sessionId
+                  ? restored.turnCatalog
+                  : undefined;
+                restoredTiming = restored.timings;
+                restoredCurrentContextUsage = restored.currentContextUsage;
+                restoredRuntimeEventSnapshot = coerceRuntimeEventSnapshot(
+                  restored.runtimeEventSnapshot,
+                  sessionId,
+                  isBackendSessionActivelyProcessing(restored.session.state),
+                  restored.turns[restored.turns.length - 1]?.turnId,
+                  restored.executionProjection,
+                );
+              }
             } catch (error) {
               if (!isUnsupportedTauriCommandError(error, 'restore_session_view')) {
                 throw error;
@@ -10027,7 +10071,7 @@ export class FlowChatStore {
           });
         }
       }
-      if (activeTurnId && (restoredRuntimeEventSnapshot || isSurfaceReconcileEnabled())) {
+      if (restoredRuntimeEventSnapshot || (activeTurnId && isSurfaceReconcileEnabled())) {
         const { requestPeerSessionRefresh, requestRuntimeProjectionRepair } = await import(
           '../services/flow-chat-manager/PeerSessionRefreshModule'
         );
@@ -10187,6 +10231,7 @@ export class FlowChatStore {
 
       const converted = {
       id: turn.turnId,
+      publishedFigures: turn.publishedFigures,
       sessionId: turn.sessionId,
       kind: turn.kind || 'user_dialog',
       agentType: turn.agentType,

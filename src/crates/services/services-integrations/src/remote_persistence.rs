@@ -50,6 +50,13 @@ pub struct AccountHintRecord {
     pub relay_url: String,
 }
 
+/// Unexpired device tokens still in use by other processes during rotation.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupersededDeviceToken {
+    pub token: String,
+    pub expires_at: i64,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct AccountSessionRecord {
     pub token: String,
@@ -61,6 +68,8 @@ pub struct AccountSessionRecord {
     /// sessions written before local accounts existed and for sessions whose
     /// relay does not support them.
     pub refresh_token: Option<String>,
+    pub issued_at: Option<i64>,
+    pub superseded_tokens: Vec<SupersededDeviceToken>,
 }
 
 impl std::fmt::Debug for AccountSessionRecord {
@@ -117,6 +126,10 @@ struct AccountSessionPayload {
     device_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     refresh_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    issued_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    superseded_tokens: Vec<SupersededDeviceToken>,
 }
 
 /// Whether a stored account session belongs to the same deployed Relay.
@@ -242,6 +255,8 @@ pub fn write_current_account_session(
         relay_url: session.relay_url.clone(),
         device_id: session.device_id.clone(),
         refresh_token: session.refresh_token.clone(),
+        issued_at: session.issued_at,
+        superseded_tokens: session.superseded_tokens.clone(),
     };
     let plaintext = serde_json::to_vec(&payload).context("serialize account session payload")?;
     let key = derive_current_key(binding, &secret);
@@ -291,6 +306,8 @@ fn decode_account_session_payload(bytes: &[u8]) -> Result<AccountSessionRecord> 
         relay_url: payload.relay_url,
         device_id: payload.device_id,
         refresh_token: payload.refresh_token,
+        issued_at: payload.issued_at,
+        superseded_tokens: payload.superseded_tokens,
     };
     validate_account_session(&session)?;
     Ok(session)
@@ -1141,6 +1158,8 @@ mod tests {
             v2: b"|retired-product::session_store::v2|",
         };
         let session = AccountSessionRecord {
+            issued_at: None,
+            superseded_tokens: Vec::new(),
             token: "synthetic-token".to_string(),
             user_id: "fixture-account".to_string(),
             master_key: [0x42; 32],
@@ -1268,8 +1287,9 @@ mod tests {
         local_secret: &[u8; 32],
         domains: LegacyAccountSessionKeyDomains<'_>,
     ) {
-        // Legacy fixtures intentionally omit the refresh-token field: the
-        // decoder must accept payloads written before the field existed.
+        // Legacy fixtures intentionally omit the refresh-token, issued-at,
+        // and superseded-token fields: the decoder must accept payloads
+        // written before those fields existed.
         let payload = serde_json::json!({
             "token": session.token,
             "user_id": session.user_id,

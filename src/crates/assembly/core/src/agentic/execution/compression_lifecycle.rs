@@ -2,6 +2,38 @@
 //! allowed to run hooks, publish product events and commit session context.
 
 use super::*;
+use crate::agentic::session::session_manager::CompressionTranscriptReference;
+
+#[derive(Debug)]
+pub(super) enum AutoCompressionOutcome {
+    Applied(usize, Vec<Message>),
+    NoGain(Vec<Message>),
+}
+
+enum CompressionCommit {
+    Unchanged(Vec<Message>),
+    Applied {
+        result: crate::agentic::session::CompressionResult,
+        before: TokenPressureSnapshot,
+        after: TokenPressureSnapshot,
+    },
+}
+
+enum CandidateDecision {
+    Replan(Vec<Message>),
+    PrepareTranscript,
+    Finish(CompressionCommit),
+}
+
+impl CandidateDecision {
+    fn without_savings(latest: Vec<Message>, history_grew: bool) -> Self {
+        if history_grew {
+            Self::Replan(latest)
+        } else {
+            Self::Finish(CompressionCommit::Unchanged(latest))
+        }
+    }
+}
 
 impl ExecutionEngine {
     #[allow(clippy::too_many_arguments)]
@@ -39,7 +71,7 @@ impl ExecutionEngine {
                 trace_config,
             },
         );
-        let candidate = job.run().await?;
+        let candidate = job.run_manual().await?;
         self.context_compressor
             .compress_plan_with_contract(
                 session_id,
@@ -59,7 +91,6 @@ impl ExecutionEngine {
         trigger: &str,
         runtime_messages: Vec<Message>,
         before_pressure: TokenPressureSnapshot,
-        context_window: usize,
         ai_client: Arc<crate::infrastructure::ai::AIClient>,
         model_request_context: &ModelRequestContext,
         tool_definitions: &Option<Vec<ToolDefinition>>,
@@ -69,13 +100,15 @@ impl ExecutionEngine {
         workspace: Option<&WorkspaceBinding>,
         workspace_services: Option<&crate::agentic::workspace::WorkspaceServices>,
         prefetch: Option<PrefetchedCompression>,
-    ) -> OpenBitFunResult<Option<(usize, Vec<Message>)>> {
+    ) -> OpenBitFunResult<AutoCompressionOutcome> {
         let mut session = self
             .session_manager
             .get_session(session_id)
             .ok_or_else(|| {
                 OpenBitFunError::NotFound(format!("Session not found: {}", session_id))
             })?;
+
+        let context_window = before_pressure.context_window;
 
         // Record start time
         let start_time = std::time::Instant::now();
@@ -85,7 +118,7 @@ impl ExecutionEngine {
             .iter()
             .any(|message| message.role != MessageRole::System)
         {
-            return Ok(None);
+            return Ok(AutoCompressionOutcome::NoGain(runtime_messages));
         }
         // Generate compression ID
         let compression_id = format!("compression_{}", uuid::Uuid::new_v4());
@@ -162,46 +195,69 @@ impl ExecutionEngine {
                 ai_client.as_ref(),
             )
             .await;
-            let candidate = match claim {
-                Some(openbitfun_agent_runtime::compression_prefetch::PrefetchClaim::Ready(candidate)) => Some(candidate),
-                Some(openbitfun_agent_runtime::compression_prefetch::PrefetchClaim::Waiting(task)) => {
-                    Some(task.wait().await.map_err(|_| OpenBitFunError::AIClient(
-                        "Compression prefetch worker stopped before publishing a result".into()
-                    ))??)
-                }
+            let prefetched = match claim {
+                Some(openbitfun_agent_runtime::compression_prefetch::PrefetchClaim::Ready(
+                    candidate,
+                )) => candidate,
+                Some(openbitfun_agent_runtime::compression_prefetch::PrefetchClaim::Waiting(
+                    task,
+                )) => task.wait().await.map_err(|_| {
+                    OpenBitFunError::AIClient(
+                        "Compression prefetch worker stopped before publishing a result".into(),
+                    )
+                })??,
                 _ => None,
             };
-            let is_prefetched = candidate.is_some();
-            let candidate = match candidate {
-                Some(candidate) => candidate,
-                None => CompressionJob::new(self.context_compressor.clone(), session_id,
-                    context_window, ContextCompressor::DEFAULT_RECENT_CONTEXT_TOKENS,
-                    CompressionModelSummaryInput {
-                        ai_client: ai_client.clone(), model_request_context,
-                        runtime_messages: &runtime_messages, dialog_turn_id, workspace, workspace_services,
-                        tool_definitions, prepended_prompt_reminders, primary_supports_image_understanding,
-                        trace_config: trace_config.clone(),
-                    }).run().await?,
-            };
-            let boundary_turn_index = self.session_manager.get_turn_count(session_id).saturating_sub(1);
-            let transcript = match self.session_manager.create_compression_transcript_reference(
-                session_id, boundary_turn_index, &compression_id, trigger,
-            ).await {
-                Ok(reference) => reference,
-                Err(error) => {
-                    warn!("Failed to create automatic compression transcript: session_id={}, error={}", session_id, error);
-                    None
+            let is_prefetched = prefetched.is_some();
+            let candidate = match prefetched {
+                Some(candidate) => Some(candidate),
+                None => {
+                    CompressionJob::new(
+                        self.context_compressor.clone(),
+                        session_id,
+                        context_window,
+                        ContextCompressor::DEFAULT_RECENT_CONTEXT_TOKENS,
+                        CompressionModelSummaryInput {
+                            ai_client: ai_client.clone(),
+                            model_request_context,
+                            runtime_messages: &runtime_messages,
+                            dialog_turn_id,
+                            workspace,
+                            workspace_services,
+                            tool_definitions,
+                            prepended_prompt_reminders,
+                            primary_supports_image_understanding,
+                            trace_config: trace_config.clone(),
+                        },
+                    )
+                    .run_automatic(compression_contract.as_ref())
+                    .await?
                 }
             };
-            Ok((Some(candidate), is_prefetched, compression_contract, trace_config, transcript))
+            Ok((candidate, is_prefetched, compression_contract, trace_config))
         })
         .await;
         // Only the owner commits. Rebase against the latest canonical suffix
         // under the append lock; never install the background snapshot's tail.
         let mut commit_guard = None;
+        let reminder_tokens = Self::prepended_reminder_tokens_for_pressure(
+            &prepended_prompt_reminders.ordered_reminders(),
+        );
+        let estimate = |messages: &[Message]| {
+            Self::estimate_auto_compression_pressure(
+                messages,
+                tool_definitions.as_deref(),
+                before_pressure.trigger_budget(),
+                reminder_tokens,
+            )
+        };
         let planned_result = match planned_result {
             Err(error) => Err(error),
-            Ok((mut candidate, mut is_prefetched, contract, trace_config, transcript)) => {
+            Ok((mut candidate, mut is_prefetched, contract, trace_config)) => {
+                let mut transcript: Option<CompressionTranscriptReference> = None;
+                let mut transcript_checked =
+                    !self.session_manager.should_persist_session_id(session_id);
+                let mut planned_message_count = runtime_messages.len();
                 async {
                     loop {
                         let guard = self
@@ -220,17 +276,17 @@ impl ExecutionEngine {
                                 "Compression execution owner changed".into(),
                             ));
                         }
-                        let mut latest_runtime = Vec::new();
                         let result = self.session_manager.transform_compression_context(
                             session_id,
                             |latest| {
-                                latest_runtime = compression_job::merge_latest_context(
+                                let latest_runtime = compression_job::merge_latest_context(
                                     &runtime_messages,
                                     &canonical_snapshot,
                                     latest,
                                 )?;
                                 let Some(candidate) = candidate.as_ref() else {
-                                    return Ok((None, None));
+                                    let grew = latest_runtime.len() > planned_message_count;
+                                    return Ok((None, CandidateDecision::without_savings(latest_runtime, grew)));
                                 };
                                 let identity = CompressionJob::request_identity(
                                     &CompressionModelSummaryInput {
@@ -247,7 +303,7 @@ impl ExecutionEngine {
                                     },
                                 );
                                 if candidate.request_identity != identity {
-                                    return Ok((None, None));
+                                    return Ok((None, CandidateDecision::Replan(latest_runtime)));
                                 }
                                 let Some(plan) = self.context_compressor.rebase_plan(
                                     candidate.plan.clone(),
@@ -255,8 +311,9 @@ impl ExecutionEngine {
                                     dialog_turn_id,
                                 )?
                                 else {
-                                    return Ok((None, None));
+                                    return Ok((None, CandidateDecision::Replan(latest_runtime)));
                                 };
+                                let suffix_grew = plan.recent_tail_messages.len() > candidate.plan.recent_tail_messages.len();
                                 let mut result =
                                     self.context_compressor.compress_plan_with_contract(
                                         session_id,
@@ -273,36 +330,60 @@ impl ExecutionEngine {
                                 }
                                 let mut preview = vec![system_prompt_message.clone()];
                                 preview.extend(result.messages.clone());
-                                let pressure = Self::estimate_auto_compression_pressure(
-                                    &preview,
-                                    tool_definitions.as_deref(),
-                                    context_window,
-                                    Self::compression_trigger_budget(
-                                        context_window,
-                                        ai_client.config.max_tokens,
-                                    ),
-                                    Self::prepended_reminder_tokens_for_pressure(
-                                        &prepended_prompt_reminders.ordered_reminders(),
-                                    ),
-                                );
+                                let pressure = estimate(&preview);
+                                let original = estimate(&latest_runtime);
+                                if pressure.total_tokens >= original.total_tokens {
+                                    info!("Discarding compression without token savings: session_id={}, before={}, candidate={}", session_id, original.total_tokens, pressure.total_tokens);
+                                    return Ok((None, CandidateDecision::without_savings(latest_runtime, suffix_grew)));
+                                }
                                 if is_prefetched && pressure.total_tokens >= pressure.input_limit {
-                                    return Ok((None, None));
+                                    return Ok((None, CandidateDecision::Replan(latest_runtime)));
+                                }
+                                if !transcript_checked {
+                                    return Ok((None, CandidateDecision::PrepareTranscript));
                                 }
                                 if cancellation_token.is_cancelled() {
                                     return Err(OpenBitFunError::Cancelled(
                                         "Context compaction cancelled".into(),
                                     ));
                                 }
-                                Ok((Some(result.messages.clone()), Some(result)))
+                                let replacement = result.messages.clone();
+                                let commit = CompressionCommit::Applied {
+                                    result,
+                                    before: original,
+                                    after: pressure,
+                                };
+                                Ok((Some(replacement), CandidateDecision::Finish(commit)))
                             },
                         )?;
-                        if let Some(result) = result {
-                            // Keep session mutations fenced through persistence
-                            // and counter/cache updates.
-                            commit_guard = Some(guard);
-                            return Ok(Some(result));
-                        }
+                        let latest_runtime = match result {
+                            CandidateDecision::Finish(outcome) => {
+                                if matches!(outcome, CompressionCommit::Applied { .. }) {
+                                    commit_guard = Some(guard);
+                                }
+                                return Ok(outcome);
+                            }
+                            CandidateDecision::PrepareTranscript => {
+                                drop(guard);
+                                let boundary = self.session_manager.get_turn_count(session_id).saturating_sub(1);
+                                let create_reference = self.session_manager.create_compression_transcript_reference(
+                                    session_id, boundary, &compression_id, trigger,
+                                );
+                                transcript = match prepare_compression_cancellable(&cancellation_token, create_reference).await {
+                                    Ok(reference) => reference,
+                                    Err(error @ OpenBitFunError::Cancelled(_)) => return Err(error),
+                                    Err(error) => {
+                                        warn!("Failed to create automatic compression transcript: session_id={}, error={}", session_id, error);
+                                        None
+                                    }
+                                };
+                                transcript_checked = true;
+                                continue;
+                            }
+                            CandidateDecision::Replan(latest) => latest,
+                        };
                         drop(guard);
+                        planned_message_count = latest_runtime.len();
                         let job = CompressionJob::new(
                             self.context_compressor.clone(),
                             session_id,
@@ -321,9 +402,7 @@ impl ExecutionEngine {
                                 trace_config: trace_config.clone(),
                             },
                         );
-                        candidate = Some(
-                            prepare_compression_cancellable(&cancellation_token, job.run()).await?,
-                        );
+                        candidate = prepare_compression_cancellable(&cancellation_token, job.run_automatic(contract.as_ref())).await?;
                         is_prefetched = false;
                     }
                 }
@@ -333,7 +412,11 @@ impl ExecutionEngine {
         // Once the synchronous replacement wins admission, persistence must not
         // be dropped halfway through by cancellation.
         match planned_result {
-            Ok(Some(compression_result)) => {
+            Ok(CompressionCommit::Applied {
+                result: compression_result,
+                before: before_pressure,
+                after: after_pressure,
+            }) => {
                 self.session_manager
                     .persist_compression_context(session_id, &compression_result.messages)
                     .await;
@@ -368,21 +451,6 @@ impl ExecutionEngine {
                 // Calculate duration
                 let duration_ms = elapsed_ms_u64(start_time);
 
-                // Recalculate tokens after compression
-                let prepended_reminders = prepended_prompt_reminders.ordered_reminders();
-                let prepended_reminder_tokens =
-                    Self::prepended_reminder_tokens_for_pressure(&prepended_reminders);
-                let after_pressure = Self::estimate_auto_compression_pressure(
-                    &new_messages,
-                    tool_definitions.as_deref(),
-                    context_window,
-                    CompressionTriggerBudget {
-                        input_limit: before_pressure.input_limit,
-                        output_reserve_tokens: before_pressure.output_reserve_tokens,
-                        safety_reserve_tokens: before_pressure.safety_reserve_tokens,
-                    },
-                    prepended_reminder_tokens,
-                );
                 let compressed_tokens = after_pressure.total_tokens;
                 let summary_source = "model";
 
@@ -455,9 +523,38 @@ impl ExecutionEngine {
                 })
                 .await;
 
-                Ok(Some((compressed_tokens, new_messages)))
+                Ok(AutoCompressionOutcome::Applied(
+                    compressed_tokens,
+                    new_messages,
+                ))
             }
-            Ok(None) => Ok(None),
+            Ok(CompressionCommit::Unchanged(messages)) => {
+                let pressure = estimate(&messages);
+                let tokens = pressure.total_tokens;
+                info!(
+                    "Auto compression skipped without savings: session_id={}, input_tokens={}, input_limit={}, system_tokens={}, tool_tokens={}, prepended_reminder_tokens={}, conversation_tokens={}",
+                    session_id, tokens, pressure.input_limit, pressure.system_tokens, pressure.tool_tokens,
+                    pressure.prepended_reminder_tokens, pressure.conversation_tokens
+                );
+                self.emit_event(
+                    AgenticEvent::ContextCompressionCompleted {
+                        session_id: session_id.into(),
+                        turn_id: dialog_turn_id.into(),
+                        compression_id,
+                        compression_count: session.compression_state.compression_count,
+                        tokens_before: tokens,
+                        tokens_after: tokens,
+                        compression_ratio: 1.0,
+                        duration_ms: elapsed_ms_u64(start_time),
+                        has_summary: false,
+                        summary_source: "none".into(),
+                        applied: false,
+                    },
+                    EventPriority::Normal,
+                )
+                .await;
+                Ok(AutoCompressionOutcome::NoGain(messages))
+            }
             Err(e) => {
                 // Emit compression failed event
                 self.emit_event(

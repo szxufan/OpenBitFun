@@ -558,10 +558,7 @@ pub enum ToolEventData {
         identity: ToolEventIdentity,
         params: String,
     },
-    /// Native OpenUI Lang source bytes emitted while a GenerativeUI call is
-    /// still being assembled. The event deliberately carries only the
-    /// decoded source delta; the provider's enclosing tool-call JSON is not
-    /// part of the rendering contract.
+    /// Decoded source delta from a historical GenerativeUI tool or an older peer.
     GenUIStream {
         #[serde(flatten)]
         identity: ToolEventIdentity,

@@ -5277,6 +5277,7 @@ mod tests {
         metadata: Option<serde_json::Value>,
     ) -> DialogTurnData {
         DialogTurnData {
+            published_figures: Default::default(),
             turn_id: "turn-1".to_string(),
             turn_index: 0,
             session_id: "session-1".to_string(),

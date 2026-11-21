@@ -125,7 +125,8 @@ use the official Relay. Starting or stopping the LAN Relay does not switch their
 account or endpoint. LAN invitations advertise the selected network interface;
 select it again and create a new invitation after changing networks.
 
-The official device session is restored on restart. The embedded LAN connection
+Desktop restores the official device session on restart and uses the shared
+[device credential renewal schedule](../cli/README.md#always-on-account-device-host). The embedded LAN connection
 is temporary and starts when requested. Builds that previously saved a temporary
 LAN session in the account slot attempt to restore the official Relay from the
 shared identity; failed sign-in leaves the previous credential on disk. Signing

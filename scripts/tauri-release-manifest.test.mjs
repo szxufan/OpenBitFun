@@ -7,13 +7,6 @@ import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..');
 
-function readMobileVersion() {
-  const appJson5 = fs.readFileSync(
-    path.join(root, 'src/apps/mobile/harmonyos/AppScope/app.json5'), 'utf8',
-  );
-  return appJson5.match(/"versionName"\s*:\s*"([^"]+)"/)[1];
-}
-
 test('Windows updater uses the signed transactional installer and rejects old protocol payloads', t => {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'openbitfun-transactional-updater-'));
   t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
@@ -39,27 +32,12 @@ test('Windows updater uses the signed transactional installer and rejects old pr
   assert.match(run('scripts/collect-tauri-updater-assets.mjs', args).stderr, /signature is missing/);
 });
 
-test('desktop and mobile release metadata are synchronized within their own groups', () => {
+test('desktop release metadata stays synchronized after native extraction', () => {
   const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
   const result = run('scripts/verify-release-version-sync.mjs', [
     '--version', version,
-    '--mobile-version', readMobileVersion(),
   ]);
   assert.equal(result.status, 0, result.stderr);
-});
-
-test('mobile release metadata rejects drift within the mobile group', () => {
-  const currentMobile = readMobileVersion();
-  const drifted = (() => {
-    const [major, minor, patch] = currentMobile.split('.').map(Number);
-    return `${major}.${minor}.${patch + 1}`;
-  })();
-  const result = run('scripts/verify-release-version-sync.mjs', [
-    '--version', JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version,
-    '--mobile-version', drifted,
-  ]);
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, new RegExp(`expected mobile ${drifted.replace('.', '\.')}`));
 });
 
 test('prepares a versioned custom Windows installer asset', () => {

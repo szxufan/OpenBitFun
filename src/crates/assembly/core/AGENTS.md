@@ -211,17 +211,18 @@ Narrower local guides already exist for some subtrees:
 
 ## Verification
 
-For WriteStdin steering, port routing, streaming and legacy result compatibility:
+For ExecCommand/WriteStdin steering, port routing, streaming and legacy result compatibility:
 
 ```bash
-cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib agentic::tools::implementations::exec_command::stdin::
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib agentic::tools::implementations::exec_command::
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib yieldable_tools_end_normally_for_every_non_none_round_injection_policy
 ```
 
-WriteStdin uses the same round-injection yield token as AgentWait. Only the
-output wait ends; submitted stdin is not replayed and process control remains
-explicit. The optional `wait_end_reason: "steered"` result is separate from
-process `completion`; old results without it keep their existing meaning.
+ExecCommand and WriteStdin use the same round-injection yield token as AgentWait.
+Only the output wait ends; the launched command and submitted stdin are not
+replayed, and process control remains explicit. Continue with the returned
+session ID through WriteStdin. The optional `wait_end_reason: "steered"` result
+is separate from process `completion`; old results without it keep their existing meaning.
 These Core fixtures cover both runtime ports with mocks, not live remote hosts.
 
 For desktop card admission, per-turn Peer origin, recovery context and subagent
@@ -287,7 +288,7 @@ For smart routing, unchanged subagent model policy and resumed subagent choices:
 ```bash
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib subagent_model
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib round_model_routing
-cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib coordinator::tests::reused_subagent
+cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib coordinator::tests::subagent_input::reused_subagent
 ```
 
 These fixtures cover host-owned configuration, nested delegation and Router protocol
@@ -645,7 +646,7 @@ cargo test -p openbitfun-core --no-default-features --features external-sources,
 cargo test -p openbitfun-core --no-default-features --features external-sources,git,product-search --lib agentic::persistence::manager::tests
 cargo test -p openbitfun-core --no-default-features --features external-sources,git,product-search --lib session_fork_
 cargo test -p openbitfun-core --no-default-features --features external-sources,git,product-search --lib agentic::persistence::session_branch::tests
-cargo test -p openbitfun-core --no-default-features --features external-sources,git,product-search --lib agentic::session::session_manager::tests::restore_session_
+cargo test -p openbitfun-core --no-default-features --features external-sources,git,product-search --lib restore_session_
 ```
 
 For installed-source acceptance, set `OPENBITFUN_TEST_SESSION_ECOSYSTEM` and

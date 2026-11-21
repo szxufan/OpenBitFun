@@ -590,6 +590,17 @@ their AX subtrees (popup AXWindows, and open application AXMenus matched to
 their window by frame) as extra top-level nodes, and AX target validation
 accepts elements of those windows.
 
+macOS remote AppKit file-panel controls may report an off-screen proxy window
+ID. Resolve the nearest native `AXWindow`/`AXSheet`/`AXDrawer` in their AX parent
+chain before comparing the identity with the bound window and its live overlays.
+Stop at that first surface; do not admit another window by title, matching bounds,
+or by climbing past an unrelated window. Semantic writes, pointer hit/focus checks
+and foreground destination checks use the same live overlay membership. Closing
+the panel or stopping control revokes access even to retained AX references.
+`node scripts/test-macos-file-panel.mjs` exercises a disposable real NSOpenPanel,
+its proxy descendants, semantic Cancel, same-app sibling rejection and revocation;
+it requires macOS Accessibility and screen-capture access, not user project files.
+
 Pointer input follows physical hit testing: a press, move or scroll whose point
 is inside such a window is routed to the front-most one there, using its own
 window-local coordinates. Drag and release stay with the window that received

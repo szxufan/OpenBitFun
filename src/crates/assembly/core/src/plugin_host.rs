@@ -1823,7 +1823,7 @@ async fn register_plugin_tools(
         }
         prepared.push((
             tool.registration_id.clone(),
-            tool.id.clone(),
+            tool_ref,
             tool.description.clone(),
             tool.parameters.clone(),
             allowed_runtime_agent_keys,
@@ -1835,7 +1835,8 @@ async fn register_plugin_tools(
     // publication steps, so a malformed later entry cannot leave a partial
     // generation installed.
     let mut names = Vec::with_capacity(prepared.len());
-    for (registration_id, id, description, parameters, allowed_runtime_agent_keys) in prepared {
+    for (registration_id, tool_ref, description, parameters, allowed_runtime_agent_keys) in prepared
+    {
         crate::agentic::tools::plugin_host_tool::register_workspace_tool(
             workspace_scope,
             workspace_id,
@@ -1845,7 +1846,7 @@ async fn register_plugin_tools(
             generation_key,
             revision,
             &registration_id,
-            &id,
+            &tool_ref,
             &description,
             parameters,
             config_fingerprint,
@@ -1856,10 +1857,10 @@ async fn register_plugin_tools(
             "Plugin tool registration committed to Rust registry: workspace={}, instance_id={}, tool_id={}, registration_id={}",
             workspace_scope,
             instance_id,
-            id,
+            tool_ref.id(),
             registration_id
         );
-        names.push(id);
+        names.push(tool_ref.id().to_owned());
     }
     log::info!(
         "Plugin tool registration completed: workspace={}, instance_id={}, tool_count={}",

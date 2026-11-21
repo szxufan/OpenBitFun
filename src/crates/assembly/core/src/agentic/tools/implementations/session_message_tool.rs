@@ -3,7 +3,8 @@ use crate::agentic::coordination::{
     get_global_coordinator, get_global_scheduler, DialogSubmissionPolicy, DialogTriggerSource,
 };
 use crate::agentic::tools::framework::{
-    Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext, ValidationResult,
+    PermissionIntent, Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext,
+    ValidationResult,
 };
 use crate::agentic::tools::workspace_paths::posix_style_path_is_absolute;
 use crate::service_agent_runtime::CoreServiceAgentRuntime;
@@ -401,6 +402,37 @@ Allowed agent types when creating a session:
 
     fn is_readonly(&self) -> bool {
         false
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        let workspace = input
+            .get("workspace")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                context
+                    .workspace
+                    .as_ref()
+                    .map(|workspace| workspace.root_path_string())
+            })
+            .unwrap_or_else(|| "current-workspace".into());
+        let target = input
+            .get("session_id")
+            .and_then(Value::as_str)
+            .or_else(|| input.get("session_name").and_then(Value::as_str))
+            .unwrap_or("new-session");
+        let mut intent = PermissionIntent::new(
+            "session.message",
+            vec![format!("{workspace}:session:{target}")],
+        );
+        if input.get("session_id").is_none() {
+            intent.save_resources.clear();
+        }
+        Ok(vec![intent])
     }
 
     async fn validate_input(

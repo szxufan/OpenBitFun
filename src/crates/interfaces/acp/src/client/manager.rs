@@ -33,7 +33,7 @@ use openbitfun_core::util::errors::{OpenBitFunError, OpenBitFunResult};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::process::{Child, Command};
-use tokio::sync::{oneshot, Mutex, RwLock};
+use tokio::sync::{oneshot, watch, Mutex, MutexGuard, RwLock};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use super::builtin_clients::{
@@ -45,6 +45,7 @@ use super::config::{
     AcpClientRequirementProbe, AcpClientStatus, RemoteAcpClientRequirementSnapshot,
 };
 use super::dsh_profile::{ensure_bundled_profile, ensure_bundled_profile_remote};
+use super::execution::{AcpExecutionSnapshot, AcpExecutions};
 use super::prompt::AcpPrompt;
 use super::remote_capability_store::RemoteAcpCapabilityStore;
 use super::remote_session::{preferred_resume_strategies, AcpRemoteSessionStrategy};
@@ -154,6 +155,7 @@ impl AcpSessionConfigValue {
 }
 
 pub struct AcpClientService {
+    executions: AcpExecutions,
     config_service: Arc<ConfigService>,
     session_persistence: AcpSessionPersistence,
     remote_capability_store: RemoteAcpCapabilityStore,
@@ -174,13 +176,14 @@ struct AcpClientConnection {
     status: RwLock<AcpClientStatus>,
     connection: RwLock<Option<ConnectionTo<Agent>>>,
     agent_capabilities: RwLock<Option<AgentCapabilities>>,
-    sessions: DashMap<String, Arc<Mutex<AcpRemoteSession>>>,
+    sessions: DashMap<String, Arc<AcpSessionHandle>>,
     cancel_handles: DashMap<String, AcpCancelHandle>,
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     child: Mutex<Option<Child>>,
 }
 
 struct AcpRemoteSession {
+    metadata: watch::Sender<Option<AcpSessionOptions>>,
     active: Option<ActiveSession<'static, Agent>>,
     models: Option<SessionModelState>,
     config_options: Vec<SessionConfigOption>,
@@ -193,7 +196,7 @@ struct ResolvedClientSession {
     client: Arc<AcpClientConnection>,
     cwd: PathBuf,
     session_key: String,
-    session: Arc<Mutex<AcpRemoteSession>>,
+    session: Arc<AcpSessionHandle>,
 }
 
 struct StartClientConfig {
@@ -208,8 +211,9 @@ struct AcpCancelHandle {
 }
 
 impl AcpRemoteSession {
-    fn new() -> Self {
+    fn new(metadata: watch::Sender<Option<AcpSessionOptions>>) -> Self {
         Self {
+            metadata,
             active: None,
             models: None,
             config_options: Vec::new(),
@@ -220,12 +224,68 @@ impl AcpRemoteSession {
     }
 }
 
+// The protocol receiver has exactly one owner at a time. Metadata observers
+// never take that receiver from a running prompt. An uninitialized observer
+// waits for either its first published snapshot or the initialization lock.
+struct AcpSessionHandle {
+    protocol: Mutex<AcpRemoteSession>,
+    metadata: watch::Receiver<Option<AcpSessionOptions>>,
+}
+
+enum AcpMetadataRead<'a> {
+    Snapshot(AcpSessionOptions),
+    Protocol(MutexGuard<'a, AcpRemoteSession>),
+}
+
+impl AcpSessionHandle {
+    fn new() -> Self {
+        let (sender, metadata) = watch::channel(None);
+        Self {
+            protocol: Mutex::new(AcpRemoteSession::new(sender)),
+            metadata,
+        }
+    }
+
+    async fn metadata_or_lock(&self) -> AcpMetadataRead<'_> {
+        if let Ok(session) = self.protocol.try_lock() {
+            return AcpMetadataRead::Protocol(session);
+        }
+        let mut metadata = self.metadata.clone();
+        loop {
+            if let Some(snapshot) = metadata.borrow_and_update().clone() {
+                return AcpMetadataRead::Snapshot(snapshot);
+            }
+            tokio::select! {
+                session = self.protocol.lock() => return AcpMetadataRead::Protocol(session),
+                changed = metadata.changed() => {
+                    // The sender is retained by this handle's protocol state.
+                    changed.expect("ACP session owns its metadata sender");
+                }
+            }
+        }
+    }
+}
+
+impl AcpRemoteSession {
+    fn publish_metadata(&self) -> AcpSessionOptions {
+        let mut options = session_options_from_state(
+            self.models.as_ref(),
+            &self.config_options,
+            self.context_usage.as_ref(),
+        );
+        options.available_commands = Some(self.available_commands.clone());
+        self.metadata.send_replace(Some(options.clone()));
+        options
+    }
+}
+
 impl AcpClientService {
     pub fn new(
         config_service: Arc<ConfigService>,
         path_manager: Arc<PathManager>,
     ) -> OpenBitFunResult<Arc<Self>> {
         Ok(Arc::new(Self {
+            executions: AcpExecutions::default(),
             config_service,
             session_persistence: AcpSessionPersistence::new(path_manager.clone())?,
             remote_capability_store: RemoteAcpCapabilityStore::new(
@@ -237,6 +297,37 @@ impl AcpClientService {
             pending_permissions: DashMap::new(),
             session_permission_modes: DashMap::new(),
         }))
+    }
+
+    pub fn configure_execution_journal(
+        &self,
+        journal: Arc<dyn super::execution::AcpProjectionJournal>,
+    ) -> Result<(), String> {
+        self.executions.configure_journal(journal)
+    }
+
+    pub fn admit_dialog_turn(
+        &self,
+        session: &str,
+        turn: &str,
+        client: &str,
+        input: &str,
+        original_input: &str,
+    ) -> Result<Option<serde_json::Value>, String> {
+        self.executions
+            .admit(session, turn, client, input, original_input)
+    }
+
+    pub fn record_dialog_event(
+        &self,
+        name: &str,
+        payload: &mut serde_json::Value,
+    ) -> Result<(), String> {
+        self.executions.record(name, payload)
+    }
+
+    pub fn execution_snapshot(&self, session: &str) -> Option<AcpExecutionSnapshot> {
+        self.executions.snapshot(session)
     }
 
     /// `workspace_id` is the persisted identity of the owning workspace;
@@ -849,7 +940,7 @@ impl AcpClientService {
             for session_key in session_keys {
                 let active_session_id =
                     if let Some((_, session)) = client.sessions.remove(&session_key) {
-                        let mut session = session.lock().await;
+                        let mut session = session.protocol.lock().await;
                         let session_id = session
                             .active
                             .as_ref()
@@ -902,6 +993,7 @@ impl AcpClientService {
             }
         }
 
+        self.executions.release(openbitfun_session_id);
         released
     }
 
@@ -979,7 +1071,10 @@ impl AcpClientService {
             )
             .await?;
 
-        let mut session = resolved.session.lock().await;
+        let mut session = match resolved.session.metadata_or_lock().await {
+            AcpMetadataRead::Snapshot(options) => return Ok(options),
+            AcpMetadataRead::Protocol(session) => session,
+        };
         self.ensure_remote_session(
             &resolved.client,
             &resolved.session_key,
@@ -990,12 +1085,7 @@ impl AcpClientService {
         )
         .await?;
         drain_pending_session_metadata_updates(&mut session).await?;
-        let mut options = session_options_from_state(
-            session.models.as_ref(),
-            &session.config_options,
-            session.context_usage.as_ref(),
-        );
-        options.available_commands = Some(session.available_commands.clone());
+        let options = session.publish_metadata();
         debug!(
             "ACP session metadata loaded: client_id={} session_id={} duration_ms={}",
             client_id,
@@ -1013,27 +1103,16 @@ impl AcpClientService {
         session_storage_path: Option<PathBuf>,
         openbitfun_session_id: String,
     ) -> OpenBitFunResult<Vec<AcpAvailableCommand>> {
-        let resolved = self
-            .resolve_or_create_client_session(
+        let options = self
+            .get_session_options(
                 client_id,
                 workspace_path,
-                remote_connection_id.as_deref(),
-                &openbitfun_session_id,
+                remote_connection_id,
+                session_storage_path,
+                openbitfun_session_id,
             )
             .await?;
-
-        let mut session = resolved.session.lock().await;
-        self.ensure_remote_session(
-            &resolved.client,
-            &resolved.session_key,
-            &resolved.cwd,
-            &openbitfun_session_id,
-            session_storage_path.as_deref(),
-            &mut session,
-        )
-        .await?;
-        drain_pending_session_metadata_updates(&mut session).await?;
-        Ok(session.available_commands.clone())
+        Ok(options.available_commands.unwrap_or_default())
     }
 
     pub async fn set_session_model(
@@ -1050,7 +1129,7 @@ impl AcpClientService {
             )
             .await?;
 
-        let mut session = resolved.session.lock().await;
+        let mut session = resolved.session.protocol.lock().await;
         self.ensure_remote_session(
             &resolved.client,
             &resolved.session_key,
@@ -1060,6 +1139,7 @@ impl AcpClientService {
             &mut session,
         )
         .await?;
+        session.publish_metadata();
         let active = session
             .active
             .as_ref()
@@ -1082,6 +1162,7 @@ impl AcpClientService {
                     if let Some(models) = session.models.as_mut() {
                         models.current_model_id = request.model_id.clone().into();
                     }
+                    session.publish_metadata();
                     if let Some(session_storage_path) = session_storage_path.as_deref() {
                         self.session_persistence
                             .update_model_id(
@@ -1114,6 +1195,7 @@ impl AcpClientService {
                 .await
                 .map_err(protocol_error)?;
             session.config_options = response.config_options;
+            session.publish_metadata();
             if let Some(session_storage_path) = session_storage_path.as_deref() {
                 self.session_persistence
                     .update_model_id(session_storage_path, &request.session_id, &request.model_id)
@@ -1148,7 +1230,7 @@ impl AcpClientService {
             )
             .await?;
 
-        let mut session = resolved.session.lock().await;
+        let mut session = resolved.session.protocol.lock().await;
         self.ensure_remote_session(
             &resolved.client,
             &resolved.session_key,
@@ -1158,6 +1240,7 @@ impl AcpClientService {
             &mut session,
         )
         .await?;
+        session.publish_metadata();
         let active = session
             .active
             .as_ref()
@@ -1186,6 +1269,7 @@ impl AcpClientService {
             .await
             .map_err(protocol_error)?;
         session.config_options = response.config_options;
+        session.publish_metadata();
 
         Ok(session_options_from_state(
             session.models.as_ref(),
@@ -1214,7 +1298,7 @@ impl AcpClientService {
             .await?;
 
         let run = async {
-            let mut session = resolved.session.lock().await;
+            let mut session = resolved.session.protocol.lock().await;
             self.ensure_remote_session(
                 &resolved.client,
                 &resolved.session_key,
@@ -1226,6 +1310,7 @@ impl AcpClientService {
             .await?;
 
             discard_pending_session_updates_if_needed(&mut session).await;
+            session.publish_metadata();
             let active = session
                 .active
                 .as_mut()
@@ -1269,7 +1354,7 @@ impl AcpClientService {
             .await?;
 
         let run = async {
-            let mut session = resolved.session.lock().await;
+            let mut session = resolved.session.protocol.lock().await;
             self.ensure_remote_session(
                 &resolved.client,
                 &resolved.session_key,
@@ -1281,6 +1366,7 @@ impl AcpClientService {
             .await?;
 
             discard_pending_session_updates_if_needed(&mut session).await;
+            session.publish_metadata();
             let mut prompt = {
                 let active = session
                     .active
@@ -1351,6 +1437,7 @@ impl AcpClientService {
         client_id: &str,
         workspace_path: Option<String>,
         openbitfun_session_id: String,
+        expected_turn_id: Option<&str>,
     ) -> OpenBitFunResult<()> {
         let connection_id = session_client_connection_id(client_id, &openbitfun_session_id);
         let client = self
@@ -1374,10 +1461,14 @@ impl AcpClientService {
             ))
         })?;
 
-        handle
-            .connection
-            .send_notification(CancelNotification::new(handle.session_id.clone()))
-            .map_err(protocol_error)?;
+        self.executions
+            .cancel(&openbitfun_session_id, expected_turn_id, || {
+                handle
+                    .connection
+                    .send_notification(CancelNotification::new(handle.session_id.clone()))
+                    .map_err(|error| error.to_string())
+            })
+            .map_err(OpenBitFunError::service)?;
         Ok(())
     }
 
@@ -1454,7 +1545,7 @@ impl AcpClientService {
         let session = client
             .sessions
             .entry(session_key.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(AcpRemoteSession::new())))
+            .or_insert_with(|| Arc::new(AcpSessionHandle::new()))
             .clone();
         Ok(ResolvedClientSession {
             client,
@@ -2579,6 +2670,16 @@ fn update_session_from_events(session: &mut AcpRemoteSession, events: &[AcpClien
     update_session_context_usage(session, events);
     update_session_available_commands(session, events);
     update_session_config_options(session, events);
+    if events.iter().any(|event| {
+        matches!(
+            event,
+            AcpClientStreamEvent::ContextUsageUpdated(_)
+                | AcpClientStreamEvent::AvailableCommandsUpdated(_)
+                | AcpClientStreamEvent::ConfigOptionsUpdated(_)
+        )
+    }) {
+        session.publish_metadata();
+    }
 }
 
 fn update_session_context_usage(session: &mut AcpRemoteSession, events: &[AcpClientStreamEvent]) {
@@ -2822,6 +2923,112 @@ mod tests {
                 permission_mode: AcpClientPermissionMode::Ask,
             },
         ))
+    }
+
+    async fn cached_metadata(handle: &AcpSessionHandle) -> AcpSessionOptions {
+        match tokio::time::timeout(Duration::from_secs(1), handle.metadata_or_lock())
+            .await
+            .expect("metadata must not wait for the running prompt")
+        {
+            AcpMetadataRead::Snapshot(options) => options,
+            AcpMetadataRead::Protocol(_) => panic!("the prompt still owns the protocol"),
+        }
+    }
+
+    #[tokio::test]
+    async fn metadata_reads_do_not_acquire_the_running_protocol_receiver() {
+        let handle = AcpSessionHandle::new();
+        let mut protocol = handle.protocol.lock().await;
+        protocol.models = Some(SessionModelState::new(
+            "model-a",
+            vec![agent_client_protocol::schema::ModelInfo::new(
+                "model-a", "Model A",
+            )],
+        ));
+        protocol.publish_metadata();
+        let snapshot = cached_metadata(&handle).await;
+        assert_eq!(snapshot.current_model_id.as_deref(), Some("model-a"));
+        assert_eq!(snapshot.available_commands, Some(vec![]));
+        assert!(handle.protocol.try_lock().is_err());
+    }
+
+    #[tokio::test]
+    async fn metadata_cold_read_wakes_on_publication_before_prompt_releases_its_lock() {
+        let handle = AcpSessionHandle::new();
+        let protocol = handle.protocol.lock().await;
+        let mut read = Box::pin(handle.metadata_or_lock());
+        assert!(tokio::time::timeout(Duration::from_millis(10), &mut read)
+            .await
+            .is_err());
+        protocol.publish_metadata();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), read)
+                .await
+                .unwrap(),
+            AcpMetadataRead::Snapshot(_)
+        ));
+        assert!(handle.protocol.try_lock().is_err());
+    }
+
+    #[tokio::test]
+    async fn metadata_stream_updates_publish_commands_config_and_usage_together() {
+        let handle = AcpSessionHandle::new();
+        let mut protocol = handle.protocol.lock().await;
+        protocol.publish_metadata();
+        update_session_from_events(
+            &mut protocol,
+            &[
+                AcpClientStreamEvent::AvailableCommandsUpdated(vec![AcpAvailableCommand {
+                    name: "inspect".into(),
+                    description: "Inspect a path".into(),
+                    input_hint: None,
+                }]),
+                AcpClientStreamEvent::ConfigOptionsUpdated(vec![SessionConfigOption::boolean(
+                    "web-search",
+                    "Web search",
+                    true,
+                )]),
+                AcpClientStreamEvent::ContextUsageUpdated(AcpSessionContextUsage {
+                    used: 19,
+                    size: 1000,
+                    cost: None,
+                }),
+            ],
+        );
+        let snapshot = cached_metadata(&handle).await;
+        assert_eq!(snapshot.available_commands.unwrap()[0].name, "inspect");
+        assert_eq!(snapshot.config_options[0].id, "web-search");
+        assert_eq!(snapshot.context_usage.unwrap().used, 19);
+        update_session_from_events(
+            &mut protocol,
+            &[AcpClientStreamEvent::AvailableCommandsUpdated(vec![])],
+        );
+        assert_eq!(
+            cached_metadata(&handle).await.available_commands,
+            Some(vec![])
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_idle_reads_can_drain_and_recreated_sessions_have_no_old_snapshot() {
+        let old = AcpSessionHandle::new();
+        old.protocol.lock().await.publish_metadata();
+        assert!(matches!(
+            old.metadata_or_lock().await,
+            AcpMetadataRead::Protocol(_)
+        ));
+        let recreated = AcpSessionHandle::new();
+        let initializing = recreated.protocol.lock().await;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), recreated.metadata_or_lock())
+                .await
+                .is_err()
+        );
+        drop(initializing); // failed/cancelled initialization must release its waiter
+        assert!(matches!(
+            recreated.metadata_or_lock().await,
+            AcpMetadataRead::Protocol(_)
+        ));
     }
 
     #[test]

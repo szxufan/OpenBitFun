@@ -262,7 +262,7 @@ pub struct WeixinBot {
 }
 
 pub async fn weixin_qr_start(base_url_override: Option<String>) -> Result<WeixinQrStartResponse> {
-    weixin_provider::weixin_qr_start(base_url_override, None, None).await
+    weixin_qr_start_with_existing(base_url_override, None, None).await
 }
 
 pub async fn weixin_qr_start_with_existing(
@@ -270,6 +270,7 @@ pub async fn weixin_qr_start_with_existing(
     existing_ilink_token: Option<String>,
     existing_bot_account_id: Option<String>,
 ) -> Result<WeixinQrStartResponse> {
+    super::super::device::require_remote_control()?;
     weixin_provider::weixin_qr_start(
         base_url_override,
         existing_ilink_token,
@@ -283,7 +284,11 @@ pub async fn weixin_qr_poll(
     base_url_override: Option<String>,
     verify_code: Option<String>,
 ) -> Result<WeixinQrPollResponse> {
-    weixin_provider::weixin_qr_poll(session_key, base_url_override, verify_code).await
+    super::super::device::require_remote_control()?;
+    let response =
+        weixin_provider::weixin_qr_poll(session_key, base_url_override, verify_code).await?;
+    super::super::device::require_remote_control()?;
+    Ok(response)
 }
 
 impl WeixinBot {

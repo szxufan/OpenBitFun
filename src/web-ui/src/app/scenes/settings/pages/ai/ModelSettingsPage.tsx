@@ -24,7 +24,7 @@ import { SubscriptionProviderBrowser } from './SubscriptionProviderBrowser';
 import { ProductBrandIcon } from '@/shared/ui/ProductBrandIcon';
 import { getProductBrandIcon } from '@/shared/ui/productBrandIcons';
 import { SubscriptionAccountList, SubscriptionServiceGroup } from './SubscriptionServiceGroup';
-import { managedSubscriptionAccounts, modelsUsingSubscriptionAccount, groupSubscriptionServices, isRetiredSubscriptionProvider, isZcodeProvider, preferredZcodeProvider, subscriptionManagerAccounts } from './subscriptionServices';
+import { managedSubscriptionAccounts, modelsUsingSubscriptionAccount, groupSubscriptionServices, isRetiredSubscriptionProvider, isZcodeProvider, preferredZcodeProvider, subscriptionManagerAccounts, subscriptionAccountBadge, subscriptionAccountLabel, countSubscriptionServices, subscriptionLoginPlaceholder, subscriptionRemovalKeys } from './subscriptionServices';
 import { aiApi, systemAPI } from '@/infrastructure/api';
 import { mediaAPI } from '@/infrastructure/api/service-api/MediaApi';
 import { agentAPI, type ModelRoutingStatus } from '@/infrastructure/api/service-api/AgentAPI';
@@ -124,6 +124,7 @@ import { i18nService, useI18n } from '@/infrastructure/i18n';
 import { getActiveSurfaceScope, onSurfaceActivated } from '@/infrastructure/peer-device/deviceSurface';
 import { ResponsesRequestSettingsFields } from '@/infrastructure/config/components/ResponsesRequestSettingsFields';
 import { usePeerDeviceModeOptional } from '@/infrastructure/peer-device/peerDeviceContextState';
+import { peerHostRefusalMessage } from '@/infrastructure/peer-device/peerHostRefusal';
 import { canEditAccountPoolsOnSurface, canEditChannelRoutingOnSurface, canQuerySubscriptionQuotaOnSurface, canQueryModelQuotaOnSurface, canQueryGrokQuotaOnSurface } from '@/infrastructure/peer-device/peerCapabilityResolution';
 import { isPeerDeviceModeActive } from '@/infrastructure/peer-device/peerModeFlag';
 import { isTauriRuntime } from '@/infrastructure/runtime';
@@ -485,6 +486,28 @@ const ModelSettingsPage: React.FC = () => {
       ? `${subscriptionName(account)} · ${subscriptionRegionName(account.provider)}`
       : subscriptionName(account)
   ), [subscriptionName, subscriptionRegionName]);
+  // A slot's product name alone cannot distinguish a signed-in account from a
+  // signed-out slot that kept the same identity, so every surface that lists a
+  // slot next to a product also has to state its region, slot and state.
+  const subscriptionAccountStateText = useCallback((account: SubscriptionAccount, enabled: boolean) => {
+    switch (subscriptionAccountBadge(account, enabled)) {
+      case 'disabled': return t('subscriptionAuth.pool.disabled');
+      case 'vaultUnavailable': return t('subscriptionAuth.accountState.vaultUnavailable');
+      case 'reauthenticationRequired': return t('subscriptionAuth.accountState.reauthenticationRequired');
+      case 'notSignedIn': return t('subscriptionAuth.notSignedIn');
+      default: return undefined;
+    }
+  }, [t]);
+  const subscriptionAccountDescriptor = useCallback((
+    account: SubscriptionAccount,
+    accountId: string,
+    enabled: boolean,
+  ): string => subscriptionAccountLabel(account, accountId, {
+    region: subscriptionRegionName(account.provider),
+    identity: account.account?.trim() || t('subscriptionAuth.accountIdentityUnavailable'),
+    marker: t('subscriptionAuth.accountMarker', { marker: accountId.slice(-8) }),
+    state: subscriptionAccountStateText(account, enabled),
+  }), [subscriptionAccountStateText, subscriptionRegionName, t]);
 
   const peerDevice = usePeerDeviceModeOptional();
   const modelDiscoverySurface = peerDevice?.peerMode.active ? peerDevice.peerMode.deviceId : 'local';
@@ -522,6 +545,8 @@ const ModelSettingsPage: React.FC = () => {
   const [routerSettingsScope, setRouterSettingsScope] = useState<ReturnType<typeof getActiveSurfaceScope> | null>(null);
   const [routerAvailability, setRouterAvailability] = useState<{ surfaceKey: string; status: ModelRoutingStatus } | null>(null);
   const [subscriptionLoadError, setSubscriptionLoadError] = useState(false);
+  /** Set when the rendered peer host does not offer subscription accounts at all. */
+  const [subscriptionUnavailable, setSubscriptionUnavailable] = useState<string | null>(null);
   const [isConfigLoading, setIsConfigLoading] = useState(!modelSeed.loaded);
   const [configLoadError, setConfigLoadError] = useState(false);
   const [proxyLoadState, setProxyLoadState] = useState<'loading' | 'ready' | 'error'>(proxySeed.loaded ? 'ready' : 'loading');
@@ -968,6 +993,7 @@ const ModelSettingsPage: React.FC = () => {
     const isCurrent = () => scope.isCurrent() && requestId === subscriptionAccountsReadRef.current;
     setIsLoadingSubscriptions(true);
     setSubscriptionLoadError(false);
+    setSubscriptionUnavailable(null);
     try {
       const items = await aiApi.listSubscriptionAccounts();
       if (!isCurrent()) return;
@@ -993,12 +1019,22 @@ const ModelSettingsPage: React.FC = () => {
       }
     } catch (e) {
       if (!isCurrent()) return;
+      // A host that does not offer subscription accounts is not a transient
+      // failure: say so instead of offering a retry that cannot succeed.
+      const unavailable = peerHostRefusalMessage(e, t);
+      if (unavailable) {
+        setSubscriptionAccounts([]);
+        setAccountInstances([]);
+        setSubscriptionUnavailable(unavailable);
+        log.debug('Subscription accounts are unavailable on this host', { error: String(e) });
+        return;
+      }
       setSubscriptionLoadError(true);
       log.warn('list_subscription_accounts failed', { error: String(e) });
     } finally {
       if (isCurrent()) setIsLoadingSubscriptions(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const refresh = () => { void refreshSubscriptionAccounts(); };
@@ -1858,6 +1894,10 @@ const ModelSettingsPage: React.FC = () => {
             error: String(e),
           });
           notification.error(t('subscriptionAuth.loginFailed', { error: String(e) }));
+          // A refused second copy of an already connected account is reported as
+          // a failure, so every failed attempt has to show what the host really
+          // holds instead of keeping a placeholder slot on screen.
+          await refreshSubscriptionAccounts();
         }
       }
     } finally {
@@ -1921,6 +1961,10 @@ const ModelSettingsPage: React.FC = () => {
     const request = subscriptionLogoutRequest;
     if (!request) return;
     const scope = getActiveSurfaceScope();
+    // A slot without a credential is not signed out again: the host forgets it,
+    // which is how a leftover row from an earlier sign-out gets cleared.
+    const forgetting = !request.account.connected;
+    const removal = subscriptionRemovalKeys(forgetting);
     try {
       const result = request.accountId === request.account.provider
         ? await aiApi.logoutSubscriptionAccount(request.account.provider)
@@ -1952,12 +1996,17 @@ const ModelSettingsPage: React.FC = () => {
         });
         notification.warning(t('subscriptionAuth.logoutCleanupPending'));
       } else {
-        notification.success(t('subscriptionAuth.logoutSuccess'));
+        notification.success(t(removal.success));
       }
     } catch (e) {
       if (scope.isCurrent()) notification.error(t('subscriptionAuth.logoutFailed', { error: String(e) }));
     }
   }, [notification, refreshSubscriptionAccounts, subscriptionLogoutRequest, t]);
+
+  // The removal dialog has to describe what the confirming click will do.
+  const subscriptionRemovalCopy = subscriptionRemovalKeys(
+    !!subscriptionLogoutRequest && !subscriptionLogoutRequest.account.connected,
+  );
 
   const handleSubscriptionRefresh = useCallback(async (provider: SubscriptionProvider, accountId: string = provider) => {
     const scope = getActiveSurfaceScope();
@@ -2930,9 +2979,16 @@ const ModelSettingsPage: React.FC = () => {
     .map(group => {
       const accountLabels = availableSubscriptionAccounts
         .filter(({ account, accountId }) => modelsUsingSubscriptionAccount(group.models, account.provider, accountId).length > 0)
-        .map(({ account }) => account.account?.trim() || t('subscriptionAuth.accountIdentityUnavailable'));
+        .map(({ account, accountId, enabled }) => subscriptionAccountDescriptor(account, accountId, enabled));
       return { ...group, label: [group.providerName, ...accountLabels].join(' · ') };
     });
+  // One ZCode account must not read as two imported services just because both
+  // of its regions, or two of its slots, own models.
+  const subscriptionServiceCount = countSubscriptionServices(subscriptionProviderGroups.flatMap(group => (
+    group.models
+      .map(model => subscriptionProviderOf(model.auth))
+      .filter((provider): provider is SubscriptionProvider => provider !== undefined)
+  )));
   const editingProviderGroup = providerGroups.find(group => editingTargetKey === `provider:${group.key}`);
   const unconfiguredSubscriptionAccounts = availableSubscriptionAccounts.filter(({ account, accountId }) => (
     !modelsUsingSubscriptionAccount(aiModels, account.provider, accountId).length
@@ -4604,8 +4660,15 @@ const ModelSettingsPage: React.FC = () => {
     const accounts = subscriptionManagerAccounts(subscriptionAccounts, provider, providerIdentityLocked)
       .filter(account => !importing || !isRetiredSubscriptionProvider(account.provider))
       .filter(account => filter === 'all' || (isZcodeProvider(filter) ? isZcodeProvider(account.provider) : account.provider === filter));
-    const managed = managedSubscriptionAccounts(accounts, accountInstances, subscriptionLoginPanel
-      ? { provider: subscriptionLoginPanel.provider, accountId: subscriptionLoginAccountId || subscriptionLoginPanel.provider } : null);
+    // An in-flight sign-in owns a placeholder row so the new slot is visible
+    // before the host stores it. Once that attempt has failed the placeholder
+    // must go: the retry panel still targets the same slot, but a stale
+    // "not signed in" row would sit next to the account that is signed in.
+    const managed = managedSubscriptionAccounts(
+      accounts,
+      accountInstances,
+      subscriptionLoginPlaceholder(subscriptionLoginPanel, subscriptionLoginAccountId),
+    );
     const signedInAccounts = managed.filter(item => item.account.connected);
     const startAccount = (target: SubscriptionProvider) => {
       const canAdd = canEditAccountPools && accountInstances.some(instance => instance.account.provider === target && instance.supports_multiple_accounts !== false);
@@ -4713,17 +4776,29 @@ const ModelSettingsPage: React.FC = () => {
                   {t('subscriptionAuth.retryVault')}
                 </Button>
               ) : (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  loading={isLoggingIn}
-                  disabled={anyLoginInProgress}
-                  onClick={() => void handleSubscriptionLogin(account.provider, slot === account.provider ? undefined : slot)}
-                >
-                  {t(loginPanel?.status === 'failed'
-                    ? 'subscriptionAuth.retryLogin'
-                    : 'subscriptionAuth.login')}
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    loading={isLoggingIn}
+                    disabled={anyLoginInProgress}
+                    onClick={() => void handleSubscriptionLogin(account.provider, slot === account.provider ? undefined : slot)}
+                  >
+                    {t(loginPanel?.status === 'failed'
+                      ? 'subscriptionAuth.retryLogin'
+                      : 'subscriptionAuth.login')}
+                  </Button>
+                  {!retiredAccount && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={anyLoginInProgress || !modelConfigReady}
+                      onClick={() => requestSubscriptionLogout(account, slot)}
+                    >
+                      {t('subscriptionAuth.forget')}
+                    </Button>
+                  )}
+                </>
               )}
               {isLoggingIn && (
                 <Button
@@ -4758,8 +4833,11 @@ const ModelSettingsPage: React.FC = () => {
           <ConfigRetryState message={t('acquisition.loadFailed')} retryLabel={t('messages.retry')}
             loading={isLoadingSubscriptions} onRetry={() => void refreshSubscriptionAccounts()} />
         )}
+        {subscriptionUnavailable && !isLoadingSubscriptions && (
+          <ConfigEmptyState icon={<Wifi aria-hidden="true" />} description={subscriptionUnavailable} />
+        )}
         {isLoadingSubscriptions && <p className="openbitfun-model-settings__dialog-status" role="status">{t('messages.loading')}</p>}
-        {!isLoadingSubscriptions && !subscriptionLoadError && (browsingAccounts ? signedInAccounts.length === 0 : accounts.length === 0) && (
+        {!isLoadingSubscriptions && !subscriptionLoadError && !subscriptionUnavailable && (browsingAccounts ? signedInAccounts.length === 0 : accounts.length === 0) && (
           <ConfigEmptyState icon={<Wifi aria-hidden="true" />} description={t(browsingAccounts ? 'acquisition.noSignedInAccounts' : provider ? 'subscriptionAuth.serviceUnavailable' : 'acquisition.noServices')} />
         )}
         {importing ? <SubscriptionProviderPicker
@@ -5269,7 +5347,7 @@ const ModelSettingsPage: React.FC = () => {
                   {modelConfigReady && subscriptionProviderGroups.length > 0 && (
                     <span className="openbitfun-model-settings__pool-caption">
                       {t('acquisition.importedSummary', {
-                        providers: i18nService.formatNumber(subscriptionProviderGroups.length),
+                        providers: i18nService.formatNumber(subscriptionServiceCount),
                         models: i18nService.formatNumber(subscriptionModelCount),
                       })}
                     </span>
@@ -5317,12 +5395,7 @@ const ModelSettingsPage: React.FC = () => {
                   {unconfiguredSubscriptionAccounts.map(({ account, accountId, enabled }) => (
                     <li key={`${account.provider}:${accountId}`} className="openbitfun-model-settings__import-item" data-account-id={accountId}>
                       <Button size="sm" variant="outline" onClick={() => { setSubscriptionDialogMode('accounts'); setShowSubscriptionManager(true); }}>
-                        {subscriptionName(account)} · {account.account || t('subscriptionAuth.accountIdentityUnavailable')}
-                        {accountId !== account.provider ? ` · ${t('subscriptionAuth.accountMarker', { marker: accountId.slice(-8) })}` : ''}
-                        {!enabled ? ` · ${t('subscriptionAuth.pool.disabled')}`
-                          : account.vault_unavailable ? ` · ${t('subscriptionAuth.accountState.vaultUnavailable')}`
-                            : account.reauthentication_required ? ` · ${t('subscriptionAuth.accountState.reauthenticationRequired')}`
-                              : !account.connected ? ` · ${t('subscriptionAuth.notSignedIn')}` : ''}
+                        {subscriptionName(account)} · {subscriptionAccountDescriptor(account, accountId, enabled)}
                       </Button>
                     </li>
                   ))}
@@ -5818,7 +5891,7 @@ const ModelSettingsPage: React.FC = () => {
       >
         <DialogHeader>
           <DialogHeading>
-            <DialogTitle>{t('subscriptionAuth.logoutConfirmTitle')}</DialogTitle>
+            <DialogTitle>{t(subscriptionRemovalCopy.title)}</DialogTitle>
           </DialogHeading>
           <DialogClose />
         </DialogHeader>
@@ -5840,7 +5913,7 @@ const ModelSettingsPage: React.FC = () => {
                 </ul>
               </ScrollArea>
             )}
-            <p>{t('subscriptionAuth.logoutConsequence')}</p>
+            <p>{t(subscriptionRemovalCopy.consequence)}</p>
           </div>
         </DialogBody>
         <DialogFooter appearance="floating">{(
@@ -5858,7 +5931,7 @@ const ModelSettingsPage: React.FC = () => {
               tone="danger"
               onClick={() => void confirmSubscriptionLogout()}
             >
-              {t('subscriptionAuth.confirmLogout')}
+              {t(subscriptionRemovalCopy.confirm)}
             </Button>
           </>
         )}</DialogFooter>

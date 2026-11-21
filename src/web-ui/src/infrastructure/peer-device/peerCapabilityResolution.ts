@@ -26,6 +26,29 @@ export function canCopySessionsOnSurface(
   return !peerActive || capabilities?.wholeSessionCopyV1 === true;
 }
 
+/**
+ * Older CLI peer hosts refuse `fork_session`; every Desktop host implements it
+ * whether or not it advertises the key. Unknown hosts stay optimistic.
+ */
+export function canForkSessionsOnSurface(
+  peerActive: boolean,
+  capabilities: PeerHostCapabilities | null,
+): boolean {
+  if (!peerActive || capabilities === null || capabilities.sessionForkV1 === true) return true;
+  return capabilities.hostKind !== 'cli';
+}
+
+/**
+ * Stop interrupts recoverably only on a host that advertised it; older hosts
+ * of both kinds keep the hard cancellation they have always performed.
+ */
+export function canInterruptRecoverablyOnSurface(
+  peerActive: boolean,
+  capabilities: PeerHostCapabilities | null,
+): boolean {
+  return !peerActive || capabilities?.recoverableInterruptionV1 === true;
+}
+
 /** A host without the key cannot parse `None`; only the local surface is implicit. */
 export function canUseSshNoneAuthOnSurface(
   peerActive: boolean,

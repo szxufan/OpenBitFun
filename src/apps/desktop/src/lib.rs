@@ -27,6 +27,7 @@ pub mod computer_use;
 pub mod crash_diagnostics;
 pub mod desktop_cards;
 mod embedded_relay_host;
+mod figure_verifier;
 mod frontend_asset_cache;
 pub mod frontend_workbench;
 pub mod logging;
@@ -864,6 +865,7 @@ pub async fn run() {
         })
         .setup(move |app| {
             let setup_started = Instant::now();
+            figure_verifier::install(app.handle().clone());
             startup_trace.record_phase("tauri_setup_start", "native_setup");
             #[cfg(target_os = "macos")]
             {
@@ -1491,7 +1493,6 @@ pub async fn run() {
             openbitfun_control_host::mark_openbitfun_control_surface_ready,
             openbitfun_control_host::mark_openbitfun_control_surface_unready,
             openbitfun_control_host::product_control_invoke,
-            api::generative_ui_api::gen_ui_provider_call,
             openbitfun_control_host::report_openbitfun_control_result,
             miniapp_web_host::mark_miniapp_web_surface_ready,
             miniapp_web_host::report_miniapp_web_result,
@@ -1887,6 +1888,7 @@ pub async fn run() {
             api::remote_connect_api::remote_connect_stop_bot,
             api::remote_connect_api::remote_connect_status,
             api::remote_connect_api::remote_connect_get_form_state,
+            api::remote_connect_api::remote_connect_set_allowed,
             api::remote_connect_api::remote_connect_set_form_state,
             api::remote_connect_api::remote_connect_configure_bot,
             api::remote_connect_api::remote_connect_weixin_qr_start,
@@ -2071,10 +2073,6 @@ pub async fn run() {
             // Detached task dispatch (controller-side SSH transport)
             api::dispatch_api::dispatch_list_targets,
             api::dispatch_api::dispatch_probe_target,
-            api::dispatch_api::dispatch_install_cli_start,
-            api::dispatch_api::dispatch_install_cli_poll,
-            api::dispatch_api::dispatch_install_cli_cancel,
-            api::dispatch_api::dispatch_provision_target,
             api::dispatch_api::dispatch_sync_model_config,
             api::dispatch_api::dispatch_submit,
             api::dispatch_api::dispatch_status,
@@ -2503,6 +2501,15 @@ async fn deliver_event_to_webview(
         attach_session_event_cursor(&mut projected.payload, cursor);
     }
 
+    deliver_projected_event(transport, projected).await;
+}
+
+/// Final product delivery for native and ACP projections alike. ACP records
+/// before enqueueing here; native events record after text coalescing above.
+pub(crate) async fn deliver_projected_event(
+    transport: &TauriTransportAdapter,
+    projected: openbitfun_events::AgenticFrontendEvent,
+) {
     for hub in api::remote_connect_api::host_stream_hubs().await {
         if let Some(session_id) = projected
             .payload

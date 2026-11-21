@@ -210,6 +210,10 @@ jobs:
   package:
     name: Package (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.os }}
+    # Fork policy: build Linux on the bare ubuntu-24.04 runner, not upstream's
+    # ubuntu:22.04 container. The self-contained Linux OCR bundle requires
+    # libtesseract.so.5 / libleptonica.so.6 (tesseract 5 / leptonica 1.84),
+    # which only 24.04 ships; 22.04 has tesseract 4 and breaks prepare-ocr-bundle.
     needs: prepare
     if: needs.prepare.outputs.relay_image_only != 'true' && !inputs.artifact_run_ids && !inputs.verification_recovery_run_id
     env:
@@ -272,6 +276,11 @@ jobs:
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Trust the Linux build checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # .cargo/config.toml routes every cargo invocation through sccache.
       - name: Setup sccache
@@ -346,6 +355,8 @@ jobs:
 
           # Tauri pins AppImage GTK input methods to its bundled cache, so the
           # fcitx5 GTK3 bridge must be present before linuxdeploy builds it.
+          # tesseract 5 + chi-sim/chi-tra traineddata feed the fork's
+          # self-contained Linux OCR bundle (prepare-ocr-bundle.mjs).
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
             clang \
@@ -425,6 +436,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           shared-key: "package-v2-${{ matrix.platform.name }}"
+          key: ${{ startsWith(matrix.platform.name, 'linux-') && 'ubuntu-22.04' || '' }}
           cache-bin: false
 
       - name: Install dependencies
@@ -463,9 +475,19 @@ jobs:
 
       - name: Verify native macOS icon bundling
         if: runner.os == 'macOS'
+        shell: bash
         env:
           OPENBITFUN_TEST_MACOS_BUNDLE: '1'
-        run: node --test scripts/macos-icon-bundle.test.mjs
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          # Load the verification policy from this workflow. Its relative imports,
+          # fixtures and installed CLIs still resolve in the release checkout.
+          probe="scripts/.macos-icon-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.test.mjs"
+          trap 'rm -f "$probe"' EXIT
+          git fetch --no-tags --depth=1 origin "$WORKFLOW_SHA"
+          git show "${WORKFLOW_SHA}:scripts/macos-icon-bundle.test.mjs" > "$probe"
+          node --test "$probe"
 
       - name: Build desktop app
         run: ${{ matrix.platform.build_command }}
@@ -556,10 +578,24 @@ jobs:
             | tar -x -C "$verification_dir"
           bash "$verification_dir/scripts/ci/verify-macos-signing.sh" "${{ matrix.platform.target }}"
 
-      - name: Verify AppImage fcitx5 GTK module
+      - name: Verify Linux desktop package
         if: runner.os == 'Linux'
         shell: bash
-        run: bash scripts/ci/verify-appimage-fcitx.sh "${{ matrix.platform.target }}"
+        env:
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          TARGET: ${{ matrix.platform.target }}
+        run: |
+          set -euo pipefail
+          # Apply the current packaging checks when rebuilding an older tag.
+          verification_dir="$(mktemp -d)"
+          trap 'rm -rf "$verification_dir"' EXIT
+          if ! git cat-file -e "$WORKFLOW_SHA^{commit}"; then
+            git fetch --no-tags --depth=1 origin "$WORKFLOW_SHA"
+          fi
+          git archive "$WORKFLOW_SHA" scripts/ci/verify-linux-desktop-package.sh \
+            scripts/ci/check-glibc-floor.sh scripts/ci/linux-appimage-tray-libraries.json \
+            | tar -x -C "$verification_dir"
+          bash "$verification_dir/scripts/ci/verify-linux-desktop-package.sh" "$TARGET" 2.39
 
       - name: Preserve macOS verification recovery bundles
         if: failure() && runner.os == 'macOS' && steps.apple_verification.outcome == 'failure'
@@ -1154,20 +1190,17 @@ jobs:
           esac
           gh release upload "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
             --clobber release-upload-assets/*
-          MOBILE_VERSION="$(sed -nE 's/.*versionName = "([^"]+)".*/\1/p' \
-            src/apps/mobile/android/app/build.gradle.kts 2>/dev/null | head -n1 || true)"
-          MOBILE_VERSION="${MOBILE_VERSION:-$RELEASE_VERSION}"
           gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
             --json body --jq .body > release-notes.md
           if ! grep -q '<!-- openbitfun-mobile-release -->' release-notes.md; then
             cat >> release-notes.md <<EOF
 
           <!-- openbitfun-mobile-release -->
-          ### Android mobile
+          ### Native mobile
 
-          Android mobile version **${MOBILE_VERSION}** is published separately as a prerelease:
-          [Download the Android prerelease](https://github.com/${GITHUB_REPOSITORY}/releases/tag/mobile-v${MOBILE_VERSION}).
-          The current APK uses the runner-generated debug signing key.
+          Native Android, iOS and HarmonyOS development and releases have moved to
+          [OpenBitFun-Mobile](https://github.com/openBitFun/OpenBitFun-Mobile).
+          [Mobile releases](https://github.com/openBitFun/OpenBitFun-Mobile/releases).
           EOF
           fi
           gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \

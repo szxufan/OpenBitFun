@@ -537,11 +537,11 @@
           }, 1200);
         }
 
+        var isWindows = (
+          (typeof navigator.userAgent === 'string' && navigator.userAgent.toUpperCase().includes('WINDOWS'))
+          || (typeof navigator.platform === 'string' && navigator.platform.toUpperCase().includes('WIN'))
+        );
         if (controls && window.__OPENBITFUN_SHOW_STARTUP_WINDOW_CONTROLS__) {
-          var isWindows = (
-            (typeof navigator.userAgent === 'string' && navigator.userAgent.toUpperCase().includes('WINDOWS'))
-            || (typeof navigator.platform === 'string' && navigator.platform.toUpperCase().includes('WIN'))
-          );
           controls.classList.toggle('window-controls--windows', isWindows);
           controls.querySelectorAll('[data-startup-window-control-platform]').forEach(function (glyph) {
             if (glyph.getAttribute('data-startup-window-control-platform') !== (isWindows ? 'windows' : 'generic')) {
@@ -570,12 +570,17 @@
             });
           }
         }
+        function isStartupOverlayInteractive() {
+          return startupOverlay && startupOverlay.isConnected && !startupOverlay.hasAttribute('inert');
+        }
         function invokeWindowControl(action) {
           if (!tauri || typeof tauri.invoke !== 'function') return;
           var requestVersion = ++stateRequestVersion;
           tauri.invoke('startup_window_control', { request: { action: action } })
             .then(function (response) {
-              if (requestVersion === stateRequestVersion) applyWindowState(response);
+              if (requestVersion === stateRequestVersion && isStartupOverlayInteractive()) {
+                applyWindowState(response);
+              }
             })
             .catch(function () {});
         }
@@ -588,8 +593,7 @@
           var windowLabel = currentWindow.label;
           function canUseStartupWindowGesture(event) {
             return !event.defaultPrevented && event.button === 0
-              && event.target === startupOverlay && startupOverlay.isConnected
-              && !startupOverlay.hasAttribute('inert');
+              && event.target === startupOverlay && isStartupOverlayInteractive();
           }
           startupOverlay.addEventListener('mousedown', function (event) {
             if (!canUseStartupWindowGesture(event) || event.detail > 1) return;
@@ -597,8 +601,8 @@
               tauri.invoke('plugin:window|is_maximized', { label: windowLabel }),
               tauri.invoke('plugin:window|is_fullscreen', { label: windowLabel })
             ]).then(function (states) {
-              if (states[0] !== false || states[1] !== false
-                || !startupOverlay.isConnected || startupOverlay.hasAttribute('inert')) return;
+              if (typeof states[0] !== 'boolean' || (states[0] && !isWindows) || states[1] !== false
+                || !isStartupOverlayInteractive()) return;
               return tauri.invoke('plugin:window|start_dragging', { label: windowLabel });
             }).catch(function () {});
           });
@@ -617,10 +621,26 @@
               invokeWindowControl(action);
             });
           });
-          invokeWindowControl('get_state');
-          window.setTimeout(function () {
-            if (controls.isConnected) invokeWindowControl('get_state');
-          }, 120);
+          function refreshWindowState() {
+            if (isStartupOverlayInteractive()) invokeWindowControl('get_state');
+          }
+          // The native caption drag can restore or snap the window after IPC returns.
+          var resizeFrame = null;
+          function scheduleWindowStateRefresh() {
+            if (resizeFrame !== null || !isStartupOverlayInteractive()) return;
+            resizeFrame = window.requestAnimationFrame(function () {
+              resizeFrame = null;
+              refreshWindowState();
+            });
+          }
+          refreshWindowState();
+          var initialStateTimer = window.setTimeout(refreshWindowState, 120);
+          window.addEventListener('resize', scheduleWindowStateRefresh);
+          window.addEventListener('openbitfun:startup-overlay-hidden', function () {
+            window.removeEventListener('resize', scheduleWindowStateRefresh);
+            window.clearTimeout(initialStateTimer);
+            if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+          }, { once: true });
         }
       })();
     </script>

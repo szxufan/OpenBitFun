@@ -29,6 +29,7 @@ mod shell_targets;
 pub use complete_shell::check_exec_command;
 #[cfg(test)]
 pub(crate) use complete_shell::check_with_state as check_shell_with_state;
+pub(crate) use complete_shell::resolved_candidates as inspect_shell_permission_path;
 
 pub(crate) async fn has_active_shell_constraints(context: &ToolUseContext) -> bool {
     complete_shell::active_state(context).await.is_some()

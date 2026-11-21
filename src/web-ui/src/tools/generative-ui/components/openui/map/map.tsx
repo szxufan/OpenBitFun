@@ -9,11 +9,10 @@ import { defineComponent, reactive, useIsStreaming, useStateField } from "@openu
 import { useEffect, useId, useRef, useState } from "react";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import { z } from "zod/v4";
-import { useColorScheme } from "../scheme";
+import { useColorScheme } from '@/infrastructure/appearance/hooks/useHostAppearance';
 import { loadMapLibre, rasterStyle, vectorStyle, type MapLibre } from "./basemap";
 import { boundsOf, coordinate, createPinElement, lngLat, partialLine, pinEmoji, reducedMotion, type LatLng } from "./map-utils";
 import { useDialog } from "./use-dialog";
-import { useStreetRoute } from "./use-street-route";
 
 const ROUTE = "route";
 // Room for the controls on top and for labels, which hang below and beside each pin.
@@ -74,7 +73,7 @@ export const MapView = defineComponent({
     selected: reactive(z.string().optional()),
     height: z.number().optional(),
   }),
-  description: "Street map fitted to its markers. route draws the road path in marker order; selected holds the clicked marker's label.",
+  description: "Map fitted to recorded coordinates, with optional lines connecting markers in their saved order.",
   component: function MapComponent({ props, statementId }) {
     const streaming = useIsStreaming();
     const fallbackId = useId();
@@ -108,8 +107,6 @@ export const MapView = defineComponent({
     const categories = Array.from(new Set(places.map((p) => p.category).filter((c): c is string => !!c)));
     const placeSignature = JSON.stringify(places.map((p) => [p.key, p.lat, p.lng, p.icon, p.category, p.order]));
     const routingKey = visible.map((p) => `${p.lng},${p.lat}`).join(";");
-    const streetPoints = useStreetRoute(routingKey, !!props.route);
-    const routeKind = !props.route ? "none" : streetPoints?.length ? "street" : streetPoints === null ? "overview" : "loading";
     select.current = (label) => selection.setValue(label);
     useDialog(container, expanded, () => setExpanded(false));
 
@@ -233,7 +230,7 @@ export const MapView = defineComponent({
     useEffect(() => {
       if (!ready || !map.current || streaming || framedKey !== routingKey) return;
       const instance = map.current;
-      const positions = !props.route ? [] : streetPoints?.length ? streetPoints : fitPoints.current;
+      const positions = !props.route ? [] : fitPoints.current;
       linePoints.current = positions.length > 1 ? positions : [];
       if (positions.length < 2 || lineDrawn.current || reducedMotion()) {
         lineDrawn.current = positions.length > 1;
@@ -248,16 +245,14 @@ export const MapView = defineComponent({
         else lineDrawn.current = true;
       });
       return () => { cancelAnimationFrame(frame); setLine(instance, linePoints.current); };
-    }, [ready, framedKey, routingKey, streetPoints, props.route, streaming]);
+    }, [ready, framedKey, routingKey, props.route, streaming]);
 
     useEffect(() => {
       const frame = requestAnimationFrame(() => map.current?.resize());
       return () => cancelAnimationFrame(frame);
     }, [expanded]);
 
-    const routeNote = routeKind === "street" ? "The line follows streets (OSRM / OpenStreetMap, driving profile); it is an overview, not turn-by-turn directions."
-      : routeKind === "none" ? "" : "The line joins the places in order. Street routing is loading or unavailable.";
-    const routeStatus = { street: "Street route loaded.", overview: "Street routing unavailable. Showing direct connections.", loading: "Street route loading.", none: "" }[routeKind];
+
 
     return (
       <div className="iui-map-slot" style={{ minHeight: height }}>
@@ -287,9 +282,8 @@ export const MapView = defineComponent({
             <button className="iui-map-info" type="button" aria-label="About this map" aria-expanded={infoOpen} onClick={() => setInfoOpen(!infoOpen)}><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 9v5"/><circle cx="10" cy="6.3" r=".6" fill="currentColor" stroke="none"/></svg></button>
           </div>
           <button className="iui-map-pill iui-map-expand" type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Collapse" : "Expand"}<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 4h4v4M8 16H4v-4M16 12v4h-4M4 8V4h4"/></svg></button>
-          {infoOpen && <div className="iui-map-note">Drag to explore and use + and − to zoom. Select a place to highlight it. {routeNote}</div>}
-          {routeKind === "overview" && <div className="iui-map-overview">Route overview</div>}
-          <span className="iui-map-status" role="status">{routeStatus}</span>
+          {infoOpen && <div className="iui-map-note">Drag to explore and use + and − to zoom. Select a place to highlight it.</div>}
+          {props.route && <div className="iui-map-overview">Route overview</div>}
           {mapError && <div className="iui-map-error" role="status">Map tiles are temporarily unavailable. The places are still shown.</div>}
         </div>
       </div>

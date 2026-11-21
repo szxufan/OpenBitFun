@@ -107,22 +107,7 @@ external/
 .design/
 .pnpm-store/
 
-# KMP shared mobile core and the platform apps that include it (Gradle).
-# Written per-directory rather than as a bare `local.properties` so the pattern
-# cannot accidentally hide a checked-in file elsewhere in the repo. local.properties
-# holds the machine's SDK path, which is exactly the kind of thing
-# src/apps/mobile/AGENTS.md says stays out of the repository.
-src/apps/mobile/shared/.gradle/
-src/apps/mobile/shared/build/
-src/apps/mobile/shared/*/build/
-src/apps/mobile/shared/local.properties
-src/apps/mobile/shared/.kotlin/
-src/apps/mobile/android/.gradle/
-src/apps/mobile/android/build/
-src/apps/mobile/android/*/build/
-src/apps/mobile/android/local.properties
-src/apps/mobile/android/.kotlin/
-/src/apps/mobile/ios/build/
+
 .openbitfun/
 .bitfun/
 
@@ -151,7 +136,7 @@ src/apps/mobile/android/.kotlin/
 /src/apps/ohos/*/libs/
 # hvigor writes a BuildProfile.ets next to each module during the build.
 /src/apps/ohos/*/BuildProfile.ets
-# Same policy as src/apps/mobile/harmonyos/.gitignore: signing credentials and
+# Signing credentials and
 # installable artifacts never leave the machine.
 /src/apps/ohos/signing.local.json*
 /src/apps/ohos/*.cer
@@ -168,3 +153,9 @@ src/apps/mobile/android/.kotlin/
 .zcode/
 
 AGENTS.override.md
+
+# Locally imported, version-verified Codex Visualize distribution.
+/src/crates/assembly/core/builtin_skills/visualize/upstream/
+/src/crates/assembly/core/builtin_skills/visualize/authoring/
+
+/.visualize-runtime/

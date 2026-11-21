@@ -27,6 +27,15 @@ impl FixtureHost {
         format!("http://127.0.0.1:{}{}", self.port, self.prefix)
     }
 
+    async fn sign_in_official_session(&self, session: &AccountSession) {
+        *get_account_context().write().await = Some(AccountContextState {
+            session: session.clone(),
+            relay_url: self.url(),
+        });
+        // Login persists the credential. The next AuthOk supplies the device ID.
+        persist_account_session(None, None, None).await.unwrap();
+    }
+
     async fn credential(&self, device_id: &str, secret: [u8; 32]) -> AccountSession {
         db::UserRow::upsert_verified(&self.database, "42", "route-test")
             .await
@@ -201,15 +210,13 @@ async fn dual_relay_rpc_persistence_and_teardown_are_independent() {
     lan_service.prepare_relay(&lan_method).await.unwrap();
     *RelayRoute::Official.service().write().await = Some(official_service);
     *RelayRoute::Lan.service().write().await = Some(lan_service);
-    *get_account_context().write().await = Some(AccountContextState {
-        session: official_session.clone(),
-        relay_url: official.url(),
-    });
+    official.sign_in_official_session(&official_session).await;
     let generation = account_context_generation();
     account_connect_devices().await.unwrap();
     let mut original_owner = current_device_routing_owner_snapshot().unwrap();
     let saved = session_store::load_session_detailed().unwrap().unwrap();
     assert_eq!(saved.token, official_session.token);
+    assert_eq!(saved.device_id.as_deref(), Some(id.as_str()));
     RelayRoute::replace_lan_context(Some(AccountContextState {
         session: lan_session.clone(),
         relay_url: lan.url(),
@@ -320,10 +327,7 @@ async fn dual_relay_rpc_persistence_and_teardown_are_independent() {
         serde_json::json!({"stream_id":"dual", "epoch":1, "cursor":2}),
     );
     assert_hint(&mut lan_hints, 2).await;
-    *get_account_context().write().await = Some(AccountContextState {
-        session: official_session.clone(),
-        relay_url: official.url(),
-    });
+    official.sign_in_official_session(&official_session).await;
     account_connect_devices().await.unwrap();
     assert!(
         !invalidate_local_account_session_if_current(
@@ -433,6 +437,8 @@ async fn dual_relay_rpc_persistence_and_teardown_are_independent() {
         "pong"
     );
 
+    verify_remote_control_permission(&official, &official_session, &official_controller, &id).await;
+
     // Full sign-out is the shared identity boundary and retires both routes.
     let replacement_lan = lan.credential(&id, [2; 32]).await;
     RelayRoute::Lan
@@ -471,6 +477,154 @@ async fn dual_relay_rpc_persistence_and_teardown_are_independent() {
         .unwrap()
         .is_none());
     official.stop().await;
+}
+
+/// Use independent encrypted sockets on the fixture Relay. An offline host
+/// remains an authenticated controller, including after a directory refresh.
+async fn verify_remote_control_permission(
+    relay: &FixtureHost,
+    session: &AccountSession,
+    peer: &AccountSession,
+    id: &str,
+) {
+    use openbitfun_core::service::remote_connect::relay_client::{RelayClient, RelayEvent};
+    monitor_remote_control_permission();
+    remote_connect_set_allowed(SetRemoteControlRequest { allowed: false })
+        .await
+        .unwrap();
+    let client = AccountClient::new();
+    let url = relay.url();
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        loop {
+            if client
+                .list_devices(&url, peer)
+                .await
+                .unwrap()
+                .iter()
+                .any(|row| row.device_id == id && !row.online)
+                && RelayRoute::Official
+                    .service()
+                    .read()
+                    .await
+                    .as_ref()
+                    .unwrap()
+                    .account_socket_serves_device()
+                    .await
+                    == Some(false)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("host should become controller-only");
+    account_connect_devices().await.unwrap();
+    assert_eq!(
+        remote_connect_status()
+            .await
+            .unwrap()
+            .remote_control_allowed,
+        Some(false)
+    );
+    let qr_error = remote_connect_weixin_qr_poll(WeixinQrPollRequest {
+        session_key: "fixture".into(),
+        base_url: None,
+        verify_code: None,
+    })
+    .await
+    .unwrap_err();
+    assert!(
+        qr_error.contains("Remote control is disabled"),
+        "{qr_error}"
+    );
+    assert!(client
+        .device_rpc(&url, peer, id, r#"{"cmd":"ping"}"#)
+        .await
+        .is_err());
+    let (target, mut events) = RelayClient::new();
+    target.connect(&url).await.unwrap();
+    target
+        .connect_authenticated(&peer.token, "peer")
+        .await
+        .unwrap();
+    let answer = async {
+        while let Some(event) = events.recv().await {
+            if let RelayEvent::DeviceMessageReceived {
+                source_device_id,
+                correlation_id,
+                encrypted_data,
+                nonce,
+                encoding_offer,
+                key_id,
+                ..
+            } = event
+            {
+                if correlation_id.is_empty() {
+                    continue;
+                }
+                assert_eq!(source_device_id, id);
+                let request = peer
+                    .decrypt_peer_message(&url, id, &encrypted_data, &nonce, key_id.as_deref(), encoding_offer)
+                    .await
+                    .unwrap();
+                assert_eq!(request, r#"{"cmd":"ping"}"#);
+                let (data, nonce) = peer
+                    .encrypt_reply(&url, id, r#"{"resp":"pong"}"#, false)
+                    .await
+                    .unwrap();
+                // The reply is sealed with the legacy account-derived key,
+                // so it carries no PSK key id.
+                target
+                    .send_device_message(id, &correlation_id, &data, &nonce, None)
+                    .await
+                    .unwrap();
+                return;
+            }
+        }
+        panic!("peer disconnected before the outbound request");
+    };
+    let outbound = account_device_rpc("controller".into(), r#"{"cmd":"ping"}"#.into(), Some(5000));
+    let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        tokio::join!(outbound, answer)
+    })
+    .await
+    .unwrap();
+    assert_eq!(result.unwrap(), r#"{"resp":"pong"}"#);
+    assert!(client
+        .list_devices(&url, peer)
+        .await
+        .unwrap()
+        .iter()
+        .any(|device| device.device_id == id && !device.online));
+    assert_eq!(
+        session_store::load_session_detailed()
+            .unwrap()
+            .unwrap()
+            .token,
+        session.token
+    );
+    remote_connect_set_allowed(SetRemoteControlRequest { allowed: true })
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(8), async {
+        while !client
+            .list_devices(&url, peer)
+            .await
+            .unwrap()
+            .iter()
+            .any(|row| row.device_id == id && row.online)
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        rpc(relay, peer, id, serde_json::json!({"cmd":"ping"})).await["resp"],
+        "pong"
+    );
+    target.disconnect().await;
 }
 
 #[tokio::test]
@@ -791,10 +945,7 @@ async fn starting_a_connected_route_again_only_returns_its_invitation() {
         )
         .unwrap(),
     );
-    *get_account_context().write().await = Some(AccountContextState {
-        session: host_session.clone(),
-        relay_url: official.url(),
-    });
+    official.sign_in_official_session(&host_session).await;
     let generation = account_context_generation();
     account_connect_devices().await.unwrap();
     let owner = current_device_routing_owner_snapshot().unwrap();

@@ -210,7 +210,7 @@ impl InsightsCollector {
                     duration_minutes,
                     unix_ms_to_iso(first_activity_ms),
                 );
-                transcript.workspace_path = Some(workspace_path.to_string_lossy().to_string());
+                transcript.session_storage_scope = Some(ws_path.to_string_lossy().into_owned());
                 transcript.last_activity_unix_secs = last_activity_ms / 1000;
 
                 update_date_bounds(&mut base_stats, first_activity_ms, last_activity_ms);
@@ -222,8 +222,13 @@ impl InsightsCollector {
                     message_count,
                     duration_millis,
                 );
+                let execution_workspace_id = session
+                    .config
+                    .workspace_id
+                    .as_deref()
+                    .unwrap_or(&target.workspace_id);
                 for path in
-                    accumulate_code_stats(&mut base_stats, &target.workspace_id, &selected_turns)
+                    accumulate_code_stats(&mut base_stats, execution_workspace_id, &selected_turns)
                         .await
                 {
                     modified_files.insert((target.workspace_id.clone(), path));
@@ -331,7 +336,7 @@ impl InsightsCollector {
             session_id: session_id.to_string(),
             agent_type: session.agent_type.clone(),
             session_name: session.session_name.clone(),
-            workspace_path: None,
+            session_storage_scope: None,
             last_activity_unix_secs: 0,
             duration_minutes,
             message_count: message_count as u32,
@@ -387,6 +392,10 @@ impl InsightsCollector {
             let dt = DateTime::<Local>::from(UNIX_EPOCH + Duration::from_millis(turn.start_time));
             let hour = dt.format("%H").to_string().parse::<u32>().unwrap_or(0);
             *base_stats.hour_counts.entry(hour).or_insert(0) += 1;
+            *base_stats
+                .activity_by_utc_minute
+                .entry(turn.start_time / 60_000)
+                .or_default() += 1;
 
             if let Some(previous_end_ms) = previous_end_ms {
                 let response_ms = turn.start_time.saturating_sub(previous_end_ms);

@@ -3050,6 +3050,7 @@ test('services integrations Reqwest policy uses Cargo-decoded feature references
 reqwest = ["dep:reqwest"]
 browser-control = ["reqwest", "reqwest/rustls-no-provider"]
 file-watch = ["reqwest?/__native-tls"]
+remote-ssh-concrete = ["reqwest", "reqwest/stream"]
 mcp = ["reqwest", "reqwest/rustls-no-provider", "reqwest/json"]
 models-dev = ["reqwest", "reqwest/rustls-no-provider", "reqwest/system-proxy"]
 speech = ["reqwest", "reqwest/rustls-no-provider", "reqwest/http3"]
@@ -3060,6 +3061,7 @@ speech = ["reqwest", "reqwest/rustls-no-provider", "reqwest/http3"]
     .join('\n');
   assert.match(messages, /browser-control.*missing Reqwest feature reference reqwest\/json/);
   assert.match(messages, /file-watch.*outside its reviewed owner features/);
+  assert.match(messages, /remote-ssh-concrete.*outside its reviewed owner features/);
   assert.match(messages, /mcp.*missing Reqwest feature reference reqwest\/stream/);
   assert.doesNotMatch(messages, /models-dev.*system-proxy/);
   assert.match(messages, /speech.*unreviewed Reqwest feature reference reqwest\/http3/);

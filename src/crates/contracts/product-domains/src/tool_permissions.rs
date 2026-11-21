@@ -195,26 +195,95 @@ impl PermissionPolicyPreset {
         match self {
             // Later matches win, so sensitive read exceptions follow the broad
             // low-risk allow and .env.example follows the .env.* guard.
-            Self::Ask => vec![
-                PermissionRule::new("*", "*", PermissionEffect::Ask),
-                PermissionRule::new("read", "*", PermissionEffect::Allow),
-                PermissionRule::new("read", "*/.env", PermissionEffect::Ask),
-                PermissionRule::new("read", "*/.env.*", PermissionEffect::Ask),
-                PermissionRule::new("read", "*/.env.example", PermissionEffect::Allow),
-                PermissionRule::new("websearch", "*", PermissionEffect::Allow),
-                PermissionRule::new("webfetch", "*", PermissionEffect::Allow),
-                PermissionRule::new("task", "*", PermissionEffect::Allow),
-                PermissionRule::new("skill", "*", PermissionEffect::Allow),
-                PermissionRule::new("git", "git status *", PermissionEffect::Allow),
-                PermissionRule::new("git", "git diff *", PermissionEffect::Allow),
-                PermissionRule::new("git", "git log *", PermissionEffect::Allow),
-                PermissionRule::new("git", "git show *", PermissionEffect::Allow),
-                PermissionRule::new("git", "git blame *", PermissionEffect::Allow),
-                PermissionRule::new("git", "git rev-parse *", PermissionEffect::Allow),
-                PermissionRule::new("git", "git describe *", PermissionEffect::Allow),
-                PermissionRule::new("git", "git shortlog *", PermissionEffect::Allow),
-                PermissionRule::new("git", "git branch", PermissionEffect::Allow),
-            ],
+            Self::Ask => {
+                let mut rules = vec![
+                    PermissionRule::new("*", "*", PermissionEffect::Ask),
+                    PermissionRule::new("read", "*", PermissionEffect::Allow),
+                    PermissionRule::new("edit", "*", PermissionEffect::Allow),
+                    PermissionRule::new("edit", "*/.env", PermissionEffect::Ask),
+                    PermissionRule::new("edit", "*/.env.*", PermissionEffect::Ask),
+                    PermissionRule::new("edit", "*/.env.example", PermissionEffect::Allow),
+                    PermissionRule::new("edit", "*.pem", PermissionEffect::Ask),
+                    PermissionRule::new("edit", "*.key", PermissionEffect::Ask),
+                    PermissionRule::new("edit", "*.p12", PermissionEffect::Ask),
+                    PermissionRule::new("edit", "*.pfx", PermissionEffect::Ask),
+                    PermissionRule::new("edit", "*/.git/*", PermissionEffect::Ask),
+                    PermissionRule::new("edit", "*/.ssh/*", PermissionEffect::Ask),
+                    PermissionRule::new("edit", "*/.aws/*", PermissionEffect::Ask),
+                    PermissionRule::new("read", "*/.env", PermissionEffect::Ask),
+                    PermissionRule::new("read", "*/.env.*", PermissionEffect::Ask),
+                    PermissionRule::new("read", "*/.env.example", PermissionEffect::Allow),
+                    PermissionRule::new("websearch", "*", PermissionEffect::Allow),
+                    PermissionRule::new("webfetch", "*", PermissionEffect::Allow),
+                    PermissionRule::new("task", "*", PermissionEffect::Allow),
+                    PermissionRule::new("skill", "*", PermissionEffect::Allow),
+                    PermissionRule::new("git", "git status *", PermissionEffect::Allow),
+                    PermissionRule::new("git", "git diff *", PermissionEffect::Allow),
+                    PermissionRule::new("git", "git log *", PermissionEffect::Allow),
+                    PermissionRule::new("git", "git show *", PermissionEffect::Allow),
+                    PermissionRule::new("git", "git blame *", PermissionEffect::Allow),
+                    PermissionRule::new("git", "git rev-parse *", PermissionEffect::Allow),
+                    PermissionRule::new("git", "git describe *", PermissionEffect::Allow),
+                    PermissionRule::new("git", "git shortlog *", PermissionEffect::Allow),
+                    PermissionRule::new("git", "git branch", PermissionEffect::Allow),
+                ];
+                // These are defaults, not bypasses: later user/project/agent rules
+                // and independent constraint layers remain authoritative.
+                for action in [
+                    "process.execute.read_only",
+                    "process.control",
+                    "process.read_output",
+                    "schedule.manage",
+                    "image.generate",
+                    "session.message",
+                    "goal.read",
+                    "goal.create",
+                    "goal.update",
+                    "miniapp.create",
+                    "miniapp.finalize",
+                    "miniapp.read",
+                    "session.read",
+                    "browser.read",
+                    "terminal.read",
+                    "control.describe",
+                    "review.read",
+                ] {
+                    rules.push(PermissionRule::new(action, "*", PermissionEffect::Allow));
+                }
+                for resource in ["*:list_resources", "*:list_prompts"] {
+                    rules.push(PermissionRule::new(
+                        "mcp",
+                        resource,
+                        PermissionEffect::Allow,
+                    ));
+                }
+                for action in [
+                    "screenshot",
+                    "list_apps",
+                    "list_windows",
+                    "get_app_state",
+                    "get_os_info",
+                    "control_status",
+                    "describe_screen",
+                    "locate",
+                    "wait",
+                    "list_displays",
+                    "get_app_shortcuts",
+                    "app_wait_for",
+                ] {
+                    rules.push(PermissionRule::new(
+                        "computer_use",
+                        action,
+                        PermissionEffect::Allow,
+                    ));
+                    rules.push(PermissionRule::new(
+                        "computer_use",
+                        format!("{action}:*"),
+                        PermissionEffect::Allow,
+                    ));
+                }
+                rules
+            }
             Self::FullAccess => vec![PermissionRule::new("*", "*", PermissionEffect::Allow)],
         }
     }

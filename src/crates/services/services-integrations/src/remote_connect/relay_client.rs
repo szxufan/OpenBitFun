@@ -254,6 +254,9 @@ impl RelayClient {
             }
         }
     }
+    pub fn serves_device(&self) -> bool {
+        self.machine
+    }
     pub async fn connection_state(&self) -> ConnectionState {
         self.owner.lock().unwrap().state.clone()
     }

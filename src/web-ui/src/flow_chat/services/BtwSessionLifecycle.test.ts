@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const state = vi.hoisted(() => ({ sessions: new Map<string, any>(), cancel: vi.fn(), delete: vi.fn(), discard: vi.fn(), fork: vi.fn(), metadata: vi.fn() }));
-vi.mock('@/infrastructure/api', () => ({ agentAPI: { cancelSession: state.cancel, deleteSession: state.delete }, sessionAPI: { forkSession: state.fork } }));
+const state = vi.hoisted(() => ({ sessions: new Map<string, any>(), cancel: vi.fn(), btwCancel: vi.fn(), delete: vi.fn(), discard: vi.fn(), fork: vi.fn(), metadata: vi.fn() }));
+vi.mock('@/infrastructure/api', () => ({ agentAPI: { cancelSession: state.cancel, deleteSession: state.delete }, btwAPI: { cancel: state.btwCancel }, sessionAPI: { forkSession: state.fork } }));
 vi.mock('../store/FlowChatStore', () => ({ flowChatStore: { getState: () => ({ sessions: state.sessions }), ensurePersistedSessionMetadata: state.metadata } }));
 vi.mock('./FlowChatManager', () => ({ flowChatManager: { discardLocalSession: state.discard } }));
 
@@ -121,6 +121,28 @@ describe('BTW session lifetime', () => {
     expect(state.delete).toHaveBeenCalledWith('child', 'project');
     expect(state.cancel.mock.invocationCallOrder[0]).toBeLessThan(state.delete.mock.invocationCallOrder[0]);
     expect(state.delete.mock.invocationCallOrder[0]).toBeLessThan(state.discard.mock.invocationCallOrder[0]);
+  });
+
+  it('stops the turn through btw_cancel on a peer host that predates cancel_session', async () => {
+    state.sessions.get('child').btwOrigin = { requestId: 'request' };
+    state.cancel.mockRejectedValueOnce(new Error(
+      "command 'cancel_session' is not supported on CLI peer host: the CLI peer host has no handler for this command",
+    ));
+    state.btwCancel.mockResolvedValueOnce(undefined);
+    await discardBtwSession('child');
+    expect(state.btwCancel).toHaveBeenCalledWith({ requestId: 'request' });
+    expect(state.btwCancel.mock.invocationCallOrder[0]).toBeLessThan(state.delete.mock.invocationCallOrder[0]);
+    expect(state.delete).toHaveBeenCalledWith('child', 'project');
+    expect(state.sessions.has('child')).toBe(false);
+  });
+
+  it('keeps the tab when cancellation fails for any other reason', async () => {
+    state.sessions.get('child').btwOrigin = { requestId: 'request' };
+    state.cancel.mockRejectedValueOnce(new Error('host offline'));
+    await expect(discardBtwSession('child')).rejects.toThrow('host offline');
+    expect(state.btwCancel).not.toHaveBeenCalled();
+    expect(state.delete).not.toHaveBeenCalled();
+    expect(state.sessions.has('child')).toBe(true);
   });
 
   it('retains local contents when the host cannot confirm deletion', async () => {

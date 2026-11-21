@@ -1,33 +1,58 @@
 import { repositoryPathKey } from '@/shared/utils/pathUtils';
 import type { FlatFileNode } from '../types';
 
+// Compiled once. The function is called for every reveal, and building these patterns per
+// call showed up as a real share of the cost on long paths.
+const WINDOWS_ABSOLUTE = /^[a-z]:[/\\]/i;
+const WINDOWS_DRIVE_ONLY = /^[a-z]:$/i;
+const TRAILING_SLASHES = /\/+$/;
+const SLASHES = /\//g;
+const BACKSLASHES = /\\/g;
+
+function toForwardSlashes(path: string, windows: boolean): string {
+  // A remote path is not Windows: its backslashes are literal name characters, so they stay.
+  if (!windows || path.indexOf('\\') === -1) return path;
+  return path.replace(BACKSLASHES, '/');
+}
+
+function stripTrailingSlashes(path: string): string {
+  return path.charCodeAt(path.length - 1) === 47 ? path.replace(TRAILING_SLASHES, '') : path;
+}
+
 /** Plan ancestor expansion using the target filesystem's path semantics. */
 export function planFileTreeReveal(root: string, target: string, remote = false): {
   pathsToExpand: string[]; targetPath: string;
 } | null {
   if (!root || !target) return null;
-  const windows = !remote && (/^[a-z]:[/\\]/i.test(root) || root.startsWith('\\\\'));
-  const normalize = (path: string) => (windows ? path.replace(/\\/g, '/') : path).replace(/\/+$/, '') || '/';
-  const normalizedRoot = normalize(root);
-  const normalizedTarget = normalize(target);
-  const compare = (path: string) => windows ? path.toLowerCase() : path;
+  const windows = !remote && (WINDOWS_ABSOLUTE.test(root) || root.startsWith('\\\\'));
+  const normalizedRoot = stripTrailingSlashes(toForwardSlashes(root, windows)) || '/';
+  const normalizedTarget = stripTrailingSlashes(toForwardSlashes(target, windows)) || '/';
+  // Lowercased copies are only for comparison: the returned paths keep the caller's casing.
+  const comparedRoot = windows ? normalizedRoot.toLowerCase() : normalizedRoot;
+  const comparedTarget = windows ? normalizedTarget.toLowerCase() : normalizedTarget;
   const prefix = normalizedRoot === '/' ? '/' : `${normalizedRoot}/`;
-  if (compare(normalizedTarget) !== compare(normalizedRoot)
-    && !compare(normalizedTarget).startsWith(compare(prefix))) return null;
+  const comparedPrefix = windows ? prefix.toLowerCase() : prefix;
+  if (comparedTarget !== comparedRoot && !comparedTarget.startsWith(comparedPrefix)) return null;
 
-  const parts = normalizedTarget.slice(normalizedRoot === '/' ? 1 : normalizedRoot.length).split('/').filter(Boolean);
+  const parts = normalizedTarget.slice(normalizedRoot === '/' ? 1 : normalizedRoot.length).split('/');
   // Paths from a host are absolute. Do not let an unnormalized path escape the tree.
-  if (parts.some(part => part === '.' || part === '..')) return null;
-  const native = (path: string) => {
-    const absolute = windows && /^[a-z]:$/i.test(path) ? `${path}/` : path;
-    return windows && root.includes('\\') ? absolute.replace(/\//g, '\\') : absolute;
-  };
+  for (const part of parts) {
+    if (part === '.' || part === '..') return null;
+  }
+  const backslashOutput = windows && root.includes('\\');
   let currentPath = normalizedRoot;
-  const pathsToExpand = parts.map(part => {
+  const pathsToExpand: string[] = [];
+  for (const part of parts) {
+    if (!part) continue;
     currentPath = `${currentPath === '/' ? '' : currentPath}/${part}`;
-    return native(currentPath);
-  });
-  return { pathsToExpand, targetPath: native(currentPath) };
+    const absolute = windows && WINDOWS_DRIVE_ONLY.test(currentPath) ? `${currentPath}/` : currentPath;
+    pathsToExpand.push(backslashOutput ? absolute.replace(SLASHES, '\\') : absolute);
+  }
+  const targetPath = windows && WINDOWS_DRIVE_ONLY.test(currentPath) ? `${currentPath}/` : currentPath;
+  return {
+    pathsToExpand,
+    targetPath: backslashOutput ? targetPath.replace(SLASHES, '\\') : targetPath,
+  };
 }
 
 /** Address the data row, including compressed folders, rather than rendered DOM. */

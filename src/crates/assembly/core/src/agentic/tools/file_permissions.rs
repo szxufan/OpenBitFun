@@ -1,6 +1,7 @@
 use crate::agentic::tools::framework::{PermissionIntent, ToolPathResolution, ToolUseContext};
 use crate::agentic::tools::restrictions::{
     canonicalize_local_path_best_effort, is_local_path_within_root,
+    is_remote_posix_path_within_root,
 };
 use crate::infrastructure::get_path_manager_arc;
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
@@ -90,8 +91,27 @@ fn external_directory_resource(
     context: &ToolUseContext,
     resolved: &ToolPathResolution,
 ) -> OpenBitFunResult<Option<String>> {
-    if resolved.uses_remote_workspace_backend() || resolved.is_runtime_artifact() {
+    if resolved.is_runtime_artifact() {
         return Ok(None);
+    }
+    if resolved.uses_remote_workspace_backend() {
+        let workspace = context.workspace.as_ref().ok_or_else(|| {
+            OpenBitFunError::validation("A workspace is required for file permissions".to_string())
+        })?;
+        if is_remote_posix_path_within_root(&resolved.resolved_path, &workspace.root_path_string())
+        {
+            return Ok(None);
+        }
+        // Remote paths are POSIX even when the controller runs Windows. Do not
+        // inspect the controller filesystem to classify a target-side path.
+        let directory = resolved
+            .resolved_path
+            .rsplit_once('/')
+            .map(|(parent, _)| if parent.is_empty() { "/" } else { parent })
+            .ok_or_else(|| {
+                OpenBitFunError::validation("Remote path has no parent directory".to_string())
+            })?;
+        return Ok(Some(directory.to_string()));
     }
 
     if is_openbitfun_managed_local_path(context, resolved)? {
@@ -197,6 +217,47 @@ mod tests {
     };
     use serde_json::{json, Value};
     use std::fs;
+
+    #[test]
+    fn permission_defaults_remote_edits_keep_posix_external_directory_approval() {
+        use crate::agentic::workspace::WorkspaceBackend;
+        use openbitfun_agent_runtime::permission::{plan_permission_intents, PermissionIntentPlan};
+        use openbitfun_runtime_ports::{
+            PermissionPolicyPreset, PermissionResourceCaseSensitivity, ResolvedPermissionPolicy,
+        };
+        let mut workspace = WorkspaceBinding::new(None, PathBuf::from("/remote/workspace"));
+        workspace.backend = WorkspaceBackend::Remote {
+            connection_id: "ssh-test".into(),
+            connection_name: "Test SSH".into(),
+        };
+        let context = ToolUseContext::for_tool_listing(Some(workspace), None);
+        let policy =
+            ResolvedPermissionPolicy::new(PermissionPolicyPreset::Ask.baseline_rules(), Vec::new());
+        for (path, allowed) in [
+            ("src/main.rs", true),
+            (".env", false),
+            ("/remote/outside/file.rs", false),
+            ("../outside/file.rs", false),
+        ] {
+            let intents = file_permission_intents("edit", [path], &context).unwrap();
+            assert!(intents[0].resources[0].starts_with('/'));
+            if path.contains("outside") {
+                assert_eq!(intents[1].action, "external_directory");
+                assert_eq!(intents[1].resources, ["/remote/outside"]);
+            }
+            let plan = plan_permission_intents(
+                intents,
+                &policy,
+                &[],
+                PermissionResourceCaseSensitivity::Sensitive,
+            );
+            assert_eq!(
+                matches!(plan, PermissionIntentPlan::Allowed),
+                allowed,
+                "{path}: {plan:?}"
+            );
+        }
+    }
 
     #[test]
     fn local_external_file_adds_external_directory_intent() {
@@ -423,8 +484,9 @@ mod tests {
         let delete = DeleteFileTool::new()
             .permission_intents(&json!({ "path": plan_path.as_ref() }), &context)
             .expect("plan delete permission intents");
-        assert_eq!(delete.len(), 1);
+        assert_eq!(delete.len(), 2);
         assert_eq!(delete[0].action, "edit");
+        assert_eq!(delete[1].action, "delete");
 
         let transcript_path = transcript.to_string_lossy();
         let transcript_edit = FileEditTool::new()
@@ -558,7 +620,12 @@ mod tests {
             let intents = tool
                 .permission_intents(&input, &context)
                 .expect("file tool permission intent");
-            assert_eq!(intents.len(), 1, "{}", tool.name());
+            assert_eq!(
+                intents.len(),
+                if tool.name() == "Delete" { 2 } else { 1 },
+                "{}",
+                tool.name()
+            );
             assert_eq!(intents[0].action, expected_action, "{}", tool.name());
             assert_eq!(intents[0].resources.len(), 1, "{}", tool.name());
         }

@@ -41,6 +41,8 @@ pub struct ToolExecutionOptions {
     /// The latest user-authored message for the current model turn, supplied
     /// to model-based permission approval as decision context.
     pub current_user_message: Option<String>,
+    /// Previous model tool calls, oldest to newest, with no execution results.
+    pub recent_tool_calls: Vec<openbitfun_runtime_ports::PermissionDecisionToolCall>,
     /// Whether this execution host can deliver a permission request to a
     /// human mailbox. Headless and detached hosts set this to false so an
     /// interactive fallback cannot wait forever for a controller.
@@ -64,6 +66,7 @@ impl Default for ToolExecutionOptions {
             permission_approval_on_ask: PermissionApprovalOnAsk::User,
             permission_approval_on_error: PermissionApprovalOnError::Ask,
             current_user_message: None,
+            recent_tool_calls: Vec::new(),
             permission_user_input_available: true,
             parent_cancellation_token: None,
         }

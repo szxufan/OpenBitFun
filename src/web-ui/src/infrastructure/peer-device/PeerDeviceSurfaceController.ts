@@ -61,7 +61,7 @@ export interface PeerConnectionManagerPort {
   list(): readonly PeerConnectionState[];
   subscribe(listener: (connections: readonly PeerConnectionState[]) => void): () => void;
   dispose(deviceId: string, options?: { notifyPeer?: boolean }): Promise<void>;
-  reportPresence(onlineDeviceIds: Iterable<string>): void;
+  reportPresence(onlineDeviceIds: Iterable<string>, controllerOnly?: boolean): void;
 }
 
 export interface PeerDeviceSurfaceControllerDependencies {
@@ -87,7 +87,7 @@ export interface PeerDeviceSurfaceControllerDependencies {
   discardSurfaceState: (surfaceId: DeviceSurfaceId) => void;
   clearDeviceActivity: (deviceId: string) => void;
   listenPresence: (
-    listener: (onlineDeviceIds: readonly string[]) => void,
+    listener: (onlineDeviceIds: readonly string[], controllerOnly?: boolean) => void,
   ) => () => void;
   listenLoginState: (listener: (loggedIn: boolean) => void) => () => void;
 }
@@ -150,8 +150,8 @@ export class PeerDeviceSurfaceController {
       connections => this.handleConnectionStates(connections),
     );
     this.controlPlaneUnsubscribes = [
-      this.dependencies.listenPresence(onlineDeviceIds => {
-        this.dependencies.connectionManager.reportPresence(onlineDeviceIds);
+      this.dependencies.listenPresence((onlineDeviceIds, controllerOnly) => {
+        this.dependencies.connectionManager.reportPresence(onlineDeviceIds, controllerOnly);
       }),
       this.dependencies.listenLoginState(loggedIn => {
         if (!loggedIn && this.dependencies.connectionManager.list().length > 0) {

@@ -621,6 +621,9 @@ pub struct RestoreSessionWithTurnsResponse {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RestoreSessionViewResponse {
+    /// Additive capability/authority marker. Older hosts omit it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_projection: Option<&'static str>,
     pub session: SessionResponse,
     pub turns: Vec<DialogTurnData>,
     pub interaction_snapshot: SessionInteractionSnapshot,
@@ -672,6 +675,16 @@ fn frontend_event_projection_snapshot(
                 payload: event.payload,
             })
             .collect(),
+    }
+}
+
+fn enrich_acp_replay_event(name: &str, payload: &mut serde_json::Value) {
+    // ACP does not provide an absolute persisted Turn ordinal. Preserve the
+    // established live-wire absence rather than inventing ordinal zero.
+    if name == "agentic://dialog-turn-started" {
+        payload["turnIndex"] = serde_json::Value::Null;
+    } else if name == "agentic://model-round-started" {
+        payload["renderHints"] = serde_json::json!({"disableExploreGrouping":true});
     }
 }
 
@@ -3822,9 +3835,17 @@ pub async fn restore_session_view(
         let session = restored.session;
         let mut turns = restored.turns;
         let interaction_snapshot = restored.interaction_snapshot;
-        let runtime_event_snapshot = restored
+        let execution_projection = restored.execution_projection;
+        let mut runtime_event_snapshot = restored
             .runtime_event_snapshot
             .map(frontend_event_projection_snapshot);
+        if execution_projection == Some("acp") {
+            if let Some(snapshot) = runtime_event_snapshot.as_mut() {
+                for event in &mut snapshot.events {
+                    enrich_acp_replay_event(&event.event_name, &mut event.payload);
+                }
+            }
+        }
         let current_context_usage = restored.current_context_usage;
         let total_turn_count = restored.total_turn_count;
         let turn_catalog = restored.turn_catalog;
@@ -3876,6 +3897,7 @@ pub async fn restore_session_view(
         );
 
         Ok(RestoreSessionViewResponse {
+            execution_projection,
             session: session_to_response_with_turn_count(session, total_turn_count),
             turns,
             interaction_snapshot,
@@ -3913,7 +3935,7 @@ pub async fn load_session_event_backfill(
     runtime: State<'_, DesktopRuntimeContext>,
     request: LoadSessionEventBackfillRequest,
 ) -> Result<serde_json::Value, String> {
-    Ok(session_event_backfill_to_response(
+    let mut response = session_event_backfill_to_response(
         runtime.session_application().session_events_since(
             &request.session_id,
             &request.stream_id,
@@ -3922,7 +3944,19 @@ pub async fn load_session_event_backfill(
         runtime
             .session_application()
             .session_interaction_snapshot(&request.session_id),
-    ))
+    );
+    if runtime
+        .session_application()
+        .has_acp_execution(&request.session_id)
+    {
+        if let Some(events) = response["events"].as_array_mut() {
+            for event in events {
+                let name = event["eventName"].as_str().unwrap_or_default().to_owned();
+                enrich_acp_replay_event(&name, &mut event["payload"]);
+            }
+        }
+    }
+    Ok(response)
 }
 
 #[derive(Debug, Deserialize)]
@@ -5003,6 +5037,7 @@ mod tests {
     #[test]
     fn restore_turn_payload_stats_tracks_largest_outputs_without_contents() {
         let turn = DialogTurnData {
+            published_figures: Default::default(),
             turn_id: "turn-1".to_string(),
             turn_index: 0,
             session_id: "session-1".to_string(),
@@ -5094,6 +5129,7 @@ mod tests {
     #[test]
     fn omit_assistant_only_tool_results_preserves_visible_results() {
         let mut turns = vec![DialogTurnData {
+            published_figures: Default::default(),
             turn_id: "turn-1".to_string(),
             turn_index: 0,
             session_id: "session-1".to_string(),
@@ -5163,6 +5199,7 @@ mod tests {
     fn session_view_tool_result_compaction_truncates_large_visible_results() {
         let large_output = "x".repeat(80 * 1024);
         let mut turns = vec![DialogTurnData {
+            published_figures: Default::default(),
             turn_id: "turn-1".to_string(),
             turn_index: 0,
             session_id: "session-1".to_string(),

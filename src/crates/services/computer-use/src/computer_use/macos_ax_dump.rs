@@ -232,11 +232,7 @@ pub(crate) fn validate_bound_target(pid: i32, target: AxRef) -> OpenBitFunResult
     // An open menu or popup of the bound window is a separate window of the
     // same process; physical input there reaches it, so its elements qualify.
     let allowed = match element_window_id(target) {
-        Some(actual) => {
-            actual == bound
-                || super::macos_capture::overlays(pid, bound)
-                    .is_ok_and(|overlays| overlays.iter().any(|o| o.window_id == actual as u64))
-        }
+        Some(actual) => window_belongs_to_capture(pid, bound, actual),
         None => is_application_menu_item(target),
     };
     if !allowed {
@@ -246,6 +242,148 @@ pub(crate) fn validate_bound_target(pid: i32, target: AxRef) -> OpenBitFunResult
     }
     super::control_session::target_allowed(&format!("pid:{pid}/window:{bound}"))
         .map_err(OpenBitFunError::tool)
+}
+
+/// Live window identity, shared by semantic, pointer-focus and foreground
+/// checks. Same-process sibling windows do not inherit the capture's scope.
+pub(super) fn window_belongs_to_capture(pid: i32, bound: u32, actual: u32) -> bool {
+    actual == bound
+        || super::macos_capture::overlays(pid, bound)
+            .is_ok_and(|overlays| overlays.iter().any(|o| o.window_id == actual as u64))
+}
+
+#[cfg(test)]
+mod file_panel_tests {
+    use super::*;
+
+    fn find_target(
+        roots: &[RetainedCachedTarget],
+        attribute: &str,
+        value: &str,
+    ) -> Option<RetainedCachedTarget> {
+        // Reading each display attribute from the remote panel is slow.
+        // For this fixture, keep its real AX tree and read only the lookup key.
+        let mut queue: VecDeque<_> = roots
+            .iter()
+            .map(|root| RetainedCachedTarget(AxRef(unsafe { CFRetain(root.reference().0) })))
+            .collect();
+        for _ in 0..512 {
+            let target = queue.pop_front()?;
+            let element = target.reference().0;
+            unsafe {
+                if read_cf_string_attr(element, attribute).as_deref() == Some(value) {
+                    return Some(target);
+                }
+                let Some(children) = ax_copy_attr(element, "AXChildren") else {
+                    continue;
+                };
+                if CFGetTypeID(children) != core_foundation::array::CFArrayGetTypeID() {
+                    ax_release(children);
+                    continue;
+                }
+                let children =
+                    CFArray::<AXUIElementRef>::wrap_under_create_rule(children as CFArrayRef);
+                for child in children
+                    .iter()
+                    .map(|child| *child)
+                    .filter(|child| !child.is_null())
+                {
+                    queue.push_back(RetainedCachedTarget(AxRef(CFRetain(child))));
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    #[ignore = "requires the disposable native file-panel fixture and Accessibility permission"]
+    fn native_file_panel_target_fixture() {
+        let state: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(std::env::var("OPENBITFUN_FILE_PANEL_STATE").unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+        let pid = state["pid"].as_i64().unwrap() as i32;
+        let window = state["window_id"].as_u64().unwrap() as u32;
+        let panel = state["panel_window_id"].as_u64().unwrap() as u32;
+        let sibling = state["sibling_window_id"].as_u64().unwrap() as u32;
+        let owner = "native-file-panel-fixture";
+        super::super::control_session::start(
+            owner,
+            openbitfun_agent_tools::computer_use_control::ControlMode::Background,
+        )
+        .unwrap();
+        let lease = super::super::control_session::acquire(owner, "app_click").unwrap();
+        let frame = super::super::macos_capture::capture_frame(pid, Some(window)).unwrap();
+        assert!(frame
+            .auxiliary
+            .iter()
+            .any(|overlay| overlay.window.window_id == panel as u64));
+        let app = RetainedCachedTarget(AxRef(unsafe { AXUIElementCreateApplication(pid) }));
+        let bound_root = unsafe {
+            super::super::macos_ax_ui::try_window_element_by_id(app.reference().0, window)
+        }
+        .expect("bound window must have an AX root");
+        let roots: Vec<_> = std::iter::once(bound_root)
+            .chain(unsafe { popup_ax_roots(app.reference().0, pid, window) })
+            .map(|root| RetainedCachedTarget(AxRef(root)))
+            .collect();
+        // Search is present in each file-list layout and served by the same proxy.
+        let search = find_target(&roots, "AXIdentifier", "Search")
+            .expect("fixture search field must be in the observed panel");
+        let proxy = unsafe { super::super::macos_ax_ui::ax_window_id(search.reference().0) };
+        assert_ne!(
+            proxy,
+            Some(panel),
+            "exercise a real file-panel proxy identity"
+        );
+        assert_eq!(element_window_id(search.reference()), Some(panel));
+        validate_bound_target(pid, search.reference()).unwrap();
+        assert!(window_belongs_to_capture(pid, window, panel));
+        assert!(!window_belongs_to_capture(pid, window, sibling));
+
+        let cancel = find_target(&roots, "AXIdentifier", "CancelButton")
+            .expect("native file panel cancel button");
+        let sibling_root = unsafe {
+            super::super::macos_ax_ui::try_window_element_by_id(app.reference().0, sibling)
+        }
+        .map(|root| RetainedCachedTarget(AxRef(root)))
+        .expect("unbound sibling window");
+        let foreign = find_target(&[sibling_root], "AXTitle", "Unbound semantic action")
+            .expect("unbound sibling button");
+        assert!(validate_bound_target(pid, foreign.reference()).is_err());
+        assert!(matches!(
+            super::super::macos_ax_write::try_ax_press(foreign.reference()),
+            super::super::macos_ax_write::AxWriteOutcome::Unavailable(_)
+        ));
+        assert!(
+            matches!(
+                super::super::macos_ax_write::try_ax_press(cancel.reference()),
+                super::super::macos_ax_write::AxWriteOutcome::Ok
+            ),
+            "semantic input must accept the same panel as observation"
+        );
+        for _ in 0..20 {
+            if !window_belongs_to_capture(pid, window, panel) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        assert!(
+            !window_belongs_to_capture(pid, window, panel),
+            "closed panel loses input scope"
+        );
+        assert!(validate_bound_target(pid, search.reference()).is_err());
+        let bound_target = roots[0].reference();
+        validate_bound_target(pid, bound_target)
+            .expect("closing the panel leaves the bound window active");
+        drop(lease);
+        super::super::control_session::stop(Some(owner), "fixture_done").unwrap();
+        assert!(
+            validate_bound_target(pid, bound_target).is_err(),
+            "Stop must still revoke retained targets"
+        );
+    }
 }
 
 const WEB_AREA_ANCESTOR_LIMIT: usize = 64;
@@ -276,7 +414,45 @@ unsafe fn has_web_area_ancestor(element: AXUIElementRef) -> bool {
 }
 
 pub(crate) fn element_window_id(target: AxRef) -> Option<u32> {
+    if target.0.is_null() {
+        return None;
+    }
     unsafe {
+        // Remote AppKit file-panel descendants report an off-screen proxy's
+        // window ID. Resolve their enclosing AXSheet/AXWindow first: its ID is
+        // the visible WindowServer surface. Never infer ownership from bounds
+        // or walk past the first native surface into another window.
+        let mut current = CFRetain(target.0) as AXUIElementRef;
+        for depth in 0..64 {
+            let role = read_cf_string_attr(current, "AXRole");
+            if matches!(role.as_deref(), Some("AXWindow" | "AXSheet" | "AXDrawer")) {
+                let id = super::macos_ax_ui::ax_window_id(current).filter(|id| *id != 0);
+                ax_release(current);
+                return id;
+            }
+            if role.as_deref() == Some("AXApplication") {
+                ax_release(current);
+                break;
+            }
+            if depth == 63 {
+                ax_release(current);
+                return None;
+            }
+            let parent = ax_copy_attr(current, "AXParent");
+            let same = parent.is_some_and(|p| CFEqual(p, current) != 0);
+            ax_release(current);
+            match parent {
+                Some(parent) if !same && CFGetTypeID(parent) == AXUIElementGetTypeID() => {
+                    current = parent as AXUIElementRef;
+                }
+                Some(parent) => {
+                    ax_release(parent);
+                    break;
+                }
+                None => break,
+            }
+        }
+        // Providers without a parent hierarchy retain the exact-ID path.
         super::macos_ax_ui::ax_window_id(target.0)
             .filter(|id| *id != 0)
             .or_else(|| {
@@ -359,7 +535,7 @@ pub(crate) fn retained_target_at_point(
             return Ok(None);
         }
         let owning_window = element_window_id(target.reference());
-        if owning_window != Some(window_id) {
+        if !owning_window.is_some_and(|actual| window_belongs_to_capture(pid, window_id, actual)) {
             return Ok(None);
         }
         let Some((left, top, width, height)) = target.frame_global() else {
@@ -407,7 +583,9 @@ pub(crate) fn focused_text_target_mismatch(pid: i32, x: f64, y: f64) -> OpenBitF
         if !target.is_text_input() {
             return Ok(false);
         }
-        if element_window_id(target.reference()).is_some_and(|window| window != bound) {
+        if element_window_id(target.reference())
+            .is_some_and(|window| !window_belongs_to_capture(pid, bound, window))
+        {
             return Ok(true);
         }
         if let Some((left, top, width, height)) = target.frame_global() {

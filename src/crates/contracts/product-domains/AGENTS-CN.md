@@ -47,3 +47,5 @@ cargo check -p openbitfun-core --features product-full
 ```
 
 仅改文档时运行 `git diff --check`。
+
+历史 GenUI 消息与组件回放的验收见 [FlowChat 历史查看器指南](../../../../src/web-ui/src/tools/generative-ui/AGENTS-CN.md)。

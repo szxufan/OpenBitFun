@@ -79,6 +79,7 @@ async function main() {
     miniappShell,
     resolution,
     releaseChannel,
+    appImageLibraryDir: requestsLinuxAppImage(forward) ? linuxTrayLibraryDir() : undefined,
   });
   const tauriBin = join(ROOT, 'node_modules', '.bin', 'tauri');
   const tauriArgs = [bundleOnly ? 'bundle' : 'build', '--config', tauriConfig, ...forward];
@@ -253,6 +254,26 @@ function requestsDmgBundle(args) {
   return bundles === undefined || bundles.split(',').some((bundle) => bundle.trim() === 'dmg');
 }
 
+export function requestsLinuxAppImage(args, platform = process.platform) {
+  const target = optionValue(args, '--target');
+  const bundles = optionValue(args, '--bundles') ?? optionValue(args, '-b');
+  return platform === 'linux' && (!target || target.includes('-linux-'))
+    && !args.includes('--no-bundle')
+    && (bundles === undefined || bundles.split(',').some((bundle) => bundle.trim() === 'appimage'));
+}
+
+function linuxTrayLibraryDir() {
+  const result = spawnSync('pkg-config', ['--variable=libdir', 'ayatana-appindicator3-0.1'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const directory = result.stdout?.trim();
+  if (result.status !== 0 || !directory || !isAbsolute(directory)) {
+    throw new Error('Could not locate the Ayatana AppIndicator development package required for the AppImage.');
+  }
+  return directory;
+}
+
 function optionValue(args, option) {
   const inlinePrefix = `${option}=`;
   for (let i = 0; i < args.length; i += 1) {
@@ -338,7 +359,7 @@ export function configureWindowsSigning(config, env = process.env, platform = pr
 
 export function prepareTauriConfig(
   baseConfigPath,
-  { desktopDir, flashgrepBinary, miniappShell, resolution, releaseChannel }
+  { desktopDir, flashgrepBinary, miniappShell, resolution, releaseChannel, appImageLibraryDir }
 ) {
   const config = JSON.parse(readFileSync(baseConfigPath, 'utf8'));
   if (resolution) {
@@ -365,6 +386,7 @@ export function prepareTauriConfig(
   injectDshProfileResource(config);
   injectExternalFrontendResource(config);
   injectLinuxOcrResources(config, desktopDir);
+  if (appImageLibraryDir) injectAppImageTrayLibraries(config, appImageLibraryDir);
 
   const release = releaseChannel
     ?? resolveReleaseChannel(process.env.OPENBITFUN_RELEASE_CHANNEL);
@@ -423,6 +445,21 @@ export function prepareTauriConfig(
   );
   writeFileSync(generatedConfig, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
   return generatedConfig;
+}
+
+function injectAppImageTrayLibraries(config, libraryDir) {
+  // The tray implementation uses dlopen, so linuxdeploy cannot discover this
+  // chain from the desktop executable. Keep it on the same GLib as the bundle.
+  const libraries = JSON.parse(readFileSync(new URL('./ci/linux-appimage-tray-libraries.json', import.meta.url), 'utf8'));
+  const files = (config.bundle.linux.appimage.files ??= {});
+  for (const soname of libraries) {
+    const source = join(libraryDir, soname);
+    if (!existsSync(source) || !statSync(source).isFile()) {
+      throw new Error(`Missing AppImage tray runtime library: ${source}`);
+    }
+    // Tauri copies the contents of the source symlink under the loader's SONAME.
+    files[`/usr/lib/${soname}`] = source;
+  }
 }
 
 const DSH_PROFILE_RESOURCE_SOURCE = '../../../packages/dsh-acp/dist-profile';

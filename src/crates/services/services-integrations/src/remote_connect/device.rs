@@ -241,6 +241,58 @@ fn load_persisted() -> Result<Option<DeviceIdentity>> {
         .map_err(|error| error.context(path.display().to_string()))
 }
 
+/// Device-scoped, shared by Desktop and the CLI daemon. An old installation
+/// has no opt-out marker. Reading a marker never rewrites the device identity.
+fn remote_control_marker() -> Result<PathBuf> {
+    Ok(identity_file_path()?.with_extension("remote-control-disabled"))
+}
+
+pub fn remote_control_allowed() -> Result<bool> {
+    Ok(!remote_control_marker()?
+        .try_exists()
+        .context("read device remote control setting")?)
+}
+
+pub fn require_remote_control() -> Result<()> {
+    anyhow::ensure!(
+        remote_control_allowed()?,
+        "Remote control is disabled on this device"
+    );
+    Ok(())
+}
+
+pub fn set_remote_control_allowed(allowed: bool) -> Result<()> {
+    let path = remote_control_marker()?;
+    if allowed {
+        match std::fs::remove_file(path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err).context("enable device remote control"),
+        }
+    } else {
+        crate::remote_persistence::write_private_bytes(&path, b"")?;
+    }
+    REMOTE_CONTROL_CHANGED.notify_waiters();
+    Ok(())
+}
+
+static REMOTE_CONTROL_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Local writes wake listeners immediately. Other hosts share the same file.
+pub async fn wait_for_remote_control_change(previous: bool) -> bool {
+    loop {
+        let notified = REMOTE_CONTROL_CHANGED.notified();
+        let allowed = remote_control_allowed().unwrap_or(false);
+        if allowed != previous {
+            return allowed;
+        }
+        tokio::select! {
+            _ = notified => {},
+            _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {},
+        }
+    }
+}
+
 fn save_persisted(identity: &DeviceIdentity) -> Result<()> {
     let path = identity_file_path()?;
     crate::remote_persistence::write_device_identity(&path, identity)
@@ -302,6 +354,25 @@ mod tests {
             .map(|d| d.as_nanos())
             .unwrap_or(0);
         format!("{nanos:x}")
+    }
+
+    #[test]
+    fn legacy_device_allows_remote_control_and_keeps_its_identity_across_toggles() {
+        with_temp_identity_path(|| {
+            let path = identity_file_path().unwrap();
+            let legacy = br#"{"device_id":"0123456789abcdef0123456789abcdef","device_name":"host","mac_address":"aa:bb:cc:dd:ee:ff"}"#;
+            std::fs::write(&path, legacy).unwrap();
+            assert!(require_remote_control().is_ok());
+            for _ in 0..2 {
+                set_remote_control_allowed(false).unwrap();
+                assert!(require_remote_control().is_err());
+            }
+            for _ in 0..2 {
+                set_remote_control_allowed(true).unwrap();
+                assert!(require_remote_control().is_ok());
+            }
+            assert_eq!(std::fs::read(path).unwrap(), legacy);
+        });
     }
 
     #[test]

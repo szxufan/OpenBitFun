@@ -137,7 +137,14 @@ Important notes:
             .get("path")
             .and_then(Value::as_str)
             .ok_or_else(|| OpenBitFunError::validation("path parameter is required".to_string()))?;
-        file_permission_intents("edit", [path], context)
+        let mut intents = file_permission_intents("edit", [path], context)?;
+        let resources = intents
+            .iter()
+            .find(|intent| intent.action == "edit")
+            .map(|intent| intent.resources.clone())
+            .unwrap_or_default();
+        intents.push(PermissionIntent::new("delete", resources));
+        Ok(intents)
     }
 
     async fn validate_input(

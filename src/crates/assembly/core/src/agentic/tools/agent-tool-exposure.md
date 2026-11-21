@@ -75,7 +75,6 @@ Notes:
 | `ReadMCPResource` | Deferred | None | - |
 | `ListMCPPrompts` | Deferred | None | - |
 | `GetMCPPrompt` | Deferred | None | - |
-| `GenerativeUI` | Direct | None | - |
 | `Worktree` | Deferred | None | - |
 | `ReviewPlatform` | Deferred | None | - |
 | `InitMiniApp` | Direct | None | - |

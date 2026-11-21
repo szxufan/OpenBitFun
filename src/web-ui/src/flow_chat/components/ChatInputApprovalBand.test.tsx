@@ -18,6 +18,7 @@ const TRANSLATIONS: Record<string, string> = {
   'permission.allowAlwaysCommand': 'Always allow this command',
   'permission.allowAlwaysCommandDescription': 'Applies only to this exact command, including its arguments, in the current project. Other commands are not authorized.',
   'permission.commandDescriptionLabel': 'Agent description: ',
+  'permission.allowAlwaysCommandContextDescription': 'Applies to this exact command with the same shell, working directory and terminal mode in the current project.',
   'permission.allowCurrentAndFollowing': 'Allow all',
   'permission.reject': 'Reject',
   'permission.rejectCurrentAndFollowing': 'Reject all',
@@ -133,6 +134,17 @@ describe('ChatInputApprovalBand', () => {
     const resource = band?.querySelector('code');
     expect(resource?.textContent).toBe(resources.join('\n'));
     expect(resource?.querySelector('[data-openbitfun-component="overflow-text"]')).toBeNull();
+  });
+
+  it.each(['process.execute', 'bash'])('does not show command analysis reasons for %s', async action => {
+    await act(async () => {
+      root.render(<ChatInputApprovalBand requests={[request({ action,
+        displayMetadata: { riskDescription: 'Unsupported shell analysis', risk: 'Needs review', commandAnalysisReason: 'Dynamic expansion' },
+      })]} onRespond={vi.fn(async () => undefined)} onRespondBatch={vi.fn(async () => undefined)} />);
+    });
+    expect(container.querySelector('[data-openbitfun-part="risk"]')).toBeNull();
+    expect(container.textContent).not.toContain('Unsupported shell analysis');
+    expect(container.textContent).not.toContain('Dynamic expansion');
   });
 
   it('keeps the risk on its own line so it cannot be answered unread', async () => {
@@ -404,6 +416,20 @@ describe('ChatInputApprovalBand', () => {
     await click('chat-input-approval-allow-always');
     expect(onRespond).toHaveBeenCalledWith('request-1', 'always', undefined, expect.any(Object));
     expect(onRespondBatch).not.toHaveBeenCalled();
+  });
+
+  it('describes a context-bound command grant without exposing its internal hash', async () => {
+    await act(async () => {
+      root.render(<ChatInputApprovalBand requests={[request({
+        action: 'process.execute', resources: ['git clone repo'],
+        saveResources: [`exec-plan:${'a'.repeat(64)}`],
+        displayMetadata: { shellPath: '/bin/zsh', workdir: '/repo' },
+      })]} onRespond={vi.fn(async () => undefined)} onRespondBatch={vi.fn(async () => undefined)} />);
+    });
+    expect(container.querySelector('[data-openbitfun-part="request"]')?.textContent).toBe('Run command');
+    expect(container.querySelector('[data-testid="chat-input-approval-allow-always"]')?.textContent).toBe('Always allow this command');
+    expect(container.querySelector('[data-openbitfun-part="grantScope"]')?.textContent).toContain('same shell, working directory and terminal mode');
+    expect(container.textContent).not.toContain('exec-plan:');
   });
 
   it.each([

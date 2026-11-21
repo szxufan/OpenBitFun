@@ -8,11 +8,13 @@ import {
 } from '@/infrastructure/peer-device/deviceSurface';
 
 export type PendingLargePasteMap = Record<string, string>;
+type ComposerPrefillSource = 'skin-design';
 
 export interface SessionComposerDraft {
   value: string;
   contexts: ContextItem[];
   pendingLargePastes: PendingLargePasteMap;
+  prefillSource?: ComposerPrefillSource;
   updatedAt: number;
 }
 
@@ -26,6 +28,7 @@ interface SessionComposerState {
     persistPreviousContexts?: boolean,
   ) => SessionComposerDraft;
   setValue: (sessionId: string, value: string, surfaceId?: DeviceSurfaceId) => void;
+  setPrefill: (sessionId: string, value: string, source: ComposerPrefillSource, surfaceId: DeviceSurfaceId) => void;
   setContexts: (sessionId: string, contexts: ContextItem[], surfaceId?: DeviceSurfaceId) => void;
   setPendingLargePastes: (sessionId: string, pendingLargePastes: PendingLargePasteMap, surfaceId?: DeviceSurfaceId) => void;
   clearDraft: (sessionId: string) => void;
@@ -35,6 +38,7 @@ interface SessionComposerState {
 
 const EMPTY_CONTEXTS: ContextItem[] = [];
 const EMPTY_PENDING_LARGE_PASTES: PendingLargePasteMap = {};
+const pendingSubmissions = new Map<string, number>();
 
 function createEmptyDraft(): SessionComposerDraft {
   return {
@@ -47,6 +51,21 @@ function createEmptyDraft(): SessionComposerDraft {
 
 function draftKey(sessionId: string, surfaceId = getActiveSurfaceId()): string {
   return surfaceScopedKey(surfaceId, sessionId);
+}
+
+export function isComposerSubmissionPending(sessionId: string, surfaceId: DeviceSurfaceId): boolean {
+  return pendingSubmissions.has(draftKey(sessionId, surfaceId));
+}
+
+/** Protect the cleared composer while a send prepares attachments and awaits admission. */
+export function beginComposerSubmission(sessionId: string, surfaceId: DeviceSurfaceId): () => void {
+  const key = draftKey(sessionId, surfaceId);
+  pendingSubmissions.set(key, (pendingSubmissions.get(key) ?? 0) + 1);
+  return () => {
+    const remaining = (pendingSubmissions.get(key) ?? 1) - 1;
+    if (remaining) pendingSubmissions.set(key, remaining);
+    else pendingSubmissions.delete(key);
+  };
 }
 
 function updateDraft(
@@ -94,6 +113,10 @@ export const useSessionComposerStore = create<SessionComposerState>((set, get) =
     set(state => updateDraft(state, sessionId, { value }, surfaceId));
   },
 
+  setPrefill: (sessionId, value, prefillSource, surfaceId) => {
+    set(state => updateDraft(state, sessionId, { value, prefillSource }, surfaceId));
+  },
+
   setContexts: (sessionId, contexts, surfaceId) => {
     set(state => updateDraft(state, sessionId, { contexts: [...contexts] }, surfaceId));
   },
@@ -114,6 +137,7 @@ export const useSessionComposerStore = create<SessionComposerState>((set, get) =
         value: '',
         contexts: [],
         pendingLargePastes: {},
+        prefillSource: undefined,
       });
     });
   },

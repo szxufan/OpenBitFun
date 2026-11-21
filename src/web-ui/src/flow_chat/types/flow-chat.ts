@@ -1,4 +1,4 @@
-import type { SessionLastTurn } from '@/shared/types/session-history';
+import type { PublishedFigures, SessionLastTurn } from '@/shared/types/session-history';
 /**
  * Flow Chat type definitions
  * Supports mixed streaming output.
@@ -283,6 +283,7 @@ export interface AcpContextUsage {
 
 // Dialog turn: user input + full AI response across model rounds.
 export interface DialogTurn {
+  publishedFigures?: PublishedFigures;
   id: string;
   sessionId: string; // Used for event filtering.
   kind?: DialogTurnKind;

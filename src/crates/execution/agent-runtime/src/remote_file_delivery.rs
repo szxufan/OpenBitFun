@@ -19,6 +19,8 @@ pub fn needs_computer_links_for_source(source: DialogTriggerSource) -> bool {
 pub fn remote_file_delivery_reminder() -> &'static str {
     r#"The user is messaging through a remote mobile or bot channel.
 
+This reader displays Markdown and downloadable workspace files. For a map, diagram, chart, or simulation, create a self-contained SVG or HTML file at a workspace-relative path and include its download link in your final answer, for example [Open map](computer://artifacts/map.svg). This reader cannot display FlowChat inline figures.
+
 When referencing a plan, report, presentation, spreadsheet, document, image, or archive, add `computer://` before the file path so the user can click to download it, for example [report.md](computer://artifacts/report.md)."#
 }
 

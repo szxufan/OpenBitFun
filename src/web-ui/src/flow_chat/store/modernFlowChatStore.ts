@@ -13,6 +13,7 @@ import { getTurnCompletionNotice } from '../utils/turnCompletionNotice';
 import { createAbsoluteSessionTurnIndexResolver } from '../utils/flowChatTurnOrdinal';
 import { getTurnOutputDurationMs, getTurnTtftMs } from '../utils/turnUsageMetrics';
 import { projectAdjacentFlowGroups, canStartFreshFlowGroupRunAt } from '../grouping/groupProjection';
+import { figurePreparation } from '../grouping/figurePreparation';
 import { hasModelRoundNarrative } from '../grouping/roundGroups';
 import { isSuppressedBackgroundTurn } from '../utils/backgroundDelivery';
 
@@ -565,6 +566,7 @@ function projectSessionItems(
     const turnOutputDurationMs = getTurnOutputDurationMs(turn.modelRounds);
     const turnTtftMs = getTurnTtftMs(turn.modelRounds);
     const flushRoundEntries = (rounds: ModelRound[]) => {
+      const preparation = figurePreparation(session.workspacePath);
       rounds.forEach((round, roundIndex) => {
         // Keep the same owner row when a tool or model round completes.
         const trailingItem = round.items.at(-1);
@@ -575,6 +577,7 @@ function projectSessionItems(
         items.push({
           type: 'model-round',
           data: round,
+          projectedGroups: preparation(round),
           turnId: turn.id,
           isLastRound: roundIndex === rounds.length - 1,
           isTurnComplete,

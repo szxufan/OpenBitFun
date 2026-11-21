@@ -24,6 +24,9 @@ impl SessionManager {
             Some(session) => session,
             None => persistence.load_session_header(storage, session_id).await?,
         };
+        if !self.should_persist_session_id(session_id) {
+            return self.read_in_memory_context_estimate_inputs(session);
+        }
         let boundary = persistence
             .load_session_revert_state(storage, session_id)
             .await?
@@ -110,6 +113,55 @@ impl SessionManager {
             turn_id,
             turn_metadata,
             turn_index,
+            cache_ttl: self.config.prompt_cache_policy.cache_ttl,
+        })
+    }
+
+    fn read_in_memory_context_estimate_inputs(
+        &self,
+        session: Session,
+    ) -> OpenBitFunResult<ContextEstimateInputs> {
+        let session_id = &session.session_id;
+        if !self.context_store.has_session(session_id) {
+            return Err(OpenBitFunError::service(
+                "Temporary session context is unavailable for context inspection",
+            ));
+        }
+        let turn = self
+            .transient_turns
+            .get(session_id)
+            .and_then(|history| history.turns.last().cloned());
+        if turn.is_none() && !session.dialog_turn_ids.is_empty() {
+            return Err(OpenBitFunError::service(
+                "Temporary session history is unavailable for context inspection",
+            ));
+        }
+        let messages = self.context_store.get_context_messages(session_id);
+        let prompt_cache = self
+            .prompt_cache_store
+            .get_cache(session_id)
+            .unwrap_or_default();
+        let listing_baseline = self
+            .skill_agent_baseline_override_snapshot_store
+            .get(session_id)
+            .map(|snapshot| snapshot.value().clone())
+            .or_else(|| {
+                self.turn_skill_agent_snapshot_store
+                    .get_snapshot(session_id, 0)
+            });
+        Ok(ContextEstimateInputs {
+            session,
+            messages,
+            prompt_cache,
+            listing_baseline,
+            turn_id: turn
+                .as_ref()
+                .map(|turn| turn.turn_id.clone())
+                .unwrap_or_default(),
+            turn_metadata: turn
+                .as_ref()
+                .and_then(|turn| turn.user_message.metadata.clone()),
+            turn_index: turn.as_ref().map(|turn| turn.turn_index).unwrap_or(0),
             cache_ttl: self.config.prompt_cache_policy.cache_ttl,
         })
     }

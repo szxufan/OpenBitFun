@@ -9,7 +9,6 @@ import { genUIProduct } from './genUIProduct';
 import { genUICatalog } from './genUIContract';
 import { oiComponents } from './components/oiComponents';
 import type { GenUIAppDefinition } from './genUITypes';
-import type { GenUIAsyncContext, GenUITargetEvent } from './genUIAsyncCapabilities';
 
 describe('OpenUI source adapter', () => {
   let container: HTMLDivElement;
@@ -34,218 +33,6 @@ describe('OpenUI source adapter', () => {
     expect(() => booleanProp.parse(2)).toThrow();
   });
 
-  it('forwards a generated action plan to the owning host', async () => {
-    const onAction = vi.fn();
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Col([label, button])\nlabel = Title("OpenUI")\nbutton = Button("Ping", @ToAssistant("Ping from OpenUI"))' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      onAction={onAction}
-    />));
-
-    expect(container.textContent).toContain('OpenUI');
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('button')?.click();
-      await Promise.resolve();
-    });
-    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'continue_conversation' }));
-  });
-
-  it('runs Open Intelligent UI CopyToClipboard actions and still reports them to the host', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
-    const onAction = vi.fn();
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Button("Copy", @CopyToClipboard("hello"))' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      onAction={onAction}
-    />));
-
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('button')?.click();
-      await Promise.resolve();
-    });
-    expect(writeText).toHaveBeenCalledWith('hello');
-    expect(onAction).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'CopyToClipboard',
-      params: { text: 'hello' },
-    }));
-  });
-
-  it('falls back to execCommand when the Clipboard API is unavailable', async () => {
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error('blocked')) } });
-    const execCommand = vi.fn().mockReturnValue(true);
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Button("Copy", @CopyToClipboard("fallback"))' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-    />));
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('button')?.click();
-      await Promise.resolve();
-    });
-    expect(execCommand).toHaveBeenCalledWith('copy');
-  });
-
-
-
-  it('runs only explicitly registered Query capabilities', async () => {
-    const provider = vi.fn(async () => ({ value: 'from owner' }));
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Col([label])\nresult = Query("read_value", {}, {value: "fallback"})\nlabel = Text(result.value)' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      toolProvider={{ read_value: provider }}
-    />));
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(provider).toHaveBeenCalledWith({}, expect.objectContaining({
-      capability: 'read_value',
-      operation: 'query',
-      signal: expect.any(AbortSignal),
-    }));
-    expect(container.textContent).toContain('from owner');
-  });
-
-  it('routes OpenUI Query through the owner async capability context', async () => {
-    let context: GenUIAsyncContext | undefined;
-    const asyncProvider = {
-      capabilities: { read_value: { kind: 'query' as const, permission: 'data.read', target: 'local' as const } },
-      call: vi.fn(async (_name: string, _args: Record<string, unknown>, next: GenUIAsyncContext) => {
-        context = next;
-        return { value: 'from async owner' };
-      }),
-    };
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Text(result.value)\nresult = Query("read_value", {}, {value: "fallback"})' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      asyncProvider={asyncProvider}
-      asyncPermissions={['data.read']}
-      appId="async-app"
-      sourceKey="async-source"
-    />));
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(asyncProvider.call).toHaveBeenCalledTimes(1);
-    expect(context).toMatchObject({ appId: 'async-app', sourceKey: 'async-source', capability: 'read_value', operation: 'query' });
-    expect(context?.signal.aborted).toBe(false);
-    expect(container.textContent).toContain('from async owner');
-  });
-
-  it('routes OpenUI Mutation through the owner async capability context', async () => {
-    let context: GenUIAsyncContext | undefined;
-    const asyncProvider = {
-      capabilities: { save_value: { kind: 'mutation' as const, permission: 'data.write', target: 'local' as const } },
-      call: vi.fn(async (_name: string, args: Record<string, unknown>, next: GenUIAsyncContext) => {
-        context = next;
-        return { saved: args.value };
-      }),
-    };
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Col([button, result])\n$value = "draft"\nresult = Mutation("save_value", {value: $value})\nbutton = Button("Save", @Run(result))' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      asyncProvider={asyncProvider}
-      asyncPermissions={['data.write']}
-      onError={vi.fn()}
-    />));
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('button')?.click();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    expect(asyncProvider.call).toHaveBeenCalledWith('save_value', { value: 'draft' }, context);
-    expect(context).toMatchObject({ capability: 'save_value', operation: 'mutation', permission: 'data.write' });
-  });
-
-  it('fills SearchImage and Map through registered providers and emits target events', async () => {
-    const events: GenUITargetEvent[] = [];
-    const asyncProvider = {
-      capabilities: {
-        'image.search': { kind: 'image-search' as const, target: 'local' as const },
-        'map.lookup': { kind: 'map-query' as const, target: 'local' as const },
-        'event.map.marker.select': { kind: 'event' as const, target: 'local' as const },
-      },
-      call: vi.fn(async (name: string) => name === 'image.search' ? ['https://example.com/photo.jpg'] : [[{ label: 'Home', lat: '31.2', lon: '121.5' }]]),
-    };
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Col([photo, map])\nphoto = SearchImage("a city")\nmap = Map([], false, null, null, "Shanghai")' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      asyncProvider={asyncProvider}
-      onTargetEvent={event => events.push(event)}
-    />));
-    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 650)); await Promise.resolve(); });
-    expect(container.querySelector<HTMLImageElement>('.gen-ui-oi-image img')?.src).toBe('https://example.com/photo.jpg');
-    expect(container.querySelector<SVGGElement>('[role="button"][aria-label="Home"]')).not.toBeNull();
-    await act(async () => { container.querySelector<SVGGElement>('[role="button"][aria-label="Home"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(events).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'map.marker.select', payload: expect.objectContaining({ label: 'Home' }) })]));
-  });
-
-  it('falls back from a failed explicit image URL to the host image provider', async () => {
-    const asyncProvider = {
-      capabilities: { 'image.search': { kind: 'image-search' as const, target: 'local' as const } },
-      call: vi.fn(async () => ['https://example.com/fallback.jpg']),
-    };
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Image("https://example.com/broken.jpg", "A city")' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      asyncProvider={asyncProvider}
-    />));
-    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 20)); });
-    const image = container.querySelector<HTMLImageElement>('.gen-ui-oi-image img');
-    expect(image?.src).toBe('https://example.com/broken.jpg');
-    act(() => { image?.dispatchEvent(new Event('error')); });
-    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 650)); });
-    expect(asyncProvider.call).toHaveBeenCalledWith('image.search', { query: 'A city' }, expect.anything());
-    expect(container.querySelector<HTMLImageElement>('.gen-ui-oi-image img')?.src).toBe('https://example.com/fallback.jpg');
-  });
-
-  it('lets a debounced image query resolve while the source is streaming', async () => {
-    const asyncProvider = {
-      capabilities: { 'image.search': { kind: 'image-search' as const, target: 'local' as const } },
-      call: vi.fn(async () => ({ images: ['https://example.com/streaming.jpg'] })),
-    };
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = SearchImage("A city")' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      isStreaming
-      asyncProvider={asyncProvider}
-    />));
-    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 650)); });
-    expect(asyncProvider.call).toHaveBeenCalledWith('image.search', { query: 'A city' }, expect.anything());
-    expect(container.querySelector<HTMLImageElement>('.gen-ui-oi-image img')?.src).toBe('https://example.com/streaming.jpg');
-  });
-
-  it('uses a registered map route provider while retaining the direct overview fallback', async () => {
-    const asyncProvider = {
-      capabilities: { 'map.route': { kind: 'map-query' as const, target: 'local' as const } },
-      call: vi.fn(async () => ({ points: [[31.2, 121.5], [31.25, 121.55], [31.3, 121.6]] })),
-    };
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Map([{label: "Home", lat: 31.2, lng: 121.5}, {label: "Work", lat: 31.3, lng: 121.6}], true)' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      isStreaming
-      asyncProvider={asyncProvider}
-    />));
-    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 800)); });
-    expect(asyncProvider.call).toHaveBeenCalledWith('map.route', { markers: expect.arrayContaining([expect.objectContaining({ label: 'Home' }), expect.objectContaining({ label: 'Work' })]) }, expect.anything());
-    expect(container.querySelector<SVGPolylineElement>('.gen-ui-oi-map-route')?.getAttribute('points')).toContain(',');
-  });
-
-  it('accepts a GeoJSON route feature from an OSRM adapter', async () => {
-    const asyncProvider = {
-      capabilities: { 'map.route': { kind: 'map-query' as const, target: 'local' as const } },
-      call: vi.fn(async () => ({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: [[121.5, 31.2], [121.55, 31.25], [121.6, 31.3]] },
-      })),
-    };
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Map([{label: "Home", lat: 31.2, lng: 121.5}, {label: "Work", lat: 31.3, lng: 121.6}], true)' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      isStreaming
-      asyncProvider={asyncProvider}
-    />));
-    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 800)); });
-    expect(asyncProvider.call).toHaveBeenCalledWith('map.route', expect.anything(), expect.anything());
-    expect(container.querySelector<SVGPolylineElement>('.gen-ui-oi-map-route')?.getAttribute('points')).toContain(',');
-  });
-
   it('uses the selected product library for OpenUI functions', async () => {
     await act(async () => root.render(<GenUIOpenUIDocument
       source={{ kind: 'openui-lang', content: 'root = Col([total, sine])\ntotal = Text(@Sum([2, 3]))\nsine = Text(@Round(@Sin(1.5707963267948966), 2))' }}
@@ -255,69 +42,10 @@ describe('OpenUI source adapter', () => {
     expect(container.textContent).toContain('1');
   });
 
-  it('binds reactive OpenUI values to owner state updates', async () => {
-    const onStateUpdate = vi.fn();
-    const onAction = vi.fn();
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Col([input, text])\ninput = Input($name, "Name", "text", @ToAssistant("Name changed"))\ntext = Text($name)' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      initialState={{ $name: 'Initial' }}
-      onStateUpdate={onStateUpdate}
-      onAction={onAction}
-    />));
-
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="Name"]');
-    expect(input?.value).toBe('Initial');
-    expect(container.textContent).toContain('Initial');
-
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Updated');
-      input?.dispatchEvent(new Event('input', { bubbles: true }));
-      await Promise.resolve();
-    });
-
-    expect(onStateUpdate).toHaveBeenCalledWith(expect.objectContaining({ $name: 'Updated' }));
-    expect(input?.value).toBe('Updated');
-    expect(container.textContent).toContain('Updated');
-  });
-
-  it('keeps completed controls interactive while the source is streaming', async () => {
-    const onStateUpdate = vi.fn();
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Col([input, text])\ninput = Input($name, "Name", "text")\ntext = Text($name)' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      initialState={{ name: 'Initial' }}
-      isStreaming
-      onStateUpdate={onStateUpdate}
-    />));
-
-    const input = container.querySelector<HTMLInputElement>('input[aria-label="Name"]');
-    expect(input?.disabled).not.toBe(true);
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Updated');
-      input?.dispatchEvent(new Event('input', { bubbles: true }));
-      await Promise.resolve();
-    });
-    expect(onStateUpdate).toHaveBeenCalledWith(expect.objectContaining({ name: 'Updated' }));
-  });
-
-  it('matches OpenUI action control semantics while streaming', async () => {
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = Col([button, input])\nbutton = Button("Continue")\ninput = Input($name, "Name", "text")' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      initialState={{ name: 'Initial' }}
-      isStreaming
-    />));
-
-    expect(container.querySelector<HTMLButtonElement>('[data-openbitfun-component="button"]')?.disabled).toBe(true);
-    expect(container.querySelector<HTMLInputElement>('input[aria-label="Name"]')?.disabled).toBe(false);
-  });
-
   it('keeps read-only completed documents out of streaming mode', async () => {
     await act(async () => root.render(<GenUIOpenUIDocument
       source={{ kind: 'openui-lang', content: 'root = Col([button, html])\nbutton = Button("Continue")\nhtml = HtmlView("<p>Ready</p>")' }}
       library={genUIProduct.libraries['openbitfun.composable.v1']}
-      readOnly
     />));
 
     expect(container.querySelector<HTMLButtonElement>('[data-openbitfun-component="button"]')?.disabled).toBe(true);
@@ -346,20 +74,29 @@ describe('OpenUI source adapter', () => {
     expect(container.querySelector('.gen-ui-oi-html-slot')).not.toBeNull();
   });
 
-  it('runs an opted-in HtmlView inline script after the source completes', async () => {
+  it.each(['openui.v1', 'openbitfun.composable.v1'])('preserves the saved video without starting its player in %s', async libraryId => {
     await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = HtmlView("<canvas id=\\"pendulum\\"></canvas><script>requestAnimationFrame(() => {})</script>", 360, "Pendulum")' }}
-      library={genUIProduct.libraries['openbitfun.composable.v1']}
-      htmlScriptEnabled
+      source={{ kind: 'openui-lang', content: 'root = YouTube("abcdefghijk", "Recorded video")' }}
+      library={genUIProduct.libraries[libraryId]}
     />));
-    const frame = container.querySelector<HTMLIFrameElement>('.gen-ui-oi-html');
-    expect(frame).not.toBeNull();
-    expect(frame?.getAttribute('srcdoc') ?? frame?.srcdoc).toContain('requestAnimationFrame');
-    expect(frame?.getAttribute('srcdoc') ?? frame?.srcdoc).toMatch(/script-src 'nonce-[0-9a-f]+'/);
+    expect(container.querySelector('a')?.href).toBe('https://www.youtube.com/watch?v=abcdefghijk');
+    expect(container.textContent).toContain('Recorded video');
+    expect(container.querySelector('iframe')).toBeNull();
   });
 
-  it('keeps the application interactive during streaming without persisting transient state', async () => {
-    const onStateChange = vi.fn();
+  it.each(['openui.v1', 'openbitfun.composable.v1'])('replays nested HTML as static content in %s', async libraryId => {
+    await act(async () => root.render(<GenUIOpenUIDocument
+      source={{ kind: 'openui-lang', content: 'root = HtmlView("<p>Recorded diagram</p><script>window.archived = true</script>", 360, "Diagram")' }}
+      library={genUIProduct.libraries[libraryId]}
+    />));
+    const frame = container.querySelector('iframe');
+    expect(frame?.getAttribute('sandbox')).toBe('');
+    expect(frame?.srcdoc).toContain('Recorded diagram');
+    expect(frame?.srcdoc).toContain("script-src 'none'");
+    expect(frame?.srcdoc).not.toContain('window.archived');
+  });
+
+  it('replays a streamed input with its saved value and editing disabled', async () => {
     const definition: GenUIAppDefinition = {
       schemaVersion: 2,
       id: 'streaming-app',
@@ -379,18 +116,11 @@ describe('OpenUI source adapter', () => {
       definition={definition}
       streaming
       initialState={{ name: 'Initial' }}
-      persistState={false}
-      onStateChange={onStateChange}
     />));
 
     const input = container.querySelector<HTMLInputElement>('input[aria-label="Name"]');
-    expect(input?.disabled).toBe(false);
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Updated');
-      input?.dispatchEvent(new Event('input', { bubbles: true }));
-      await Promise.resolve();
-    });
-    expect(onStateChange).not.toHaveBeenCalled();
+    expect(input?.disabled).toBe(true);
+    expect(input?.value).toBe('Initial');
   });
 
   it('renders SegmentedControl with owner state defaults', async () => {
@@ -422,21 +152,6 @@ describe('OpenUI source adapter', () => {
     expect(container.querySelector('.iui-col')).not.toBeNull();
     expect(container.querySelector('.iui-title')?.textContent).toBe('Open Intelligent UI');
     expect(container.querySelector('.gen-ui-oi-col')).toBeNull();
-  });
-
-  it('routes vendored Open Intelligent UI SearchImage through the host provider', async () => {
-    const asyncProvider = {
-      capabilities: { 'image.search': { kind: 'image-search' as const, target: 'local' as const } },
-      call: vi.fn(async () => ({ images: ['https://example.com/shanghai.jpg'] })),
-    };
-    await act(async () => root.render(<GenUIOpenUIDocument
-      source={{ kind: 'openui-lang', content: 'root = SearchImage("Shanghai Bund")' }}
-      library={genUIProduct.libraries['openui.v1']}
-      asyncProvider={asyncProvider}
-    />));
-    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 650)); });
-    expect(asyncProvider.call).toHaveBeenCalledWith('image.search', { query: 'Shanghai Bund' }, expect.anything());
-    expect(container.querySelector<HTMLImageElement>('.iui-image img')?.src).toBe('https://example.com/shanghai.jpg');
   });
 
   it('mounts OpenBitFun controls through @openbitfun/ui while keeping GenUI visuals local', async () => {

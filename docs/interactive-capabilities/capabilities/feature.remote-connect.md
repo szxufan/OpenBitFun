@@ -26,6 +26,10 @@ Follow sessions, approve permissions, and keep working from Mobile Web or a WeCh
 
 ## 完整功能清单 / Everything included
 
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 本机可被控制
+  - Allow control of this device
+  - 说明：在设备与连接的概览中切换。关闭后，本机显示为离线，仍可控制其他在线设备。
+  - Why & how: Switch this in the Devices & Connections overview. When off, this device appears offline and can still control other online devices.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 使用免部署官方 Relay 或桌面端局域网 Relay（可同时开启）
   - Use the zero-setup official Relay or Desktop LAN Relay concurrently
   - 说明：外网出门走官方加密中继即开即用，内网高速互连可同时打开桌面端局域网 Relay；首次身份认证均需联网登录。

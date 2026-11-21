@@ -1,0 +1,50 @@
+/* The drawing and host controls share a palette even in an opaque HTML frame. */
+@layer visualize-base {
+  :root {
+    --background: var(--openbitfun-color-surface-canvas);
+    --foreground: var(--openbitfun-color-content-primary);
+    --card: var(--openbitfun-color-surface-canvas);
+    --card-foreground: var(--foreground);
+    --muted: var(--openbitfun-color-surface-subtle);
+    --muted-foreground: var(--openbitfun-color-content-secondary);
+    --border: var(--openbitfun-color-border-default);
+    --blue: var(--openbitfun-color-status-info-content);
+    --viz-series-1: var(--blue);
+    --primary: var(--openbitfun-color-accent-default);
+    --primary-foreground: var(--openbitfun-color-action-primary-content);
+  }
+
+  body {
+    display: flow-root;
+    color: var(--foreground);
+    font-family: var(--openbitfun-type-flow-body-font-family);
+    font-size: var(--openbitfun-type-flow-body-font-size);
+    line-height: var(--openbitfun-type-flow-body-line-height);
+  }
+  :where(figure, h1, h2, h3, p) { margin: 0; }
+  h1 { font-size: var(--openbitfun-type-heading-panel-font-size); line-height: var(--openbitfun-type-heading-panel-line-height); }
+  h2 { font-size: var(--openbitfun-type-heading-dialog-font-size); line-height: var(--openbitfun-type-heading-dialog-line-height); }
+  h3 { font-size: var(--openbitfun-type-heading-section-font-size); line-height: var(--openbitfun-type-heading-section-line-height); }
+  :where(h1, h2, h3) { font-weight: var(--openbitfun-type-heading-section-font-weight); }
+  :where(a) { color: var(--accent-foreground); }
+  :where(.card) { background: var(--card); color: var(--card-foreground); }
+  :where(.popover, .tooltip) { background: var(--popover); color: var(--popover-foreground); }
+  :where(.form-control, .form-select) {
+    background-color: var(--card);
+    border: 1px solid var(--input);
+    color: var(--card-foreground);
+  }
+  :where(input, progress) { accent-color: var(--viz-series-1); }
+  :where(button, a, input, select, textarea):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+  :where(input, textarea)::placeholder { color: var(--muted-foreground); }
+  .text-muted { color: var(--muted-foreground); }
+  .text-small { font-size: var(--openbitfun-type-body-sm-font-size); }
+  :where(button, select, input) { font: inherit; }
+  :where(.nav-pills, .viz-controls) { display: flex; flex-wrap: wrap; gap: .45em; }
+  :where(.btn, .nav-link) {
+    border-radius: .65em; padding: .27em .65em; background: transparent;
+    color: var(--foreground); border: 1px solid var(--border); cursor: pointer;
+  }
+  .nav-link { border-color: transparent; color: var(--muted-foreground); }
+  .nav-link.active, .nav-link[aria-selected='true'] { color: var(--foreground); background: var(--muted); }
+}

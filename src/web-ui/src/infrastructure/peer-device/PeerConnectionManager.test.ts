@@ -496,6 +496,16 @@ describe('PeerConnectionManager host readiness and attachment status', () => {
     expect(manager.get('peer-1')?.getState().health).toBe('ready');
   });
 
+  it('restores a controller-only attachment after a legacy host publishes its roster', async () => {
+    const rpc = pingRpc(() => ({ host_type: 'cli', capabilities: {} }));
+    const manager = createManager(rpc.deviceRpc);
+    await manager.connect('peer-1', 'Studio');
+    manager.reportPresence(['peer-1'], true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rpc.commands.filter(call => call.command === 'peer_control_attach')).toHaveLength(2);
+    expect(manager.list()[0].health).toBe('ready');
+  });
+
   it('ignores caller_attached from a host that does not advertise the capability', async () => {
     const rpc = pingRpc(() => ({ host_type: 'cli', capabilities: {}, caller_attached: false }));
     const manager = createManager(rpc.deviceRpc);
@@ -1106,7 +1116,10 @@ describe('PeerConnectionManager recovery races', () => {
     expect(connection.getState().health).toBe('ready');
   });
 
-  it('re-attaches when presence drops during an already running keepalive', async () => {
+  it.each([
+    { name: 'the peer drops offline', online: [] as string[], controllerOnly: false },
+    { name: 'a legacy peer refreshes a controller-only roster', online: ['peer-1'], controllerOnly: true },
+  ])('re-attaches when $name during an already running keepalive', async ({ online, controllerOnly }) => {
     const rpc = createRpc();
     const ping = deferred<string>();
     let pingCount = 0;
@@ -1116,7 +1129,7 @@ describe('PeerConnectionManager recovery races', () => {
     }));
     const connection = await manager.connect('peer-1', 'Studio');
     await vi.advanceTimersByTimeAsync(KEEPALIVE_MS);
-    manager.reportPresence([]);
+    manager.reportPresence(online, controllerOnly);
     ping.resolve(JSON.stringify({ resp: 'host_invoke_result', ok: true, value: { host_type: 'desktop', capabilities: {} } }));
     await vi.advanceTimersByTimeAsync(0);
     expect(connection.getState().health).toBe('ready');

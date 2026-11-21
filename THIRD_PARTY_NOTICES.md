@@ -4,6 +4,18 @@ OpenBitFun redistributes selected material and links libraries from the followin
 third-party projects. These notices are included with OpenBitFun's Desktop and CLI
 release packages.
 
+## Apache ECharts and zrender
+
+OpenBitFun uses Apache ECharts 6.0.0 and zrender 6.0.0 for inline charts.
+ECharts is distributed under the Apache License 2.0 and includes portions of
+d3.js under the BSD 3-Clause license. zrender uses the BSD 3-Clause license.
+The frontend includes the upstream notices and license texts in
+`third-party/visualize-NOTICES.txt`.
+
+## D3 geographic projections
+
+The offline map renderer includes d3-geo 3.1.0 and 3.1.1, and d3-array 3.2.4. Their copyright and license notices are included in `third-party/visualize-NOTICES.txt`.
+
 ## HarmonyOS Sans Fonts
 
 - Project: HarmonyOS Sans Fonts
@@ -337,3 +349,5 @@ The complete upstream Apache-2.0 license follows:
    See the License for the specific language governing permissions and
    limitations under the License.
 ```
+
+The FlowChat figure guest also bundles D3, TopoJSON Client, US Atlas, Lucide and Floating UI. Their notices accompany the built frontend in `third-party/visualize-NOTICES.txt`. The release source includes Natural Earth regional map layers and records their upstream and distributed SHA-256 hashes in `scripts/visualize-regional-atlas.json`.

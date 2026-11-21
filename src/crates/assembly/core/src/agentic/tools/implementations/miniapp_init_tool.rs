@@ -160,8 +160,8 @@ Returns app_id and the app root directory. Use the root directory and file names
             .unwrap_or("unnamed")
             .trim();
         Ok(vec![PermissionIntent::new(
-            "custom_tool",
-            vec![format!("miniapp:InitMiniApp:{name}")],
+            "miniapp.create",
+            vec![format!("app:{name}")],
         )])
     }
 
@@ -298,10 +298,7 @@ mod tests {
             .expect("permission intent");
 
         assert_eq!(intents.len(), 1);
-        assert_eq!(intents[0].action, "custom_tool");
-        assert_eq!(
-            intents[0].resources,
-            ["miniapp:InitMiniApp:Release Notes".to_string()]
-        );
+        assert_eq!(intents[0].action, "miniapp.create");
+        assert_eq!(intents[0].resources, ["app:Release Notes".to_string()]);
     }
 }

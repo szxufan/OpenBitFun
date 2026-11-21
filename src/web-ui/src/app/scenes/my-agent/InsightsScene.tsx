@@ -385,6 +385,9 @@ const ReportMetaCard: React.FC<{
         </span>
       </div>
       <div className="insights-meta-card__details">
+        {(meta.analyzed_sessions < meta.total_sessions || (meta.failed_sections ?? 0) > 0) && (
+          <span>{t('insights.partialReport')}</span>
+        )}
         <span>
           <Icon name="clock" size="2xs" /> {meta.total_hours.toFixed(1)} {t('insights.hours')}
         </span>
@@ -527,7 +530,7 @@ const ReportNav: React.FC<{ report: InsightsReport; scrollContainerRef: React.Re
 };
 
 const ReportView: React.FC<{ report: InsightsReport; onBack: () => void }> = ({ report, onBack }) => {
-  const { t } = useI18n('common');
+  const { t, formatNumber } = useI18n('common');
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const handleOpenHtml = useCallback(async () => {
@@ -583,6 +586,15 @@ const ReportView: React.FC<{ report: InsightsReport; onBack: () => void }> = ({ 
               <h1 className="insights-report-hero__title">
                 {t('insights.reportTitle', { dateStart, dateEnd })}
               </h1>
+              {(report.analyzed_sessions < report.total_sessions || (report.failed_sections ?? 0) > 0) && (
+                <p role="status">
+                  {t('insights.partialReportCoverage', {
+                    analyzed: formatNumber(report.analyzed_sessions),
+                    total: formatNumber(report.total_sessions),
+                    failed: formatNumber(report.failed_sections ?? 0),
+                  })}
+                </p>
+              )}
             </header>
             <div data-section="overview">
               <AtAGlanceSection report={report} />

@@ -189,7 +189,7 @@ pub struct BotChatState {
     /// A chat's in-memory controller identity. Clones for submitted turns
     /// share its connection and per-peer encoding offers.
     #[serde(skip)]
-    pub delegated_account: Option<AccountSession>,
+    pub delegated_account: Option<super::delegation::Delegation>,
     /// When Some, the bot operates on a remote device via HTTP RPC instead
     /// of the local desktop. Set by `/devices` → pick a device.
     /// Cleared by `/devices` → pick "local" or selecting an offline device.
@@ -220,7 +220,7 @@ pub struct RemoteBotTarget {
     pub device_id: String,
     pub device_name: String,
     pub session_id: String,
-    pub account: crate::remote_connect::account::AccountSession,
+    pub account: super::delegation::Delegation,
 }
 
 impl BotChatState {
@@ -305,7 +305,7 @@ impl BotChatState {
     /// The master key is kept in memory only; callers must never persist it.
     pub fn set_delegated_identity(&mut self, token: String, master_key: Vec<u8>) {
         self.delegated_account = match <[u8; MASTER_KEY_LEN]>::try_from(master_key) {
-            Ok(key) => Some(AccountSession::new(token, String::new(), key)),
+            Ok(key) => Some(AccountSession::new(token, String::new(), key).into()),
             Err(key) => {
                 log::warn!("Invalid delegated device key length: {}", key.len());
                 None

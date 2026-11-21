@@ -1,6 +1,6 @@
 import catalog from '../../../../shared/generative-ui/catalog.json';
 import type { GenUIAppDefinition } from './genUITypes';
-export const genUICatalog = catalog as unknown as GenUICatalogContract & { $defs: Record<string, JsonSchema>; generation: JsonSchema };
+export const genUICatalog = catalog as unknown as GenUICatalogContract & { $defs: Record<string, JsonSchema> };
 export type JsonSchema = {
   [key: string]: unknown;
 };
@@ -121,12 +121,6 @@ export interface GenUILibraryContract {
   examples: string[];
 }
 export interface GenUICatalogContract {
-  generation?: JsonSchema;
-  /** Generated from the same product declarations as the OpenUI adapter. */
-  openuiLangReference?: string;
-  openuiPrompts?: Record<string, string>;
-  /** Official lang-core prompts selected by the active GenUI profile. */
-  genuiSystemPrompts?: Record<string, string>;
   libraries: Record<string, GenUILibraryContract>;
   libraryAdapters?: Record<string, {
     id: string;

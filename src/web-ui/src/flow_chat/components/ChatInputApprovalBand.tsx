@@ -71,6 +71,7 @@ const PERMISSION_ACTION_LABEL_KEYS: Record<string, string> = {
   read: 'permission.actions.read',
   edit: 'permission.actions.edit',
   bash: 'permission.actions.bash',
+  'process.execute': 'permission.actions.bash',
   git: 'permission.actions.git',
   computer_use: 'permission.actions.computerUse',
   websearch: 'permission.actions.webSearch',
@@ -110,7 +111,7 @@ function permissionRisk(
   request: PermissionRequest | undefined,
   t: (key: string, values?: Record<string, string>) => string,
 ): string | undefined {
-  if (!request) return undefined;
+  if (!request || request.action === 'process.execute' || request.action === 'bash') return undefined;
   const metadata = request.displayMetadata;
   const operation = metadataString(metadata, 'pageOperation');
   const slug = metadataString(metadata, 'pageSlug');
@@ -184,14 +185,21 @@ export const ChatInputApprovalBand: React.FC<ChatInputApprovalBandProps> = ({
     ? t('permission.subagentOwner', { subagent: request.delegation.subagentType })
     : showSourceIdentity ? request.source.identity : undefined;
   const saveResources = request.saveResources ?? [];
-  const isExactCommandGrant = request.action === 'bash'
+  const isContextCommandGrant = request.action === 'process.execute'
     && request.resources.length === 1
     && saveResources.length === 1
-    && saveResources[0] === request.resources[0];
+    && /^exec-plan:[a-f0-9]{64}$/.test(saveResources[0]);
+  const isExactCommandGrant = isContextCommandGrant || (request.action === 'bash'
+    && request.resources.length === 1
+    && saveResources.length === 1
+    && saveResources[0] === request.resources[0]);
   const alwaysAllowLabel = isExactCommandGrant
     ? t('permission.allowAlwaysCommand')
     : t('permission.allowAlways');
-  const savedResourceSummary = saveResources.join('\n');
+  const savedResourceSummary = isContextCommandGrant
+    ? [resourceSummary, metadataString(request.displayMetadata, 'shellPath'), metadataString(request.displayMetadata, 'workdir')]
+      .filter(Boolean).join('\n')
+    : saveResources.join('\n');
   const alwaysAllowTooltip = saveResources.length
     ? request.projectPath?.trim()
       ? t('permission.allowAlwaysTooltip', {
@@ -360,7 +368,9 @@ export const ChatInputApprovalBand: React.FC<ChatInputApprovalBandProps> = ({
             data-openbitfun-part="grantScope"
             className="openbitfun-chat-input-approval__grant-note"
           >
-            {t('permission.allowAlwaysCommandDescription')}
+            {t(isContextCommandGrant
+              ? 'permission.allowAlwaysCommandContextDescription'
+              : 'permission.allowAlwaysCommandDescription')}
           </p>
         ) : null}
 

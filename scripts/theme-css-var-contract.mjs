@@ -346,11 +346,6 @@ export const DYNAMIC_VAR_FAMILY_CONTRACTS = [
     owner: 'src/web-ui/src/infrastructure/font-preference/core/FontPreferenceService.ts',
     reason: 'Font preference runtime overrides the canonical design-system font-size primitives so every semantic role follows one global scale.',
   },
-  {
-    prefix: '--mobile-',
-    owner: 'src/apps/mobile/design-system/preview/preview.js; src/apps/mobile/design-system/preview/preview.css',
-    reason: 'The native comparison preview projects the validated mobile token contract into a scoped device canvas without exposing those values as canonical web theme tokens.',
-  },
 ];
 
 export const REGISTERED_DYNAMIC_VAR_PREFIXES = new Set(

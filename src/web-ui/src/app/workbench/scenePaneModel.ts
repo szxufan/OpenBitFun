@@ -10,6 +10,13 @@ export const otherPane = (pane: WorkbenchPane): WorkbenchPane => pane === 'prima
 export const sceneSelection = (tabId: SceneTabId): PaneSelection => ({ kind: 'scene', tabId });
 export const selectedScene = (selection: PaneSelection): SceneTabId | null => selection.kind === 'scene' ? selection.tabId : null;
 
+/** Settings fills its pane when the only other selection is the session canvas. */
+export function standaloneSettingsPane(selections: PaneSelections, hasSession: boolean): WorkbenchPane | null {
+  if (!hasSession) return null;
+  return workbenchPanes.find(pane => selectedScene(selections[pane]) === 'settings'
+    && selections[otherPane(pane)].kind === 'canvas') ?? null;
+}
+
 export interface ScenePaneState {
   openTabs: SceneTab[];
   paneSelections: PaneSelections;

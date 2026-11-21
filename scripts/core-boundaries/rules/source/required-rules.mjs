@@ -3280,13 +3280,25 @@ export const requiredContentRules = [
         regex: /\bpub async fn start_dialog_turn_with_existing_context\b/,
         message: 'missing existing-context dialog turn entry point',
       },
-      {
-        regex: /\bstart_dialog_turn_with_existing_context_persists_turn_and_snapshot\b/,
-        message: 'missing existing-context dialog turn persistence regression',
-      },
+    ],
+  },
+  {
+    path: 'src/crates/assembly/core/src/agentic/session/session_manager/tests/prompt_cache.rs',
+    reason: 'core prompt cache tests must cover cloning both runtime and persisted entries',
+    patterns: [
       {
         regex: /\bclone_prompt_cache_copies_runtime_and_persisted_entries\b/,
         message: 'missing prompt cache clone runtime/disk regression',
+      },
+    ],
+  },
+  {
+    path: 'src/crates/assembly/core/src/agentic/session/session_manager/tests/turn_admission.rs',
+    reason: 'core session turn admission must cover persistence with existing context',
+    patterns: [
+      {
+        regex: /\bstart_dialog_turn_with_existing_context_persists_turn_and_snapshot\b/,
+        message: 'missing existing-context dialog turn persistence regression',
       },
     ],
   },
@@ -4508,6 +4520,12 @@ export const requiredContentRules = [
         regex: /\bSftpSession\b/,
         message: 'missing SFTP session owner path',
       },
+    ],
+  },
+  {
+    path: 'src/crates/services/services-integrations/src/remote_ssh/manager/tests/saved_profiles.rs',
+    reason: 'SSH saved profile tests must cover missing vault credentials',
+    patterns: [
       {
         regex: /\bretains_password_connection_and_workspace_without_vault_entry\b/,
         message: 'missing saved credential retention regression',

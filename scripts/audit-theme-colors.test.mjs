@@ -23,7 +23,6 @@ const SOURCE_OWNER_ROOTS = [
   'OpenBitFun-Installer/src',
   'design-system/packages/design-tokens/src',
   'design-system/packages/theme-openbitfun/src',
-  'src/apps/mobile/design-system/preview',
   'src/mobile-web/src',
   'src/web-ui',
 ];

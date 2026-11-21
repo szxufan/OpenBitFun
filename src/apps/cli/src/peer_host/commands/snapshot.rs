@@ -6,7 +6,8 @@ use serde_json::{json, Value};
 
 use openbitfun_core::service::workspace::{WorkspaceInfo, WorkspaceKind};
 use openbitfun_runtime_ports::{
-    AgentSessionRollbackToTurnRequest, LocalWorkspaceSnapshotPort,
+    AgentSessionRollbackToTurnRequest, LocalWorkspaceSnapshotFileDiffStats,
+    LocalWorkspaceSnapshotFileRequest, LocalWorkspaceSnapshotPort,
     LocalWorkspaceSnapshotSessionRequest, LocalWorkspaceSnapshotStats, PortError, PortErrorKind,
 };
 
@@ -136,6 +137,65 @@ pub(crate) async fn get_session_files(
         .collect::<Vec<_>>()))
 }
 
+/// Desktop's `SessionFileDiffStats` wire shape, read by the file badges.
+fn file_diff_stats_to_json(stats: LocalWorkspaceSnapshotFileDiffStats) -> Value {
+    json!({
+        "filePath": stats.file_path,
+        "linesAdded": stats.lines_added,
+        "linesRemoved": stats.lines_removed,
+        "approximate": stats.approximate,
+        "changeKind": stats.change_kind,
+    })
+}
+
+pub(super) async fn local_snapshot_file_diff_stats(
+    port: &dyn LocalWorkspaceSnapshotPort,
+    request: LocalWorkspaceSnapshotFileRequest,
+) -> Result<Value, String> {
+    port.get_session_file_diff_stats(request)
+        .await
+        .map(file_diff_stats_to_json)
+        .map_err(|error| {
+            format!(
+                "Failed to get session file diff stats: {}",
+                snapshot_compatibility_error(error)
+            )
+        })
+}
+
+/// Line-level change of one session file, like Desktop
+/// `get_session_file_diff_stats`. A controller renders it as the file badges
+/// and toolbars of the session's changed files.
+pub(crate) async fn get_session_file_diff_stats(
+    state: &PeerHostState,
+    args: &Value,
+) -> Result<Value, String> {
+    let request = request_value(args);
+    let session_id = get_string(request, "sessionId")?;
+    let file_path = get_string(request, "filePath")?;
+    let workspace = resolve_snapshot_workspace(state, request).await?;
+
+    openbitfun_agent_runtime::session_control::validate_session_id(&session_id)?;
+    require_local_snapshot_workspace(&workspace)?;
+    let scope = ensure_session_workspace_runtime_ownership(state, request).await?;
+    let storage_path = resolved_session_storage_scope(state, scope).await?;
+    let read = state
+        .compatibility
+        .begin_persisted_session_read(&storage_path, &session_id)
+        .await
+        .map_err(|error| format!("Failed to open a consistent snapshot view: {error}"))?;
+    local_snapshot_file_diff_stats(
+        state.local_workspace_snapshot.as_ref(),
+        LocalWorkspaceSnapshotFileRequest {
+            workspace_id: workspace.id,
+            session_id,
+            file_path,
+            max_turn_exclusive: read.visible_turn_end(),
+        },
+    )
+    .await
+}
+
 pub(crate) async fn rollback_session_to_turn(
     state: &PeerHostState,
     args: &Value,
@@ -188,6 +248,7 @@ mod tests {
     use std::sync::Mutex;
 
     use openbitfun_runtime_ports::{
+        LocalWorkspaceSnapshotFileDiffStats, LocalWorkspaceSnapshotFileRequest,
         LocalWorkspaceSnapshotPort, LocalWorkspaceSnapshotSessionRequest,
         LocalWorkspaceSnapshotStats, LocalWorkspaceSnapshotTurnRequest, PortError, PortErrorKind,
         PortResult,
@@ -195,7 +256,7 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        local_snapshot_session_files, local_snapshot_session_stats,
+        local_snapshot_file_diff_stats, local_snapshot_session_files, local_snapshot_session_stats,
         require_complete_rollback_workspace, require_local_snapshot_workspace,
         snapshot_compatibility_error,
     };
@@ -206,6 +267,7 @@ mod tests {
         stats_calls: AtomicUsize,
         file_request: Mutex<Option<LocalWorkspaceSnapshotSessionRequest>>,
         stats_request: Mutex<Option<LocalWorkspaceSnapshotSessionRequest>>,
+        diff_request: Mutex<Option<LocalWorkspaceSnapshotFileRequest>>,
     }
 
     #[async_trait::async_trait]
@@ -238,12 +300,56 @@ mod tests {
             })
         }
 
+        async fn get_session_file_diff_stats(
+            &self,
+            request: LocalWorkspaceSnapshotFileRequest,
+        ) -> PortResult<LocalWorkspaceSnapshotFileDiffStats> {
+            let file_path = request.file_path.clone();
+            *self.diff_request.lock().expect("diff request lock") = Some(request);
+            Ok(LocalWorkspaceSnapshotFileDiffStats {
+                file_path,
+                lines_added: 4,
+                lines_removed: 1,
+                approximate: false,
+                change_kind: "modify".to_string(),
+            })
+        }
+
         async fn rollback_workspace_files_to_turn(
             &self,
             _request: LocalWorkspaceSnapshotTurnRequest,
         ) -> PortResult<Vec<PathBuf>> {
             Ok(vec![PathBuf::from("restored.txt")])
         }
+    }
+
+    #[tokio::test]
+    async fn file_diff_stats_keep_desktop_wire_shape_and_visible_turn_end() {
+        let port = RecordingSnapshotPort::default();
+        let stats = local_snapshot_file_diff_stats(
+            &port,
+            LocalWorkspaceSnapshotFileRequest {
+                workspace_id: "workspace".to_string(),
+                session_id: "session-1".to_string(),
+                file_path: "/repo/src/main.rs".to_string(),
+                max_turn_exclusive: Some(3),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            stats,
+            json!({
+                "filePath": "/repo/src/main.rs",
+                "linesAdded": 4,
+                "linesRemoved": 1,
+                "approximate": false,
+                "changeKind": "modify",
+            })
+        );
+        let request = port.diff_request.lock().unwrap().clone().unwrap();
+        assert_eq!(request.max_turn_exclusive, Some(3));
+        assert_eq!(request.workspace_id, "workspace");
     }
 
     #[tokio::test]

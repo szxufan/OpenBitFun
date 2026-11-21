@@ -147,6 +147,7 @@ fn local_exec_command_request(request: TerminalExecCommandRequest) -> ExecComman
         tty: request.tty,
         yield_time_ms: request.yield_time_ms,
         max_output_chars: request.max_output_chars,
+        wait_interrupt: request.wait_interrupt,
         lifecycle_tx: lifecycle_tx(request.lifecycle_sink),
         output_capture_tx: request.output_sink,
     }
@@ -264,6 +265,140 @@ mod tests {
     };
 
     #[tokio::test]
+    async fn exec_command_wait_interrupt_preserves_process_and_output_cursor() {
+        use openbitfun_runtime_ports::TerminalWriteStdinRequest;
+        use std::{sync::Arc, time::Duration};
+        use tokio_util::sync::CancellationToken;
+
+        for tty in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let release = directory.path().join("release");
+            #[cfg(windows)]
+            let argv = vec![
+                "powershell.exe".into(), "-NoLogo".into(), "-NoProfile".into(),
+                "-NonInteractive".into(), "-Command".into(),
+                format!("Write-Output 'before'; while (-not (Test-Path -LiteralPath '{}')) {{ Start-Sleep -Milliseconds 20 }}; Write-Output 'after'", release.display().to_string().replace('\'', "''")),
+            ];
+            #[cfg(not(windows))]
+            let argv = vec![
+                "sh".into(), "-c".into(),
+                format!("printf 'before\\n'; while [ ! -f '{}' ]; do sleep 0.02; done; printf 'after\\n'", release.display().to_string().replace('\'', "'\\''")),
+            ];
+            let manager = Arc::new(crate::exec::ExecProcessManager::default());
+            let port = TerminalRuntimePort::new(manager.clone());
+            let token = CancellationToken::new();
+            let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+            let request = TerminalExecCommandRequest {
+                argv,
+                cwd: directory.path().into(),
+                env: Default::default(),
+                tty,
+                yield_time_ms: Some(600_000),
+                max_output_chars: None,
+                wait_interrupt: Some(token.clone()),
+                lifecycle_sink: None,
+                output_sink: None,
+            };
+            let (response, ()) = tokio::time::timeout(Duration::from_secs(15), async {
+                tokio::join!(port.exec_command_streaming(request, tx), async {
+                    let mut output = String::new();
+                    while !output.contains("before") {
+                        output.push_str(&rx.recv().await.unwrap());
+                    }
+                    token.cancel();
+                    // Continue draining until the streaming sender is dropped.
+                    while rx.recv().await.is_some() {}
+                })
+            })
+            .await
+            .unwrap();
+            let response = response.unwrap();
+            assert!(response.wait_interrupted);
+            assert!(response.output.contains("before"));
+            assert!(!response.output.contains("after"));
+            assert_eq!(response.exit_code, None);
+            assert_eq!(response.completion, None);
+            let session_id = response.session_id.unwrap();
+            assert!(manager.is_session_active(session_id).await);
+            std::fs::write(&release, "continue").unwrap();
+            let last = port
+                .write_stdin(TerminalWriteStdinRequest {
+                    session_id,
+                    chars: String::new(),
+                    append_enter: false,
+                    yield_time_ms: Some(10_000),
+                    max_output_chars: None,
+                    wait_interrupt: None,
+                })
+                .await
+                .unwrap();
+            assert!(!last.wait_interrupted);
+            assert!(last.output.contains("after"));
+            assert!(!last.output.contains("before"));
+            assert_eq!(last.exit_code, Some(0));
+            assert_eq!(last.session_id, None);
+            assert_eq!(
+                last.completion.unwrap().status,
+                TerminalExecSessionCompletionStatus::Exited
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn exec_command_wait_interrupt_can_yield_before_any_output() {
+        use openbitfun_runtime_ports::{
+            TerminalExecControlAction, TerminalExecControlOrigin, TerminalExecControlRequest,
+        };
+        use std::{sync::Arc, time::Duration};
+        use tokio_util::sync::CancellationToken;
+
+        let manager = Arc::new(crate::exec::ExecProcessManager::default());
+        let port = TerminalRuntimePort::new(manager.clone());
+        let token = CancellationToken::new();
+        token.cancel();
+        #[cfg(windows)]
+        let argv = vec![
+            "powershell.exe".into(),
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-Command".into(),
+            "Start-Sleep -Seconds 600".into(),
+        ];
+        #[cfg(not(windows))]
+        let argv = vec!["sh".into(), "-c".into(), "sleep 600".into()];
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            port.exec_command(TerminalExecCommandRequest {
+                argv,
+                cwd: std::env::current_dir().unwrap(),
+                env: Default::default(),
+                tty: false,
+                yield_time_ms: Some(600_000),
+                max_output_chars: None,
+                wait_interrupt: Some(token),
+                lifecycle_sink: None,
+                output_sink: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(response.wait_interrupted);
+        assert!(response.output.is_empty());
+        let session_id = response.session_id.unwrap();
+        assert!(manager.is_session_active(session_id).await);
+        port.control_session(TerminalExecControlRequest {
+            session_id,
+            action: TerminalExecControlAction::Kill,
+            origin: TerminalExecControlOrigin::ModelTool,
+            yield_time_ms: Some(5_000),
+            max_output_chars: None,
+        })
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
     #[cfg(unix)]
     async fn write_stdin_wait_interrupt_preserves_live_pty_and_submitted_input() {
         use openbitfun_runtime_ports::TerminalWriteStdinRequest;
@@ -276,7 +411,7 @@ mod tests {
             argv: vec!["sh".into(), "-c".into(),
                 "read first; printf 'first:%s\\n' \"$first\"; read second; printf 'second:%s\\n' \"$second\"".into()],
             cwd: std::env::current_dir().unwrap(), env: Default::default(), tty: true,
-            yield_time_ms: Some(0), max_output_chars: None,
+            yield_time_ms: Some(0), max_output_chars: None, wait_interrupt: None,
             lifecycle_sink: None, output_sink: None,
         }).await.unwrap();
         let session_id = initial.session_id.unwrap();
@@ -357,6 +492,7 @@ mod tests {
                 tty: false,
                 yield_time_ms: Some(30_000),
                 max_output_chars: None,
+                wait_interrupt: None,
                 lifecycle_sink: None,
                 output_sink: None,
             })

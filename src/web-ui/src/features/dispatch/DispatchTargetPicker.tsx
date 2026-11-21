@@ -1,7 +1,5 @@
-import { lazyWithRecovery } from '@/shared/utils/lazyWithRecovery';
 import { useDeviceDirectory, resolveDeviceName } from '@/infrastructure/account/deviceDirectory';
 import React, {
-  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -9,13 +7,13 @@ import React, {
 } from 'react';
 import { FolderGit2, Laptop, Loader2, MonitorSmartphone, Server } from 'lucide-react';
 
-import { subscribeOverlayInteraction, createOverlayPortal, OverflowText, Icon, Menu, MenuItem, MenuSection, MenuSeparator, StatusPill, Tooltip } from '@openbitfun/ui';
+import { subscribeOverlayInteraction, createOverlayPortal, OverflowText, Icon, Menu, MenuItem, MenuSection, MenuSeparator, Tooltip } from '@openbitfun/ui';
 import { SSHConnectionDialog } from '@/features/ssh-remote/SSHConnectionDialog';
-import { useAccountLoginState } from '@/infrastructure/account/useAccountLoginState';
 import { getAppearanceOverlayHost } from '@/infrastructure/appearance/runtime/AppearanceOverlayHost';
 import { useI18n } from '@/infrastructure/i18n';
+import { useExecutionDeviceName } from '@/infrastructure/peer-device/useExecutionDeviceName';
 import { useAnchoredPopoverPosition } from '@/shared/utils/useAnchoredPopoverPosition';
-import { DispatchInstallDialog } from './DispatchInstallDialog';
+import { DispatchTargetDialog } from './DispatchTargetDialog';
 import { DispatchTransportStatus } from './DispatchTransportStatus';
 import { useActiveDispatchJobId } from './useDispatchTransportStatus';
 import type {
@@ -48,10 +46,6 @@ interface DispatchTargetPickerProps {
   jobId?: string;
 }
 
-const RemoteConnectDialog = lazyWithRecovery(
-  () => import('@/app/components/RemoteConnectDialog'),
-);
-
 export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
   target,
   sourceWorkspacePath,
@@ -67,15 +61,12 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
   const activeJobId = useActiveDispatchJobId(target);
   const transportJobId = target.kind === 'local' ? undefined : jobId ?? activeJobId;
   const { t } = useI18n('flow-chat');
-  const { t: tCommon } = useI18n('common');
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [configureTarget, setConfigureTarget] = useState<DispatchTargetOption | null>(null);
   const [sshDialogOpen, setSshDialogOpen] = useState(false);
-  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
-  const { loggedIn } = useAccountLoginState();
   const { targets, loading, error, refresh } = useDispatchTargets(open);
   const menuLayout = useAnchoredPopoverPosition({
     open,
@@ -87,9 +78,12 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
     layoutRevision: `${targets.length}:${loading}:${error ?? ''}`,
   });
 
+  // Name the device that actually runs the task: this machine locally, the
+  // controlled device on a peer surface. "This computer" would be misleading.
+  const localDeviceLabel = useExecutionDeviceName() ?? t('chatInput.dispatch.local');
   const localDisplayLabel = localWorktreeControl?.enabled
     ? localWorktreeControl.label
-    : t('chatInput.dispatch.local');
+    : localDeviceLabel;
   const displayLabel = target.kind === 'local'
     ? localDisplayLabel
     : target.kind === 'device' ? resolveDeviceName(target.deviceId, target.displayName) : target.displayName;
@@ -123,13 +117,6 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
     () => targets.filter(
       (item): item is DispatchTargetOption & { kind: 'ssh'; connectionId: string } =>
         item.kind === 'ssh' && !!item.connectionId,
-    ),
-    [targets],
-  );
-  const deviceTargets = useMemo(
-    () => targets.filter(
-      (item): item is DispatchTargetOption & { kind: 'device'; deviceId: string } =>
-        item.kind === 'device' && !!item.deviceId,
     ),
     [targets],
   );
@@ -184,7 +171,7 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
             onClick={() => selectLocalMode(false)}
           >
             <span className="dispatch-target-picker__option-copy">
-              <strong><OverflowText>{t('chatInput.dispatch.local')}</OverflowText></strong>
+              <strong><OverflowText>{localDeviceLabel}</OverflowText></strong>
             </span>
           </MenuItem>
         </Tooltip>
@@ -208,74 +195,6 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
             </MenuItem>
           </Tooltip>
         ) : null}
-      </MenuSection>
-
-      <MenuSeparator />
-      <MenuSection title={t('chatInput.dispatch.deviceSection')}>
-        {!loggedIn ? (
-          <MenuItem
-            leading={<MonitorSmartphone size={14} aria-hidden />}
-            onClick={() => {
-              setOpen(false);
-              setAccountDialogOpen(true);
-            }}
-          >
-            {t('chatInput.dispatch.signInDevices')}
-          </MenuItem>
-        ) : null}
-        {loggedIn && !loading && deviceTargets.length === 0 ? (
-          <div className="dispatch-target-picker__status">
-            {t('chatInput.dispatch.noDeviceTargets')}
-          </div>
-        ) : null}
-        {deviceTargets.map(option => {
-          const selected = target.kind === 'device' && target.deviceId === option.deviceId;
-          const online = option.online !== false;
-          // A confirmed-incompatible device stays listed so the reason is legible,
-          // but it is never offered as a selectable dispatch target.
-          const incompatible = option.incompatible === true;
-          return (
-            <MenuItem data-overflow-trigger
-              key={option.deviceId}
-              role="menuitemradio"
-              checked={selected}
-              className="dispatch-target-picker__option-row"
-              disabled={!online || incompatible}
-              labelBehavior="static"
-              leading={<MonitorSmartphone size={15} aria-hidden />}
-              metadata={selected ? <Icon name="check-line" size="sm" aria-hidden /> : null}
-              onClick={() => {
-                if (incompatible) return;
-                setOpen(false);
-                setConfigureTarget(option);
-              }}
-            >
-              <span className="dispatch-target-picker__option-copy">
-                <span className="dispatch-target-picker__option-title">
-                  <strong><OverflowText>{option.displayName}</OverflowText></strong>
-                  {incompatible ? (
-                    <Tooltip content={t('chatInput.dispatch.deviceIncompatible')} placement="right">
-                      <StatusPill
-                        className="dispatch-target-picker__device-status"
-                        tone="warning"
-                        aria-label={t('chatInput.dispatch.deviceIncompatible')}
-                      >
-                        {tCommon('accountLogin.deviceClientIncompatibleTag')}
-                      </StatusPill>
-                    </Tooltip>
-                  ) : !online ? (
-                    <StatusPill className="dispatch-target-picker__device-status" tone="neutral">
-                      {t('chatInput.dispatch.deviceOffline')}
-                    </StatusPill>
-                  ) : null}
-                </span>
-                {online && !incompatible ? (
-                  <small><OverflowText>{t('chatInput.dispatch.deviceDescription')}</OverflowText></small>
-                ) : null}
-              </span>
-            </MenuItem>
-          );
-        })}
       </MenuSection>
 
       <MenuSeparator />
@@ -376,7 +295,7 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
         {menu && createOverlayPortal(menu, getAppearanceOverlayHost())}
       </div>
 
-      <DispatchInstallDialog
+      <DispatchTargetDialog
         open={!!configureTarget}
         target={configureTarget}
         sourceWorkspaceId={sourceWorkspaceId} sourceWorkspacePath={sourceWorkspacePath}
@@ -394,18 +313,6 @@ export const DispatchTargetPicker: React.FC<DispatchTargetPickerProps> = ({
           void refresh();
         }}
       />
-      {accountDialogOpen ? (
-        <Suspense fallback={null}>
-          <RemoteConnectDialog
-            isOpen={accountDialogOpen}
-            initialGroup="account"
-            onClose={() => {
-              setAccountDialogOpen(false);
-              void refresh();
-            }}
-          />
-        </Suspense>
-      ) : null}
     </>
   );
 };

@@ -165,8 +165,8 @@ Publishing is an outward-facing action: only call this when the user explicitly 
             })
             .unwrap_or("unknown");
         Ok(vec![PermissionIntent::new(
-            "custom_tool",
-            vec![format!("miniapp:PublishMiniApp:{identity}")],
+            "miniapp.publish",
+            vec![format!("app:{identity}")],
         )])
     }
 
@@ -569,11 +569,8 @@ mod tests {
             .expect("permission intent");
 
         assert_eq!(intents.len(), 1);
-        assert_eq!(intents[0].action, "custom_tool");
-        assert_eq!(
-            intents[0].resources,
-            ["miniapp:PublishMiniApp:abc-123".to_string()]
-        );
+        assert_eq!(intents[0].action, "miniapp.publish");
+        assert_eq!(intents[0].resources, ["app:abc-123".to_string()]);
     }
 
     #[test]
@@ -618,10 +615,7 @@ mod tests {
         let intents = tool
             .permission_intents(&json!({ "app_name": "循天问命" }), &context)
             .expect("permission intent");
-        assert_eq!(
-            intents[0].resources,
-            ["miniapp:PublishMiniApp:循天问命".to_string()]
-        );
+        assert_eq!(intents[0].resources, ["app:循天问命".to_string()]);
     }
 
     fn meta(id: &str, name: &str, locale_name: Option<&str>) -> MiniAppMeta {

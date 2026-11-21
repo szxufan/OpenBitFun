@@ -1,7 +1,8 @@
 use super::util::normalize_path;
 use crate::agentic::coordination::get_global_coordinator;
 use crate::agentic::tools::framework::{
-    Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext, ValidationResult,
+    PermissionIntent, Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext,
+    ValidationResult,
 };
 use crate::agentic::tools::workspace_paths::posix_style_path_is_absolute;
 use crate::agentic::workspace::WorkspaceBinding;
@@ -857,6 +858,31 @@ Patch schema for "update":
             return false;
         };
         matches!(action, "get_time" | "list")
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        let resource = input
+            .get("job_id")
+            .and_then(Value::as_str)
+            .map(|id| format!("job:{id}"))
+            .unwrap_or_else(|| {
+                format!(
+                    "session:{}",
+                    input
+                        .get("session_id")
+                        .and_then(Value::as_str)
+                        .or(context.session_id.as_deref())
+                        .unwrap_or("current")
+                )
+            });
+        Ok(vec![PermissionIntent::new(
+            "schedule.manage",
+            vec![resource],
+        )])
     }
 
     async fn validate_input(

@@ -1,4 +1,4 @@
-import { supportsNativeWindowDragging } from './environment';
+import { isWindowsDesktopRuntime, supportsNativeWindowDragging } from './environment';
 
 /** Window chrome always belongs to the controller, including Peer Device Mode. */
 export async function startNativeWindowDragging(): Promise<void> {
@@ -11,7 +11,8 @@ export async function startNativeWindowDragging(): Promise<void> {
     appWindow.isMaximized(),
     appWindow.isFullscreen(),
   ]);
-  if (isMaximized || isFullscreen) return;
+  // Windows caption dragging restores maximized windows and follows the pointer.
+  if (isFullscreen || (isMaximized && !isWindowsDesktopRuntime())) return;
 
   await appWindow.startDragging();
 }

@@ -96,6 +96,38 @@ fn normalize_deferred_tool_calls_for_replay(tool_calls: &mut [ToolCall]) {
     }
 }
 
+/// Project only prior assistant tool inputs from the executing session's model
+/// context. Tool-result messages and assistant text never enter approval history.
+fn permission_tool_history(
+    messages: &[AIMessage],
+) -> Vec<openbitfun_runtime_ports::PermissionDecisionToolCall> {
+    let mut history = messages
+        .iter()
+        .rev()
+        .filter(|message| message.role == "assistant")
+        .filter_map(|message| message.tool_calls.as_ref())
+        .flat_map(|calls| calls.iter().rev())
+        .take(openbitfun_ai_adapters::permission::MAX_PERMISSION_HISTORY_TOOL_CALLS)
+        .map(|call| {
+            let deferred = (call.name == CALL_DEFERRED_TOOL_NAME)
+                .then(|| parse_call_deferred_tool_input(&call.arguments).ok())
+                .flatten();
+            match deferred {
+                Some(call) => openbitfun_runtime_ports::PermissionDecisionToolCall {
+                    tool: call.tool_name,
+                    arguments: call.args,
+                },
+                None => openbitfun_runtime_ports::PermissionDecisionToolCall {
+                    tool: call.name.clone(),
+                    arguments: call.arguments.clone(),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    history.reverse();
+    history
+}
+
 /// Mutable lifecycle shared by all provider attempts that belong to one
 /// logical model round, including attempts made after overflow recovery.
 #[derive(Debug)]
@@ -2203,6 +2235,13 @@ impl RoundExecutor {
                 permission_approval_on_ask: global_config.tool_permissions.approval.on_ask,
                 permission_approval_on_error: global_config.tool_permissions.approval.on_error,
                 current_user_message,
+                recent_tool_calls: if permission_approval_strategy
+                    == PermissionApprovalStrategy::Model
+                {
+                    permission_tool_history(&ai_messages)
+                } else {
+                    Vec::new()
+                },
                 permission_user_input_available,
                 ..ToolExecutionOptions::default()
             };
@@ -2886,6 +2925,42 @@ pub(super) mod tests {
             cancellation_tokens: DialogTurnCancellationTokenStore::new(),
             usage_service: None,
         }
+    }
+
+    #[test]
+    fn permission_history_keeps_latest_five_inputs_in_order_without_results() {
+        use crate::util::types::Message as AIMessage;
+        let calls = (0..7)
+            .map(|index| openbitfun_core_types::ToolCall {
+                id: format!("id-{index}"),
+                name: format!("tool-{index}"),
+                arguments: json!({"index":index}),
+                raw_arguments: None,
+            })
+            .collect::<Vec<_>>();
+        let mut first = AIMessage::assistant("assistant text must be excluded".into());
+        first.tool_calls = Some(calls[..4].to_vec());
+        first.reasoning_content = Some("reasoning must be excluded".into());
+        let mut second = AIMessage::assistant("".into());
+        second.tool_calls = Some(calls[4..].to_vec());
+        second.tool_calls.as_mut().unwrap()[2].name = "CallDeferredTool".into();
+        second.tool_calls.as_mut().unwrap()[2].arguments = json!({
+            "tool_name":"ActualTool", "args":{"nested":{"flag":true}}
+        });
+        let mut result = AIMessage::assistant("execution result must be excluded".into());
+        result.role = "tool".into();
+        result.tool_calls = Some(calls.clone());
+        let history = super::permission_tool_history(&[first, result, second]);
+        assert_eq!(history.len(), 5);
+        for (offset, call) in history[..4].iter().enumerate() {
+            assert_eq!(call.tool, format!("tool-{}", offset + 2));
+            assert_eq!(call.arguments, json!({"index":offset + 2}));
+        }
+        assert_eq!(history[4].tool, "ActualTool");
+        assert_eq!(history[4].arguments, json!({"nested":{"flag":true}}));
+        let encoded = serde_json::to_string(&history).unwrap();
+        assert!(!encoded.contains("must be excluded"));
+        assert!(super::permission_tool_history(&[]).is_empty());
     }
 
     #[test]

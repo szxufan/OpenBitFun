@@ -89,6 +89,7 @@ export interface InsightsStats {
   session_types: Record<string, number>;
   languages: Record<string, number>;
   hour_counts: Record<number, number>;
+  activity_by_utc_minute?: Record<number, number>;
   agent_types: Record<string, number>;
   response_time_buckets: Record<string, number>;
   median_response_time_secs: number | null;
@@ -103,9 +104,11 @@ export interface InsightsStats {
 
 export interface InsightsReport {
   generated_at: number;
+  locale?: string;
   date_range: DateRange;
   total_sessions: number;
   analyzed_sessions: number;
+  failed_sections?: number;
   total_messages: number;
   days_covered: number;
   session_usage: InsightsSessionUsage;
@@ -153,6 +156,7 @@ export interface InsightsReportMeta {
   generated_at: number;
   total_sessions: number;
   analyzed_sessions: number;
+  failed_sections?: number;
   date_range: DateRange;
   path: string;
   total_messages: number;
@@ -166,6 +170,7 @@ export interface InsightsReportMeta {
 }
 
 export interface InsightsProgressEvent {
+  generationId?: string | null;
   message: string;
   stage: string;
   current: number;
@@ -175,10 +180,13 @@ export interface InsightsProgressEvent {
 // ============ API client ============
 
 export const insightsApi = {
-  async generateInsights(days?: number, modelId?: string): Promise<InsightsReport> {
-    return api.invoke('generate_insights', {
-      request: { days: days ?? 30, modelId: modelId || 'primary' },
-    });
+  async generateInsights(days?: number, modelId?: string, generationId?: string): Promise<InsightsReport> {
+    // Generation spans multiple model calls and can be cancelled separately.
+    return api.invoke(
+      'generate_insights',
+      { request: { days: days ?? 30, modelId: modelId || 'primary', ...(generationId && { generationId }) } },
+      { timeout: 0 },
+    );
   },
 
   async getLatestInsights(): Promise<InsightsReportMeta[]> {
@@ -197,8 +205,8 @@ export const insightsApi = {
     });
   },
 
-  async cancelGeneration(): Promise<void> {
-    return api.invoke('cancel_insights_generation');
+  async cancelGeneration(generationId: string): Promise<void> {
+    return api.invoke('cancel_insights_generation', { request: { generationId } });
   },
 
   async listenProgress(

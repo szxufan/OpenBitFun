@@ -6,6 +6,8 @@ import { flowChatStore } from '../../store/FlowChatStore';
 import { resolveSessionRelationship } from '../../utils/sessionMetadata';
 import { createLogger } from '@/shared/utils/logger';
 import { notificationService } from '@/shared/notification-system';
+import { usePeerDeviceModeOptional } from '@/infrastructure/peer-device/peerDeviceContextState';
+import { canForkSessionsOnSurface } from '@/infrastructure/peer-device/peerCapabilityResolution';
 
 const log = createLogger('ForkSessionButton');
 
@@ -22,8 +24,14 @@ export const ForkSessionButton: React.FC<ForkSessionButtonProps> = ({
   const [isForking, setIsForking] = useState(false);
   const session = sessionId ? flowChatStore.getState().sessions.get(sessionId) : undefined;
   const sessionRelationship = resolveSessionRelationship(session);
+  const peerDevice = usePeerDeviceModeOptional();
+  // An older CLI peer host cannot fork; hide the action instead of failing it.
+  const canFork = canForkSessionsOnSurface(
+    peerDevice?.peerMode.active ?? false,
+    peerDevice?.currentPeerCapabilities ?? null,
+  );
   const shouldHideForkAction =
-    sessionRelationship.isBtw || sessionRelationship.isSubagent;
+    !canFork || sessionRelationship.isBtw || sessionRelationship.isSubagent;
 
   const handleFork = useCallback(async () => {
     if (!sessionId || isForking) {

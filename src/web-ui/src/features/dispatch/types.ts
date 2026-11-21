@@ -144,25 +144,6 @@ export interface DispatchSyncResult {
   syncedHeadCommit?: string;
 }
 
-export interface DispatchInstallStart {
-  scriptPath: string;
-  version: string;
-  target: string;
-  url: string;
-  sha256: string;
-}
-
-export interface DispatchInstallPoll {
-  cursor: number;
-  output: string;
-  status: 'running' | 'succeeded' | 'failed';
-}
-
-export interface DispatchProvisionTargetResult {
-  accountStatus: 'synced' | 'skipped_not_logged_in';
-  daemonInstalled: boolean;
-}
-
 export type DispatchEvent =
   | {
       type: 'audit';

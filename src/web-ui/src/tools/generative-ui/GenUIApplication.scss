@@ -11,7 +11,5 @@
 .gen-ui-phone-content .gen-ui-application__header h1 { font-size: var(--openbitfun-type-heading-section-font-size); line-height: var(--openbitfun-type-heading-section-line-height); }
 .gen-ui-phone-content [data-gen-ui-node] { max-width: 100%; }
 .gen-ui-application--document { min-width: 0; padding: 0; background: transparent; }
-.gen-ui-html-document { width: 100%; min-width: 0; overflow: hidden; }
-.gen-ui-html-document__frame { display: block; width: 100%; min-width: 0; min-height: 220px; height: 100%; border: 0; background: transparent; color-scheme: inherit; }
 .gen-ui-phone-content .gen-ui-html-document { width: 100%; min-height: 100%; }
 .gen-ui-phone-content .gen-ui-html-document__frame { height: calc(764px - 36px - 32px); min-height: 0; }

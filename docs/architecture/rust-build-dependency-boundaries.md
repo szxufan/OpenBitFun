@@ -228,11 +228,11 @@ CI 负责 workspace 级检查、真实产品 feature 组合、跨平台、完整
 
 ### 7.1 Hosted CI 关键路径与缓存
 
-- 日常 Rust/CLI 验证保留 Linux、Windows 和 macOS 三个平台，macOS 固定使用标准 Intel macOS 15 runner（`macos-15-intel`），避免默认标签的架构迁移和 ARM64 托管资源池分配失败阻塞 OS 契约验证。CLI 与 Rust 使用相同平台矩阵，缓存键区分 Intel。这提供 macOS x64 原生测试证据，不代表 Apple Silicon 运行验证；ARM64/x64 发布目标仍由发布 workflow 的矩阵拥有。
+- 日常 Rust 构建检查保留 Linux、Windows 和 macOS 三个平台，macOS 固定使用标准 Apple Silicon macOS 15 runner（`macos-15`），缩短 PR 的阻塞路径。ACP 测试在 Linux 和 macOS 上运行，Agent Runtime、SDK Host 和终端清理测试在 Linux 上运行。自动化流程跳过 CLI 功能测试，打包时继续验证安装和启动。Rust 缓存键必须区分 runner 架构。日常验证提供 Apple Silicon 原生测试证据；macOS x64 仍由发布和 Nightly workflow 的矩阵拥有。
 - 验证 job 只依赖自身的编译期前置条件。Tauri `check`/`test` 只要求配置中的前端和资源目录存在时，Rust job 自行创建空目录，不等待或传递可发布前端产物；真实静态资源仍由前端构建和产品打包 owner 负责。
-- Rust/CLI 影响分类必须保守且 fail-closed：只有活动路径全部位于 `src/web-ui/**` 时才允许跳过 Rust 与 CLI matrix；仓库根目录/`docs/**` 的 Markdown 和 `png/**` 可作为已知中性伴随路径。其他嵌套 Markdown 可能是 `include_str!`/`include_bytes!` 输入，workflow 不得宽泛忽略全部 Markdown。空变更、非法或不可用 diff range、Rust/build 输入、CI 脚本、其他产品 surface 和所有未识别路径都必须运行完整验证，不能依赖易漏维护的“已知 Rust 目录”名单。PR 使用 base/head 的 merge-base range，只分类 PR 自身改动；`main` push 使用事件 before/head 的 direct range，保留 force-push 或回退提交的实际影响。
+- Rust 影响分类必须保守且 fail-closed：只有活动路径全部位于 `src/web-ui/**` 时才允许跳过 Rust 构建与运行时测试矩阵；仓库根目录/`docs/**` 的 Markdown 和 `png/**` 可作为已知中性伴随路径。其他嵌套 Markdown 可能是 `include_str!`/`include_bytes!` 输入，workflow 不得宽泛忽略全部 Markdown。空变更、非法或不可用 diff range、Rust/build 输入、CI 脚本、其他产品 surface 和所有未识别路径都必须运行完整验证，不能依赖易漏维护的“已知 Rust 目录”名单。PR 使用 base/head 的 merge-base range，只分类 PR 自身改动；`main` push 使用事件 before/head 的 direct range，保留 force-push 或回退提交的实际影响。
 - “纯 Web”前提必须是可执行边界：影响分类 job 在计算 diff 前，从 Git 跟踪文件列表扫描全仓 `.rs`（包括 workspace 外 Installer 和根 build script）。除逐行精确登记的既有测试 fixture 外，非注释 Rust 源码不得出现 `web-ui` 路径 token；因此 `include_dir!`、编译嵌入、分段 `PathBuf::join` 和间接路径变量都会在分类前失败。Frontend job 同时显式运行边界 contract tests 和真实 repository boundary check；跨 surface 的命令注册和调用分别由 owner 测试看护。新增类似源码读取时应修复所有权，而不是给影响分类器追加隐式例外。
-- 可跳过的 matrix 必须汇总到一个稳定的 `Rust / CLI Validation` 结果：分类失败或输出缺失时下游按需要 Rust 处理；分类为 Web-only 时只接受 matrix 全部 skipped，分类为需要 Rust 时只接受全部 success。昂贵的 Rust/CLI 子 job 保留 `!cancelled()`，无 checkout 的轻量汇总使用 `always()` 检查上游 result，因此旧 run 被 concurrency 取消时明确失败而不是被当成 skipped success。
+- 可跳过的 matrix 必须汇总到一个稳定的 `Rust / CLI Validation` 结果：分类失败或输出缺失时下游按需要 Rust 处理；分类为 Web-only 时只接受 matrix 全部 skipped，分类为需要 Rust 时只接受全部 success。Rust 构建和运行时测试子 job 保留 `!cancelled()`，无 checkout 的轻量汇总使用 `always()` 检查上游 result，因此旧 run 被 concurrency 取消时明确失败而不是被当成 skipped success。
 - 该汇总只保证已触发 CI run 内的稳定结果；在 workflow 仍忽略 `png/**` 时不能直接宣称为全局 required check。若未来接入 branch protection，必须先保证所有受保护提交都会产生该 check，或同步调整 trigger 覆盖。
 - Pull Request 可以恢复可信分支产生的 Cargo 缓存，但不得写入 merge-ref 缓存。只有可信 `main` push 可以保存共享缓存；若依赖编译已经完成而后段测试失败，允许该可信构建保存依赖缓存，避免下一次跨平台构建无谓冷启动。
 - 未先修改 Cargo manifest 的 PR/main 验证 job 以仓库提交的 `Cargo.lock` 为唯一解析结果并通过 `--locked` 验证，不在 cache restore 前重新生成 lockfile。依赖解析更新必须作为可评审的源码变更提交，不能让同一 commit 因上游兼容版本发布而自然产生新的 cache key；先改写版本号的发布 job 不属于该前提。

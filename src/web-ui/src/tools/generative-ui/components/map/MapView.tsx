@@ -1,11 +1,9 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useColorScheme } from '../openui/scheme';
+import { useColorScheme } from '@/infrastructure/appearance/hooks/useHostAppearance';
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from 'maplibre-gl';
 import type { GenUIComponentProps } from '../../genUILibrary';
-import type { GenUIAsyncExecuteOptions, GenUIAsyncRuntime } from '../../genUIAsyncCapabilities';
-import { isAbortError } from '../../genUIAsyncCapabilities';
 import { loadMapLibre, mapStyleColors, rasterStyle, vectorStyle, type MapLibreModule } from './basemap';
 import { boundsOf, coordinate, createPinElement, lngLat, partialLine, pinEmoji, reducedMotion, type LatLng } from './mapUtils';
 
@@ -68,36 +66,6 @@ function placesOf(value: unknown): Place[] {
   });
 }
 
-function routePoints(value: unknown): LatLng[] {
-  const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-  const route = Array.isArray(record?.routes) ? record.routes[0] : record?.route ?? record;
-  const routeRecord = route && typeof route === 'object' && !Array.isArray(route) ? route as Record<string, unknown> : undefined;
-  const feature = routeRecord?.type === 'Feature' && routeRecord.geometry && typeof routeRecord.geometry === 'object'
-    ? routeRecord.geometry as Record<string, unknown>
-    : undefined;
-  const featureCollection = routeRecord?.type === 'FeatureCollection' && Array.isArray(routeRecord.features)
-    ? routeRecord.features.find(item => item && typeof item === 'object' && (item as Record<string, unknown>).geometry && typeof (item as Record<string, unknown>).geometry === 'object') as Record<string, unknown> | undefined
-    : undefined;
-  const collectionGeometry = featureCollection?.geometry && typeof featureCollection.geometry === 'object'
-    ? featureCollection.geometry as Record<string, unknown>
-    : undefined;
-  const geometry = routeRecord?.geometry && typeof routeRecord.geometry === 'object' ? routeRecord.geometry as Record<string, unknown> : undefined;
-  const resolvedGeometry = geometry ?? feature ?? collectionGeometry;
-  const raw = resolvedGeometry?.coordinates ?? record?.points ?? routeRecord?.points ?? routeRecord?.coordinates ?? route ?? value;
-  if (!Array.isArray(raw)) return [];
-  const isGeoJson = Boolean(resolvedGeometry?.coordinates);
-  return raw.flatMap<LatLng>(point => {
-    if (Array.isArray(point) && point.length >= 2) {
-      const parsed = isGeoJson
-        ? coordinate({ lat: Number(point[1]), lng: Number(point[0]) })
-        : coordinate({ lat: Number(point[0]), lng: Number(point[1]) });
-      return parsed ? [parsed] : [];
-    }
-    const parsed = coordinate(point);
-    return parsed ? [parsed] : [];
-  });
-}
-
 function setRouteLine(map: MapLibreMap, points: LatLng[]) {
   const source = map.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined;
   source?.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: points.map(lngLat) } });
@@ -119,85 +87,6 @@ function ChevronIcon() {
   return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>;
 }
 
-function useRemoteMapMarkers(query: string, initial: MapMarkerValue[], asyncRuntime?: GenUIAsyncRuntime) {
-  const [state, setState] = useState<{ query: string; markers: MapMarkerValue[]; loading: boolean; error?: string }>({ query: '', markers: initial, loading: false });
-  const initialKey = JSON.stringify(initial);
-  const initialRef = useRef(initial);
-  initialRef.current = initial;
-  useEffect(() => {
-    const runtime = asyncRuntime;
-    const capability = runtime?.can('map.lookup') ? 'map.lookup' : runtime?.can('Map') ? 'Map' : undefined;
-    const currentInitial = initialRef.current;
-    if (!query.trim() || currentInitial.length || !runtime || !capability) {
-      setState(previous => {
-        const error = query.trim() && !currentInitial.length && !capability ? 'Map lookup is unavailable on this host' : undefined;
-        if (previous.query === query && previous.loading === false && previous.error === error && JSON.stringify(previous.markers) === JSON.stringify(currentInitial)) return previous;
-        return { query, markers: currentInitial, loading: false, error };
-      });
-      return undefined;
-    }
-    const controller = new AbortController();
-    setState({ query, markers: [], loading: true });
-    const timer = window.setTimeout(() => {
-      void runtime.execute(capability, { query }, { kind: 'map-query', signal: controller.signal }).then(result => {
-        if (controller.signal.aborted) return;
-        const record = result && typeof result === 'object' && !Array.isArray(result) ? result as Record<string, unknown> : undefined;
-        const raw = record?.markers ?? record?.places ?? record?.results ?? record?.features ?? result;
-        setState({ query, markers: mapMarkers(raw), loading: false });
-      }).catch(error => {
-        if (!controller.signal.aborted && !isAbortError(error)) setState({ query, markers: [], loading: false, error: error instanceof Error ? error.message : String(error) });
-      });
-    }, 500);
-    return () => { controller.abort('Map lookup was replaced'); window.clearTimeout(timer); };
-  }, [asyncRuntime, initialKey, query]);
-  return state.query === query ? state : { query, markers: initial, loading: false };
-}
-
-function useRemoteMapRoute(markers: Array<Pick<MapMarkerValue, 'lat' | 'lng'>>, enabled: boolean, asyncRuntime?: GenUIAsyncRuntime) {
-  const [state, setState] = useState<{ key: string; points: LatLng[]; loading: boolean; error?: string }>({ key: '', points: [], loading: false });
-  // Keep route data scoped to this mounted source. A global cache could reuse
-  // a peer/workspace provider result for another owner or target.
-  const routeCacheRef = useRef(new Map<string, LatLng[]>());
-  const key = JSON.stringify(markers.map(marker => [marker.lat, marker.lng]));
-  const markerCount = markers.length;
-  const markersRef = useRef(markers);
-  markersRef.current = markers;
-  useEffect(() => {
-    const runtime = asyncRuntime;
-    const capability = runtime?.can('map.route') ? 'map.route' : undefined;
-    if (!enabled || markerCount < 2 || !runtime || !capability) {
-      setState(previous => previous.key === key && previous.points.length === 0 && !previous.loading && !previous.error
-        ? previous
-        : { key, points: [], loading: false });
-      return undefined;
-    }
-    const cached = routeCacheRef.current.get(key);
-    if (cached) {
-      setState({ key, points: cached, loading: false });
-      return undefined;
-    }
-    const controller = new AbortController();
-    setState({ key, points: [], loading: true });
-    const timer = window.setTimeout(() => {
-      const options: GenUIAsyncExecuteOptions = { kind: 'map-query', signal: controller.signal };
-      void runtime.execute(capability, { markers: markersRef.current }, options).then(result => {
-        if (!controller.signal.aborted) {
-          const points = routePoints(result);
-          if (points.length > 1) {
-            if (routeCacheRef.current.size >= 64) routeCacheRef.current.delete(routeCacheRef.current.keys().next().value!);
-            routeCacheRef.current.set(key, points);
-          }
-          setState({ key, points, loading: false });
-        }
-      }).catch(error => {
-        if (!controller.signal.aborted && !isAbortError(error)) setState({ key, points: [], loading: false, error: error instanceof Error ? error.message : String(error) });
-      });
-    }, 700);
-    return () => { controller.abort('Map route was replaced'); window.clearTimeout(timer); };
-  }, [asyncRuntime, enabled, key, markerCount]);
-  return state.key === key ? state : { key, points: [], loading: false };
-}
-
 function MapFallback({ places, selected, route, routePoints: routePath, onSelect }: { places: Place[]; selected: string; route: boolean; routePoints: LatLng[]; onSelect: (place: Place) => void }) {
   const bounds = places.reduce((result, marker) => ({ minLat: Math.min(result.minLat, marker.lat), maxLat: Math.max(result.maxLat, marker.lat), minLng: Math.min(result.minLng, marker.lng), maxLng: Math.max(result.maxLng, marker.lng) }), { minLat: Infinity, maxLat: -Infinity, minLng: Infinity, maxLng: -Infinity });
   const minLat = Number.isFinite(bounds.minLat) ? bounds.minLat : -90;
@@ -212,10 +101,8 @@ function MapFallback({ places, selected, route, routePoints: routePath, onSelect
   return <svg className="gen-ui-oi-map-fallback" viewBox="0 0 100 70" role="img" aria-label="Map"><path className="gen-ui-oi-map-land" d="M2 18 18 6 36 12 54 4 74 15 96 8 98 35 82 45 90 62 67 66 48 56 29 68 14 51 3 45Z" />{route && path && places.length > 1 ? <polyline className="gen-ui-oi-map-route" points={path} /> : null}{points.map(marker => <g key={marker.key} transform={`translate(${marker.x} ${marker.y})`} role="button" tabIndex={0} aria-label={marker.label} aria-pressed={selected === marker.label} onClick={() => onSelect(marker)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(marker); } }}><circle className={selected === marker.label ? 'is-selected' : ''} r={selected === marker.label ? 3 : 2.2} /><text x="3" y="1" className="gen-ui-oi-map-fallback-label">{marker.icon || marker.label}</text></g>)}</svg>;
 }
 
-export default function MapView({ view, emit, asyncRuntime, isStreaming }: Pick<GenUIComponentProps, 'view' | 'emit' | 'asyncRuntime' | 'isStreaming'>) {
-  const initialMarkers = mapMarkers(view.props.markers);
-  const remote = useRemoteMapMarkers(String(view.props.query ?? ''), initialMarkers, asyncRuntime);
-  const places = useMemo(() => placesOf(remote.markers), [remote.markers]);
+export default function MapView({ view, emit, isStreaming }: Pick<GenUIComponentProps, 'view' | 'emit' | 'isStreaming'>) {
+  const places = useMemo(() => placesOf(view.props.markers), [view.props.markers]);
   const selected = typeof view.props.selected === 'string' ? view.props.selected : '';
   const [lib, setLib] = useState<MapLibreModule | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -242,7 +129,6 @@ export default function MapView({ view, emit, asyncRuntime, isStreaming }: Pick<
   const height = `min(${maxHeight}px, max(280px, 82vw))`;
   const categories = Array.from(new Set(places.map(place => place.category).filter((value): value is string => Boolean(value))));
   const visible = places.filter(place => group === 'all' || place.category === group);
-  const route = useRemoteMapRoute(visible, view.props.route === true, asyncRuntime);
   const placeSignature = JSON.stringify(visible.map(place => [place.key, place.lat, place.lng, place.icon, place.category, place.order]));
   const routeKey = JSON.stringify(visible.map(place => [place.lat, place.lng]));
   const fitSignatureRef = useRef('');
@@ -399,7 +285,7 @@ export default function MapView({ view, emit, asyncRuntime, isStreaming }: Pick<
   useEffect(() => {
     const map = mapRef.current;
     if (isStreaming || !mapReady || !map || framedKey !== routeKey) return;
-    const positions = view.props.route === true ? (route.points.length > 1 ? route.points : fitPointsRef.current) : [];
+    const positions = view.props.route === true ? fitPointsRef.current : [];
     routePointsRef.current = positions;
     if (positions.length < 2 || lineDrawnRef.current || reducedMotion()) {
       setRouteLine(map, positions.length > 1 ? positions : []);
@@ -420,21 +306,16 @@ export default function MapView({ view, emit, asyncRuntime, isStreaming }: Pick<
       if (frame) cancelAnimationFrame(frame);
       setRouteLine(map, routePointsRef.current);
     };
-  }, [framedKey, isStreaming, mapReady, route.points, routeKey, view.props.route]);
+  }, [framedKey, isStreaming, mapReady, routeKey, view.props.route]);
 
   function select(place: Place) {
     emit('change', place.label);
-    asyncRuntime?.emit('map.marker.select', { label: place.label, lat: place.lat, lng: place.lng });
     if (expanded) setExpanded(false);
   }
   selectRef.current = select;
 
-  const routeStatus = !view.props.route ? '' : route.loading ? 'Street route loading.' : route.points.length > 1 ? 'Street route loaded.' : 'Street routing unavailable. Showing direct connections.';
-  const routeNote = route.points.length > 1
-    ? 'The line follows streets through the authorized map provider.'
-    : 'The line joins places in order while street routing is unavailable.';
-  const routePath = route.points.length > 1 ? route.points : visible.map(place => [place.lat, place.lng] as LatLng);
-  return <figure className={`gen-ui-oi-map${expanded ? ' is-expanded' : ''}`} data-openbitfun-component="gen-ui-components" data-openbitfun-part="map" data-gen-ui-loading={remote.loading || route.loading || undefined} data-gen-ui-error={remote.error || undefined} data-gen-ui-route-degraded={route.error || undefined} style={{ height }}>
+  const routePath = visible.map(place => [place.lat, place.lng] as LatLng);
+  return <figure className={`gen-ui-oi-map${expanded ? ' is-expanded' : ''}`} data-openbitfun-component="gen-ui-components" data-openbitfun-part="map" style={{ height }}>
     <div ref={containerRef} className="gen-ui-oi-map-container" role={expanded ? 'dialog' : 'region'} aria-modal={expanded || undefined} aria-label={String(view.props.label || 'Map')} tabIndex={expanded ? -1 : undefined}>
       <div ref={surfaceRef} className="gen-ui-oi-map-surface" />
       {/* Keep the MapLibre surface mounted while its style/tiles are loading.
@@ -450,9 +331,8 @@ export default function MapView({ view, emit, asyncRuntime, isStreaming }: Pick<
         <button type="button" className="gen-ui-oi-map-info" aria-label="About this map" aria-expanded={infoOpen} onClick={() => setInfoOpen(value => !value)}><InfoIcon /></button>
       </div>
       <button type="button" className="gen-ui-oi-map-pill gen-ui-oi-map-expand" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Collapse' : 'Expand'}<ExpandIcon /></button>
-      {infoOpen ? <div className="gen-ui-oi-map-note" role="note">Drag to explore, use + and − to zoom, and select a place to highlight it. {view.props.route === true ? routeNote : ''}</div> : null}
-      {remote.error || route.error ? <div className="gen-ui-oi-map-note" role="status">{remote.error || 'Street routing unavailable. Showing direct connections.'}</div> : null}
-      {routeStatus ? <span className="gen-ui-oi-map-status" role="status">{routeStatus}</span> : null}
+      {infoOpen ? <div className="gen-ui-oi-map-note" role="note">Drag to explore, use + and − to zoom, and select a place to highlight it. </div> : null}
+      {places.length === 0 && view.props.query ? <span className="gen-ui-oi-map-note">{String(view.props.query)}</span> : null}
       {mapError ? <div className="gen-ui-oi-map-note gen-ui-oi-map-note--bottom" role="status">Map tiles are temporarily unavailable. The places are still shown.</div> : null}
     </div>
     {view.props.label ? <figcaption>{String(view.props.label)}</figcaption> : null}

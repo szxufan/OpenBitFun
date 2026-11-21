@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 const SKILL_LISTING_TITLE: &str = "# Skill Listing";
 const SKILL_LISTING_GUIDANCE: &str = r#"A skill is a set of instructions provided through a `SKILL.md` source.
 If the user names a skill (with `[$SkillName]` or plain text) OR the task clearly matches a skill's description shown below, you must use that skill for that turn. Multiple mentions mean use them all. Do not carry skills across turns unless re-mentioned.
+Load a matching skill before your first user-facing update or choice of output format, so its communication and presentation instructions apply from the start.
+Select the deliverable before selecting a skill. A request to build a webpage, website, standalone file, or project component goes to the file/project workflow, even when its subject is a simulation, clock, chart, or map. Use an in-chat preview of a webpage only when that is the requested deliverable. On a reader supporting FlowChat inline figures, for a self-contained moving object, simulation, map, or interactive tool with no file or project destination, load visualize directly when listed and show the result in the conversation. For a mobile or bot file-delivery channel, follow its downloadable-file instructions instead. A figure based entirely on the request, such as a city map, needs no workspace inspection.
 Below is the list of skills that can be used with the Skill tool. Each entry includes a name and description"#;
 const AGENT_LISTING_TITLE: &str = "# Agent Listing";
 const AGENT_LISTING_GUIDANCE: &str = "Available agent types for the AgentSpawn tool:";

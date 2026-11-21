@@ -69,10 +69,9 @@ describe('source GenUI incident regressions', () => {
     }
   });
 
-  it('does not publish the initial OpenUI snapshot or enter an update loop', async () => {
+  it('renders the saved OpenUI value without an update loop', async () => {
     const element = document.createElement('div');
     const root = createRoot(element);
-    const onStateChange = vi.fn();
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const definition: GenUIAppDefinition = {
       ...app,
@@ -84,9 +83,9 @@ describe('source GenUI incident regressions', () => {
       state: { angle: { type: 'number', default: 24 } },
     };
     try {
-      await act(async () => root.render(<GenUIApplication definition={definition} initialState={{ angle: 24 }} onStateChange={onStateChange} />));
+      await act(async () => root.render(<GenUIApplication definition={definition} initialState={{ angle: 24 }} />));
       await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-      expect(onStateChange).not.toHaveBeenCalled();
+      expect(element.querySelector<HTMLInputElement>('input[type="range"]')?.value).toBe('24');
       expect(consoleError.mock.calls.some(([message]) => String(message).includes('Maximum update depth exceeded'))).toBe(false);
     } finally {
       await act(async () => root.unmount());

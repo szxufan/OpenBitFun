@@ -80,6 +80,9 @@ const HIGH_PRIORITY_COMMANDS = new Set([
   'update_session_model_target',
   'manage_dialog_queue',
   'cancel_dialog_turn',
+  // Stop is interactive whether it interrupts recoverably or hard-cancels.
+  'interrupt_dialog_turn',
+  'recover_interrupted_dialog_turn',
   'computer_use_control_stop',
   // Per-tool interrupt (Terminal cards) is interactive and time-sensitive: a
   // long-running shell command keeps producing side effects until the cancel

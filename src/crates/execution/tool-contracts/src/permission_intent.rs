@@ -9,6 +9,8 @@ use serde_json::{Map, Value};
 pub struct PermissionIntent {
     pub action: String,
     pub resources: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<crate::command_permission::CommandPermissionPlan>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub save_resources: Vec<String>,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
@@ -19,6 +21,7 @@ impl PermissionIntent {
     pub fn new(action: impl Into<String>, resources: Vec<String>) -> Self {
         Self {
             action: action.into(),
+            command: None,
             save_resources: resources.clone(),
             resources,
             display_metadata: Map::new(),

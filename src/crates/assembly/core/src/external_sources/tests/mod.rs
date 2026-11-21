@@ -1,0 +1,10 @@
+mod catalog_projection;
+mod conflict_decisions;
+mod discovery;
+mod mcp_import;
+mod model_bindings;
+mod preference_migration;
+mod prompt_commands;
+mod prompt_shell;
+mod runtime_policy;
+mod support;

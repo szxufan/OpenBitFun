@@ -419,6 +419,7 @@ const resolveSessionWorkspace = (config: SessionConfig): WorkspaceInfo => {
   if (!id) throw new Error('Workspace ID is required to create a session');
   const workspace = state.openedWorkspaces.get(id)
     ?? (state.currentWorkspace?.id === id ? state.currentWorkspace : undefined)
+    ?? state.assistantWorkspaces?.find(record => record.id === id)
     ?? state.recentWorkspaces?.find(record => record.id === id);
   if (!workspace) throw new Error(`Workspace ID is unavailable: ${id}`);
   return workspace;

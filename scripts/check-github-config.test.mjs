@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -280,7 +281,6 @@ jobs:
   assert.match(result.stderr, /interactive capability gate must run exactly/u);
   assert.match(result.stderr, /interactive capability gate must remain blocking/u);
   assert.match(result.stderr, /ProductControl owner\/delivery-profile gate is missing/u);
-  assert.match(result.stderr, /CLI ProductControl self-control coverage requires/u);
 });
 
 test('rejects explicit setup-node node-version below the project baseline when node-version-file is valid', (t) => {
@@ -415,6 +415,19 @@ jobs:
   assert.match(result.stdout, /GitHub YAML config check passed/);
 });
 
+test('workflows leave CLI functional tests to local runs', () => {
+  const directory = path.join(repoRoot, '.github/workflows');
+  for (const file of readdirSync(directory).filter((name) => /\.ya?ml$/.test(name))) {
+    const workflow = yaml.parse(readFileSync(path.join(directory, file), 'utf8'));
+    for (const job of Object.values(workflow.jobs)) {
+      for (const step of job.steps ?? []) {
+        const command = (step.run ?? '').replaceAll('\\\n', ' ');
+        assert.doesNotMatch(command, /\bcargo (?:test|nextest run)\b[^\n]*\bopenbitfun-cli\b/, file);
+      }
+    }
+  }
+});
+
 test('keeps Rust CI independent, restore-only on PRs, and target-focused', () => {
   const workflow = yaml.parse(
     readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8'),
@@ -431,8 +444,8 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
   );
   assert.deepEqual(
     rustJob.strategy.matrix.os,
-    ['ubuntu-latest', 'macos-15-intel', 'windows-latest'],
-    'Rust validation must retain the reviewed Linux, macOS, and Windows matrix',
+    ['ubuntu-latest', 'macos-15', 'windows-latest'],
+    'Rust validation must retain the reviewed Linux, Apple Silicon macOS, and Windows matrix',
   );
   assert.equal(
     rustJob.steps.some((step) => step.uses?.startsWith('actions/download-artifact@')),
@@ -454,7 +467,7 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
     'The frontend build must not upload an artifact with no consumer',
   );
 
-  for (const jobName of ['cli-test', 'rust-build-check']) {
+  for (const jobName of ['runtime-test', 'rust-build-check']) {
     const job = workflow.jobs[jobName];
     const cache = job.steps.find((step) =>
       step.uses?.startsWith('swatinem/rust-cache@'),
@@ -471,32 +484,32 @@ test('keeps Rust CI independent, restore-only on PRs, and target-focused', () =>
       /github\.base_ref \|\| github\.ref_name/,
       `${jobName} must not mix main and explore build outputs`,
     );
+    if (jobName === 'rust-build-check') {
+      assert.match(
+        cache?.with?.['shared-key'] ?? '',
+        /runner\.arch/,
+        'Rust validation caches must stay isolated by architecture',
+      );
+    }
   }
 
-  const cliJob = workflow.jobs['cli-test'];
+  const runtimeJob = workflow.jobs['runtime-test'];
   assert.deepEqual(
-    cliJob.strategy.matrix.include.map((entry) => entry.os),
-    rustJob.strategy.matrix.os,
-    'CLI and Rust validation must exercise the same Linux, Intel macOS, and Windows hosts',
+    runtimeJob.strategy.matrix.include.map((entry) => entry.os),
+    ['ubuntu-latest', 'macos-15'],
   );
-  assert.equal(
-    cliJob.strategy.matrix.include.find((entry) => entry.os === 'macos-15-intel').cache_key,
-    'macos-intel',
-  );
-  assert.equal(cliJob['timeout-minutes'], '${{ matrix.timeout_minutes }}');
+  const runtimeSteps = runtimeJob.steps.filter((step) => step.run?.startsWith('cargo test'));
   assert.deepEqual(
-    cliJob.strategy.matrix.include.map((entry) => entry.timeout_minutes),
-    [30, 75, 30],
-    'Only the cold Intel macOS CLI build needs a longer job budget',
+    runtimeSteps.filter((step) => step.if === "runner.os == 'macOS'").map((step) => step.run),
+    ['cargo test --locked -p openbitfun-acp'],
   );
-  assert.ok(
-    cliJob.strategy.matrix.include.some((entry) => entry.os === 'windows-latest'),
-    'Windows ConPTY contracts must run before Nightly',
-  );
-  assert.equal(
-    cliJob.steps.find((step) => step.name === 'Run Windows CLI terminal contracts')?.run,
-    'cargo test --locked -p openbitfun-cli --test terminal_process_contracts -- --test-threads=1',
-  );
+  assert.ok(runtimeSteps.every((step) => step['continue-on-error'] !== true));
+  const linuxCommands = runtimeSteps
+    .filter((step) => step.if === "runner.os == 'Linux'")
+    .map((step) => step.run);
+  assert.ok(linuxCommands.includes('cargo test --locked -p openbitfun-acp -p openbitfun-agent-runtime'));
+  assert.ok(linuxCommands.includes('cargo test --locked -p openbitfun-sdk-host -p openbitfun-sdk-host-app'));
+  assert.ok(linuxCommands.some((command) => command.startsWith('cargo test --locked -p terminal-core ')));
 
   const rustCache = rustJob.steps.find((step) =>
     step.uses?.startsWith('swatinem/rust-cache@'),
@@ -705,7 +718,7 @@ test('gates fast checks and PR packaging behind one fail-closed build decision',
     );
   }
   const impactJob = workflow.jobs['build-impact'];
-  const cliJob = workflow.jobs['cli-test'];
+  const runtimeJob = workflow.jobs['runtime-test'];
   const rustJob = workflow.jobs['rust-build-check'];
   const buildJob = workflow.jobs['package-impact-contract'];
   const resultJob = workflow.jobs['rust-validation-result'];
@@ -804,7 +817,7 @@ test('gates fast checks and PR packaging behind one fail-closed build decision',
   );
   assert.match(classify?.run ?? '', /--range-mode "\$RANGE_MODE"/);
 
-  for (const job of [cliJob, rustJob]) {
+  for (const job of [runtimeJob, rustJob]) {
     assert.equal(job.needs, 'build-impact');
     assert.match(job.if, /!cancelled\(\)/);
     assert.doesNotMatch(job.if, /always\(\)/);
@@ -832,9 +845,9 @@ test('gates fast checks and PR packaging behind one fail-closed build decision',
   assert.equal(resultJob.if, '${{ always() }}');
   assert.deepEqual(
     [...resultJob.needs].sort(),
-    ['build-impact', 'cli-test', 'package-impact-contract', 'rust-build-check'],
+    ['build-impact', 'package-impact-contract', 'runtime-test', 'rust-build-check'],
   );
-  const verify = resultJob.steps.find((step) => step.name === 'Verify Rust and CLI result');
+  const verify = resultJob.steps.find((step) => step.name === 'Verify Rust build and runtime test results');
   assert.equal(verify?.env?.RUST_REQUIRED, '${{ needs.build-impact.outputs.rust_required }}');
   assert.equal(
     verify?.env?.PR_PRODUCER_REQUIRED,
@@ -842,7 +855,7 @@ test('gates fast checks and PR packaging behind one fail-closed build decision',
   );
   assert.equal(verify?.env?.EVENT_NAME, '${{ github.event_name }}');
   assert.equal(verify?.env?.IMPACT_RESULT, '${{ needs.build-impact.result }}');
-  assert.equal(verify?.env?.CLI_RESULT, '${{ needs.cli-test.result }}');
+  assert.equal(verify?.env?.RUNTIME_RESULT, '${{ needs.runtime-test.result }}');
   assert.equal(verify?.env?.RUST_RESULT, '${{ needs.rust-build-check.result }}');
   assert.equal(
     verify?.env?.BUILD_RESULT,
@@ -850,7 +863,7 @@ test('gates fast checks and PR packaging behind one fail-closed build decision',
   );
   assert.equal(verify?.shell, 'pwsh');
   assert.match(verify?.run ?? '', /successful impact-selected producer jobs/i);
-  assert.match(verify?.run ?? '', /successful Rust and CLI jobs/i);
+  assert.match(verify?.run ?? '', /successful Rust build and runtime jobs/i);
 
   const dshJob = workflow.jobs['dsh-profile-windows'];
   assert.equal(dshJob.needs, 'build-impact');
@@ -864,7 +877,7 @@ test('gates fast checks and PR packaging behind one fail-closed build decision',
       producerRequired: 'true',
       eventName: 'pull_request',
       impactResult,
-      cliResult: 'success',
+      runtimeResult: 'success',
       rustResult: 'success',
       buildResult: 'success',
       expectedSuccess: false,
@@ -873,7 +886,7 @@ test('gates fast checks and PR packaging behind one fail-closed build decision',
   for (const rustRequired of ['false', 'true']) {
     for (const producerRequired of ['false', 'true']) {
       for (const eventName of ['pull_request', 'push']) {
-        for (const cliResult of statuses) {
+        for (const runtimeResult of statuses) {
           for (const rustResult of statuses) {
             for (const buildResult of statuses) {
               const packageExpected = eventName === 'pull_request'
@@ -883,14 +896,14 @@ test('gates fast checks and PR packaging behind one fail-closed build decision',
                 producerRequired,
                 eventName,
                 impactResult: 'success',
-                cliResult,
+                runtimeResult,
                 rustResult,
                 buildResult,
                 expectedSuccess: (packageExpected
                   ? buildResult === 'success'
                   : buildResult === 'skipped') && (rustRequired === 'false'
-                  ? cliResult === 'skipped' && rustResult === 'skipped'
-                  : cliResult === 'success' && rustResult === 'success'),
+                  ? runtimeResult === 'skipped' && rustResult === 'skipped'
+                  : runtimeResult === 'success' && rustResult === 'success'),
               });
             }
           }
@@ -903,7 +916,7 @@ test('gates fast checks and PR packaging behind one fail-closed build decision',
     producerRequired: 'false',
     eventName: 'push',
     impactResult: 'success',
-    cliResult: 'skipped',
+    runtimeResult: 'skipped',
     rustResult: 'skipped',
     buildResult: 'success',
     expectedSuccess: false,
@@ -923,7 +936,7 @@ foreach ($case in $cases) {
   $env:PR_PRODUCER_REQUIRED = [string]$case.producerRequired
   $env:EVENT_NAME = [string]$case.eventName
   $env:IMPACT_RESULT = [string]$case.impactResult
-  $env:CLI_RESULT = [string]$case.cliResult
+  $env:RUNTIME_RESULT = [string]$case.runtimeResult
   $env:RUST_RESULT = [string]$case.rustResult
   $env:BUILD_RESULT = [string]$case.buildResult
   $succeeded = $true
@@ -1061,10 +1074,6 @@ test('nightly validates generated inputs and projected lockfiles before packagin
     steps.some((step) => step.run?.includes('cargo generate-lockfile')),
     false,
     'nightly must not hide stale committed lockfiles by regenerating them ad hoc',
-  );
-  assert.equal(
-    steps.find((step) => step.name === 'Run Windows CLI terminal contracts')?.run,
-    'cargo test --locked -p openbitfun-cli --test terminal_process_contracts -- --test-threads=1',
   );
 });
 
@@ -1452,7 +1461,7 @@ test('stages unique release asset names before publishing', () => {
   assert.match(steps[uploadIndex].run, /--clobber release-upload-assets\/\*/);
 });
 
-test('Desktop release notes link the separately published Android prerelease', () => {
+test('Desktop release notes link the migrated native mobile repository', () => {
   const workflow = yaml.parse(
     readFileSync(
       path.join(repoRoot, '.github/workflows/desktop-package.yml'),
@@ -1462,26 +1471,11 @@ test('Desktop release notes link the separately published Android prerelease', (
   const uploadStep = workflow.jobs['upload-release-assets'].steps.find(
     (step) => step.name === 'Upload to release',
   );
-  assert.match(uploadStep.run, /mobile-v\$\{MOBILE_VERSION\}/);
-  assert.match(uploadStep.run, /runner-generated debug signing key/);
+  assert.match(uploadStep.run, /github\.com\/openBitFun\/OpenBitFun-Mobile\/releases/);
+  assert.doesNotMatch(uploadStep.run, /src\/apps\/mobile\//);
   assert.match(uploadStep.run, /--notes-file release-notes\.md/);
 });
 
-test('Mobile Package publishes Android assets from mobile-v tags', () => {
-  const workflow = yaml.parse(
-    readFileSync(path.join(repoRoot, '.github/workflows/mobile-package.yml'), 'utf8'),
-  );
-  assert.ok(workflow.on.push.tags.includes('mobile-v*'));
-  assert.match(
-    workflow.jobs.android.steps.find((step) => step.name === 'Build signed Android package').run,
-    /:app:assembleRelease/,
-  );
-  assert.equal(workflow.jobs.publish.needs.includes('android'), true);
-  assert.match(
-    workflow.jobs.publish.steps.find((step) => step.name === 'Create mobile release').run,
-    /gh release create/,
-  );
-});
 
 test('Desktop packaging preserves old-tag source bytes before Windows checkout', () => {
   const workflow = yaml.parse(
@@ -1709,6 +1703,43 @@ test('stable and beta publication require every producer, while artifact-only ru
   }
 });
 
+
+test('Desktop release and nightly package Linux on bare Ubuntu 24.04 and verify before upload', () => {
+  const readPackageJob = (file) =>
+    yaml.parse(readFileSync(path.join(repoRoot, '.github/workflows', file), 'utf8')).jobs.package;
+  const release = readPackageJob('desktop-package.yml');
+  const nightly = readPackageJob('nightly-artifacts.yml');
+  const dependencies = (job) => job.steps.find((step) => step.name === 'Install Linux system dependencies (Tauri bundler)');
+
+  // Fork policy: no upstream ubuntu:22.04 container. The self-contained Linux
+  // OCR bundle needs tesseract 5 / leptonica 1.84, which only the bare 24.04
+  // runner ships; the glibc floor tripwire is 2.39 for desktop packages.
+  assert.equal(release.container, undefined);
+  assert.equal(nightly.container, undefined);
+  for (const job of [release, nightly]) {
+    assert.match(dependencies(job).run, /sudo apt-get install/);
+    assert.match(dependencies(job).run, /tesseract-ocr-chi-sim/);
+    assert.match(dependencies(job).run, /tesseract-ocr-chi-tra/);
+  }
+
+  for (const job of [release, nightly]) {
+    const checkout = job.steps.find((step) => step.uses === 'actions/checkout@v5');
+    const trust = job.steps.find((step) => step.name === 'Trust the Linux build checkout');
+    const verify = job.steps.find((step) => step.name === 'Verify Linux desktop package');
+    const buildIndex = job.steps.findIndex((step) => step.name === 'Build desktop app');
+    const uploadIndex = job.steps.findIndex((step) => step.name === 'Upload bundles');
+    assert.equal(trust.if, "runner.os == 'Linux'");
+    assert.equal(trust.run, 'git config --global --add safe.directory "$GITHUB_WORKSPACE"');
+    assert.ok(job.steps.indexOf(checkout) < job.steps.indexOf(trust));
+    assert.ok(job.steps.indexOf(trust) < buildIndex);
+    assert.equal(verify.if, "runner.os == 'Linux'");
+    assert.match(verify.run, /verify-linux-desktop-package\.sh/);
+    assert.match(verify.run, /linux-appimage-tray-libraries\.json/);
+    assert.match(verify.run, /"\$TARGET" 2\.39/);
+    assert.ok(buildIndex >= 0 && buildIndex < job.steps.indexOf(verify));
+    assert.ok(job.steps.indexOf(verify) < uploadIndex);
+  }
+});
 
 test('Desktop recovery selects one platform and cannot publish an incomplete release', (t) => {
   const workflow = yaml.parse(readFileSync(path.join(repoRoot, '.github/workflows/desktop-package.yml'), 'utf8'));

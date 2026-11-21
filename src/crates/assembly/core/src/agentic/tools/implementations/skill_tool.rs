@@ -23,6 +23,18 @@ impl SkillTool {
         Self
     }
 
+    // Keep command as the advertised field. Some providers emit skill instead.
+    // Permission checks, status text and execution must use the same identity.
+    pub(crate) fn requested_skill(input: &Value) -> Option<&str> {
+        ["command", "skill"].into_iter().find_map(|key| {
+            input
+                .get(key)?
+                .as_str()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+        })
+    }
+
     fn render_description(&self) -> String {
         r#"Execute a skill within the main conversation
 
@@ -185,11 +197,7 @@ impl Tool for SkillTool {
         input: &Value,
         _context: &ToolUseContext,
     ) -> OpenBitFunResult<Vec<PermissionIntent>> {
-        let skill_name = input
-            .get("command")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|skill_name| !skill_name.is_empty())
+        let skill_name = Self::requested_skill(input)
             .ok_or_else(|| OpenBitFunError::validation("command is required".to_string()))?;
         Ok(vec![PermissionIntent::new(
             "skill",
@@ -202,11 +210,7 @@ impl Tool for SkillTool {
         input: &Value,
         _context: Option<&ToolUseContext>,
     ) -> ValidationResult {
-        if input
-            .get("command")
-            .and_then(|v| v.as_str())
-            .is_none_or(|s| s.is_empty())
-        {
+        if Self::requested_skill(input).is_none() {
             return ValidationResult {
                 result: false,
                 message: Some("command is required and cannot be empty".to_string()),
@@ -235,7 +239,7 @@ impl Tool for SkillTool {
     }
 
     fn render_tool_use_message(&self, input: &Value, _options: &ToolRenderOptions) -> String {
-        if let Some(command) = input.get("command").and_then(|v| v.as_str()) {
+        if let Some(command) = Self::requested_skill(input) {
             format!("The \"{}\" skill is loaded.", command)
         } else {
             "Loading skill...".to_string()
@@ -247,9 +251,7 @@ impl Tool for SkillTool {
         input: &Value,
         context: &ToolUseContext,
     ) -> OpenBitFunResult<Vec<ToolResult>> {
-        let skill_name = input
-            .get("command")
-            .and_then(|v| v.as_str())
+        let skill_name = Self::requested_skill(input)
             .ok_or_else(|| OpenBitFunError::tool("command is required".to_string()))?;
 
         debug!("Skill tool executing skill: {}", skill_name);
@@ -325,7 +327,48 @@ impl Tool for SkillTool {
 
         crate::native_hooks::activate_skill_hooks(&skill_data, context).await?;
 
-        if let Some(arguments) = input.get("arguments").and_then(Value::as_str) {
+        // The caller can propose implementation details in arguments. A design
+        // skill should receive the user's actual brief before it chooses a surface.
+        let arguments = input.get("arguments").and_then(Value::as_str);
+        let delivery_brief = matches!(skill_data.name.as_str(), "frontend-design" | "visualize")
+            && skill_data.argument_names.is_empty();
+        let user_request = context
+            .custom_data
+            .get(crate::agentic::tools::tool_context_runtime::TURN_USER_REQUEST)
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty());
+        let file_delivery = context.custom_data
+            .get(openbitfun_agent_runtime::remote_file_delivery::TOOL_CONTEXT_REMOTE_FILE_DELIVERY_KEY)
+            .and_then(Value::as_bool) == Some(true);
+        #[cfg(debug_assertions)]
+        if !file_delivery
+            && !context.is_remote()
+            && skill_data.key == "user::openbitfun-system::visualize"
+        {
+            if let Ok(guide) = std::env::var("OPENBITFUN_VISUALIZE_DEV_GUIDE") {
+                skill_data.content.push_str(&format!("\n\nThe local development renderer supports the extended component API documented in {guide}."));
+            }
+        }
+        if file_delivery && skill_data.key == "user::openbitfun-system::visualize" {
+            skill_data.content =
+                openbitfun_agent_runtime::remote_file_delivery::remote_file_delivery_reminder()
+                    .to_owned();
+        }
+        if let Some(request) = user_request.filter(|_| delivery_brief) {
+            if file_delivery {
+                if skill_data.key != "user::openbitfun-system::visualize" {
+                    skill_data.content.push_str("\n\n");
+                    skill_data.content.push_str(openbitfun_agent_runtime::remote_file_delivery::remote_file_delivery_reminder());
+                }
+            } else {
+                skill_data.content.push_str("\n\nDelivery in this conversation: follow the format the user actually requested. A request for a working visual object alone, e.g. ‘做一个沙漏吧’, is an inline simulation: use visualize when available. A request for a webpage of that object, e.g. ‘做一个沙漏网页’, requires an independently openable webpage and its file link. Delivering a webpage does not request opening the user’s browser. When you need to check a standalone file, use a private headless check, never a visible ControlHub browser, foreground window, or persistent preview server unless the user asks to open it. A design skill supplies styling; choosing it does not turn the request into a website. Continue an existing project change when the conversation supplies that target.");
+            }
+            skill_data.content = expand_prompt_template_arguments_with_names(
+                &skill_data.content,
+                request,
+                &skill_data.argument_names,
+            );
+        } else if let Some(arguments) = arguments {
             skill_data.content = expand_prompt_template_arguments_with_names(
                 &skill_data.content,
                 arguments,
@@ -593,6 +636,45 @@ Use the remote project skill.
 
         assert_eq!(schema["properties"]["arguments"]["type"], "string");
         assert_eq!(schema["required"], json!(["command"]));
+    }
+
+    #[tokio::test]
+    async fn skill_alias_loads_the_same_skill_it_validates_and_authorizes() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join(".openbitfun/skills/alias-test");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("SKILL.md"),
+            "---\nname: alias-test\ndescription: Alias fixture.\n---\nAlias body.",
+        )
+        .unwrap();
+        let context = local_context(temp.path().to_path_buf());
+        let tool = SkillTool::new();
+        for input in [
+            json!({"skill":"alias-test"}),
+            json!({"command":"alias-test","skill":"other"}),
+            json!({"command":null,"skill":"alias-test"}),
+            json!({"command":" ","skill":"alias-test"}),
+            json!({"command":3,"skill":"alias-test"}),
+        ] {
+            assert!(tool.validate_input(&input, Some(&context)).await.result);
+            assert_eq!(
+                tool.permission_intents(&input, &context).unwrap()[0].resources,
+                ["alias-test"]
+            );
+            let result = tool.call_impl(&input, &context).await.unwrap();
+            assert!(
+                matches!(&result[0], ToolResult::Result { data, .. } if data["skill_name"] == "alias-test")
+            );
+        }
+        for input in [
+            json!({"skill":" "}),
+            json!({"skill":42}),
+            json!({"command":"","skill":" "}),
+        ] {
+            assert!(!tool.validate_input(&input, Some(&context)).await.result);
+            assert!(tool.permission_intents(&input, &context).is_err());
+        }
     }
 
     #[tokio::test]
@@ -1158,6 +1240,31 @@ Use the remote project skill.
         assert!(assistant.contains("\n</skill_content>"));
         assert!(assistant.contains("# Create an OpenBitFun Agent"));
         assert!(!assistant.contains("from stable key"));
+    }
+
+    #[tokio::test]
+    async fn visual_artifact_remote_reader_gets_downloadable_delivery_instead_of_inline_publication(
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let mut context = local_context(root.path().into());
+        context.custom_data.insert(
+            openbitfun_agent_runtime::remote_file_delivery::TOOL_CONTEXT_REMOTE_FILE_DELIVERY_KEY
+                .into(),
+            true.into(),
+        );
+        let results = SkillTool::new()
+            .call_impl(
+                &json!({"command": "user::openbitfun-system::visualize"}),
+                &context,
+            )
+            .await
+            .unwrap();
+        let ToolResult::Result { data, .. } = &results[0] else {
+            panic!("missing skill")
+        };
+        let content = data["content"].as_str().unwrap();
+        assert!(content.contains("computer://"));
+        assert!(!content.contains("openbitfun://current-session"));
     }
 
     #[tokio::test]

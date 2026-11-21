@@ -508,9 +508,6 @@
     }
   ],
   "implementationOnlyCommands": {
-    "generativeUiOwner": [
-      "gen_ui_provider_call"
-    ],
     "publicMarketImageCache": [
       "market_image_load"
     ],
@@ -6136,6 +6133,20 @@
       ],
       "items": [
         {
+          "id": "device-control-permission",
+          "titleZh": "本机可被控制",
+          "titleEn": "Allow control of this device",
+          "descriptionZh": "在设备与连接的概览中切换。关闭后，本机显示为离线，仍可控制其他在线设备。",
+          "descriptionEn": "Switch this in the Devices & Connections overview. When off, this device appears offline and can still control other online devices.",
+          "control": {
+            "kind": "open",
+            "reasonCode": "unstructuredInteraction",
+            "reasonZh": "请在当前设备的「设备与连接」概览中切换「本机可被控制」，选择其他设备能否连接这台设备。",
+            "reasonEn": "Choose “Allow control of this device” in the local Devices & Connections overview to set whether other devices can connect to this one."
+          },
+          "evidence": ["command:remote_connect_set_allowed"]
+        },
+        {
           "id": "connection-methods",
           "titleZh": "使用免部署官方 Relay 或桌面端局域网 Relay（可同时开启）",
           "titleEn": "Use the zero-setup official Relay or Desktop LAN Relay concurrently",
@@ -6418,13 +6429,13 @@
         "background host"
       ],
       "highlightsZh": [
-        "一键列出同账号在线设备与已保存 SSH 主机作为派发目标",
+        "可选择已配置的 SSH 主机派发任务，智能体也可派发到同账号设备",
         "提交后控制端可随时断网或休眠，目标机在独立 Git Worktree 自治执行",
         "断线重连后按游标增量回填完整对话与工具轨迹，支持远程回答权限请求",
         "任务完成后可将目标端改动安全同步回本机，绝不把本机当成脆弱的文件代理"
       ],
       "highlightsEn": [
-        "Discover same-account devices and saved SSH hosts as ready-to-run targets",
+        "Dispatch to a configured SSH host, or ask the Agent to dispatch to a same-account device",
         "Disconnect or close your laptop freely while the target works in an isolated Git worktree",
         "Replay missed events incrementally by cursor on reconnect and answer pending permissions remotely",
         "Sync completed changes back cleanly without turning your controller into a fragile file proxy"
@@ -6447,25 +6458,6 @@
             "command:dispatch_list_targets",
             "command:dispatch_probe_target",
             "command:account_list_devices"
-          ]
-        },
-        {
-          "id": "provision",
-          "titleZh": "为目标主机自动检测、安装或更新 OpenBitFun CLI 运行环境",
-          "titleEn": "Provision the target host and install or update the OpenBitFun CLI",
-          "descriptionZh": "首次向全新的 SSH 服务器派发时，可在向导中一键检测并在远端部署匹配的 CLI 执行端，省去手工登录装环境。",
-          "descriptionEn": "Preparing a fresh SSH server? Detect its environment and install or update the matching OpenBitFun CLI right from the setup flow.",
-          "control": {
-            "kind": "open",
-            "reasonCode": "unstructuredInteraction",
-            "reasonZh": "「为目标主机自动检测、安装或更新 OpenBitFun CLI 运行环境」涉及远端安装进度轮询、网络下载与中途取消控制；智能体会打开目标配置界面，由你确认并观察安装完成。",
-            "reasonEn": "\"Provision the target host and install or update the OpenBitFun CLI\" involves live remote installation polling and cancellation controls; the Agent opens the target provisioning flow so you can confirm and monitor setup."
-          },
-          "evidence": [
-            "command:dispatch_provision_target",
-            "command:dispatch_install_cli_start",
-            "command:dispatch_install_cli_poll",
-            "command:dispatch_install_cli_cancel"
           ]
         },
         {
@@ -6591,15 +6583,15 @@
         }
       ],
       "stepsZh": [
-        "确保目标机器已登录同一账号在线，或已在本地保存好可用的 SSH 连接配置",
-        "在当前 Git 项目的聊天输入框底部点击「本机」芯片打开「这个任务在哪运行」菜单（或直接对智能体说明要派发到哪台设备），选定目标与权限审批策略",
-        "发送任务提示词；目标主机会自动准备环境、同步所需模型配置并在独立 Git Worktree 中启动执行",
+        "先在 SSH 目标上安装兼容的 OpenBitFun CLI，并保存 SSH 连接。",
+        "在聊天输入框底部点击「本机」，选择 SSH 主机。要派发到同账号设备时，直接告诉智能体目标设备和任务。",
+        "发送任务后，目标主机会同步所需的模型配置，并在独立的 Git worktree 中执行任务。",
         "执行期间可随时离线；重新打开会话即可查看最新进度、批复等待中的权限，完成后一键将结果同步回本机工作区"
       ],
       "stepsEn": [
-        "Make sure your target device is signed in to the same account and online, or save an SSH connection profile first",
-        "Click the \"This computer\" chip at the bottom of the chat input to open the \"Where this task runs\" menu (or ask the agent explicitly to dispatch to a named device), and pick your target and approval policy",
-        "Submit your prompt; the target provisions its runtime if needed, syncs model settings, and starts working in a dedicated Git worktree",
+        "Install a compatible OpenBitFun CLI on the SSH target and save its SSH connection.",
+        "Select an SSH host from the This computer menu in the composer. To use a same-account device, ask the Agent to dispatch your task to that device.",
+        "Submit the task. The target syncs the required model configuration and runs the job in a dedicated Git worktree.",
         "Disconnect anytime; reopen the session later to catch up on streamed events, approve pending permissions, or sync finished changes back locally"
       ],
       "agentExamplesZh": [
@@ -9739,8 +9731,8 @@
           "id": "default-permission-posture",
           "titleZh": "在需要确认（默认）、自动审批与完全访问三种默认权限模式间切换",
           "titleEn": "Switch the default permission mode between Ask (default), Auto-approve, and Full access",
-          "descriptionZh": "“需要确认”对写入和命令执行保持人工把关；“自动审批”先由模型评估风险；“完全访问”需二次确认高风险提示，跳过常规询问但依然遵守产品底层硬性安全限制。",
-          "descriptionEn": "Ask keeps a human in the loop for writes and shell commands; Auto-approve screens calls with an AI reviewer first; Full access requires confirming a risk warning and skips routine prompts while keeping hard product safety limits intact.",
+          "descriptionZh": "“需要确认”默认放行普通工作区编辑、已识别的只读命令、任务调度和会话间消息，对其他命令、删除、敏感文件和发布操作保持人工把关；“自动审批”先由模型评估风险；“完全访问”需二次确认高风险提示，跳过常规询问但依然遵守产品底层硬性安全限制。",
+          "descriptionEn": "Ask allows ordinary workspace edits, recognized read-only commands, scheduling, and messages between sessions, while keeping other commands, deletions, sensitive files, and publishing subject to confirmation; Auto-approve screens calls with an AI reviewer first; Full access requires confirming a risk warning and skips routine prompts while keeping hard product safety limits intact.",
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
@@ -9836,12 +9828,14 @@
       "tipsZh": [
         "“自动审批”模式下，只有默认设为“自动审批”时下方的模型类型、超时与回退下拉框才可编辑；若在远程控制或手机端使用，建议将“不确定时”和“出错时”保留为“询问”，这样远端也能收到审批卡片而不会静默失败。",
         "填写专用决策模型（Jev）的 API Key 后，记得点击输入框右侧的保存图标写入主机加密凭据库；清空密钥同理点击删除图标。",
-        "即使开启“完全访问”，OpenBitFun 内置的产品级硬性安全边界依然生效；项目级规则可在具体工作区中覆盖全局规则。"
+        "即使开启“完全访问”，OpenBitFun 内置的产品级硬性安全边界依然生效；项目级规则可在具体工作区中覆盖全局规则。",
+        "命令规则选择 process.execute，并用 git clone * 这样的参数模式匹配已解析的单条命令；尾部 * 不会跨过 &&、管道或重定向。其他命令和文件访问仍分别检查；无法解析的命令继续请求确认。已有 bash 规则仍可使用。"
       ],
       "tipsEn": [
         "The Auto-approve screener, timeout, and fallback controls become editable once the default mode is set to Auto-approve; keeping both fallbacks on Ask ensures mobile or Remote Connect sessions can still approve edge cases interactively.",
         "After typing a dedicated Jev decision-model API key, click the Save icon beside the password box to store it in the host encrypted credential vault.",
-        "Even in Full access mode, hard product safety boundaries remain enforced, and project-scoped rules can still refine global defaults."
+        "Even in Full access mode, hard product safety boundaries remain enforced, and project-scoped rules can still refine global defaults.",
+        "Use process.execute with an argument pattern such as git clone * to match a parsed command. A trailing * does not span &&, pipelines, or redirections. Other commands and file accesses are checked separately; unsupported syntax still asks for approval. Existing bash rules remain usable."
       ],
       "agentExamplesZh": [
         "打开权限规则设置，我想开启自动审批",
@@ -10794,8 +10788,8 @@
       "entryPathZh": "设置 (⌘, / Ctrl+,) → 模型与智能体 → 执行与协作",
       "entryPathEn": "Settings (⌘, / Ctrl+,) → Models & Agents → Execution & Collaboration",
       "shortcut": "⌘, / Ctrl+,",
-      "summaryZh": "集中调优工具超时、向用户提问等待时间、子智能体默认模型与并发策略、按需加载工具、PTC 工具呈现、参数 JSON 修复、Deep Review 容量与 GenUI 默认组件库，并串联权限及设备控制开关。",
-      "summaryEn": "Tune tool call and user-question timeouts, subagent default models and concurrency, Load tools as needed, PTC presentation, JSON argument repair, Deep Review capacity, and the default GenUI library alongside linked permission and device controls.",
+      "summaryZh": "集中调优工具超时、向用户提问等待时间、子智能体默认模型与并发策略、按需加载工具、PTC 工具呈现、参数 JSON 修复、Deep Review 容量，并串联权限及设备控制开关。",
+      "summaryEn": "Tune tool call and user-question timeouts, subagent default models and concurrency, Load tools as needed, PTC presentation, JSON argument repair, Deep Review capacity alongside linked permission and device controls.",
       "keywordsZh": [
         "执行与协作",
         "执行控制",
@@ -10809,8 +10803,7 @@
         "子智能体默认模型",
         "并行",
         "Swarm",
-        "JSON 修复",
-        "GenUI"
+        "JSON 修复"
       ],
       "keywordsEn": [
         "execution and collaboration",
@@ -10825,21 +10818,20 @@
         "subagent default model",
         "parallel",
         "Swarm",
-        "JSON repair",
-        "GenUI"
+        "JSON repair"
       ],
       "highlightsZh": [
         "分别控制单次工具调用超时与向用户提问等待超时（默认 180 秒）",
         "为子智能体指定默认模型（继承父会话、快速/主模型、具体模型或模型池）及并发策略",
         "开启“按需加载工具”、切换 PTC TypeScript/Python 工具编排与安全 JSON 修复",
-        "调整 Deep Review 并行评审容量与新建 GenUI 应用默认组件库（默认 openui）",
+        "调整 Deep Review 并行评审容量",
         "通过统一产品控制契约联动权限切换器、浏览器启动自动连接与“允许桌面控制”开关"
       ],
       "highlightsEn": [
         "Configure per-tool call timeouts and the user-question response timeout (180s default)",
         "Pick the subagent default model (inherit parent, Fast/Primary, specific model, or pool) and batch policy",
         "Toggle Load tools as needed, PTC TypeScript/Python orchestration, and safe JSON argument repair",
-        "Tune Deep Review parallel reviewer capacity and the default GenUI component library (openui by default)",
+        "Tune Deep Review parallel reviewer capacity",
         "Coordinate linked permission-switcher, browser startup auto-connect, and Allow desktop control toggles"
       ],
       "scenariosZh": [
@@ -11047,30 +11039,6 @@
           ]
         },
         {
-          "id": "genui-library",
-          "titleZh": "选择新建生成式 UI 应用默认使用的组件库（默认 openui）",
-          "titleEn": "Select the default GenUI component library for newly generated apps (openui by default)",
-          "descriptionZh": "决定后续新生成的交互式 GenUI 应用绑定哪套组件库与视觉规范（默认为 openui），已生成的应用保持原有身份不变；设置页仅提供下拉选择，实际界面渲染位于对话或 Canvas 中。",
-          "descriptionEn": "Selects which component library and design spec newly generated GenUI apps target (openui by default) while existing apps keep their original target; this setting is a dropdown selector without an inline preview widget.",
-          "destination": {
-            "kind": "settings",
-            "pageId": "tools.execution",
-            "viewId": "advanced"
-          },
-          "control": {
-            "kind": "direct",
-            "operations": [],
-            "options": [
-              {
-                "id": "genui-library"
-              }
-            ]
-          },
-          "evidence": [
-            "source:src/web-ui/src/locales/zh-CN/settings/runtime.json#genui.title"
-          ]
-        },
-        {
           "id": "permission-mode",
           "titleZh": "选择需要确认、自动审批或完全访问权限模式并确认高风险提示",
           "titleEn": "Choose Ask, Auto-approve, or Full access permission mode and confirm high-risk warnings",
@@ -11262,23 +11230,23 @@
         "按 ⌘,（Windows / Linux 按 Ctrl+,）打开设置，进入“模型与智能体 → 执行与协作”",
         "在“工具运行”与“执行行为”区块按任务耗时设置“工具超时”与“提问超时”（默认 180 秒，设为 0 表示不限制）",
         "在“子智能体”区块选择“子智能体默认模型”，并调整普通子智能体、Swarm 的并发上限与任务并行方式（“尽量并行”或“安全并行”）",
-        "按需开启“按需加载工具”、切换“工具呈现模式”（对新会话生效）、调整 Deep Review 容量或选择新建 GenUI 应用的默认组件库"
+        "按需开启“按需加载工具”、切换“工具呈现模式”（对新会话生效）、调整 Deep Review 容量"
       ],
       "stepsEn": [
         "Press ⌘, (Ctrl+, on Windows/Linux) to open Settings, then go to Models & Agents → Execution & Collaboration",
         "Under Tool execution, adjust the per-tool timeout and user-question timeout (180s default; set 0 for no timeout)",
         "Under Subagents, pick the subagent default model and tune regular subagent concurrency, Swarm concurrency, and batch policy",
-        "Toggle Load tools as needed, tool presentation mode (applies to new sessions), Deep Review capacity, or the default GenUI component library"
+        "Toggle Load tools as needed, tool presentation mode (applies to new sessions), Deep Review capacity"
       ],
       "tipsZh": [
         "旧版“执行与权限”已拆分为三个更清晰的页面：日常运行与并发参数在本页（“模型与智能体 → 执行与协作”），审批策略与全局规则在“模型与智能体 → 权限规则”，浏览器与桌面控制则在“工具与集成 → 浏览器与桌面控制”。",
         "多个子智能体同时改写同一目录文件容易产生冲突；如果任务包含写文件，把任务并行方式切到“安全并行”可确保只有只读探索任务并发执行，写操作稳妥排队。",
-        "修改“工具呈现模式”（原生工具 / PTC）只对切换之后新建的会话生效；GenUI 组件库下拉框默认使用 openui，同样仅影响新生成的交互界面，不会改动历史会话中已有的应用。"
+        "修改“工具呈现模式”（原生工具 / PTC）只对切换之后新建的会话生效。"
       ],
       "tipsEn": [
         "Settings formerly grouped under Execution & Permissions now live in three focused places: runtime and concurrency here in Execution & Collaboration, approval policy in Models & Agents → Permission Rules, and Browser/Computer Use in Tools & Integrations → Browser & Desktop Control.",
         "If subagents will edit files in the same repository, switch the batch policy to safe-only parallelism so read-only exploration runs concurrently while file writes queue safely.",
-        "Changing Tool presentation (Native vs PTC) applies only to newly created sessions; likewise, the GenUI library dropdown defaults to openui and affects only newly generated apps."
+        "Changing Tool presentation (Native vs PTC) applies only to newly created sessions."
       ],
       "agentExamplesZh": [
         "开启按需加载工具帮我节省初始上下文",
@@ -11372,13 +11340,6 @@
           "titleEn": "Safe tool-argument JSON repair",
           "descriptionZh": "在严格安全边界内自动修复模型输出的轻微 JSON 语法瑕疵，减少因格式小错导致的调用失败。",
           "descriptionEn": "Automatically repair minor JSON syntax glitches in model tool arguments within strict safety bounds."
-        },
-        {
-          "id": "genui-library",
-          "titleZh": "默认生成式 UI 组件库",
-          "titleEn": "Default GenUI component library",
-          "descriptionZh": "指定新建交互式 GenUI 应用默认采用的组件库与设计规范（默认 openui）；已有应用保留原有目标身份。",
-          "descriptionEn": "Select the component library and bound design spec for newly generated GenUI apps (openui by default); existing apps keep their original target."
         },
         {
           "id": "subagent-model-override",
@@ -13543,10 +13504,10 @@
       "id": "feature.generative-ui",
       "kind": "feature",
       "categoryId": "automation",
-      "titleZh": "Generative UI 生成式界面",
-      "titleEn": "Generative UI",
-      "summaryZh": "当文字解释不够直观时，让智能体直接在聊天气泡里为你生成可点按、可调节的交互式小工具、数据看板、动态流程图或可视化演示卡——当场拖动滑块看结果，填写和勾选的状态还会随会话自动保存，下次打开接着用。",
-      "summaryEn": "Whenever plain text falls short, let the agent generate interactive calculators, dashboards, clickable flow diagrams, and visual explainers right inside the chat stream—adjust sliders and check items live, with your state automatically saved when you reopen the session.",
+      "titleZh": "对话可视化",
+      "titleEn": "Chat visualizations",
+      "summaryZh": "使用 visualize 技能在回复中生成交互图表、日历和性能分析视图。",
+      "summaryEn": "Use the visualize skill to explore charts, calendars, and performance traces inside an answer.",
       "keywordsZh": [
         "Generative UI",
         "GenUI",
@@ -13566,139 +13527,132 @@
         "structured app"
       ],
       "highlightsZh": [
-        "直接在对话流中生成带表单、图表、滑块、列表与分步切换的交互界面",
-        "双路径兼顾：既支持标准组件库搭建工整应用，也支持自由 HTML / CSS / SVG 绘制创意图解",
-        "交互状态随会话持久保存，勾选进度、筛选条件和录入数据重开会话后不丢失",
-        "自动适配客户端浅色 / 深色主题并在沙箱中经过真实渲染校验后才呈现给你"
+        "13 类标准图表，支持键盘读数",
+        "日历、请求瀑布、CPU 火焰图和错误堆栈",
+        "同一设备重开回复时恢复已保存的筛选与选择"
       ],
       "highlightsEn": [
-        "Render live forms, sliders, charts, checklists, and tabbed explainers directly inside your conversation",
-        "Best of both worlds: structured OpenUI component apps for clean tools plus sandboxed HTML/CSS/SVG for custom visuals",
-        "Persist your interactive state automatically so checked items, inputs, and filters survive session reloads",
-        "Automatically match your active light/dark theme and verify actual viewport rendering before delivery"
+        "Inspect 13 chart families using the keyboard",
+        "Explore calendars, request waterfalls, sampled CPU profiles, and error stacks",
+        "Restore saved filters and selections when reopening the answer on this device"
       ],
       "items": [
         {
           "id": "app-generation",
-          "titleZh": "在会话中生成基于标准组件库的可交互面板与迷你工具",
-          "titleEn": "Generate interactive component-based apps and mini tools inline in chat",
-          "descriptionZh": "使用经过设计规范打磨的表单、卡片、表格、标签页与按钮组合成结构清晰的小工具，流式生成、开箱即用。",
-          "descriptionEn": "Compose clean forms, cards, tables, tabs, and controls from trusted product components right inside your conversation.",
+          "titleZh": "生成交互图表与专用组件",
+          "titleEn": "Create interactive charts and specialist views",
+          "descriptionZh": "生成交互图表与专用组件。",
+          "descriptionEn": "Create interactive charts and specialist views.",
           "control": {
             "kind": "delegate",
             "tools": [
-              "GenerativeUI"
+              "Skill",
+              "Write"
             ],
             "workflowZh": [
-              "按当前选定的 UI 组件规范编写 OpenUI 组件描述，保持结构语义清晰并绑定该规范版本。",
-              "由宿主实际渲染组件视图、检查交互可用性，通过验收后交付给用户直接操作。"
+              "加载 visualize 技能，按组件契约编写会话产物。",
+              "在回复中插入产物链接与文字摘要。"
             ],
             "workflowEn": [
-              "Author structured OpenUI component descriptions pinned to the active UI library specification.",
-              "Verify actual host rendering and declared interactions before presenting the interactive view in chat."
+              "Load visualize and write a session artifact using its component contract.",
+              "Reference the artifact in the reply with a text summary."
             ]
           },
           "evidence": [
-            "source:src/crates/assembly/core/src/agentic/tools/implementations/generative_ui_tool.rs#GenerativeUI",
-            "source:src/web-ui/src/tools/generative-ui/GenUIApplication.tsx#GenUIApplication"
+            "source:src/web-ui/src/tools/visualize/WidgetView.tsx#WidgetView"
           ]
         },
         {
           "id": "visual-explainers",
-          "titleZh": "生成自由排版的 HTML / CSS / SVG 动态图解、示意图与信息卡片",
-          "titleEn": "Render custom HTML, CSS, and SVG diagrams, charts, and visual explainers",
-          "descriptionZh": "遇到架构图、几何演示、定制数据图等标准组件表达不了的创意画面时，在安全沙箱内自由绘制高颜值视觉文档。",
-          "descriptionEn": "When custom layouts shine—like architecture maps, animations, or bespoke charts—render sanitized HTML/CSS/SVG documents in an isolated sandbox.",
+          "titleZh": "生成静态 HTML 或 SVG 图解",
+          "titleEn": "Create static HTML or SVG illustrations",
+          "descriptionZh": "生成静态 HTML 或 SVG 图解。",
+          "descriptionEn": "Create static HTML or SVG illustrations.",
           "control": {
             "kind": "delegate",
             "tools": [
-              "GenerativeUI"
+              "Skill",
+              "Write"
             ],
             "workflowZh": [
-              "对图解或自由视觉排版场景选用受控的 HTML/CSS/SVG 文档路径，复用宿主主题色变量保证对比度。",
-              "在隔离沙箱中完成视口渲染与安全检查，确保无越权外链或布局溢出后再展示。"
+              "加载 visualize 技能，按组件契约编写会话产物。",
+              "在回复中插入产物链接与文字摘要。"
             ],
             "workflowEn": [
-              "Choose the isolated HTML/CSS/SVG document path for bespoke diagrams and visual explainers while inheriting host theme tokens.",
-              "Render inside the sandboxed frame and verify layout and safety rules before accepting the candidate."
+              "Load visualize and write a session artifact using its component contract.",
+              "Reference the artifact in the reply with a text summary."
             ]
           },
           "evidence": [
-            "source:src/web-ui/src/tools/generative-ui/GenUIHtmlDocument.tsx#GenUIHtmlDocument"
+            "source:src/web-ui/src/tools/visualize/CodexFigure.tsx#CodexFigure"
           ]
         },
         {
           "id": "interactive-state",
-          "titleZh": "实时响应点击与输入，自动保存组件状态并在重开会话后恢复",
-          "titleEn": "Interact live in chat with state persisted and restored across session reopens",
-          "descriptionZh": "你在面板里填的数字、勾掉的待办或切到的页签都会随当前会话持久保存，关掉标签页下次回来依然停在原处。",
-          "descriptionEn": "Numbers you enter, items you check off, and active tabs are saved with the session so everything is right where you left it when you return.",
+          "titleZh": "在本设备恢复筛选与选择",
+          "titleEn": "Restore filters and selections on this device",
+          "descriptionZh": "在本设备恢复筛选与选择。",
+          "descriptionEn": "Restore filters and selections on this device.",
           "control": {
             "kind": "delegate",
             "tools": [
-              "GenerativeUI"
+              "Skill",
+              "Write"
             ],
             "workflowZh": [
-              "为需要保留用户录入或勾选进度的应用声明状态字段与合理的初始默认值。",
-              "宿主在预览阶段隔离临时状态，正式接受后持久保存交互状态并在重新打开会话时恢复。"
+              "加载 visualize 技能，按组件契约编写会话产物。",
+              "在回复中插入产物链接与文字摘要。"
             ],
             "workflowEn": [
-              "Declare state fields and sensible defaults whenever user inputs, filters, or completion checks should persist.",
-              "Keep preview state disposable during generation, then persist and restore accepted interaction state across session reloads."
+              "Load visualize and write a session artifact using its component contract.",
+              "Reference the artifact in the reply with a text summary."
             ]
           },
           "evidence": [
-            "source:src/web-ui/src/tools/generative-ui/genUIInteractionState.ts#resolveGenUIInteractionState"
+            "source:src/web-ui/src/tools/visualize/VisualAnswer.tsx#readPreferences"
           ]
         },
         {
           "id": "library-verification",
-          "titleZh": "自动跟随浅色 / 深色外观，并在呈现前完成真实视口渲染验收",
-          "titleEn": "Adapt to light and dark themes automatically with real-viewport quality checks",
-          "descriptionZh": "生成结果会自动对齐客户端当前的字号与明暗配色，并在后台先走一遍布局与可读性自检，减少错位或白底刺眼问题。",
-          "descriptionEn": "Widgets inherit OpenBitFun’s live light/dark tokens and pass automated viewport and contrast checks before landing in your chat.",
+          "titleZh": "校验组件数据并使用会话主题呈现",
+          "titleEn": "Validate component data and render with the chat theme",
+          "descriptionZh": "校验组件数据并使用会话主题呈现。",
+          "descriptionEn": "Validate component data and render with the chat theme.",
           "control": {
             "kind": "delegate",
             "tools": [
-              "GenerativeUI"
+              "Skill",
+              "Write"
             ],
             "workflowZh": [
-              "按当前激活的组件库版本解析渲染适配器，自动接入客户端明暗主题语义令牌。",
-              "在目标视口执行真实渲染探测与需求复核，发现异常时在交付前修正。"
+              "加载 visualize 技能，按组件契约编写会话产物。",
+              "在回复中插入产物链接与文字摘要。"
             ],
             "workflowEn": [
-              "Resolve the pinned library adapter and bind live host light/dark design tokens automatically.",
-              "Run target-viewport render probes and requirement checks so broken layouts are repaired before delivery."
+              "Load visualize and write a session artifact using its component contract.",
+              "Reference the artifact in the reply with a text summary."
             ]
           },
           "evidence": [
-            "source:src/web-ui/src/tools/generative-ui/genUILibraryRegistry.ts#resolveGenUILibraryForApp"
+            "source:src/web-ui/src/tools/visualize/document.ts#parseVisualDocument"
           ]
         }
       ],
       "stepsZh": [
-        "打开任意 AI 会话（Standard、Ultimate、Creative、Cowork 或助理模式均可）",
-        "用自然语言直接描述你想要的界面或可视化效果，例如“做一个可调利率和年限的还款对比看板”或“用可点击切换的图解讲清这段架构”",
-        "智能体生成并完成渲染自检后，直接在会话内点击按钮、拖动滑块、切换视图或录入内容，状态会自动保存",
-        "想加图表、改布局或增加导出项？直接在下一句对话里提要求，智能体会接着迭代升级它"
+        "说明要查看的数据、单位与交互。",
+        "在回复中选择数据或切换视图。"
       ],
       "stepsEn": [
-        "Open any AI session (available across Standard, Ultimate, Creative, Cowork, and Assistant modes)",
-        "Describe what you want to see or interact with—for example, \"Build an interactive loan comparison calculator\" or \"Explain this architecture with a clickable diagram\"",
-        "Interact with buttons, sliders, tabs, and inputs right inside the conversation; your state saves automatically",
-        "Want another chart or filter? Just ask in a follow-up message and the agent will refine the interface in place"
+        "Describe the data, units, and interaction.",
+        "Inspect data or change views in the reply."
       ],
       "agentExamplesZh": [
-        "帮我生成一个带预算上限设置和分类占比图的月度记账面板",
-        "做一个可交互演示卡片，分步展示 OAuth PKCE 授权码流程里每一步发了什么请求",
-        "把这份调研数据做成一个支持按维度筛选和收藏对比的交互式选型表",
-        "生成一个今日专注计划卡，支持勾选完成状态和添加备注"
+        "用请求瀑布显示这些跨度，包括每个跨度的自身耗时。",
+        "把这三个月的销量按产品画成百分比堆叠图。"
       ],
       "agentExamplesEn": [
-        "Generate a saveable monthly budget tracker with a spending limit slider and category breakdown",
-        "Build an interactive step-by-step visual explainer showing how the OAuth PKCE flow works",
-        "Turn these benchmark numbers into a filterable comparison dashboard",
-        "Create a daily focus planner widget with completion checkboxes and notes"
+        "Show these request spans with their self time.",
+        "Compare the product mix over these three months with a normalized stacked chart."
       ],
       "destination": {
         "kind": "scene",
@@ -13707,32 +13661,27 @@
       "operations": [],
       "directoryGroupId": "creative-companion",
       "order": 61,
-      "entryPathZh": "在任意 AI 会话中直接用自然语言描述你想看的交互界面或图解（默认组件库可在「设置 → 模型与智能体 → 执行与协作」选择）",
-      "entryPathEn": "Ask in any AI session for an interactive widget, chart, or visual explainer (default component library lives in Settings → Models & Agents → Execution & Collaboration)",
+      "entryPathZh": "在启用 visualize 的会话中描述要查看的数据与交互。",
+      "entryPathEn": "Describe the data and interaction in a chat with visualize enabled.",
       "scenariosZh": [
-        "学习或排查一段复杂的并发算法、状态机或网络握手流程时，让 AI 画一个“点一步走一步”的交互式动态图解",
-        "对比云服务成本、房贷方案或接口压测指标时，直接生成带参数滑块与实时汇总图表的测算器，边拖边看变化",
-        "规划冲刺排期、旅行清单或读书笔记时，在对话里生成一张可勾选完成状态、可收藏筛选的交互面板"
+        "对比接口响应时间，检查最耗时的请求。",
+        "浏览排期并选择某个事件查看详情。"
       ],
       "scenariosEn": [
-        "Ask for a step-by-step interactive diagram to walk through a tricky state machine, auth handshake, or algorithm visually",
-        "Spin up an inline cost calculator or performance dashboard with live sliders and summary charts to test assumptions on the spot",
-        "Create a saveable daily planner, reading tracker, or release checklist right inside the thread and check items off as you go"
+        "Compare latency and inspect a slow request.",
+        "Browse a schedule and select an event for details."
       ],
       "tipsZh": [
-        "Generative UI 和 Mini Apps 怎么选？随聊随看、紧贴当前上下文的测算板和原理图解用 **Generative UI** 最轻便；想做成脱离当前对话、常驻首页或侧边栏随时打开的独立工具，就让 AI 做成 **Mini App**。",
-        "安全沙箱渲染：对话中生成的自由 HTML / SVG 界面运行在受限隔离环境中，无法读取你的本机密钥或任意系统文件，交互放心无忧。",
-        "切换默认组件风格：如果你想查看或切换新生成界面默认采用的组件规范（默认 `openui`），可前往「设置 → 模型与智能体 → 执行与协作」。"
+        "追问会填入当前会话的输入框，可编辑后发送。",
+        "纯文本客户端显示图表摘要。"
       ],
       "tipsEn": [
-        "Generative UI vs Mini Apps: use Generative UI for fast, in-context explainers and calculators inside a chat; ask for a Mini App when you want a standalone tool you can launch anytime from Home or the sidebar.",
-        "Sandboxed by design: custom HTML/CSS/SVG visuals run in an isolated opaque-origin frame with no access to your credentials, Tauri APIs, or local filesystem.",
-        "Component library setting: you can check or change the default GenUI component library (defaults to `openui`) in Settings → Models & Agents → Execution & Collaboration."
+        "A follow-up fills the current composer for review.",
+        "Text-only clients show the authored summary."
       ],
       "relatedIds": [
         "feature.ai-assistant",
-        "feature.miniapps",
-        "setting.tools.execution"
+        "feature.miniapps"
       ]
     }
   ],
@@ -13772,9 +13721,6 @@
     "shell": "feature.terminal"
   },
   "implementationOwners": {
-    "generative_ui": {
-      "capabilityId": "feature.generative-ui"
-    },
     "commands": {
       "capabilityId": "feature.projects"
     },

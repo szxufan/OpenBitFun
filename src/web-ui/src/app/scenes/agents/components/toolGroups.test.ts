@@ -27,7 +27,6 @@ const tools: GroupableTool[] = [
   { name: 'analyze_image', description: 'Analyze an image', is_readonly: true },
   { name: 'view_image', description: 'View an image', is_readonly: true },
   { name: 'AskUserQuestion', description: 'Ask the user a question', is_readonly: true },
-  { name: 'GenerativeUI', description: 'Generate an interface', is_readonly: false },
   { name: 'ComputerUse', description: 'Control a computer', is_readonly: false },
   { name: 'ControlHub', description: 'Use a control hub', is_readonly: false },
   { name: 'Playbook', description: 'Run a playbook', is_readonly: false },
@@ -62,7 +61,7 @@ describe('tool groups', () => {
     expect(groups.find((group) => group.id === 'builtin:image-understanding')?.tools.map((tool) => tool.name))
       .toEqual(['analyze_image', 'view_image']);
     expect(groups.find((group) => group.id === 'builtin:interactive-ui')?.tools.map((tool) => tool.name))
-      .toEqual(['AskUserQuestion', 'GenerativeUI']);
+      .toEqual(['AskUserQuestion']);
     expect(groups.find((group) => group.id === 'builtin:computer-automation')?.tools.map((tool) => tool.name))
       .toEqual(['ComputerUse', 'ControlHub', 'Playbook']);
   });

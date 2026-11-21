@@ -55,7 +55,6 @@ impl CoworkMode {
                 "PortForward".to_string(),
                 "WebSearch".to_string(),
                 "WebFetch".to_string(),
-                "GenerativeUI".to_string(),
                 "ControlHub".to_string(),
                 "ComputerUse".to_string(),
                 // Recurring office work ("check these channels every 30

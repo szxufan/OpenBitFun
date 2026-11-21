@@ -71,7 +71,7 @@ const flowGroupViews = {
       data-openbitfun-component="interface-observation-group" data-openbitfun-part="root" data-testid="chat-interface-observation-group" />,
     Item: props => <div {...props} data-openbitfun-component="interface-observation-group" data-openbitfun-part="item" />,
   },
-} satisfies Record<FlowGroupCategory, FlowGroupView>;
+} satisfies Record<Exclude<FlowGroupCategory, 'visualize'>, FlowGroupView>;
 
 export const FlowGroupRenderer: React.FC<FlowGroupRendererProps> = React.memo(({
   data,
@@ -84,7 +84,7 @@ export const FlowGroupRenderer: React.FC<FlowGroupRendererProps> = React.memo(({
   const { t, formatNumber } = useI18n('flow-chat');
   const category = getFlowGroupCategory(data);
   const policy = flowGroupPolicies[category];
-  const view = flowGroupViews[category];
+  const view = flowGroupViews[category === 'visualize' ? 'explore' : category];
 
   const {
     onGroupToggle,

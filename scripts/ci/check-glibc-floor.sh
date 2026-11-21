@@ -36,15 +36,17 @@ if ! command -v readelf >/dev/null 2>&1; then
   exit 2
 fi
 
-# Highest GLIBC_x.y this binary asks for; empty when it needs none.
-# The trailing `|| true` matters: `grep` exits non-zero when a binary has no
-# versioned glibc symbols at all (a static build), and under `set -e` that
-# would abort the whole run at the command substitution below.
+# Read version requirements only. A shared library can also define symbols.
 max_required_glibc() {
-  readelf -V "$1" 2>/dev/null |
-    grep -oE 'GLIBC_[0-9]+\.[0-9]+' |
-    sort -u -V |
-    tail -n 1 || true
+  LC_ALL=C readelf --version-info --wide "$1" |
+    awk '
+      /^Version .* section / { needs = /^Version needs section / }
+      needs && match($0, /Name: GLIBC_[0-9]+\.[0-9]+(\.[0-9]+)?/) {
+        print substr($0, RSTART + length("Name: "), RLENGTH - length("Name: "))
+      }
+    ' |
+    LC_ALL=C sort -u -V |
+    tail -n 1
 }
 
 status=0
@@ -54,7 +56,11 @@ for bin in "$@"; do
     status=1
     continue
   fi
-  required="$(max_required_glibc "$bin")"
+  if ! required="$(max_required_glibc "$bin")"; then
+    echo "ERROR: could not read ELF version information from $bin" >&2
+    status=1
+    continue
+  fi
   if [ -z "$required" ]; then
     echo "ok    $(basename "$bin"): no versioned glibc requirement"
     continue
@@ -63,24 +69,11 @@ for bin in "$@"; do
   # sort -V puts the larger version last: if that is not MAX, MAX was exceeded.
   highest="$(printf '%s\n%s\n' "$MAX" "$required" | sort -V | tail -n 1)"
   if [ "$highest" != "$MAX" ]; then
-    echo "FAIL  $(basename "$bin"): requires glibc $required, above the $MAX floor" >&2
+    echo "FAIL  $bin: requires glibc $required, above the $MAX floor" >&2
     status=1
   else
     echo "ok    $(basename "$bin"): requires glibc $required (floor $MAX)"
   fi
 done
 
-if [ "$status" -ne 0 ]; then
-  cat >&2 <<EOF
-
-The binary needs a newer glibc than this release promises, so it cannot run on
-older distributions or in the relay deploy runtime image.
-
-Fix one of these, deliberately:
-  - Build on an older runner image (this is what keeps the floor low), or
-  - raise the declared floor here AND in the relay runtime base image
-    (src/apps/relay-server/release-download.sh), remembering that already
-    published archives keep whatever floor they were built with.
-EOF
-fi
 exit "$status"

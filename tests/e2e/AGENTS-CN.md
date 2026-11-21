@@ -38,6 +38,15 @@ pnpm --dir tests/e2e exec wdio run ./config/wdio.conf.ts --spec "./specs/<file>.
 
 优先运行最窄的相关 spec，必要时再扩大范围。
 
+验证 ACP 队列恢复时，先完成 Desktop 和生产前端构建，再运行
+`node tests/e2e/scripts/run-acp-queue-recovery.mjs`。该 macOS 原生脚本使用隔离配置、
+真实 stdio 连接的可控 ACP 子进程、产品控件及只读单例诊断，覆盖后台刷新恢复、
+会话切换、运行中元数据读取和实时更新、模型变更快照、ACP 立即发送队列提升、
+延迟取消、提交去重、协议报错和子进程退出重连。ACP 立即发送将消息移到队首、
+等待当前请求结束后执行，不向外部 Agent 注入原生 steering。在输出的临时目录保留
+`acp-queue-recovery.json`、事件日志及截图；前端、二进制和字体配置覆盖参数与其他
+原生负载脚本一致。该测试仅覆盖本地 Desktop，不证明真实模型服务或四种远程场景。
+
 静态/流式长会话性能矩阵的负载与指标定义见 [README.zh-CN.md](README.zh-CN.md)。
 构建桌面端和生产前端后运行 `pnpm --dir tests/e2e run test:perf:long-session`，
 隔离测试首次打开、重复切换、双向连续滚轮输入及轮次栏远距离跳转。

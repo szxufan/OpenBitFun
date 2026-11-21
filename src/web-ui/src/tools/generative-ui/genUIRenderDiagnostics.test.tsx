@@ -8,9 +8,9 @@ import { isFatalGenUIError, isRepairWorthyGenUIError } from './genUIRenderDiagno
 import GenUIApplication from './GenUIApplication';
 
 const documentPort = vi.hoisted(() => ({ onError: undefined as undefined | ((errors: GenUIRenderDiagnostic[]) => void) }));
-vi.mock('./GenUISourceDocument', () => ({ default: (props: { onError: (errors: GenUIRenderDiagnostic[]) => void; readOnly: boolean }) => {
+vi.mock('./genUIOpenUI', () => ({ default: (props: { onError: (errors: GenUIRenderDiagnostic[]) => void }) => {
   documentPort.onError = props.onError;
-  return <button disabled={props.readOnly}>Working control</button>;
+  return <span>Recorded content</span>;
 } }));
 const app: GenUIAppDefinition = {
   schemaVersion: 2, id: 'errors', title: 'Errors', template: 'openbitfun.app',
@@ -29,7 +29,7 @@ describe('GenUI rendering diagnostics', () => {
     { source: 'mutation', code: 'tool-error', message: 'Mutation failed' },
     { source: 'parser', code: 'unresolved-reference', message: 'Missing definition', statementId: 'missing' },
     { source: 'parser', code: 'missing-required', message: 'Component was removed' },
-  ])('keeps controls usable for $source/$code and clears resolved diagnostics', async diagnostic => {
+  ])('keeps the record visible for $source/$code and clears resolved diagnostics', async diagnostic => {
     const container = document.createElement('div');
     const root = createRoot(container);
     const reports = vi.fn();
@@ -37,14 +37,14 @@ describe('GenUI rendering diagnostics', () => {
       await act(async () => root.render(<GenUIApplication definition={app} onVerification={reports} />));
       await act(async () => documentPort.onError?.([diagnostic]));
       expect(reports.mock.lastCall?.[0]).toMatchObject({ render: 'passed', diagnostics: [diagnostic] });
-      expect(container.querySelector('button')?.disabled).toBe(false);
+      expect(container.textContent).toContain('Recorded content');
       expect(container.querySelector('[role="alert"]')).toBeNull();
       await act(async () => documentPort.onError?.([]));
       expect(reports.mock.lastCall?.[0]).toMatchObject({ render: 'passed', diagnostics: [], issues: [] });
     } finally { await act(async () => root.unmount()); }
   });
 
-  it.each(['parse-failed', 'parse-incomplete'] as const)('locks only completed %s failures and unlocks on an empty error report', async code => {
+  it.each(['parse-failed', 'parse-incomplete'] as const)('reports completed %s failures and recovers on an empty diagnostic report', async code => {
     const container = document.createElement('div');
     const root = createRoot(container);
     const reports = vi.fn();
@@ -52,13 +52,13 @@ describe('GenUI rendering diagnostics', () => {
       await act(async () => root.render(<GenUIApplication definition={app} streaming onVerification={reports} />));
       await act(async () => documentPort.onError?.([{ ...fatal, code }]));
       expect(reports.mock.lastCall?.[0].render).toBe('unverified');
-      expect(container.querySelector('button')?.disabled).toBe(false);
+      expect(container.textContent).toContain('Recorded content');
       await act(async () => root.render(<GenUIApplication definition={app} onVerification={reports} />));
       expect(reports.mock.lastCall?.[0].render).toBe('failed');
-      expect(container.querySelector('button')?.disabled).toBe(true);
+      expect(container.querySelector('[data-gen-ui-postcheck="failed"]')).not.toBeNull();
       await act(async () => documentPort.onError?.([]));
       expect(reports.mock.lastCall?.[0].render).toBe('passed');
-      expect(container.querySelector('button')?.disabled).toBe(false);
+      expect(container.textContent).toContain('Recorded content');
     } finally { await act(async () => root.unmount()); }
     expect(isFatalGenUIError({ ...fatal, code: 'parse-exception' })).toBe(true);
     expect(isFatalGenUIError({ ...fatal, severity: 'warning' })).toBe(false);

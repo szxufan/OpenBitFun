@@ -1,0 +1,37 @@
+{
+  "land": {
+    "url": "https://cdn.jsdelivr.net/npm/@d3-maps/atlas@1.0.0/dist/world/land/land-10m.json",
+    "sha256": "20f1f80f968f065eff29d4ac071824b45b8784f3b61162f25c54dcae79c49658",
+    "packagedSha256": "20f1f80f968f065eff29d4ac071824b45b8784f3b61162f25c54dcae79c49658"
+  },
+  "rivers": {
+    "url": "https://cdn.jsdelivr.net/npm/@d3-maps/atlas@1.0.0/dist/world/rivers/rivers-10m.json",
+    "sha256": "64ef514d1161651ec005181d855647aed3852f9dfb7fb0bdea917d8e1c5c52e3",
+    "packagedSha256": "64ef514d1161651ec005181d855647aed3852f9dfb7fb0bdea917d8e1c5c52e3"
+  },
+  "lakes": {
+    "url": "https://cdn.jsdelivr.net/npm/@d3-maps/atlas@1.0.0/dist/world/lakes/lakes-10m.json",
+    "sha256": "dbbc6a3d0ccaf2748913e4a4287c0c56b853545998860f661c28572e187ceefe",
+    "packagedSha256": "dbbc6a3d0ccaf2748913e4a4287c0c56b853545998860f661c28572e187ceefe"
+  },
+  "places": {
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/f1890d9f152c896d250a77557a5751a93d494776/geojson/ne_10m_populated_places.geojson",
+    "sha256": "9b8e3de09048ef00dfc70357dbb9fa324493f214b5e0ae4daf1aa79a8d10116b",
+    "packagedSha256": "d12aeead079279413b66a159de328ba94ea15734fd253d91dd62f017b9694698"
+  },
+  "borders": {
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/f1890d9f152c896d250a77557a5751a93d494776/geojson/ne_50m_admin_1_states_provinces_lines.geojson",
+    "sha256": "72cca93c850d412628a5da4bc5ebfe21ba4d376eb34611bde6b623ee73f0fdcf",
+    "packagedSha256": "ad93cf3f79d214e4f5107b57ba49243d6c1ae89df3e17e74cb28fe5c7e4fac56"
+  },
+  "provinces": {
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/f1890d9f152c896d250a77557a5751a93d494776/geojson/ne_50m_admin_1_states_provinces.geojson",
+    "sha256": "69a0e06e640b2d505858ae1cb63034e4677f3000b35a98e16312932b98c426b9",
+    "packagedSha256": "632a9f7f955331b5b9a13d99a3dd1bcf4638b3c8b117bf6b45c9243fdb0b9c0c"
+  },
+  "seas": {
+    "url": "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/f1890d9f152c896d250a77557a5751a93d494776/geojson/ne_10m_geography_marine_polys.geojson",
+    "sha256": "53f865e8ffa966cdd402145c82c5cd14ee7ce974cd0eb9a3f59f03a4cfd2d66c",
+    "packagedSha256": "700331b58dbcc489ab82e1bc772428099932400c78c0e297c30b04d9c99f0f0f"
+  }
+}

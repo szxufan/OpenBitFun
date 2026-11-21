@@ -2,7 +2,7 @@
 
 use crate::agentic::coordination::get_global_coordinator;
 use crate::agentic::goal_mode::user_facing_thread_goal_error;
-use crate::agentic::tools::framework::{Tool, ToolResult, ToolUseContext};
+use crate::agentic::tools::framework::{PermissionIntent, Tool, ToolResult, ToolUseContext};
 use crate::service_agent_runtime::CoreServiceAgentRuntime;
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use async_trait::async_trait;
@@ -130,6 +130,20 @@ impl Tool for GetGoalTool {
         true
     }
 
+    fn permission_intents(
+        &self,
+        _input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        Ok(vec![PermissionIntent::new(
+            "goal.read",
+            vec![format!(
+                "session:{}",
+                context.session_id.as_deref().unwrap_or("current")
+            )],
+        )])
+    }
+
     async fn call_impl(
         &self,
         _input: &Value,
@@ -220,6 +234,20 @@ Set token_budget only when an explicit token budget is requested. Fails if a goa
         thread_goal_output_schema()
     }
 
+    fn permission_intents(
+        &self,
+        _input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        Ok(vec![PermissionIntent::new(
+            "goal.create",
+            vec![format!(
+                "session:{}",
+                context.session_id.as_deref().unwrap_or("current")
+            )],
+        )])
+    }
+
     async fn call_impl(
         &self,
         input: &Value,
@@ -299,6 +327,20 @@ After an explicit resume, begin a fresh blocked audit. Do not repeat failed side
 
     fn output_schema(&self) -> Value {
         thread_goal_output_schema()
+    }
+
+    fn permission_intents(
+        &self,
+        _input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        Ok(vec![PermissionIntent::new(
+            "goal.update",
+            vec![format!(
+                "session:{}",
+                context.session_id.as_deref().unwrap_or("current")
+            )],
+        )])
     }
 
     async fn call_impl(

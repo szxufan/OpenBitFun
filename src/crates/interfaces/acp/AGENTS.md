@@ -47,6 +47,7 @@ cargo check -p openbitfun-acp --no-default-features --features server
 cargo test -p openbitfun-acp
 cargo test -p openbitfun-acp --no-default-features --features client,openbitfun-core/git --lib client::prompt::tests
 cargo test -p openbitfun-acp --no-default-features --features client,openbitfun-core/git --lib client::session_options::tests
+cargo test -p openbitfun-acp --no-default-features --features client,openbitfun-core/git --lib client::execution::tests
 ```
 
 The focused client prompt tests cover protocol errors, retry, cancellation,
@@ -57,3 +58,17 @@ closure without enabling the server role or `product-full`.
 
 The session-options tests cover legacy payload round trips and the additive
 combined metadata response. They do not establish live Agent startup latency.
+
+For metadata concurrency, run
+`cargo test -p openbitfun-acp --no-default-features --features client,openbitfun-core/git --lib client::manager::tests::metadata_`.
+The protocol receiver remains serialized. A session-scoped watch snapshot serves
+reads while a prompt or mutation owns it; cold readers wait for publication or
+initialization-lock release. Publish after model/config changes and stream metadata
+updates. Idle readers still drain pending notifications. Recreated connections
+must not reuse an old snapshot. Do not solve this by adding a second stream reader.
+
+The execution tests cover prompt admission receipts, turn-bound cancellation,
+and coherent live/replay cursors. The ACP owner records execution events before
+the host publishes them and reads execution snapshots without the long-held
+protocol session mutex. Desktop injects its existing session event journal;
+the additive `executionProjection: "acp"` restore marker identifies that authority.

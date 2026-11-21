@@ -54,17 +54,15 @@ pub use agent_control::{
 #[cfg(all(feature = "agent-runtime", feature = "ssh-remote"))]
 pub use controller::{
     answer as answer_dispatch, append as append_dispatch, cancel as cancel_dispatch,
-    continue_job as continue_dispatch_job, install_cli_cancel as cancel_dispatch_cli_install,
-    install_cli_poll as poll_dispatch_cli_install, install_cli_start as start_dispatch_cli_install,
-    list_jobs as list_dispatch_jobs, list_targets as list_dispatch_targets,
-    probe_target as probe_dispatch_target, query_job as query_dispatch_job,
-    status as get_dispatch_status, submit as submit_dispatch,
+    continue_job as continue_dispatch_job, list_jobs as list_dispatch_jobs,
+    list_targets as list_dispatch_targets, probe_target as probe_dispatch_target,
+    query_job as query_dispatch_job, status as get_dispatch_status, submit as submit_dispatch,
     sync_model_config as sync_dispatch_model_config, sync_result as sync_dispatch_result,
     DispatchAnswerRequest, DispatchAppendRequest, DispatchConnectionRequest,
-    DispatchContinueRequest, DispatchInstallPollRequest, DispatchInstallStartRequest,
-    DispatchJobRequest, DispatchListJobsRequest, DispatchListTargetsRequest,
-    DispatchPermissionReplyKind, DispatchProbeTargetRequest, DispatchQueryJobRequest,
-    DispatchStatusRequest, DispatchSubmitRequest, DispatchSyncResultRequest, DispatchTargetOption,
+    DispatchContinueRequest, DispatchJobRequest, DispatchListJobsRequest,
+    DispatchListTargetsRequest, DispatchPermissionReplyKind, DispatchProbeTargetRequest,
+    DispatchQueryJobRequest, DispatchStatusRequest, DispatchSubmitRequest,
+    DispatchSyncResultRequest, DispatchTargetOption,
 };
 #[cfg(all(feature = "agent-runtime", feature = "ssh-remote"))]
 pub use device_controller::{
@@ -74,10 +72,6 @@ pub use device_controller::{
     query_device_job as query_device_dispatch_job, status_device as get_device_dispatch_status,
     submit_device as submit_device_dispatch, sync_device_result as sync_device_dispatch_result,
     DeviceDispatchRpc,
-};
-pub use openbitfun_services_core::dispatch_contract::{
-    DispatchAccountDaemonIdentity, DispatchAccountDaemonProvisionRequest,
-    DISPATCH_ACCOUNT_DAEMON_PROVISIONING_SCHEMA_VERSION,
 };
 pub use status_error::{
     classify_target_status_error, is_target_job_not_found_message, DispatchJobNotFoundOnTarget,

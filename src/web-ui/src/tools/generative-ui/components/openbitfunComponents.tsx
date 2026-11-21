@@ -15,7 +15,8 @@ import {
   type IconName,
 } from '@openbitfun/ui';
 import { useState, type ReactNode } from 'react';
-import type { GenUIComponentImplementation, GenUIImplementations } from '../genUILibrary';
+import { define } from './oiComponentHelpers';
+import type { GenUIImplementations } from '../genUILibrary';
 
 const text = (value: unknown) => value == null ? '' : String(value);
 
@@ -63,30 +64,9 @@ const cardPadding = (value: unknown): 'none' | 'sm' | 'md' => {
   return numeric <= 2 ? 'sm' : 'md';
 };
 
-const exerciseButton = (element: HTMLElement, event: string) => {
-  if (event !== 'click') throw new Error('OpenBitFun button event is unavailable');
-  element.querySelector<HTMLButtonElement>('button')?.click();
-};
-
-const exerciseInput = (selector: string, element: HTMLElement, event: string, value: unknown) => {
-  if (event !== 'change') throw new Error('OpenBitFun input event is unavailable');
-  const input = element.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
-  if (!input || input.disabled) throw new Error('OpenBitFun input is unavailable');
-  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set;
-  setter?.call(input, text(value));
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-};
-
 const withField = (label: unknown, control: ReactNode): ReactNode => (
   label ? <Field label={text(label)} orientation="vertical" controlWidth="fill">{control as JSX.Element}</Field> : control
 );
-
-const define = (render: GenUIComponentImplementation['render'], exercise?: GenUIComponentImplementation['exercise']): GenUIComponentImplementation => ({
-  render,
-  inspect: () => true,
-  ...(exercise ? { exercise } : {}),
-});
 
 /**
  * OpenBitFun's product controls are deliberately an adapter layer. OpenUI Lang
@@ -117,7 +97,7 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
     >
       {text(view.props.label)}
     </Button>
-  ), exerciseButton),
+  )),
   IconButton: define(({ view, emit, disabled, isStreaming }) => (
     <IconButton
       aria-label={text(view.props.label || view.props.icon)}
@@ -128,7 +108,7 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
       data-openbitfun-genui="icon-button"
       onClick={() => emit('click')}
     />
-  ), exerciseButton),
+  )),
   Pressable: define(({ view, slots, emit, disabled, isStreaming }) => (
     <ActionCard
       selected={view.props.selected === true}
@@ -137,7 +117,7 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
       onClick={() => emit('click')}
       body={slots.children}
     />
-  ), exerciseButton),
+  )),
   Input: define(({ view, emit, disabled }) => {
     const numeric = view.props.type === 'number';
     const [draft, setDraft] = useState<string | null>(null);
@@ -165,7 +145,7 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
       />
     );
     return withField(view.props.label, control);
-  }, (element, event, value) => exerciseInput('input', element, event, value)),
+  }),
   TextArea: define(({ view, emit, disabled }) => {
     const control = (
       <Textarea
@@ -180,7 +160,7 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
       />
     );
     return withField(view.props.label, control);
-  }, (element, event, value) => exerciseInput('textarea', element, event, value)),
+  }),
   Select: define(({ view, emit, disabled }) => {
     const controlOptions = options(view.props.options).map(option => ({ value: option.value, label: option.label }));
     const control = (
@@ -195,7 +175,7 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
       />
     );
     return withField(view.props.label, control);
-  }, (element, event, value) => exerciseInput('select', element, event, value)),
+  }),
   SegmentedControl: define(({ view, emit, disabled }) => (
     <SegmentedControl
       options={options(view.props.options).map(option => ({ value: option.value, label: option.label }))}
@@ -206,11 +186,7 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
       data-openbitfun-genui="segmented-control"
       onValueChange={value => emit('change', value)}
     />
-  ), (element, event, value) => {
-    if (event !== 'change') throw new Error('OpenBitFun segmented control event is unavailable');
-    const button = Array.from(element.querySelectorAll<HTMLButtonElement>('[data-openbitfun-value]')).find(candidate => candidate.getAttribute('data-openbitfun-value') === text(value));
-    button?.click();
-  }),
+  )),
   Checkbox: define(({ view, emit, disabled }) => (
     <Checkbox
       checked={view.props.checked === true}
@@ -219,11 +195,7 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
       data-openbitfun-genui="checkbox"
       onCheckedChange={checked => emit('change', checked)}
     />
-  ), (element, event, value) => {
-    if (event !== 'change') throw new Error('OpenBitFun checkbox event is unavailable');
-    const input = element.querySelector<HTMLInputElement>('input[type="checkbox"]');
-    if (!input || input.checked !== Boolean(value)) input?.click();
-  }),
+  )),
   DatePicker: define(({ view, emit, disabled }) => {
     const control = (
       <Input
@@ -238,7 +210,7 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
       />
     );
     return withField(view.props.label, control);
-  }, (element, event, value) => exerciseInput('input[type="date"]', element, event, value)),
+  }),
   RadioGroup: define(({ view, emit, disabled }) => {
     const name = `openbitfun-radio-${view.key}`;
     return (
@@ -258,10 +230,6 @@ export const openbitfunComponents: GenUIImplementations['components'] = {
         ))}
       </fieldset>
     );
-  }, (element, event, value) => {
-    if (event !== 'change') throw new Error('OpenBitFun radio group event is unavailable');
-    const input = Array.from(element.querySelectorAll<HTMLInputElement>('input[type="radio"]')).find(candidate => candidate.value === text(value));
-    input?.click();
   }),
 };
 

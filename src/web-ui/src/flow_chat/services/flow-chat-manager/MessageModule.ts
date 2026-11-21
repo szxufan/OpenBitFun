@@ -56,7 +56,7 @@ import {
 } from '../submittedMessagePresentation';
 import { finishSubmittedMessageScrollIntent, peekSubmittedMessageScrollIntent } from '../submittedMessageScrollIntent';
 import { FLOWCHAT_MESSAGE_SUBMITTED_EVENT } from '../../events/flowchatNavigation';
-import { forkChatSession } from './SessionModule';
+import { forkChatSession, prewarmHistoricalSession } from './SessionModule';
 import { viewedExternalForkTurn } from '../../utils/externalHistory';
 import {
   confirmUncertainPeerSubmission,
@@ -965,6 +965,14 @@ export async function drainPendingQueue(
   if (hostQueueSupported(sessionId) && !options?.allowInterruptedRecoveryAbandon) return;
   const scope = getActiveSurfaceScope();
   const session = context.flowChatStore.getState().sessions.get(sessionId);
+  // Restored ACP queues may wake before history/execution hydration. An idle
+  // default machine is not evidence that the host's previous prompt ended.
+  if (!session) return;
+  if (isAcpFlowSession(session)
+    && (session.isHistorical || !['ready', 'new'].includes(session.historyState ?? ''))) {
+    if (session.historyState === 'metadata-only') prewarmHistoricalSession(context, sessionId);
+    return;
+  }
   // Peer content/terminal facts are owned by the canonical subscriber, not
   // the independent direct-event cursor repaired by local Runtime attach.
   const peerReady = !isLocalSurface(scope.surfaceId) && session?.historyState === 'ready';
@@ -1107,10 +1115,13 @@ export function installPendingQueueDrainListener(context: FlowChatContext): void
   // Recovery can confirm an already-idle session without another state-machine
   // transition. Wake its queue when history becomes trustworthy again.
   context.flowChatStore.subscribeSelector(
-    state => isLocalSurface(getActiveSurfaceId()) ? [] : [...state.sessions.values()]
-      .filter(session => session.historyState === 'ready' && pendingQueueManager.list(session.sessionId).length > 0)
-      .map(session => session.sessionId),
-    sessionIds => sessionIds.forEach(schedulePendingQueueDrain),
-    { isEqual: (a, b) => a.length === b.length && a.every((id, index) => id === b[index]) },
+    state => [...state.sessions.values()]
+      .filter(session => (isLocalSurface(getActiveSurfaceId())
+        ? isAcpFlowSession(session) : session.historyState === 'ready')
+        && pendingQueueManager.list(session.sessionId).length > 0)
+      .map(session => ({ id: session.sessionId, history: session.historyState, historical: session.isHistorical })),
+    sessions => sessions.forEach(session => schedulePendingQueueDrain(session.id)),
+    { isEqual: (a, b) => a.length === b.length && a.every((item, index) =>
+      item.id === b[index]?.id && item.history === b[index]?.history && item.historical === b[index]?.historical) },
   );
 }

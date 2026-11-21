@@ -22,6 +22,7 @@ struct PluginHostToolRoute {
     generation_key: String,
     revision: String,
     registration_id: String,
+    contributor_key: String,
     description: String,
     parameters: Value,
     allowed_runtime_agent_keys: BTreeSet<String>,
@@ -171,6 +172,10 @@ impl Tool for PluginHostToolMux {
         self.route_for(context)
             .map(|r| r.parameters)
             .unwrap_or_else(|| serde_json::json!({"type":"object"}))
+    }
+    fn deferred_spec_route_id(&self, context: &ToolUseContext) -> Option<String> {
+        self.route_for(Some(context))
+            .map(|route| route.contributor_key)
     }
     fn dynamic_provider_id(&self) -> Option<&str> {
         Some("opencode-plugin")
@@ -566,12 +571,13 @@ pub(crate) async fn register_workspace_tool(
     generation_key: &str,
     revision: &str,
     registration_id: &str,
-    id: &str,
+    tool_ref: &openbitfun_product_domains::plugin_capabilities::PluginToolRef,
     description: &str,
     parameters: Value,
     config_fingerprint: &str,
     allowed_runtime_agent_keys: BTreeSet<String>,
 ) {
+    let id = tool_ref.id();
     let mux = {
         let mut muxes = muxes().write().expect("plugin tool mux lock poisoned");
         if let Some(mux) = muxes.get(id) {
@@ -604,6 +610,7 @@ pub(crate) async fn register_workspace_tool(
             generation_key: generation_key.to_string(),
             revision: revision.to_string(),
             registration_id: registration_id.to_string(),
+            contributor_key: tool_ref.contributor().identity_key().to_owned(),
             description: description.to_string(),
             parameters,
             allowed_runtime_agent_keys,
@@ -696,6 +703,7 @@ mod tests {
             generation_key: "generation-test".to_string(),
             revision: "revision-test".to_string(),
             registration_id: format!("registration-{instance_id}"),
+            contributor_key: format!("contributor-{instance_id}"),
             description: format!("description-{instance_id}"),
             parameters: json!({"type": "object", "title": instance_id}),
             allowed_runtime_agent_keys: BTreeSet::from(["plugin-agent".to_string()]),
@@ -939,6 +947,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn deferred_spec_identifies_the_contributor_across_plugin_reloads() {
+        use openbitfun_agent_runtime::native_hooks::{RuntimeHookActivation, RuntimeHookSource};
+        let scope = "plugin-tool-workspace";
+        let registry = openbitfun_agent_runtime::native_hooks::RuntimeHookRegistry::default();
+        registry.set_source_activation_for_workspace(
+            RuntimeHookSource::Plugin,
+            Some(scope),
+            RuntimeHookActivation::Ready,
+        );
+        let mux = PluginHostToolMux::new("shared-tool".into(), registry);
+        let context = context("/workspace", "plugin-agent");
+        let mut route = route(client().await, "a");
+        mux.set_route(scope.into(), route.clone());
+        let tool: &dyn Tool = &mux;
+        let first = openbitfun_agent_tools::contextual_tool_spec(tool, &context).await;
+        route.registration_id = "fresh-registration".into();
+        mux.set_route(scope.into(), route.clone());
+        let reloaded = openbitfun_agent_tools::contextual_tool_spec(tool, &context).await;
+        assert_eq!(first.spec_fingerprint, reloaded.spec_fingerprint);
+        route.contributor_key = "another-plugin".into();
+        mux.set_route(scope.into(), route);
+        let switched = openbitfun_agent_tools::contextual_tool_spec(tool, &context).await;
+        assert_ne!(first.spec_fingerprint, switched.spec_fingerprint);
+    }
+
+    #[tokio::test]
     async fn remote_workspace_cannot_match_a_local_plugin_tool_route() {
         use openbitfun_agent_runtime::native_hooks::{RuntimeHookActivation, RuntimeHookSource};
 
@@ -964,6 +998,7 @@ mod tests {
             };
 
         assert!(mux.route_for(Some(&remote)).is_none());
+        assert!(mux.deferred_spec_route_id(&remote).is_none());
         registry.clear_source_workspace(RuntimeHookSource::Plugin, &scope);
     }
 

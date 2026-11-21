@@ -332,6 +332,7 @@
           "title": "Remote Connect, Bots & Peer Devices",
           "summary": "Follow sessions, approve permissions, and keep working from Mobile Web or a WeChat, Feishu, or Telegram bot—or enter Peer Device Mode to browse and drive another same-account computer right from your current OpenBitFun window.",
           "items": {
+            "device-control-permission": "Allow control of this device",
             "connection-methods": "Use the zero-setup official Relay or Desktop LAN Relay concurrently",
             "start-stop-status": "Start or stop Remote Connect channels and inspect live connection status",
             "network": "Inspect LAN IP addresses, network interfaces, and shareable QR invitations",
@@ -407,13 +408,13 @@
           }
         },
         "generative-ui": {
-          "title": "Generative UI",
-          "summary": "Whenever plain text falls short, let the agent generate interactive calculators, dashboards, clickable flow diagrams, and visual explainers right inside the chat stream—adjust sliders and check items live, with your state automatically saved when you reopen the session.",
+          "title": "Chat visualizations",
+          "summary": "Use the visualize skill to explore charts, calendars, and performance traces inside an answer.",
           "items": {
-            "app-generation": "Generate interactive component-based apps and mini tools inline in chat",
-            "visual-explainers": "Render custom HTML, CSS, and SVG diagrams, charts, and visual explainers",
-            "interactive-state": "Interact live in chat with state persisted and restored across session reopens",
-            "library-verification": "Adapt to light and dark themes automatically with real-viewport quality checks"
+            "app-generation": "Create interactive charts and specialist views",
+            "visual-explainers": "Create static HTML or SVG illustrations",
+            "interactive-state": "Restore filters and selections on this device",
+            "library-verification": "Validate component data and render with the chat theme"
           }
         }
       },
@@ -579,7 +580,7 @@
         "tools": {
           "execution": {
             "title": "Execution & Collaboration",
-            "summary": "Tune tool call and user-question timeouts, subagent default models and concurrency, Load tools as needed, PTC presentation, JSON argument repair, Deep Review capacity, and the default GenUI library alongside linked permission and device controls.",
+            "summary": "Tune tool call and user-question timeouts, subagent default models and concurrency, Load tools as needed, PTC presentation, JSON argument repair, Deep Review capacity alongside linked permission and device controls.",
             "items": {
               "deferred-tools": "Enable Load tools as needed (deferred tool loading) to reduce initial agent context",
               "timeouts": "Set or disable the per-tool call timeout",
@@ -589,7 +590,6 @@
               "tool-presentation": "Choose native tool calling, PTC TypeScript, or PTC Python mode for the model",
               "json-repair": "Choose whether minor malformed tool-argument JSON from models is safely auto-repaired",
               "review-capacity": "Set maximum parallel Deep Review reviewers and queue wait time",
-              "genui-library": "Select the default GenUI component library for newly generated apps (openui by default)",
               "permission-mode": "Choose Ask, Auto-approve, or Full access permission mode and confirm high-risk warnings",
               "permission-selector": "Choose whether the permission-mode switcher appears below the chat input",
               "global-project-rules": "Create, reorder, and save global or project-level Allow, Ask, and Deny rules",

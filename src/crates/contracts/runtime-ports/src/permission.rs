@@ -6,25 +6,34 @@ use openbitfun_product_domains::tool_permissions::{
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-/// Safe, provider-neutral projection sent to an approval model. The projection
-/// intentionally contains summaries rather than raw tool arguments or file
-/// contents.
+/// Provider-neutral approval context. Tool inputs are preserved in full; tool
+/// execution results are deliberately excluded.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionDecisionInput {
     /// Local correlation key. It is never serialized into the model state.
     #[serde(skip_serializing)]
     pub request_id: String,
-    pub action: String,
     pub tool_identity: String,
+    pub tool_description: String,
+    pub tool_input_schema: serde_json::Value,
+    pub tool_arguments: serde_json::Value,
+    /// Oldest to newest, containing names and inputs only.
     #[serde(default)]
-    pub resource_summaries: Vec<String>,
+    pub recent_tool_calls: Vec<PermissionDecisionToolCall>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace_scope: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_user_message: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegation: Option<PermissionDecisionDelegation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionDecisionToolCall {
+    pub tool: String,
+    pub arguments: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

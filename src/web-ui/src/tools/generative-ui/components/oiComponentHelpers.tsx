@@ -31,8 +31,7 @@ export const render = (value: unknown, renderNode: GenUIComponentProps['renderNo
   if (Array.isArray(value)) return value.flat().map((part, index) => <span key={index}>{render(part, renderNode)}</span>);
   return inlineText(str(value));
 };
-const inspect = () => true;
-export const define = (renderFn: GenUIComponentImplementation['render'], exercise?: GenUIComponentImplementation['exercise']): GenUIComponentImplementation => ({ render: renderFn, inspect, ...(exercise ? { exercise } : {}) });
+export const define = (render: GenUIComponentImplementation['render']): GenUIComponentImplementation => ({ render });
 export const options = (value: unknown): Array<{ value: string; label: string; description?: string }> => Array.isArray(value) ? value.flat().filter(Boolean).map(item => typeof item === 'string' ? { value: item, label: item } : item as { value: string; label: string; description?: string }) : [];
 export const controlOptions = (value: unknown, name: string) => {
   const parsed = options(value);

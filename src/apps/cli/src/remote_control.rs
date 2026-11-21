@@ -12,6 +12,7 @@ use openbitfun_core::agentic::tools::openbitfun_control_host::set_openbitfun_con
 use openbitfun_core::service::remote_connect::{
     bot,
     control::{RemoteBotControl, RemoteConnectServiceHolder},
+    device,
     embedded_relay_host::EmbeddedRelayHost,
     relay_client::ConnectionState,
     AccountClient, DeviceIdentity, QrGenerator, RemoteConnectConfig, RemoteConnectService,
@@ -68,11 +69,15 @@ pub(crate) async fn activate_daemon(
                 .ok()?;
             account.account_context_is_current(generation).then_some((
                 relay_url,
-                delegated.token,
-                delegated.device_secret.to_vec(),
+                openbitfun_core::service::remote_connect::AccountSession::new(
+                    delegated.token,
+                    delegated.user_id,
+                    delegated.device_secret,
+                ),
             ))
         }
     });
+    runtime.account_routing().monitor_remote_control();
     let info = runtime.account_runtime().account_info().await?;
     if let Err(error) = host.bots.restore(&info.user_id).await {
         tracing::warn!("Daemon bot restore is unavailable: {error}");
@@ -119,13 +124,24 @@ impl CliRemoteControlHost {
             .ok_or_else(|| anyhow!("CLI runtime is shutting down"))
     }
 
+    pub(crate) async fn apply_remote_control_permission(&self, allowed: bool) -> Result<()> {
+        if allowed {
+            let account = self.runtime()?.account_runtime().account_info().await?;
+            self.bots.restore(&account.user_id).await?;
+            self.reconcile_relay().await?;
+        } else {
+            self.bots.suspend().await;
+        }
+        Ok(())
+    }
+
     pub(crate) async fn reconcile_relay(&self) -> Result<()> {
         let _operation = self.relay_operation.lock().await;
         self.connect_relay_if_enabled().await
     }
 
     async fn connect_relay_if_enabled(&self) -> Result<()> {
-        if !self.relay_enabled.load(Ordering::Acquire) {
+        if !self.relay_enabled.load(Ordering::Acquire) || !device::remote_control_allowed()? {
             return Ok(());
         }
         let runtime = self.runtime()?;
@@ -167,7 +183,7 @@ impl CliRemoteControlHost {
                 result["daemonRunning"] = json!(true);
                 result["host"] = json!({"kind":"cli", "deviceId":info.device_id, "deviceName":info.device_name});
                 result["mobileWeb"] = json!({
-                    "method":"mobile_web", "enabled":self.relay_enabled.load(Ordering::Acquire),
+                    "method":"mobile_web", "enabled":self.relay_enabled.load(Ordering::Acquire) && device::remote_control_allowed()?,
                     "routingState": format!("{:?}", runtime.account_routing().connection_state().await).to_ascii_lowercase(),
                     "relayUrl":info.relay_url, "lastError":self.relay_error.read().await.clone(),
                 });
@@ -175,6 +191,7 @@ impl CliRemoteControlHost {
                 Ok(result)
             }
             RemoteControlRequest::Start { method: RemoteControlMethod::MobileWeb, .. } => {
+                device::require_remote_control()?;
                 let _operation = self.relay_operation.lock().await;
                 self.relay_enabled.store(true, Ordering::Release);
                 self.connect_relay_if_enabled().await?;

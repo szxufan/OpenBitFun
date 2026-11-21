@@ -114,8 +114,9 @@ pub fn tool_feature_group(tool_name: &str) -> Option<ToolPackFeatureGroup> {
         "view_image" | "analyze_image" => Some(ToolPackFeatureGroup::ImageAnalysis),
         "generate_image" => Some(ToolPackFeatureGroup::ImageGeneration),
         "GenOfficeFile" => Some(ToolPackFeatureGroup::OfficeDocuments),
-        "GenerativeUI" | "InitMiniApp" | "FinalizeMiniApp" | "PublishMiniApp"
-        | "MiniAppBrowser" | "Playbook" => Some(ToolPackFeatureGroup::MiniApp),
+        "InitMiniApp" | "FinalizeMiniApp" | "PublishMiniApp" | "MiniAppBrowser" | "Playbook" => {
+            Some(ToolPackFeatureGroup::MiniApp)
+        }
         "PageManage" | "PageDeploy" | "PagePublish" => Some(ToolPackFeatureGroup::Pages),
         "FrontendWorkbench" => Some(ToolPackFeatureGroup::Creation),
         "Task" | "AgentSpawn" | "AgentFork" | "AgentSendInput" | "AgentControl" | "AgentList"
@@ -271,7 +272,6 @@ const PRODUCT_TOOL_PROVIDER_GROUP_PLAN: &[ToolProviderGroupPlan] = &[
         provider_id: "core.miniapp",
         feature_groups: CORE_MINIAPP_FEATURE_GROUPS,
         tool_names: &[
-            "GenerativeUI",
             "InitMiniApp",
             "FinalizeMiniApp",
             "PublishMiniApp",
@@ -607,7 +607,6 @@ mod tests {
                 "ComputerUse",
                 "LaunchReviewAgent",
                 "submit_code_review",
-                "GenerativeUI",
                 "InitMiniApp",
                 "FinalizeMiniApp",
                 "PublishMiniApp",
@@ -687,5 +686,13 @@ mod tests {
                 provider_id: "core.missing"
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod retired_tools {
+    #[test]
+    fn generative_ui_has_no_generation_provider() {
+        assert!(super::tool_feature_group("GenerativeUI").is_none());
     }
 }

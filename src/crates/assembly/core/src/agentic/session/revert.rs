@@ -228,6 +228,7 @@ mod tests {
 
     fn user_turn(index: usize, prompt: &str) -> DialogTurnData {
         DialogTurnData {
+            published_figures: Default::default(),
             turn_id: format!("turn-{index}"),
             turn_index: index,
             session_id: "session-1".to_string(),

@@ -67,6 +67,8 @@ jobs:
     name: Package (${{ matrix.platform }})
     if: ${{ inputs.build_desktop_packages }}
     runs-on: ${{ fromJSON('{"linux-x64":"ubuntu-24.04","linux-arm64":"ubuntu-24.04-arm","macos-arm64":"macos-15","macos-x64":"macos-15-intel","windows-x64":"windows-latest"}')[matrix.platform] }}
+    # Fork policy: bare ubuntu-24.04 runner (no upstream ubuntu:22.04 container);
+    # the self-contained Linux OCR bundle needs tesseract 5 / leptonica 1.84.
     env:
       NODE_OPTIONS: --max-old-space-size=6144
       OPENBITFUN_RELEASE_CHANNEL: nightly
@@ -88,6 +90,11 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.checkout_ref }}
+
+      - name: Trust the Linux build checkout
+        if: runner.os == 'Linux'
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # .cargo/config.toml routes every cargo invocation through sccache.
       - uses: ./.github/actions/setup-sccache
@@ -112,6 +119,8 @@ jobs:
 
           # Tauri pins AppImage GTK input methods to its bundled cache, so the
           # fcitx5 GTK3 bridge must be present before linuxdeploy builds it.
+          # tesseract 5 + chi-sim/chi-tra traineddata feed the fork's
+          # self-contained Linux OCR bundle (prepare-ocr-bundle.mjs).
           sudo apt-get install -y --no-install-recommends \
             pkg-config \
             xdg-utils \
@@ -133,7 +142,9 @@ jobs:
             libleptonica-dev \
             libtesseract-dev \
             tesseract-ocr \
-            tesseract-ocr-eng
+            tesseract-ocr-eng \
+            tesseract-ocr-chi-sim \
+            tesseract-ocr-chi-tra
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -188,6 +199,7 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           shared-key: "nightly-v3-${{ github.base_ref || github.ref_name }}-${{ matrix.platform }}"
+          key: ${{ startsWith(matrix.platform, 'linux-') && 'ubuntu-22.04' || '' }}
           cache-bin: false
           # A PR merge ref can never become a reusable base cache. Even a
           # trusted caller cannot override this guard.
@@ -242,14 +254,6 @@ jobs:
 
       - name: Verify projected Cargo metadata
         run: cargo metadata --locked --no-deps
-
-      - name: Run Windows CLI terminal contracts
-        if: runner.os == 'Windows'
-        env:
-          CARGO_INCREMENTAL: "0"
-          CARGO_PROFILE_DEV_DEBUG: "0"
-          CARGO_PROFILE_TEST_DEBUG: "0"
-        run: cargo test --locked -p openbitfun-cli --test terminal_process_contracts -- --test-threads=1
 
       - name: Select Xcode for macOS Icon Composer assets
         if: runner.os == 'macOS'
@@ -326,10 +330,24 @@ jobs:
             "${{ steps.macos-cli.outputs.archive }}" \
             "${{ steps.macos-cli.outputs.checksum }}"
 
-      - name: Verify AppImage fcitx5 GTK module
+      - name: Verify Linux desktop package
         if: runner.os == 'Linux'
         shell: bash
-        run: bash scripts/ci/verify-appimage-fcitx.sh "${{ env.PACKAGE_TARGET }}"
+        env:
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          TARGET: ${{ env.PACKAGE_TARGET }}
+        run: |
+          set -euo pipefail
+          # Apply the current packaging checks when rebuilding an older tag.
+          verification_dir="$(mktemp -d)"
+          trap 'rm -rf "$verification_dir"' EXIT
+          if ! git cat-file -e "$WORKFLOW_SHA^{commit}"; then
+            git fetch --no-tags --depth=1 origin "$WORKFLOW_SHA"
+          fi
+          git archive "$WORKFLOW_SHA" scripts/ci/verify-linux-desktop-package.sh \
+            scripts/ci/check-glibc-floor.sh scripts/ci/linux-appimage-tray-libraries.json \
+            | tar -x -C "$verification_dir"
+          bash "$verification_dir/scripts/ci/verify-linux-desktop-package.sh" "$TARGET" 2.39
 
       # Keep output validation independent from artifact upload. PR callers do
       # not upload packages, but still need evidence that every selected

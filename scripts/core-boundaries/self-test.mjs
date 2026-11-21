@@ -3375,9 +3375,15 @@ export function runManifestParserSelfTest({
       contracts: [
         'clone_prompt_cache',
         'start_dialog_turn_with_existing_context',
-        'start_dialog_turn_with_existing_context_persists_turn_and_snapshot',
-        'clone_prompt_cache_copies_runtime_and_persisted_entries',
       ],
+    },
+    {
+      path: 'src/crates/assembly/core/src/agentic/session/session_manager/tests/prompt_cache.rs',
+      contracts: ['clone_prompt_cache_copies_runtime_and_persisted_entries'],
+    },
+    {
+      path: 'src/crates/assembly/core/src/agentic/session/session_manager/tests/turn_admission.rs',
+      contracts: ['start_dialog_turn_with_existing_context_persists_turn_and_snapshot'],
     },
     {
       path: 'src/crates/assembly/core/src/agentic/persistence/session_branch.rs',
@@ -4833,8 +4839,11 @@ export function runManifestParserSelfTest({
         'SSHConnectionManager',
         'russh::client::connect_stream',
         'SftpSession',
-        'retains_password_connection_and_workspace_without_vault_entry',
       ],
+    },
+    {
+      path: 'src/crates/services/services-integrations/src/remote_ssh/manager/tests/saved_profiles.rs',
+      contracts: ['retains_password_connection_and_workspace_without_vault_entry'],
     },
     {
       path: 'src/crates/services/services-integrations/src/remote_ssh/remote_exec.rs',

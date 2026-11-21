@@ -5,6 +5,8 @@ mod control;
 mod env_snapshot;
 mod input;
 mod local_shell;
+mod permission_glob;
+mod powershell_parser;
 mod progress;
 mod read_output;
 mod shell_kind;

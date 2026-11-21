@@ -196,6 +196,39 @@ describe('remote-driven turn on an unloaded session', () => {
   });
 });
 
+describe('ACP turn replay', () => {
+  beforeEach(() => { resetFlowChatStore(); stateMachineManager.clear(); });
+  afterEach(() => { resetFlowChatStore(); stateMachineManager.clear(); });
+
+  it.each([
+    { historyState: 'ready', storageTurnIndex: 5 },
+    { historyState: 'metadata-only', storageTurnIndex: undefined },
+  ] as const)('assigns a recovered storage slot only with ready history ($historyState)', ({ historyState, storageTurnIndex }) => {
+    const store = FlowChatStore.getInstance();
+    store.setState(() => ({
+      sessions: new Map([['session-1', {
+        ...createFinishingSession(),
+        config: { agentType: 'acp:controlled' },
+        historyState,
+        dialogTurns: [{ ...createFinishingTurn(), status: 'completed', storageTurnIndex: 4 }],
+      }]]),
+    }));
+    const start = {
+      sessionId: 'session-1', turnId: 'replayed-turn', turnIndex: null, userInput: 'Continue',
+    };
+    __test_only__.handleDialogTurnStarted(createFlowChatContext(), start);
+    __test_only__.handleDialogTurnStarted(createFlowChatContext(), start);
+
+    const turns = store.getState().sessions.get('session-1')?.dialogTurns;
+    expect(turns).toHaveLength(2);
+    expect(turns?.[1]).toMatchObject({
+      id: 'replayed-turn',
+      storageTurnIndex,
+      backendTurnIndex: undefined,
+    });
+  });
+});
+
 describe('turn finalization', () => {
   beforeEach(() => { resetFlowChatStore(); stateMachineManager.clear(); });
   afterEach(() => { resetFlowChatStore(); stateMachineManager.clear(); });

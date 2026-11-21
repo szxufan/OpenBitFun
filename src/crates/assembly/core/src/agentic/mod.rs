@@ -35,6 +35,7 @@ pub mod round_preempt;
 pub mod image_analysis;
 #[cfg(feature = "tools-image-generation")]
 pub mod image_generation;
+pub mod inline_figure;
 pub(crate) mod keyed_lock;
 pub mod memories;
 pub(crate) mod permission_policy;

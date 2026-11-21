@@ -28,8 +28,8 @@ Set the default safety posture for agent tool calls (Ask, Auto-approve, or Full 
 
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 在需要确认（默认）、自动审批与完全访问三种默认权限模式间切换
   - Switch the default permission mode between Ask (default), Auto-approve, and Full access
-  - 说明：“需要确认”对写入和命令执行保持人工把关；“自动审批”先由模型评估风险；“完全访问”需二次确认高风险提示，跳过常规询问但依然遵守产品底层硬性安全限制。
-  - Why & how: Ask keeps a human in the loop for writes and shell commands; Auto-approve screens calls with an AI reviewer first; Full access requires confirming a risk warning and skips routine prompts while keeping hard product safety limits intact.
+  - 说明：“需要确认”默认放行普通工作区编辑、已识别的只读命令、任务调度和会话间消息，对其他命令、删除、敏感文件和发布操作保持人工把关；“自动审批”先由模型评估风险；“完全访问”需二次确认高风险提示，跳过常规询问但依然遵守产品底层硬性安全限制。
+  - Why & how: Ask allows ordinary workspace edits, recognized read-only commands, scheduling, and messages between sessions, while keeping other commands, deletions, sensitive files, and publishing subject to confirmation; Auto-approve screens calls with an AI reviewer first; Full access requires confirming a risk warning and skips routine prompts while keeping hard product safety limits intact.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为自动审批选择聊天审查模型或专用 Jev 决策模型并加密保存凭据
   - Choose a chat screener model or dedicated Jev decision model for auto-approval with encrypted credentials
   - 说明：聊天模型模式默认优先选用“快速模型”（亦可改为“主模型”或任一已启用模型）；专用决策模型模式默认使用 jev-latest，其 API Key 仅加密保存在当前执行主机。
@@ -89,6 +89,8 @@ Set the default safety posture for agent tool calls (Ask, Auto-approve, or Full 
   - After typing a dedicated Jev decision-model API key, click the Save icon beside the password box to store it in the host encrypted credential vault.
 - 即使开启“完全访问”，OpenBitFun 内置的产品级硬性安全边界依然生效；项目级规则可在具体工作区中覆盖全局规则。
   - Even in Full access mode, hard product safety boundaries remain enforced, and project-scoped rules can still refine global defaults.
+- 命令规则选择 process.execute，并用 git clone * 这样的参数模式匹配已解析的单条命令；尾部 * 不会跨过 &&、管道或重定向。其他命令和文件访问仍分别检查；无法解析的命令继续请求确认。已有 bash 规则仍可使用。
+  - Use process.execute with an argument pattern such as git clone * to match a parsed command. A trailing * does not span &&, pipelines, or redirections. Other commands and file accesses are checked separately; unsupported syntax still asks for approval. Existing bash rules remain usable.
 
 关联条目 / Related: `setting.tools.execution`, `setting.ai.models`, `feature.ai-assistant`, `feature.remote-connect`
 

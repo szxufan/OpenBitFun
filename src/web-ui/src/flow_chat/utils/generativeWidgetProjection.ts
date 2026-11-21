@@ -228,10 +228,7 @@ export function projectGenerativeWidgetTool(
     isComplete,
     isFailed,
     sourceAvailable: Boolean(app),
-    // Streaming UI remains locally interactive. Durable edits are enabled only
-    // after the owner has accepted the completed source; the surface decides
-    // when to call the persistence bridge.
-    readOnly: !app || isFailed || isCancelled || isRejected || session.isTransient === true || session.draft?.phase === 'editing' || session.draft?.phase === 'creating' || Boolean(session.dialogTurns.find(turn => turn.id === ids.turnId)?.recovery) || resolveSessionDriverId(session.sessionId, session) === 'dispatch',
+    readOnly: true,
     readOnlyReason,
     interactionState: resolveGenUIInteractionState({
       app,

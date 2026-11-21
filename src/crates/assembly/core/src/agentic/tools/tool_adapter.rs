@@ -83,6 +83,10 @@ impl ToolRegistryItem for dyn Tool {
 
 #[async_trait::async_trait]
 impl ContextualToolManifestItem<ToolUseContext> for dyn Tool {
+    fn deferred_spec_route_id(&self, context: &ToolUseContext) -> Option<String> {
+        Tool::deferred_spec_route_id(self, context)
+    }
+
     async fn is_available_in_context(&self, context: &ToolUseContext) -> bool {
         if matches!(Tool::name(self), "Read" | "Grep" | "Glob" | "LS")
             && !live_repository_context_allowed(context)

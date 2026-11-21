@@ -13,7 +13,8 @@ mod actions;
 mod result;
 
 use crate::agentic::tools::framework::{
-    Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext, ValidationResult,
+    PermissionIntent, Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext,
+    ValidationResult,
 };
 use crate::agentic::tools::miniapp_surface::miniapp_web_host_available;
 use crate::util::errors::OpenBitFunResult;
@@ -206,6 +207,50 @@ This tool has no host-path access or arbitrary JavaScript `evaluate` action. Sou
             );
         }
         Ok(description)
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        _context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        let readonly = matches!(
+            action_from_input(input),
+            Some(
+                Action::Sessions
+                    | Action::Apps
+                    | Action::Inspect
+                    | Action::Find
+                    | Action::Read
+                    | Action::Wait
+                    | Action::Screenshot
+                    | Action::ObserveBridge
+                    | Action::WatchState
+            )
+        );
+        let target = input
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .map(|id| format!("session:{id}"))
+            .or_else(|| {
+                input
+                    .get("appId")
+                    .and_then(Value::as_str)
+                    .map(|id| format!("app:{id}"))
+            })
+            .unwrap_or_else(|| "current-app".into());
+        let mut intent = PermissionIntent::new(
+            if readonly {
+                "miniapp.read"
+            } else {
+                "miniapp.interact"
+            },
+            vec![target],
+        );
+        if input.get("sessionId").is_none() && input.get("appId").is_none() {
+            intent.save_resources.clear();
+        }
+        Ok(vec![intent])
     }
 
     async fn validate_input(

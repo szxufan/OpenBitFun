@@ -1,0 +1,14 @@
+{
+  "en": {
+    "schematic": "\\b(?:schematic|diagram|concepts?|mind map|roadmap|heat\\s?map|codebase|architecture|dependenc(?:ies|y)|repository)\\b",
+    "map": "^(?:please\\s+)?(?:draw|show|make|create)\\s+(?:me\\s+)?(?:an?\\s+|the\\s+)?(?:geographic|geographical|street|walking|route|city|regional|travel|world)\\s+map\\b|^where(?:\\s+is|['’]s)\\s+(?:the|my|our)\\s+map\\s*$",
+    "itinerary": "\\b(?:itinerary|walking (?:tour|route)|day trip)\\b",
+    "otherDeliverable": "\\b(?:and|also|plus|with)\\s+(?:(?:then|separately|also)\\s+)*(?:(?:draw|show|build|make|create|provide|give|animate|plot|include|add)\\b|(?:an?\\s+|the\\s+)?(?:calendar|schedule|table|chart|timeline|dashboard|checklist|list)\\b)"
+  },
+  "zh": {
+    "schematic": "示意|概念|思[维維]|[热熱]力|架[构構]|依[赖賴]|[项項]目[结結][构構]",
+    "map": "^(?:请|請|帮我|幫我|给我|給我|麻烦|麻煩|\\s)*(?:[画畫绘繪]|展示|显示|顯示)[^，,；;]{0,64}地[图圖]|^地[图圖](?:[给給](?:我|我们|我們))?(?:看看|看一下|看下|展示一下)|^(?:(?:那|那[张張]|路[线線]|行程)\\s*)?地[图圖]\\s*呢\\s*$",
+    "itinerary": "[游遊]玩路[线線]|一日[游遊]|一日出行|出行[规規][划劃]|步行路[线線]|徒步路[线線]",
+    "otherDeliverable": "(?:[并並再另]|以及|同[时時]|外加|附[上带帶]?|[还還]要|和)[^。！？.!?，,；;\\n]{0,8}(?:[给給画畫绘繪做列]|生成|制作|展示|提供|日[历曆]|行程表|[时時][间間][线線表]|[图圖]表|表格|清[单單])"
+  }
+}

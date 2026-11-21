@@ -196,6 +196,10 @@ impl Tool for LoadedExternalTool {
         self.descriptor.input_schema.clone()
     }
 
+    fn deferred_spec_route_id(&self, _context: &ToolUseContext) -> Option<String> {
+        Some(self.runtime_target_id.clone())
+    }
+
     fn dynamic_provider_id(&self) -> Option<&str> {
         Some(&self.provider_id)
     }
@@ -657,6 +661,23 @@ impl Tool for ExternalToolMux {
         self.selected(Some(context))
             .ok_or_else(|| OpenBitFunError::tool(format!("tool '{}' is unavailable", self.name)))?
             .permission_intents(input, context)
+    }
+
+    async fn prepare_permission_intents(
+        &self,
+        input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        self.selected(Some(context))
+            .ok_or_else(|| OpenBitFunError::tool(format!("tool '{}' is unavailable", self.name)))?
+            .prepare_permission_intents(input, context)
+            .await
+    }
+
+    async fn release_permission_preparation(&self, input: &Value, context: &ToolUseContext) {
+        if let Some(tool) = self.selected(Some(context)) {
+            tool.release_permission_preparation(input, context).await;
+        }
     }
 
     async fn validate_input(

@@ -50,6 +50,22 @@ function getFieldWords(field: string): { words: string[]; acronym: string } {
   return entry;
 }
 
+const normalizedFieldCache = new Map<string, string>();
+
+/** Trims and lowercases a field once. Every row is scored again on the next keystroke. */
+function normalizeField(rawField: string | null | undefined): string {
+  if (!rawField) return '';
+  const cached = normalizedFieldCache.get(rawField);
+  if (cached !== undefined) return cached;
+  const normalized = rawField.trim().toLocaleLowerCase();
+  // Empty results are not worth a cache slot: whitespace padding is free to re-trim.
+  if (normalized) {
+    if (normalizedFieldCache.size > 1024) normalizedFieldCache.clear();
+    normalizedFieldCache.set(rawField, normalized);
+  }
+  return normalized;
+}
+
 function scoreSingleTerm(query: string, field: string): number {
   if (field === query) return 100;
   if (field.startsWith(query)) return 94;
@@ -76,11 +92,13 @@ export function scoreTextMatch(query: string, fields: Array<string | null | unde
   const multiToken = tokens.length > 1;
 
   let best = 0;
-  const normalizedFields: string[] = [];
+  let normalizedFields: string[] | undefined;
   for (const rawField of fields) {
-    const field = rawField?.trim().toLocaleLowerCase();
+    const field = normalizeField(rawField);
     if (!field) continue;
-    normalizedFields.push(field);
+    // Only the multi-token branches read this list, so single-token queries (the common case)
+    // no longer allocate an array per row.
+    if (multiToken) (normalizedFields ??= []).push(field);
     best = Math.max(best, scoreSingleTerm(normalizedQuery, field));
 
     if (multiToken && tokens.every(token => field.includes(token))) {
@@ -90,7 +108,7 @@ export function scoreTextMatch(query: string, fields: Array<string | null | unde
 
   if (
     multiToken
-    && tokens.every(token => normalizedFields.some(field => field.includes(token)))
+    && tokens.every(token => (normalizedFields ?? []).some(field => field.includes(token)))
   ) {
     best = Math.max(best, 72);
   }
@@ -100,11 +118,17 @@ export function scoreTextMatch(query: string, fields: Array<string | null | unde
   // evidence that accumulates instead of an all-or-nothing AND expression.
   // Exact/full-query matches above still outrank partial token coverage.
   if (multiToken) {
-    const tokenScores = tokens.map(token => Math.max(
-      0,
-      ...normalizedFields.map(field => scoreSingleTerm(token, field)),
-    ));
-    const matchedScores = tokenScores.filter(score => score > 0);
+    const matchedScores: number[] = [];
+    for (const token of tokens) {
+      let strongest = 0;
+      // A loop instead of Math.max(...fields.map(...)): the spread allocates an argument list
+      // per token, and this runs once per candidate row per keystroke.
+      for (const field of normalizedFields ?? []) {
+        const score = scoreSingleTerm(token, field);
+        if (score > strongest) strongest = score;
+      }
+      if (strongest > 0) matchedScores.push(strongest);
+    }
     if (matchedScores.length > 0) {
       const coverage = matchedScores.length / tokens.length;
       const strongest = Math.max(...matchedScores);

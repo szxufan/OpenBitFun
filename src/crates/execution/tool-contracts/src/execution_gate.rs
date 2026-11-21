@@ -35,8 +35,9 @@ impl fmt::Display for ToolExecutionAdmissionRejection {
 
 impl std::error::Error for ToolExecutionAdmissionRejection {}
 
-pub fn validate_tool_execution_admission(
+pub async fn validate_tool_execution_admission(
     request: ToolExecutionAdmissionRequest<'_>,
+    current_fingerprint: impl std::future::Future<Output = Option<String>>,
 ) -> Result<(), ToolExecutionAdmissionRejection> {
     validate_tool_allowed_by_list(request.tool_name, request.allowed_tools)
         .map_err(ToolExecutionAdmissionRejection::AllowedList)?;
@@ -44,11 +45,25 @@ pub fn validate_tool_execution_admission(
         .runtime_tool_restrictions
         .ensure_tool_allowed(request.tool_name)
         .map_err(ToolExecutionAdmissionRejection::RuntimeRestriction)?;
+    let fingerprint = if request
+        .deferred_tools
+        .iter()
+        .any(|name| name == request.tool_name)
+        && request
+            .loaded_deferred_tool_specs
+            .iter()
+            .any(|spec| spec.tool_name == request.tool_name && spec.spec_fingerprint.is_some())
+    {
+        current_fingerprint.await
+    } else {
+        None
+    };
     validate_deferred_tool_usage(
         request.tool_name,
         request.deferred_tools,
         request.loaded_deferred_tool_specs,
         request.current_catalog_generation,
+        fingerprint.as_deref(),
         request.get_tool_spec_tool_name,
     )
     .map_err(ToolExecutionAdmissionRejection::Deferred)

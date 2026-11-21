@@ -4,6 +4,7 @@ import type { VirtualItem } from '../types/flow-chat-projection';
 import { isInterfaceObservation, isShellActivity, shellActivityStats } from './activityClassification';
 import { captureFlowGroupFeedbackSnapshot, collectFlowGroupReceiveFeedback } from './receiveFeedback';
 import { flowGroupPolicies } from './policies';
+import { figurePreparation } from './figurePreparation';
 import { projectAdjacentFlowGroups } from './groupProjection';
 import { buildFlowItemGroups, getModelRoundFlowGroups } from './roundGroups';
 
@@ -24,6 +25,26 @@ function groups(rows: VirtualItem[]) {
 }
 
 describe('execution activity grouping', () => {
+  it('collects scratch edits across visualize rounds and keeps project changes and approval requests visible', () => {
+    const prepare = figurePreparation('/work/project');
+    const activation = model('load', [tool('activate', 'Skill', { command: 'visualize' })]);
+    expect(prepare(activation.data)).toEqual([]);
+    const streamingSkill = { ...tool('activate', 'Skill', { command: 'visualize' }, 'streaming'), isParamsStreaming: true };
+    expect(prepare(model('load', [streamingSkill]).data)?.some(group => group.type === 'visualize')).toBe(false);
+    const scratch = tool('scratch', 'Write', { payload: '+++ /tmp/map/build.js\nexample' });
+    const approval = tool('approval', 'ExecCommand', { cmd: 'inspect' }, 'pending_confirmation');
+    const project = tool('project', 'Edit', { file_path: '/work/project/build.js' });
+    const groups = prepare(model('next', [scratch, approval, project]).data) ?? [];
+    const folded = groups.filter(group => group.type === 'visualize').flatMap(group => group.items);
+    expect(folded.map(item => item.id)).toEqual(['scratch']);
+    expect(prepare(model('later', [tool('terminal', 'ExecCommand')]).data)).toBeUndefined();
+  });
+  it('does not fold exploration after an unsuccessful skill alias call', () => {
+    const prepare = figurePreparation('/work/project');
+    const failed = tool('failed', 'Skill', { skill: 'visualize' }, 'error');
+    expect(prepare(model('failed-round', [failed, tool('shell', 'ExecCommand')]).data)).toBeUndefined();
+  });
+
   it('keeps inline group identities independent of their position in a projected list', () => {
     const first = tool('read', 'Read');
     const second = tool('run', 'ExecCommand');

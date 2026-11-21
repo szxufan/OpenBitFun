@@ -164,3 +164,9 @@ pnpm run desktop:dev
     <img alt="OpenBitFun Star 历史图" src="https://api.star-history.com/chart?repos=gcwing/openbitfun&amp;type=date&amp;legend=top-left" />
   </picture>
 </a>
+
+### 原生移动端开发
+
+Android、iOS 和 HarmonyOS 的源码及发布已迁至
+[OpenBitFun-Mobile](https://github.com/openBitFun/OpenBitFun-Mobile)。
+浏览器版 mobile-web 以及 Desktop／CLI／Relay 主机实现仍在本仓库维护。

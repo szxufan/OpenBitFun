@@ -10,10 +10,6 @@ const GENERATED_ICNS_FILES = [
   'OpenBitFun-Installer/src-tauri/icons/openbitfun-app-icon.icns',
 ];
 
-const HARMONY_MEDIA_DIRS = [
-  'src/apps/mobile/harmonyos/AppScope/resources/base/media',
-  'src/apps/mobile/harmonyos/entry/src/main/resources/base/media',
-];
 
 test('design-system brand masters and packaged icons agree with native projections', () => {
   const componentAssets = 'design-system/packages/ui/src/brand/assets';
@@ -133,14 +129,6 @@ test('application icons preserve the submitted artwork independently from the st
   assert.equal(metadata.hasAlpha, true);
 });
 
-test('iOS App Store icon is a 1024 pixel RGB image without alpha', async () => {
-  const metadata = await sharp('src/apps/mobile/ios/OpenBitFun/Resources.xcassets/AppIcon.appiconset/openbitfun-app-icon.png').metadata();
-  assert.equal(metadata.width, 1024);
-  assert.equal(metadata.height, 1024);
-  assert.equal(metadata.hasAlpha, false);
-  assert.equal(metadata.channels, 3);
-});
-
 test('brand exports provide decodable transparent PNGs at every advertised size', async () => {
   const sizes = [16, 24, 32, 48, 64, 96, 128, 192, 256, 512, 1024, 2048];
   for (const size of sizes) {
@@ -238,25 +226,6 @@ test('browser entry points reference generated application favicons', () => {
       assert.deepEqual(readFileSync(`${assetDir}/${name}`), readFileSync(`assets/brand/exports/${name}`));
     }
   }
-});
-
-test('HarmonyOS generated media use valid resource identifiers', () => {
-  for (const directory of HARMONY_MEDIA_DIRS) {
-    for (const fileName of readdirSync(directory)) {
-      const resourceName = fileName.replace(/\.[^.]+$/, '');
-      assert.match(
-        resourceName,
-        /^[a-zA-Z0-9_]+$/,
-        `${directory}/${fileName} is not a valid HarmonyOS resource name`,
-      );
-    }
-  }
-
-  const appConfig = readFileSync('src/apps/mobile/harmonyos/AppScope/app.json5', 'utf8');
-  const moduleConfig = readFileSync('src/apps/mobile/harmonyos/entry/src/main/module.json5', 'utf8');
-  assert.match(appConfig, /\$media:openbitfun_app_icon/);
-  assert.match(moduleConfig, /\$media:openbitfun_app_icon/);
-  assert.match(moduleConfig, /\$media:openbitfun_start_window/);
 });
 
 test('ICNS canonicalization rejects malformed containers', () => {

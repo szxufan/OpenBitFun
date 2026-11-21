@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
+import { isToolCardVisible } from '../utils/flowItemVisibility';
 import { SkillDisplay } from './SkillDisplay';
 import type { FlowToolItem, ToolCardConfig } from '../types/flow-chat';
 
@@ -124,7 +125,7 @@ describe('SkillDisplay', () => {
     [{ skill_name: 'deep-research', source_label: ' ', source_id: null }, 'Load skill: deep-research'],
     [{ skill_name: 'deep-research', source_label: 42, source_id: {}, source_slot: 'codex' }, 'Load skill: deep-research'],
     [{ skill_name: {}, name: 'legacy-name' }, 'Load skill: legacy-name'],
-    [{}, 'Load skill: Unknown skill'],
+    [{}, 'Load skill: deep-research'],
   ])('renders compatible tool result %j', (result, summary) => {
     const toolItem: FlowToolItem = {
       id: 'compatible-skill',
@@ -141,6 +142,18 @@ describe('SkillDisplay', () => {
     });
 
     expect(container.textContent).toBe(summary);
+  });
+
+  it.each([undefined, null, ' ', 42])('replays a skill alias with command %s', (command) => {
+    const toolItem: FlowToolItem = {
+      id: 'failed-skill', type: 'tool', toolName: 'Skill', status: 'error', timestamp: 0,
+      toolCall: { id: 'call', input: { command, skill: 'visualize' } },
+      toolResult: { id: 'call', result: {}, success: false, error: 'command is required', timestamp: 0 },
+    };
+    act(() => { root.render(<SkillDisplay toolItem={toolItem} config={skillConfig} />); });
+    expect(container.textContent).toBe('Load skill: visualize');
+    expect(isToolCardVisible(toolItem)).toBe(true);
+    expect(isToolCardVisible({ ...toolItem, toolResult: undefined, status: 'running' })).toBe(false);
   });
 
   it.each([

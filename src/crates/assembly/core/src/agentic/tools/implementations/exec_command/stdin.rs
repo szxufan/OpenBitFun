@@ -1,6 +1,8 @@
 use super::completion::{exec_command_local_completion, exec_command_remote_completion};
 use super::progress::ExecOutputProgressBridge;
-use crate::agentic::tools::framework::{Tool, ToolResult, ToolUseContext, ValidationResult};
+use crate::agentic::tools::framework::{
+    PermissionIntent, Tool, ToolResult, ToolUseContext, ValidationResult,
+};
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 use async_trait::async_trait;
 use openbitfun_runtime_ports::{PortErrorKind, RemoteWriteStdinRequest, TerminalWriteStdinRequest};
@@ -185,6 +187,25 @@ Output is only what was produced during this tool call's wait window."#
 
     fn round_injection_yieldable(&self) -> bool {
         true
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        _context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        let parsed = write_stdin_input_from_input(input).ok_or_else(|| {
+            OpenBitFunError::validation("session_id is required for WriteStdin".to_string())
+        })?;
+        let action = if parsed.chars.is_empty() && !parsed.append_enter {
+            "process.read_output"
+        } else {
+            "process.write_input"
+        };
+        Ok(vec![PermissionIntent::new(
+            action,
+            vec![format!("exec:{}", parsed.session_id)],
+        )])
     }
 
     async fn validate_input(

@@ -1,7 +1,6 @@
 # Dispatch Web UI
 
-The Web UI supports local execution plus detached SSH and same-account device
-dispatch.
+Users can select local execution or an SSH target with a compatible CLI. The Agent can also submit to same-account devices. Existing jobs remain available in the observer.
 
 ## Invariants
 
@@ -59,19 +58,7 @@ dispatch.
     `includeUncommitted` copies and commits Git-visible controller changes only
     inside the managed baseline. The user's checkout is never changed, and
     ignored runtime inputs are not sent to the target.
-11. SSH submission automatically installs or upgrades a compatible signed
-    prebuilt `openbitfun` release when the target runner is missing or incompatible.
-    The resolved version, URL, and SHA-256 remain visible, integrity checks stay
-    mandatory, installation has a bounded deadline, and submission probes the
-    installed runner again before provisioning. Each `cli-install` audit
-    transition is durably written to the preparation journal; the started event
-    is persisted before remote installer mutation, and an audit write failure
-    stops submission. The events are projected into the pending Dispatch turn
-    and cached with the transcript, so the automatic action remains visible
-    after replay or controller restart.
-12. The signed prebuilt release is the only way a target gets a runner. The
-    controller never compiles OpenBitFun on someone else's machine, so a target no
-    published binary fits is reported as unusable rather than offered a build.
+11. SSH submission probes the installed runner before provisioning the workspace. A missing or incompatible CLI blocks submission.
 13. Account devices use encrypted request/response RPC and distinct
    `dispatch_target_*` commands. They never attach Peer Device Mode and an
    offline or incompatible target never falls back to local execution. Device
@@ -119,8 +106,7 @@ dispatch.
     that cannot serve the submission's model, before creating any baseline, and
     re-probes. Choosing the target is the consent: it is the same credential
     write the manual command performs, and it stays visible as `model-sync`
-    rows in the preparation journal and the projected transcript, exactly like
-    `cli-install`. It merges only the `ai` model keys into the target's
+    rows in the preparation journal and the projected transcript. It merges only the `ai` model keys into the target's
     `app.json`, preserves every other target setting, aborts rather than
     overwrite an unreadable or unparseable target config, and writes
     owner-only via a temp-file rename. A failed push is not fatal by itself:

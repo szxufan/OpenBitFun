@@ -157,6 +157,25 @@ describe('FlowTextBlock', () => {
     }));
   });
 
+  it('keeps a damaged figure reference out of the streaming and completed reply', async () => {
+    const prefix = 'Here is the map.\n\n';
+    const uri = 'openbitfun://current-session/artifacts/visualizations/v2/map.html';
+    const malformed = '㈀visualize㈁' + JSON.stringify({ path: uri }) + '㈂';
+    const item: FlowTextItem = {
+      id: 'map', type: 'text', timestamp: 1, status: 'streaming', isStreaming: true, isMarkdown: true, content: prefix,
+    };
+    for (const suffix of ['㈀vis', malformed.slice(0, -12), malformed]) {
+      act(() => root.render(<FlowTextBlock textItem={{ ...item, content: prefix + suffix }} />));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(container.textContent?.trim()).toBe('Here is the map.');
+    }
+    act(() => root.render(<FlowTextBlock textItem={{
+      ...item, content: prefix + malformed + '\n\nDone.', status: 'completed', isStreaming: false,
+    }} />));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(container.textContent).toMatch(/^Here is the map\.\s+Done\.$/);
+  });
+
   it('does not flash an incomplete Deep Research marker while streaming', async () => {
     const textItem: FlowTextItem = {
       id: 'text-streaming-protocol',

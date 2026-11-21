@@ -96,8 +96,8 @@ Returns app_id, version, changed, and source_revision."#
             .unwrap_or("<missing>")
             .trim();
         Ok(vec![PermissionIntent::new(
-            "custom_tool",
-            vec![format!("miniapp:FinalizeMiniApp:{app_id}")],
+            "miniapp.finalize",
+            vec![format!("app:{app_id}")],
         )])
     }
 
@@ -192,10 +192,7 @@ mod tests {
             .expect("permission intent");
 
         assert_eq!(intents.len(), 1);
-        assert_eq!(intents[0].action, "custom_tool");
-        assert_eq!(
-            intents[0].resources,
-            ["miniapp:FinalizeMiniApp:demo-app".to_string()]
-        );
+        assert_eq!(intents[0].action, "miniapp.finalize");
+        assert_eq!(intents[0].resources, ["app:demo-app".to_string()]);
     }
 }

@@ -71,7 +71,8 @@ impl Tool for GetToolSpecTool {
                 "tool_name": {"type": "string"},
                 "description": {"type": "string"},
                 "input_schema": {"type": "object", "additionalProperties": true},
-                "catalog_generation": {"type": "integer"}
+                "catalog_generation": {"type": "integer"},
+                "spec_fingerprint": {"type": "string"}
             },
             "required": ["tool_name", "description", "input_schema", "catalog_generation"],
             "additionalProperties": false
@@ -154,6 +155,7 @@ mod tests {
             loaded_deferred_tool_specs: vec![openbitfun_agent_tools::LoadedDeferredToolSpec {
                 tool_name: "WebFetch".to_string(),
                 catalog_generation,
+                spec_fingerprint: None,
             }],
             model_client: None,
             primary_model_facts: tool_runtime::context::PrimaryModelFacts::default(),

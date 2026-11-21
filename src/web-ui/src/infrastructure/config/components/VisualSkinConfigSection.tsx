@@ -1,11 +1,11 @@
 import { Button, IconButton } from '@openbitfun/ui';
 import { Check, Image, Palette, Trash2, Upload } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useVisualSkin, type VisualSkinCatalogEntry } from '@/infrastructure/visual-skin';
 import { decodeSkinDataUrl } from '@/infrastructure/visual-skin/archive';
-import { ConfigPageSection, formatStandaloneUiText } from './common';
+import { ConfigPageSection } from './common';
 
 function previewSource(entry: VisualSkinCatalogEntry): string | undefined {
   return typeof entry.previewAsset === 'string' && entry.previewAsset.trim()
@@ -60,7 +60,7 @@ function VideoPreview({ source }: { source: string }) {
  * image. The runtime owns validation and persistence; this component only
  * exposes the safe, user-facing workflow.
  */
-export function VisualSkinConfigSection() {
+export function VisualSkinConfigSection({ createAction }: { createAction?: ReactNode }) {
   const { t } = useTranslation('settings/appearance');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -109,7 +109,6 @@ export function VisualSkinConfigSection() {
     <ConfigPageSection
       className="visual-skin-config"
       title={t('skin.title')}
-      description={formatStandaloneUiText(t('skin.description'))}
       bodySurface={false}
       fieldSurface="ambient"
       data-openbitfun-product-component="visual-skin-settings"
@@ -149,6 +148,7 @@ export function VisualSkinConfigSection() {
           >
             {busy ? t('skin.importing') : t('skin.import')}
           </Button>
+          {createAction}
         </>
       )}
     >

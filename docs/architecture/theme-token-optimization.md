@@ -239,7 +239,7 @@ Native Mobile 预览的工具 chrome 消费 canonical `--openbitfun-*`；设备�
 ### HarmonyOS / Android / iOS
 
 原生移动端不加载 Web CSS，也不复制 `@openbitfun/theme-openbitfun`。它们的唯一跨平台视觉事实 owner 是
-`src/apps/mobile/design-system/tokens/mobile-tokens.json`：
+[src/apps/mobile/design-system/tokens/mobile-tokens.json](https://github.com/openBitFun/OpenBitFun-Mobile/tree/main/src/apps/mobile/design-system/tokens/mobile-tokens.json)：
 
 - 颜色名称按语义登记，例如 content、surface、status、scrim、media control 和 shadow；不得使用 `green`、
   `red`、`white` 之类数值或外观名称充当公共 API。

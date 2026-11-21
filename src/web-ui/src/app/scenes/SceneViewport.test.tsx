@@ -208,6 +208,18 @@ describe('SceneViewport transitions', () => {
     expect(visibleScenes().map(scene => scene.getAttribute('data-scene-id'))).toEqual(['settings']);
   });
 
+  it('activates standalone Settings in the secondary pane even when the session pane was collapsed', () => {
+    sessionPaneLayoutStore.getState().activate('local', 'session');
+    sceneHarness.state = {
+      openTabs: [{ id: 'settings', lastUsed: 1, pane: 'secondary' }],
+      activeTabId: 'settings', navigationMotion: 'instant', navigationSequence: 1,
+      paneSelections: { primary: { kind: 'canvas' }, secondary: sceneSelection('settings') },
+    };
+    act(() => root.render(<SceneViewport paned />));
+    expect(container.querySelector('[data-testid="settings-scene-content"]')?.getAttribute('data-scene-prop-active')).toBe('true');
+    expect(visibleScenes().map(scene => scene.getAttribute('data-scene-id'))).toEqual(['settings']);
+  });
+
   it('keeps a visible secondary Todos clock active even while another pane is focused', async () => {
     sessionPaneLayoutStore.getState().showContent();
     sceneHarness.state = {

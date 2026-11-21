@@ -5,7 +5,8 @@ import { createLogger } from '@/shared/utils/logger';
 const log = createLogger('InsightsStore');
 
 const RETRY_STAGES = new Set(['facet_retry', 'analysis_retry']);
-let nextGenerationRunId = 0;
+let submittedRunId: string | null = null;
+let cancellation: { runId: string; accepted: Promise<boolean> } | null = null;
 
 export type InsightsView = 'list' | 'report';
 
@@ -27,7 +28,7 @@ interface InsightsState {
   selectedModel: string;
   error: string;
   loadingMetas: boolean;
-  activeGenerationRunId: number | null;
+  activeGenerationRunId: string | null;
 
   setSelectedDays: (days: number) => void;
   setSelectedModel: (modelId: string) => void;
@@ -86,7 +87,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
   generateReport: async () => {
     const { selectedDays, selectedModel, generating } = get();
     if (generating) return;
-    const runId = ++nextGenerationRunId;
+    const runId = globalThis.crypto?.randomUUID?.() ?? `insights-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     set({
       generating: true,
@@ -98,7 +99,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     let unlisten: (() => void) | undefined;
     try {
       unlisten = await insightsApi.listenProgress((event: InsightsProgressEvent) => {
-        if (get().activeGenerationRunId !== runId) return;
+        if (get().activeGenerationRunId !== runId || (event.generationId && event.generationId !== runId)) return;
         const { message, stage, current, total } = event;
         set({
           progress: {
@@ -111,7 +112,9 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
         });
       });
 
-      const report = await insightsApi.generateInsights(selectedDays, selectedModel);
+      if (get().activeGenerationRunId !== runId) return;
+      submittedRunId = runId;
+      const report = await insightsApi.generateInsights(selectedDays, selectedModel, runId);
       if (get().activeGenerationRunId !== runId) return;
       log.info('Insights report generated', {
         sessions: report.total_sessions,
@@ -120,12 +123,14 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
       set({
         currentReport: report,
         view: 'report',
+        error: '',
         generating: false,
         activeGenerationRunId: null,
         progress: { ...defaultProgress },
       });
       get().fetchReportMetas();
     } catch (err) {
+      if (cancellation?.runId === runId && await cancellation.accepted) return;
       if (get().activeGenerationRunId !== runId) return;
       log.error('Failed to generate insights', err);
       set({
@@ -136,23 +141,34 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
         progress: { ...defaultProgress },
       });
     } finally {
+      if (submittedRunId === runId) submittedRunId = null;
       unlisten?.();
     }
   },
 
   cancelGeneration: async () => {
     const runId = get().activeGenerationRunId;
-    if (!get().generating || runId == null) return;
-    try {
-      await insightsApi.cancelGeneration();
-    } catch (err) {
-      log.error('Failed to cancel insights generation', err);
+    if (!get().generating || runId == null || cancellation?.runId === runId) return;
+    if (submittedRunId === runId) {
+      const accepted = insightsApi.cancelGeneration(runId).then(
+        () => true,
+        (err) => {
+          log.error('Failed to cancel insights generation', err);
+          if (get().activeGenerationRunId === runId) set({ error: String(err) });
+          return false;
+        },
+      );
+      cancellation = { runId, accepted };
+      const cancelled = await accepted;
+      if (cancellation?.runId === runId) cancellation = null;
+      if (!cancelled) return;
     }
     if (get().activeGenerationRunId !== runId) return;
     set({
       generating: false,
       activeGenerationRunId: null,
       progress: { ...defaultProgress },
+      error: '',
     });
   },
 

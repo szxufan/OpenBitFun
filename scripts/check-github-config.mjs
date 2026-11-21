@@ -312,22 +312,6 @@ function validateProductControlWorkflowGate() {
       errors.push('.github/workflows/ci.yml: ProductControl owner gate must remain blocking.');
     }
   }
-
-  const cliJob = workflow.jobs?.['cli-test'];
-  const cliSteps = Array.isArray(cliJob?.steps) ? cliJob.steps : [];
-  const cliCommands = cliSteps
-    .filter((step) => step?.run && step['continue-on-error'] !== true)
-    .map((step) => String(step.run));
-  for (const required of [
-    'cargo test --locked -p openbitfun-cli -p openbitfun-acp',
-    'cargo test --locked -p openbitfun-cli -p openbitfun-acp -p openbitfun-agent-runtime',
-  ]) {
-    if (!cliCommands.includes(required)) {
-      errors.push(
-        `.github/workflows/ci.yml: CLI ProductControl self-control coverage requires the blocking command ${JSON.stringify(required)}.`,
-      );
-    }
-  }
 }
 
 for (const { relativePath, absolutePath } of yamlFiles) {

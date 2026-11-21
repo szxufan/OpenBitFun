@@ -191,3 +191,9 @@ await api.invoke('your_command', { request: { ... } });
 - 本文件只保留跨模块规则和稳定的仓库级入口。模块 ownership 细节、surface 或 crate 专属命令和 focused test 清单属于最近的指南；只有真实开发流程需要时才在那里补充命令。
 - crate 清单由各层指南维护；不要在这里枚举 crate。
 - `AGENTS.md` 与 `AGENTS-CN.md` 在同一次改动中同步更新。
+
+## 原生移动端仓库
+
+Android、iOS、HarmonyOS 应用及其 Kotlin 共享模块、原生 WebView 资源和移动端设计工具
+已迁至 [OpenBitFun-Mobile](https://github.com/openBitFun/OpenBitFun-Mobile)。
+`src/mobile-web` 和主机侧移动端／Relay 协议契约仍由本仓库维护。

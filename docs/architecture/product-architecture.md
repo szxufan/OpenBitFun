@@ -193,7 +193,7 @@ block-beta
 | Development area | Repository scope | Current modules |
 |---|---|---|
 | Apps | `src/apps/*` | `desktop`、`cli`、`server`、`relay-server`、`sdk-host`、`miniapp-shell`、`data-tools`、`miniapp-market-server`、`extension-host`（Bun Plugin Host 进程） |
-| Web and delivery | product roots | `src/web-ui`、`src/mobile-web`、`src/miniapp-market-web`、`src/apps/mobile`、`OpenBitFun-Installer`、`website`、`tests/e2e` |
+| Web and delivery | product roots | `src/web-ui`、`src/mobile-web`、`src/miniapp-market-web`、[OpenBitFun-Mobile](https://github.com/openBitFun/OpenBitFun-Mobile)、`OpenBitFun-Installer`、`website`、`tests/e2e` |
 | SDK | `sdk/*` | `typescript` |
 | Shared frontend | `src/shared`、`packages/flow-chat-presentation` | `shared`、`flow-chat-presentation` |
 | Design system | `design-system/*` | `packages/design-tokens`、`packages/theme-openbitfun`、`packages/ui`、`tooling/package-contract`、`tooling/token-engine`、`apps/design-lab` |

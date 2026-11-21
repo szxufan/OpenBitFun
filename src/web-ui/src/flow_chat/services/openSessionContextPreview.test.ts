@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 import { useAgentCanvasStore, switchAgentCanvasScope, forgetAgentCanvasSession } from '@/app/components/panels/content-canvas/stores/canvasStore';
@@ -18,6 +19,8 @@ describe('system prompt preview tabs', () => {
     useAgentCanvasStore.getState().closeAllTabs();
     forgetAgentCanvasSession(params.sessionId);
     forgetAgentCanvasSession('another-session');
+    forgetAgentCanvasSession('parent-session');
+    forgetAgentCanvasSession('sibling-child');
     switchAgentCanvasScope(params.sessionId);
     flowChatStore.setState(state => ({ ...state, sessions: new Map(), activeSessionId: params.sessionId }));
     apiMocks.getSessionUsageReport.mockReset().mockResolvedValue(response());
@@ -51,6 +54,72 @@ describe('system prompt preview tabs', () => {
     expect(tabs()).toHaveLength(0);
     switchAgentCanvasScope(params.sessionId);
     expect(tabs()).toHaveLength(1);
+  });
+
+  it.each(['local', 'peer-host', 'ssh-workspace'])('opens child category previews in the parent canvas on %s', async surface => {
+    activateSurface(surface === 'peer-host' ? surface : 'local');
+    const workspaceId = surface === 'ssh-workspace' ? 'ssh-workspace-id' : params.workspaceId;
+    switchAgentCanvasScope('parent-session');
+    flowChatStore.setState(state => ({ ...state, activeSessionId: 'parent-session', sessions: new Map([
+      [params.sessionId, { sessionId: params.sessionId, sessionKind: 'subagent', parentSessionId: 'parent-session',
+        workspaceId, config: { workspaceId } } as Session],
+    ]) }));
+    const onExpand = vi.fn();
+    window.addEventListener('expand-right-panel', onExpand);
+    try {
+      const categories = ['systemPrompt', 'toolDefinitions', 'rules', 'skills', 'mcpTools', 'subagentDefinitions'] as const;
+      const estimate = { capturedAt: 123, contents: Object.fromEntries(categories.map(category => [category, `Child ${category}`])) };
+      for (const category of categories) {
+        await expect(openSessionContextPreview({ ...params, workspaceId, category, estimate,
+          canvasSessionId: 'parent-session' })).resolves.toBe('opened');
+        const activeTabId = useAgentCanvasStore.getState().primaryGroup.activeTabId;
+        expect(tabs().find(tab => tab.id === activeTabId)?.content).toMatchObject({
+          type: category === 'toolDefinitions' ? 'tool-definitions' : 'markdown-editor',
+          data: category === 'toolDefinitions' ? { content: `Child ${category}`, readOnly: true }
+            : { initialContent: `Child ${category}`, readOnly: true },
+          metadata: { sessionId: params.sessionId, capturedAt: 123, resourceScope: { workspaceId } },
+        });
+      }
+      expect(useAgentCanvasStore.getState().scopeKey).toBe('parent-session');
+      expect(tabs()).toHaveLength(categories.length);
+      expect(onExpand).toHaveBeenCalledTimes(categories.length);
+      expect(apiMocks.getSessionUsageReport).not.toHaveBeenCalled();
+
+      await openSessionContextPreview({ ...params, workspaceId, estimate, canvasSessionId: 'parent-session' });
+      expect(tabs()).toHaveLength(categories.length);
+      await openSessionContextPreview({ ...params, sessionId: 'sibling-child', reportSessionId: 'sibling-child',
+        workspaceId, estimate, canvasSessionId: 'parent-session' });
+      expect(tabs()).toHaveLength(categories.length + 1);
+      switchAgentCanvasScope(params.sessionId);
+      expect(tabs()).toHaveLength(0);
+    } finally {
+      window.removeEventListener('expand-right-panel', onExpand);
+    }
+  });
+
+  it('queries child content and retains its original parent canvas after a chat switch', async () => {
+    switchAgentCanvasScope('parent-session');
+    let finish: (value: unknown) => void = () => {};
+    apiMocks.getSessionUsageReport.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const onExpand = vi.fn();
+    window.addEventListener('expand-right-panel', onExpand);
+    try {
+      const pending = openSessionContextPreview({ ...params, canvasSessionId: 'parent-session' });
+      expect(apiMocks.getSessionUsageReport).toHaveBeenCalledExactlyOnceWith({
+        sessionId: params.sessionId, workspaceId: params.workspaceId, includeHiddenSubagents: false,
+        contextEstimate: { includeContents: true, contextOnly: true },
+      });
+      switchAgentCanvasScope('another-session');
+      finish(response());
+      await expect(pending).resolves.toBe('opened');
+      expect(tabs()).toHaveLength(0);
+      expect(onExpand).not.toHaveBeenCalled();
+      switchAgentCanvasScope('parent-session');
+      expect(tabs()).toHaveLength(1);
+      expect(tabs()[0].content.metadata?.sessionId).toBe(params.sessionId);
+    } finally {
+      window.removeEventListener('expand-right-panel', onExpand);
+    }
   });
 
   it.each(['rules', 'skills', 'mcpTools', 'subagentDefinitions'] as const)(
@@ -105,10 +174,10 @@ describe('system prompt preview tabs', () => {
     expect(tabs()).toHaveLength(1);
   });
 
-  it('discards responses from a previous device activation', async () => {
+  it.each([undefined, 'parent-session'])('discards responses from a previous device activation with canvas %s', async canvasSessionId => {
     let finish: (value: unknown) => void = () => {};
     apiMocks.getSessionUsageReport.mockReturnValue(new Promise(resolve => { finish = resolve; }));
-    const pending = openSessionContextPreview(params);
+    const pending = openSessionContextPreview({ ...params, canvasSessionId });
     activateSurface('peer-host');
     finish(response());
     await expect(pending).resolves.toBe('stale');
@@ -121,12 +190,12 @@ describe('system prompt preview tabs', () => {
     expect(tabs()).toHaveLength(0);
   });
 
-  it('refuses dispatch projections and mismatched target sessions without querying local content', async () => {
-    await expect(openSessionContextPreview({ ...params, reportSessionId: 'target-session' })).resolves.toBe('unavailable');
+  it.each([undefined, 'parent-session'])('refuses dispatch projections and mismatched target sessions with canvas %s', async canvasSessionId => {
+    await expect(openSessionContextPreview({ ...params, canvasSessionId, reportSessionId: 'target-session' })).resolves.toBe('unavailable');
     flowChatStore.setState(state => ({ ...state, sessions: new Map([[params.sessionId, {
       sessionId: params.sessionId, config: { dispatchJobId: 'job-1' },
     } as Session]]) }));
-    await expect(openSessionContextPreview(params)).resolves.toBe('unavailable');
+    await expect(openSessionContextPreview({ ...params, canvasSessionId })).resolves.toBe('unavailable');
     expect(apiMocks.getSessionUsageReport).not.toHaveBeenCalled();
   });
 

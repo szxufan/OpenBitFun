@@ -33,6 +33,7 @@ mod web_search;
 pub use hook_function::*;
 #[cfg(feature = "workspace-ports")]
 pub use local_workspace_snapshot::{
+    LocalWorkspaceSnapshotFileDiffStats, LocalWorkspaceSnapshotFileRequest,
     LocalWorkspaceSnapshotPort, LocalWorkspaceSnapshotSessionRequest, LocalWorkspaceSnapshotStats,
     LocalWorkspaceSnapshotTurnRequest,
 };
@@ -59,7 +60,8 @@ pub use openbitfun_product_domains::tool_permissions::{
 pub use permission::{
     PermissionAuditStorePort, PermissionDecision, PermissionDecisionDelegation,
     PermissionDecisionInput, PermissionDecisionOutcome, PermissionDecisionPort,
-    PermissionGrantStorePort, PermissionReasonCode, PermissionReplyStorePort, PermissionRiskClass,
+    PermissionDecisionToolCall, PermissionGrantStorePort, PermissionReasonCode,
+    PermissionReplyStorePort, PermissionRiskClass,
 };
 #[cfg(feature = "plugin-runtime")]
 pub use plugin::{

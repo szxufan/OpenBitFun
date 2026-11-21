@@ -22,8 +22,10 @@ import { ToolApprovalBar } from './ToolApprovalBar';
 import { projectEffectiveToolItem } from '../utils/toolInvocationIdentity';
 import { isToolCardVisible } from '../utils/flowItemVisibility';
 import { useFlowChatContext, useFlowChatVolatileContext } from './modern/FlowChatContext';
-import GenerativeWidgetInline from './GenerativeWidgetInline';
+import { lazyWithRecovery } from '@/shared/utils/lazyWithRecovery';
 import './FlowToolCard.scss';
+
+const GenerativeWidgetInline = lazyWithRecovery(() => import('./GenerativeWidgetInline'));
 
 const log = createLogger('FlowToolCard');
 
@@ -124,7 +126,7 @@ const FlowToolCardCard: React.FC<FlowToolCardProps> = React.memo(({
     fallbackContent: staticAgentWaitCapsule ? undefined : <ToolCapsuleRecord item={effectiveToolItem} />,
   } : undefined;
 
-  if (!isToolCardVisible(effectiveToolItem)) return null;
+  if (!isToolCardVisible(toolItem)) return null;
 
   return (
     <div
@@ -232,7 +234,9 @@ const FlowToolCardCard: React.FC<FlowToolCardProps> = React.memo(({
 export const FlowToolCard: React.FC<FlowToolCardProps> = React.memo((props) => {
   const effectiveToolName = projectEffectiveToolItem(props.toolItem).toolName;
   if (effectiveToolName === 'GenerativeUI') {
-    return <GenerativeWidgetInline toolItem={props.toolItem} sessionId={props.sessionId} turnId={props.turnId} />;
+    return <React.Suspense fallback={null}>
+      <GenerativeWidgetInline toolItem={props.toolItem} sessionId={props.sessionId} turnId={props.turnId} />
+    </React.Suspense>;
   }
   return <FlowToolCardCard {...props} />;
 });

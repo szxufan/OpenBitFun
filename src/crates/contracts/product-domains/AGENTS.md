@@ -111,9 +111,4 @@ pnpm --dir src/web-ui run test:run src/app/scenes/miniapps/miniAppBridgeImages.t
 node --test src/crates/contracts/product-domains/src/miniapp/builtin/assets/ppt-live/test/image-input.test.mjs
 ```
 
-For the generated GenUI component catalog, graph/flow relations and preserved saved state:
-
-`cargo test --locked -p openbitfun-product-domains --no-default-features --lib generative_ui`
-
-The matching browser fixtures and tool feature closure are documented in
-`src/web-ui/src/tools/generative-ui/AGENTS.md`.
+Historical GenUI payload and component replay checks live in the [FlowChat history viewer guide](../../../../src/web-ui/src/tools/generative-ui/AGENTS.md).

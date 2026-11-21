@@ -33,13 +33,14 @@ import {
   selectedSessionTab,
   selectCanvasInPane,
   selectSceneInPane,
+  standaloneSettingsPane,
   tabPane,
   vacantSelection,
   workbenchPanes,
   type ScenePaneState,
   type WorkbenchPane,
 } from '../workbench/scenePaneModel';
-import { sessionPaneLayoutStore } from '../scenes/session/sessionPaneLayoutStore';
+import { selectWorkbenchPaneHasSession, workbenchPaneLayoutStore } from '../workbench/workbenchPaneLayoutStore';
 import { useContentResourceStore } from '../workbench/contentResourceStore';
 import { requestContentClose } from '../workbench/contentResourceLifecycle';
 import { requestMiniAppClose } from '../scenes/miniapps/miniAppLifecycle';
@@ -624,7 +625,10 @@ function navigateWorkbench(build: (state: SceneState) => WorkbenchNavigationPlan
       && useSceneStore.getState().paneSelections === previous.paneSelections;
     const commit = () => {
       if (!unchanged()) return false;
-      sessionPaneLayoutStore.getState().revealPanes(plan.reveal ?? [plan.panes.focusedPane]);
+      const paneLayout = workbenchPaneLayoutStore.getState();
+      if (standaloneSettingsPane(plan.panes.paneSelections, selectWorkbenchPaneHasSession(paneLayout)) === null) {
+        paneLayout.revealPanes(plan.reveal ?? [plan.panes.focusedPane]);
+      }
       useSceneStore.setState({ ...projectPaneState(plan.panes), ...plan.history, pendingTabId: null,
         navigationMotion: plan.motion ?? getInteractionMotion(), navigationSequence: previous.navigationSequence + 1 });
       options.onCommitted?.();

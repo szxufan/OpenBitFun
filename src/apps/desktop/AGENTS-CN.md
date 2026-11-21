@@ -76,6 +76,11 @@ pnpm run prepare:dsh-profile   # 可选：本地 DeepSeek Harness 会话
 
 ## 验证
 
+验证 ACP 取消请求兼容性时，运行
+`cargo test --locked -p openbitfun-desktop --no-default-features --lib acp_cancel_request`，
+覆盖旧请求反序列化与往返，以及可选的 Turn 绑定字段。
+ACP 队列恢复的原生验收脚本见 `tests/e2e/AGENTS.md`。
+
 ```bash
 cargo check -p openbitfun-desktop && cargo test -p openbitfun-desktop
 ```

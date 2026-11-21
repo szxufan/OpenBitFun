@@ -125,8 +125,7 @@ async fn apply_prefetch(
     let pressure = ExecutionEngine::estimate_auto_compression_pressure(
         messages,
         None,
-        128_000,
-        ExecutionEngine::compression_trigger_budget(128_000, None),
+        CompressionTriggerBudget::for_model(128_000, None),
         0,
     );
     engine
@@ -136,7 +135,6 @@ async fn apply_prefetch(
             "auto",
             messages.to_vec(),
             pressure,
-            128_000,
             server.client(),
             &ModelRequestContext::default(),
             &None,
@@ -148,6 +146,144 @@ async fn apply_prefetch(
             prefetch,
         )
         .await
+        .map(|result| match result {
+            AutoCompressionOutcome::Applied(tokens, messages) => Some((tokens, messages)),
+            AutoCompressionOutcome::NoGain(_) => None,
+        })
+}
+
+#[tokio::test]
+async fn compression_skips_retained_history_and_reconsiders_after_large_tool_result() {
+    use crate::agentic::core::{ToolCall, ToolResult};
+
+    let (temp, engine) = engine();
+    let server = RetryTestServer::new(vec![retry_test_success()]);
+    let mut messages = vec![Message::system("system".into()), Message::user("Hi".into())];
+    let session = prefetch_session(&engine, temp.path(), &messages).await;
+    let work = prefetch_job(&engine, &server, &messages, 0)
+        .spawn_prefetch(&CancellationToken::new(), None);
+    assert!(
+        apply_prefetch(&engine, &session, &server, &messages, Some(work))
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(server.requests.lock().unwrap().is_empty());
+
+    let budget = CompressionTriggerBudget::for_model(128_000, None);
+    let pressure = ExecutionEngine::estimate_auto_compression_pressure(&messages, None, budget, 0);
+    let rejected = NoGainHistory::new(&messages, "model", pressure);
+    assert!(rejected.matches(&messages, "model", pressure));
+    assert!(!rejected.matches(&messages, "other-model", pressure));
+    let smaller_budget = CompressionTriggerBudget::for_model(32_000, None);
+    let changed =
+        ExecutionEngine::estimate_auto_compression_pressure(&messages, None, smaller_budget, 0);
+    assert!(!rejected.matches(&messages, "model", changed));
+
+    let call = ToolCall {
+        tool_id: "read".into(),
+        tool_name: "Read".into(),
+        arguments: serde_json::json!({"path": "log"}),
+        raw_arguments: None,
+        is_error: false,
+        parse_error: None,
+        recovered_from_truncation: false,
+        repair_kind: Default::default(),
+    };
+    let result = ToolResult {
+        tool_id: call.tool_id.clone(),
+        tool_name: call.tool_name.clone(),
+        effective_tool_name: None,
+        result: serde_json::json!({"output": "long log entry ".repeat(10_000)}),
+        result_for_assistant: None,
+        is_error: false,
+        duration_ms: None,
+        image_attachments: None,
+    };
+    for message in [
+        Message::assistant_with_tools(String::new(), vec![call]),
+        Message::tool_result(result),
+    ] {
+        engine
+            .session_manager
+            .add_message(&session, message.clone())
+            .await
+            .unwrap();
+        messages.push(message);
+    }
+    let changed = ExecutionEngine::estimate_auto_compression_pressure(&messages, None, budget, 0);
+    assert!(!rejected.matches(&messages, "model", changed));
+    let (tokens, _) = apply_prefetch(&engine, &session, &server, &messages, None)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(tokens < changed.total_tokens);
+    assert_eq!(server.requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn compression_discards_oversized_summary_without_changing_session() {
+    for use_prefetch in [false, true] {
+        let (temp, engine) = engine();
+        let (status, response) = retry_test_success();
+        let server = RetryTestServer::new(vec![(
+            status,
+            response.replace("Recovered", &"verbose summary ".repeat(1_000)),
+        )]);
+        let messages = vec![
+            Message::system("system".into()),
+            Message::assistant("earlier work ".repeat(300)),
+        ];
+        let session = prefetch_session(&engine, temp.path(), &messages).await;
+        let before = serde_json::to_value(&messages).unwrap();
+        let work = use_prefetch.then(|| {
+            prefetch_job(&engine, &server, &messages, 0)
+                .spawn_prefetch(&CancellationToken::new(), None)
+        });
+        assert!(apply_prefetch(&engine, &session, &server, &messages, work)
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        let stored = engine
+            .session_manager
+            .get_context_messages(&session)
+            .await
+            .unwrap();
+        assert_eq!(serde_json::to_value(stored).unwrap(), before);
+        assert_eq!(
+            engine
+                .session_manager
+                .get_session(&session)
+                .unwrap()
+                .compression_state
+                .compression_count,
+            0
+        );
+        let events = engine.event_queue.dequeue_batch(100).await;
+        assert!(events.iter().any(|event| matches!(
+            event.event, AgenticEvent::ContextCompressionCompleted {
+                applied: false, has_summary: false, compression_count: 0, tokens_before, tokens_after, ..
+            } if tokens_before == tokens_after
+        )));
+        assert!(!events
+            .iter()
+            .any(|event| matches!(event.event, AgenticEvent::ContextCompressionFailed { .. })));
+    }
+}
+
+#[test]
+fn compression_fixed_cost_diagnostic_allows_the_safety_margin() {
+    let budget = CompressionTriggerBudget::for_model(128_000, Some(32_000));
+    let pressure =
+        |fixed| ExecutionEngine::estimate_auto_compression_pressure(&[], None, budget, fixed);
+    assert!(pressure(95_999).check_fixed_input_fits().is_ok());
+    let error = pressure(96_001)
+        .check_fixed_input_fits()
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("prepended_reminder_tokens=96001"));
+    assert!(error.contains("available_input_tokens=96000"));
 }
 
 #[tokio::test]
@@ -156,16 +292,18 @@ async fn compression_prefetch_starts_at_zero_and_replans_with_fresh_tail() {
     let server = RetryTestServer::new(vec![retry_test_success()]);
     let messages = messages();
     let zero = prefetch_job(&engine, &server, &messages, 0)
-        .run()
+        .run_automatic(None)
         .await
+        .unwrap()
         .unwrap();
     assert_eq!(zero.plan.recent_target_tokens, 0);
     assert!(zero.plan.recent_tail_messages.is_empty());
     assert_eq!(zero.plan.summary_messages.len(), messages.len() - 1);
     let server = RetryTestServer::new(vec![overflow(), retry_test_success()]);
     let replanned = prefetch_job(&engine, &server, &messages, 0)
-        .run()
+        .run_automatic(None)
         .await
+        .unwrap()
         .unwrap();
     assert!(replanned.plan.recent_target_tokens >= 10_000);
     assert!(replanned.plan.cutoff_message_index < zero.plan.cutoff_message_index);
@@ -194,7 +332,7 @@ async fn compression_prefetch_ready_is_silent_and_reused_with_new_tail() {
     let job = prefetch_job(&engine, &server, &messages, 0);
     let (published, barrier) = tokio::sync::oneshot::channel();
     let work = job.spawn_prefetch_with(&CancellationToken::new(), |job| async move {
-        let result = job.run().await;
+        let result = job.run_automatic(None).await;
         let _ = published.send(());
         result
     });
@@ -315,7 +453,7 @@ async fn compression_prefetch_oversized_latest_tail_starts_fresh_blocking_plan()
     let job = prefetch_job(&engine, &server, &messages, 0);
     let (published, barrier) = tokio::sync::oneshot::channel();
     let work = job.spawn_prefetch_with(&CancellationToken::new(), |job| async move {
-        let result = job.run().await;
+        let result = job.run_automatic(None).await;
         let _ = published.send(());
         result
     });
@@ -361,7 +499,7 @@ async fn compression_prefetch_cancelled_owner_never_falls_back() {
     let messages = messages();
     let session = prefetch_session(&engine, temp.path(), &messages).await;
     let token = engine.round_executor.ensure_cancel_token("turn");
-    let work = prefetch_job(&engine, &server, &messages, 0).spawn_prefetch(&token);
+    let work = prefetch_job(&engine, &server, &messages, 0).spawn_prefetch(&token, None);
     token.cancel();
     let error = apply_prefetch(&engine, &session, &server, &messages, Some(work))
         .await
@@ -423,7 +561,7 @@ async fn compression_prefetch_commit_includes_append_during_formal_wait() {
     let messages = messages();
     let session = prefetch_session(&engine, temp.path(), &messages).await;
     let candidate = prefetch_job(&engine, &server, &messages, 0)
-        .run()
+        .run_automatic(None)
         .await
         .unwrap();
     engine.event_queue.dequeue_batch(100).await;
@@ -468,6 +606,16 @@ async fn compression_prefetch_commit_includes_append_during_formal_wait() {
         .await
         .unwrap();
     assert!(stored.iter().any(|message| message.id == new.id));
+    let mut latest = messages;
+    latest.push(new);
+    let latest_tokens = ExecutionEngine::estimate_request_tokens_internal(&latest, None);
+    let candidate_tokens = ExecutionEngine::estimate_request_tokens_internal(&result, None);
+    let events = engine.event_queue.dequeue_batch(100).await;
+    assert!(events.iter().any(|event| matches!(
+        event.event, AgenticEvent::ContextCompressionCompleted {
+            applied: true, tokens_before, tokens_after, ..
+        } if tokens_before == latest_tokens && tokens_after == candidate_tokens && tokens_after < tokens_before
+    )));
     assert_eq!(server.requests.lock().unwrap().len(), 1);
 }
 
@@ -579,8 +727,7 @@ async fn compression_failure_preserves_context_and_success_count() {
     let pressure = ExecutionEngine::estimate_auto_compression_pressure(
         &messages,
         None,
-        128_000,
-        ExecutionEngine::compression_trigger_budget(128_000, None),
+        CompressionTriggerBudget::for_model(128_000, None),
         0,
     );
     let error = engine
@@ -590,7 +737,6 @@ async fn compression_failure_preserves_context_and_success_count() {
             "auto",
             messages,
             pressure,
-            128_000,
             server.client(),
             &ModelRequestContext::default(),
             &None,

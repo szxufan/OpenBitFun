@@ -91,13 +91,6 @@ the target's validated submit acknowledgement. Preparation, retry, and recovery
 for the same job are serialized by one per-job run lock, so an expired-entry
 recovery cannot race a live attempt.
 
-For automatic SSH CLI setup, audit progress is a fallible durable write rather
-than an in-memory callback. The `cli-install-started` transition is persisted
-before the first remote installer mutation, subsequent success or failure is
-persisted before setup returns, and any audit write failure stops submission.
-Keeping the journal until acknowledgement lets a retry recover setup actions
-that completed remotely even if the controller exited before submit finished.
-
 Before creating the baseline claim, preparation records the stable project
 workspace path that owns the worktree registry rather than relying on a linked
 worktree path that may disappear. An expired preparation lease is necessary but
@@ -193,9 +186,7 @@ durable store; `DISPATCH_PROTOCOL_VERSION` in
 source, and the Web UI pins its copy against that file. Version 4 introduced
 Git worktree delivery and is intentionally incompatible with targets that do
 not implement it; version 5 adds the target-owned reasoning catalog and
-per-turn preset selection (`reasoning_presets`). SSH submission can repair that mismatch
-through signed release installation; an account device must be upgraded as a
-OpenBitFun device.
+per-turn preset selection (`reasoning_presets`). Each target must have a compatible runner before accepting a job.
 
 Public job verbs are:
 
@@ -260,53 +251,7 @@ original binding and policy revision for a capable target to restore, while an
 older reader cannot turn the new account fields into its default OAuth login.
 
 
-`probe` is read-only and never installs software. Immediately before SSH
-provisioning, submission probes again and automatically installs or upgrades a
-compatible latest prebuilt `openbitfun` release when needed. Release resolution
-stays bound to the expected OS and architecture. GitHub is the default byte
-source; when its measured transfer rate is below 512 KiB/s, OpenBitFun is tried
-first and GitHub remains the fallback. The same policy applies whether the SSH
-target downloads directly or the controller has to push the archive. The
-controller verifies the
-checksum sidecar, its publisher signature when present, and the mandatory
-archive signature, pins the SHA-256 passed to the installer, waits with a
-bounded deadline, and probes the installed binary again before continuing.
-
-The signed prebuilt release is the only install path. The controller never
-compiles OpenBitFun on a target, and exposes no command to do so: when no published
-binary can run there — an unsupported platform, a libc floor, a missing `tar`,
-an unreachable release, or a release that predates a required capability — the
-probe reports why and the target cannot be selected.
-
-### One-click SSH target bootstrap
-
-The Desktop readiness dialog may run the same signed installer before submit.
-After the post-install protocol probe succeeds, it optionally turns the SSH
-host into an account device:
-
-1. The target CLI returns its stable, non-secret machine identity through a
-   hidden capability-gated daemon command.
-2. If the controller has a finalized account login, its full device token calls
-   the Relay's authenticated device-provisioning endpoint. The Relay creates a
-   distinct target device and a full device token; a delegated control token
-   cannot call this endpoint. If the controller is signed out, this entire
-   account/daemon phase is skipped.
-3. The controller stages the target token, account master key, relay URL, and
-   target device id in a fresh owner-only file over SFTP. Secrets never enter a
-   shell argument or the renderer. The target verifies file ownership/mode and
-   its device id, consumes the file, and encrypts the session with its own
-   machine-bound key.
-4. The target installs and starts the existing CLI daemon through its user
-   service manager (systemd user service with linger on Linux, LaunchAgent on
-   macOS). The controller does not report success until the new device is
-   visible online through the Relay.
-
-Any failure after credential issuance removes the target service/session and
-deletes the Relay device best-effort. Stale rollback commands are bound to the
-expected user and device id, so they cannot log out a session that appeared on
-the target later. A signed-out controller installs only the CLI: detached SSH
-job workers already persist independently and an idle account daemon would
-provide no routing capability.
+The manual target picker lists local execution and saved SSH hosts. Both the picker and submission probe the existing CLI. Install or upgrade the CLI on the target before dispatching. Agent tools can also submit to a same-account device.
 
 Account-device transport wraps target verbs in names reserved for detached
 dispatch, such as `dispatch_target_submit`. They are handled before the
@@ -428,10 +373,7 @@ supervision alone is not evidence of that capability.
 - A missing or offline target fails submit; the Relay does not queue jobs.
 - A target missing a required behavioral capability fails preflight before a
   durable job is created, even when its CLI package version matches.
-- A signed prebuilt SSH release may be installed automatically. Missing
-  platform support, failed signature or digest verification, installer timeout,
-  or an incompatible post-install probe fails closed before workspace
-  provisioning.
+- A missing or incompatible target CLI fails the probe before workspace provisioning.
 - A lost submit response leaves `submission_unknown`; status or an idempotent
   retry reconciles the target's durable truth.
 - A live PID that no longer matches the exact worker command is never signaled

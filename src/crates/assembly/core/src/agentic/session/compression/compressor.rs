@@ -416,25 +416,53 @@ impl ContextCompressor {
                 "Context compression requires a non-empty model summary".to_string(),
             )
         })?;
+        trace!("Rendering compression result for session {}", session_id);
+        Ok(self.replacement(
+            plan.retained_user_messages,
+            plan.recent_tail_messages,
+            plan.current_turn_todo_checkpoint,
+            contract,
+            summary,
+        ))
+    }
+
+    // Render the smallest possible replacement, including required checkpoint
+    // text and the continuation reminder. Transcript references can only add cost.
+    pub(crate) fn minimum_replacement(
+        &self,
+        plan: &CompressionPlan,
+        contract: Option<CompressionContract>,
+    ) -> CompressionResult {
+        self.replacement(
+            plan.retained_user_messages.clone(),
+            plan.recent_tail_messages.clone(),
+            plan.current_turn_todo_checkpoint.clone(),
+            contract,
+            String::new(),
+        )
+    }
+
+    fn replacement(
+        &self,
+        mut messages: Vec<Message>,
+        tail: Vec<Message>,
+        checkpoint: Option<CurrentTurnTodoCheckpoint>,
+        contract: Option<CompressionContract>,
+        summary: String,
+    ) -> CompressionResult {
         let mut summary_artifact = self.build_model_summary_artifact(summary, contract);
-        if let Some(checkpoint) = plan.current_turn_todo_checkpoint {
+        if let Some(checkpoint) = checkpoint {
             Self::append_current_turn_todo_checkpoint(&mut summary_artifact, checkpoint);
         }
         let summary_message = self.create_summary_message(summary_artifact);
-        let mut messages = plan.retained_user_messages;
         messages.push(summary_message);
-        messages.extend(plan.recent_tail_messages);
+        messages.extend(tail);
         messages.push(Message::internal_reminder(
             InternalReminderKind::CompressionContinuation,
             Self::COMPRESSION_CONTINUATION_REMINDER,
         ));
 
-        debug!(
-            "Compression completed: session_id={}, compressed_messages={}",
-            session_id,
-            messages.len()
-        );
-        Ok(CompressionResult { messages })
+        CompressionResult { messages }
     }
 
     fn append_current_turn_todo_checkpoint(

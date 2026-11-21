@@ -44,6 +44,8 @@ pub struct RemoteExecCommandRequest {
     pub tty: bool,
     pub yield_time_ms: Option<u64>,
     pub max_output_chars: Option<usize>,
+    /// End only the initial output wait; the launched process remains active.
+    pub wait_interrupt: Option<tokio_util::sync::CancellationToken>,
     pub lifecycle_tx: Option<mpsc::UnboundedSender<RemoteExecProcessLifecycleEvent>>,
     pub output_capture_tx: Option<mpsc::UnboundedSender<ExecOutputChunk>>,
 }
@@ -344,6 +346,16 @@ impl RemoteExecProcessManager {
         output_tx: Option<mpsc::Sender<String>>,
     ) -> RemoteExecResult<RemoteExecCommandResponse> {
         let process = Arc::new(spawn_remote_process(request.clone()).await?);
+        self.wait_for_initial_output(process, request, output_tx)
+            .await
+    }
+
+    async fn wait_for_initial_output(
+        &self,
+        process: Arc<RemoteExecProcess>,
+        request: RemoteExecCommandRequest,
+        output_tx: Option<mpsc::Sender<String>>,
+    ) -> RemoteExecResult<RemoteExecCommandResponse> {
         let cursor = OutputCursor {
             next_seq: 0,
             pending_utf8: PendingUtf8Streams::default(),
@@ -359,16 +371,22 @@ impl RemoteExecProcessManager {
         let started_at = Instant::now();
         let collected = process
             .output
-            .collect_until(
+            .collect_until_interruptible(
                 cursor,
                 deadline_from_now(request.yield_time_ms),
                 request.max_output_chars.unwrap_or(usize::MAX),
                 output_tx.as_ref(),
+                request.wait_interrupt.as_ref(),
             )
             .await;
 
-        let exit_code = process.output.exit_code().await;
-        let closed = process.output.is_closed().await;
+        // Keep bytes arriving after the final drain available to the next poll.
+        let closed = collected.closed;
+        let exit_code = if closed {
+            process.output.exit_code().await
+        } else {
+            None
+        };
         let completion = if closed {
             Some(completion_for_closed_remote_process(
                 process.out_of_band_control_action(),
@@ -386,7 +404,7 @@ impl RemoteExecProcessManager {
         .await;
 
         Ok(RemoteExecCommandResponse {
-            wait_interrupted: false,
+            wait_interrupted: collected.wait_interrupted,
             chunk_id: new_chunk_id(),
             wall_time_seconds: started_at.elapsed().as_secs_f64(),
             output: collected.output,
@@ -1635,6 +1653,110 @@ mod wait_interrupt_tests {
             max_output_chars: None,
             wait_interrupt,
         }
+    }
+
+    fn exec_request(
+        directory: &std::path::Path,
+        token: CancellationToken,
+    ) -> RemoteExecCommandRequest {
+        RemoteExecCommandRequest {
+            ssh_manager: super::SSHConnectionManager::new(directory.into()),
+            connection_id: "simulated-ssh".into(),
+            command: "command".into(),
+            tty: true,
+            yield_time_ms: Some(600_000),
+            max_output_chars: None,
+            wait_interrupt: Some(token),
+            lifecycle_tx: None,
+            output_capture_tx: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn exec_command_wait_interrupt_commits_initial_cursor_and_preserves_process() {
+        for streaming in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let (manager, output, mut commands) = session().await;
+            let process = manager.sessions.lock().await.remove(&42).unwrap().process;
+            output
+                .push_chunk(OutputStream::Stdout, b"before".to_vec())
+                .await;
+            let bytes = "\u{1f680}".as_bytes();
+            output
+                .push_chunk(OutputStream::Stdout, bytes[..2].to_vec())
+                .await;
+            let token = CancellationToken::new();
+            let request = exec_request(directory.path(), token.clone());
+            let (tx, mut rx) = mpsc::channel(8);
+            if !streaming {
+                token.cancel();
+            }
+            let (response, ()) = tokio::time::timeout(Duration::from_secs(2), async {
+                tokio::join!(
+                    manager.wait_for_initial_output(process, request, streaming.then_some(tx)),
+                    async {
+                        if streaming {
+                            assert_eq!(rx.recv().await.as_deref(), Some("before"));
+                            token.cancel();
+                        }
+                    }
+                )
+            })
+            .await
+            .unwrap();
+            let response = response.unwrap();
+            assert!(response.wait_interrupted);
+            assert_eq!(response.output, "before");
+            assert_eq!(response.exit_code, None);
+            assert_eq!(response.completion, None);
+            let session_id = response.session_id.unwrap();
+            assert!(manager.is_session_active(session_id).await);
+            assert!(
+                commands.try_recv().is_err(),
+                "yield must not control the process"
+            );
+
+            output
+                .push_chunk(OutputStream::Stdout, bytes[2..].to_vec())
+                .await;
+            output.close(Some(0)).await;
+            let mut request = poll(None);
+            request.session_id = session_id;
+            let last = manager.write_stdin(request).await.unwrap();
+            assert_eq!(last.output, "\u{1f680}");
+            assert!(!last.wait_interrupted);
+            assert_eq!(last.session_id, None);
+            assert_eq!(last.exit_code, Some(0));
+            assert_eq!(
+                last.completion.unwrap().status,
+                RemoteExecSessionCompletionStatus::Exited
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn exec_command_wait_interrupt_does_not_override_drained_exit() {
+        let directory = tempfile::tempdir().unwrap();
+        let (manager, output, _commands) = session().await;
+        let process = manager.sessions.lock().await.remove(&42).unwrap().process;
+        output
+            .push_chunk(OutputStream::Stdout, b"final".to_vec())
+            .await;
+        output.close(Some(7)).await;
+        let token = CancellationToken::new();
+        token.cancel();
+        let response = manager
+            .wait_for_initial_output(process, exec_request(directory.path(), token), None)
+            .await
+            .unwrap();
+        assert!(!response.wait_interrupted);
+        assert_eq!(response.output, "final");
+        assert_eq!(response.exit_code, Some(7));
+        assert_eq!(response.session_id, None);
+        assert_eq!(
+            response.completion.unwrap().status,
+            RemoteExecSessionCompletionStatus::Exited
+        );
     }
 
     #[tokio::test]

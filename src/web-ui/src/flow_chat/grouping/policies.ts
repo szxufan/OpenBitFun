@@ -61,6 +61,14 @@ export interface FlowGroupPolicy<K extends FlowGroupCategory> {
 
 /** Ordered, explicit product policies. Card density never implies membership. */
 export const flowGroupPolicies = {
+  visualize: {
+    minimumItems: 1,
+    matches: () => false, // Membership requires a preceding visualize skill in this turn.
+    create: base => ({ ...base, category: 'visualize' }),
+    component: 'explore-group',
+    attributes: () => ({ 'data-group-kind': 'visualize' }),
+    summarize: (_items, t): Summary => ({ summary: t('visualize.preparation') }),
+  },
   'file-edit': {
     minimumItems: 2,
     matches: item => fileEditTarget(item) !== undefined,

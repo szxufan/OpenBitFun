@@ -861,6 +861,13 @@ pub fn render_exec_command_response_for_assistant(data: &Value) -> String {
     let status_lines = completion_status_lines(data);
     let mut note_lines = Vec::new();
 
+    if data.get("wait_end_reason").and_then(Value::as_str) == Some("steered") {
+        note_lines.push(
+            "ExecCommand ended its wait early because user steering arrived. The process continues running. Handle the new user message before polling with WriteStdin; do not launch the command again."
+                .to_string(),
+        );
+    }
+
     if data.get("tty").and_then(Value::as_bool) == Some(false)
         && data
             .get("output")
@@ -1124,6 +1131,23 @@ mod tests {
             !rendered.contains("code -1"),
             "an unknown status must never be rendered as a failing exit code"
         );
+    }
+
+    #[test]
+    fn exec_command_legacy_and_steered_payloads_keep_process_status_separate() {
+        let legacy = r#"{"wall_time_seconds":0.25,"output":"partial","session_id":7,"exit_code":null,"completion":null,"tty":false}"#;
+        let mut data: Value = serde_json::from_str(legacy).unwrap();
+        assert!(!render_exec_command_response_for_assistant(&data).contains("<note>"));
+        let round_trip: Value =
+            serde_json::from_str(&serde_json::to_string(&data).unwrap()).unwrap();
+        assert_eq!(round_trip, data);
+        data["wait_end_reason"] = json!("steered");
+        let rendered = render_exec_command_response_for_assistant(&data);
+        assert!(rendered.contains("Process is still running. session_id: 7"));
+        assert!(rendered.contains("user steering arrived"));
+        assert!(rendered.contains("do not launch the command again"));
+        assert!(rendered.contains("<output>\npartial\n</output>"));
+        assert!(!rendered.contains("Process was interrupted externally"));
     }
 
     #[test]

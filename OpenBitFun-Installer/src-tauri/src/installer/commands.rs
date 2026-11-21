@@ -995,7 +995,7 @@ async fn install_impl(
         // Step 1: Create target directory
         emit_progress(window.as_ref(), "prepare", 5, "Creating installation directory...");
         std::fs::create_dir_all(&install_path)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
+            .map_err(|e| format!("Failed to create directory {}: {e}", install_path.display()))?;
 
         // Step 2: Extract / copy application files
         emit_progress(window.as_ref(), "extract", 15, "Extracting application files...");
@@ -1017,7 +1017,7 @@ async fn install_impl(
                 &staging_path,
                 should_install_payload_path,
             )
-            .map_err(|e| format!("Embedded payload extraction failed: {}", e))?;
+            .map_err(|e| format!("Embedded payload extraction failed: {e:#}"))?;
             extracted = true;
             log::info!("Extracted payload from embedded installer archive");
         }
@@ -1046,7 +1046,7 @@ async fn install_impl(
                         &staging_path,
                         should_install_payload_path,
                     )
-                    .map_err(|e| format!("Extraction failed from {}: {}", candidate.label, e))?;
+                    .map_err(|e| format!("Extraction failed from {}: {e:#}", candidate.label))?;
                     extracted = true;
                     log::info!("Extracted payload from {}", candidate.label);
                     break;
@@ -1066,7 +1066,7 @@ async fn install_impl(
                     &staging_path,
                     should_install_payload_path,
                 )
-                .map_err(|e| format!("File copy failed from {}: {}", candidate.label, e))?;
+                .map_err(|e| format!("File copy failed from {}: {e:#}", candidate.label))?;
                 extracted = true;
                 log::info!("Copied payload from {}", candidate.label);
                 break;

@@ -328,6 +328,7 @@ impl RemoteConnectService {
     /// asking for its invitation again never drops a connection.
     pub async fn prepare_relay(&self, method: &ConnectionMethod) -> Result<String> {
         let _lifecycle = self.relay_lifecycle.lock().await;
+        device::require_remote_control()?;
         if self.active_method.read().await.as_ref() == Some(method) {
             if let Some(url) = self.prepared_relay_url.read().await.clone() {
                 return Ok(url);
@@ -395,6 +396,7 @@ impl RemoteConnectService {
             return self.start_bot_connection(&method).await;
         }
         let _lifecycle = self.device_relay_lifecycle.lock().await;
+        device::require_remote_control()?;
         let device_id = self
             .authenticated_device_id
             .read()
@@ -442,6 +444,7 @@ impl RemoteConnectService {
 
     async fn start_bot_connection(&self, method: &ConnectionMethod) -> Result<ConnectionResult> {
         let _lifecycle = self.bot_lifecycle.lock().await;
+        device::require_remote_control()?;
         let account_user_id = self
             .bot_account_user_id
             .read()
@@ -716,6 +719,7 @@ impl RemoteConnectService {
     /// Skips the pairing step and directly starts the message loop.
     pub async fn restore_bot(&self, saved: &bot::SavedBotConnection) -> Result<()> {
         let _lifecycle = self.bot_lifecycle.lock().await;
+        device::require_remote_control()?;
         let account_user_id = self
             .bot_account_user_id
             .read()
@@ -1098,14 +1102,18 @@ impl RemoteConnectService {
     /// active (i.e. `start_device_connection` has been called and not yet
     /// disconnected).
     pub async fn is_device_connected(&self) -> bool {
-        let client = self.device_relay_client.read().await.clone();
-        let Some(client) = client else {
-            return false;
-        };
+        self.account_socket_serves_device().await == Some(true)
+    }
+
+    /// A controller-only connection receives account presence and peer events
+    /// without advertising a routable machine on the Relay.
+    pub async fn account_socket_serves_device(&self) -> Option<bool> {
+        let client = self.device_relay_client.read().await.clone()?;
         matches!(
             client.connection_state().await,
             relay_client::ConnectionState::Connected | relay_client::ConnectionState::Reconnecting
         )
+        .then(|| client.serves_device())
     }
 
     pub async fn device_relay_url(&self) -> Option<String> {
@@ -1121,14 +1129,14 @@ impl RemoteConnectService {
     ///
     /// `notifier` delivers host stream hints to subscribed controllers; the host
     /// adapter owns pairwise encryption and the routing lease, so it supplies it.
-    /// `priority` decides which host serves this device when several OpenBitFun
-    /// hosts on the machine share its identity.
+    /// A host priority registers a machine socket and arbitrates local hosts.
+    /// With no priority, the endpoint only receives controller events.
     pub async fn start_device_connection(
         &self,
         relay_url: &str,
         session: &AccountSession,
         device_name: &str,
-        priority: relay_client::DeviceRoutingPriority,
+        host_priority: Option<relay_client::DeviceRoutingPriority>,
         notifier: Arc<dyn host_stream::HostStreamNotifier>,
     ) -> Result<(
         tokio::sync::mpsc::Receiver<relay_client::RelayEvent>,
@@ -1139,7 +1147,10 @@ impl RemoteConnectService {
         // Disconnect previous device connection if any.
         self.stop_device_connection_inner().await;
 
-        let (client, mut event_rx) = RelayClient::new_device_host(priority);
+        let (client, mut event_rx) = match host_priority {
+            Some(priority) => RelayClient::new_device_host(priority),
+            None => RelayClient::new_controller(),
+        };
         let client = client.with_account_session(session);
         client.connect(relay_url).await?;
         client
@@ -1165,9 +1176,11 @@ impl RemoteConnectService {
                     if let Err(e) = DeviceIdentity::adopt_account_device_id(&device_id) {
                         log::warn!("Failed to adopt AuthOk device_id: {e}");
                     }
-                    let hub = start_host_stream_hub(notifier.clone());
-                    if let Some(previous) = self.host_stream_hub.write().await.replace(hub) {
-                        previous.close();
+                    if host_priority.is_some() {
+                        let hub = start_host_stream_hub(notifier.clone());
+                        if let Some(previous) = self.host_stream_hub.write().await.replace(hub) {
+                            previous.close();
+                        }
                     }
                     authenticated_device_id = Some(device_id);
                 }

@@ -384,13 +384,37 @@ notification metadata.
 
 19. **Session copying needs an explicitly negotiated request contract.**
     `whole_session_copy_v1` enables the dedicated `copy_session` command.
-    Older Desktop hosts and CLI peer hosts do not implement that command.
+    Older Desktop hosts and older CLI peer hosts do not implement that command.
     Missing capability disables the copy action and rejects the request before
     RPC; there is no fallback to `fork_session`. Explicit-turn forks retain
     their existing payload with a required `source_turn_id`. Reconnect
     replaces the capability, including when a host restarts on an older build.
     Once a copy is acknowledged, a metadata-read failure reports the created
     copy and asks for a list refresh; it must not replay the copy mutation.
+    `session_fork_v1` marks a CLI host that implements `fork_session`; every
+    Desktop host always has. Without it on a CLI host the turn fork action and
+    the side question "save as fork" choice are hidden, not attempted.
+
+19a. **Stop interrupts recoverably only on a host that says so.**
+    `recoverable_interruption_v1` lets Stop call `interrupt_dialog_turn`, so the
+    turn can be resumed with `recover_interrupted_dialog_turn` exactly as on
+    the local surface. Without it, including older Desktop hosts, Stop keeps
+    the hard `cancel_dialog_turn`. The host still falls back to hard
+    cancellation for sessions it cannot interrupt recoverably.
+
+19b. **Every mounted transcript follows its own session stream.** A host
+    publishes a session's events only to subscribers of that session, child
+    sessions included, and peer session refresh subscribes only the active
+    session. `retainSessionHistory` therefore opens the relay subscription for
+    any other materialized session a pane mounts (side question, review, or
+    subagent pane, docked chat), which also re-subscribes those panes after a
+    device switch closes every subscription. The active session, unsent side
+    drafts, and metadata-only shells keep their existing owners. A side
+    question's first question opens its subscription once `btw_ask_stream` is
+    accepted; the host replays from its records, so earlier events are not
+    lost. Closing a side question cancels it with `cancel_session`; a CLI host
+    older than that handler refuses it, and the controller then stops the turn
+    with `btw_cancel` before deleting.
 
 20. **PSK pairing must never silently downgrade.** The encrypted envelope's
     optional `key_id` is the only authority for which derivation sealed a

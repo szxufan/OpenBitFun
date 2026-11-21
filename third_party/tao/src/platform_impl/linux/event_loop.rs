@@ -220,6 +220,16 @@ impl<T: 'static> EventLoop<T> {
   }
 
   fn new_gtk(app_id: Option<&str>) -> Result<EventLoop<T>, Box<dyn Error>> {
+    // Tao also opens an X11 connection on its device event thread. Older
+    // libX11 versions need thread support initialized before GTK opens the
+    // first display.
+    #[cfg(feature = "x11")]
+    if let Ok(xlib) = x11_dl::xlib::Xlib::open() {
+      if unsafe { (xlib.XInitThreads)() } == 0 {
+        log::warn!("Failed to initialize Xlib thread support");
+      }
+    }
+
     // This should be done by gtk::Application::new, but does not work properly
     gtk::init()?;
     let context = MainContext::default();

@@ -13,3 +13,9 @@ async fn configured_shell_preference() -> Option<String> {
         .await
         .ok()
 }
+
+/// Approval preparation must not start a candidate shell to discover its version.
+pub(crate) async fn resolve_local_exec_shell_for_preflight() -> ResolvedLocalExecShell {
+    let configured_shell = configured_shell_preference().await;
+    terminal_core::resolve_local_exec_shell_without_probe(configured_shell.as_deref())
+}

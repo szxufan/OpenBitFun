@@ -1110,7 +1110,9 @@ describe('PeerSessionRefreshModule journal apply', () => {
     vi.useRealTimers();
   });
 
-  it.each([true, false])('replays a pristine local active restore when refresh is installed before hydrate: %s', async installBeforeHydrate => {
+  it.each([[true, false], [false, false], [true, true], [false, true]])(
+    'replays a local restore with listener-before-hydrate=%s and background-ACP=%s',
+    async (installBeforeHydrate, backgroundAcp) => {
     peerModeMock.active = false;
     const store = FlowChatStore.getInstance();
     const sessionId = 'local-reload';
@@ -1118,7 +1120,7 @@ describe('PeerSessionRefreshModule journal apply', () => {
     const roundId = 'round-live';
     store.setState(prev => ({
       ...prev,
-      activeSessionId: sessionId,
+      activeSessionId: backgroundAcp ? null : sessionId,
       sessions: new Map([[sessionId, {
         sessionId,
         title: 'Local reload',
@@ -1128,7 +1130,7 @@ describe('PeerSessionRefreshModule journal apply', () => {
         isHistorical: true,
         isTransient: false,
         dialogTurns: [],
-        config: { agentType: 'PaperWriting' },
+        config: { agentType: backgroundAcp ? 'acp:controlled' : 'PaperWriting' },
         createdAt: 1,
         lastActiveAt: 1,
         todos: [],
@@ -1172,7 +1174,8 @@ describe('PeerSessionRefreshModule journal apply', () => {
       } } },
     ];
     const view = {
-      session: { sessionId, agentType: 'PaperWriting', state: 'Processing', createdAt: 1, turnCount: 7 },
+      executionProjection: backgroundAcp ? 'acp' : undefined,
+      session: { sessionId, agentType: backgroundAcp ? 'acp:controlled' : 'PaperWriting', state: 'Processing', createdAt: 1, turnCount: 7 },
       turns: [{
         turnId, turnIndex: 6, sessionId, timestamp: 1,
         userMessage: { id: 'user-live', content: 'Open LaTeX', timestamp: 1 },
@@ -1194,7 +1197,8 @@ describe('PeerSessionRefreshModule journal apply', () => {
       expect(store.getState().sessions.get(sessionId)?.dialogTurns[0].modelRounds).toEqual([]);
       expect(isRuntimeSessionProjectionStale(LOCAL_SURFACE_ID, sessionId)).toBe(true);
       if (!installBeforeHydrate) cleanup = installPeerSessionRefresh(context);
-      await vi.advanceTimersByTimeAsync(1);
+      // A background repair may follow the initial no-active-session timer.
+      await vi.advanceTimersByTimeAsync(5);
       expect(restore).toHaveBeenCalledTimes(2);
 
       // Live delivery races the host read: the covered prefix must not repeat,

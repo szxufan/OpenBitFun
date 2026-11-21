@@ -20,7 +20,7 @@ HarmonyOS PC 真实系统终端中安装并本地执行的原生 `openbitfun`：
 
 - 在 HAP 内绘制终端风格界面；
 - 只通过 `hdc shell` 推送、启动或操作二进制；
-- 把现有 `src/apps/mobile/harmonyos` 手机 Remote App 改称为 PC 本地产品；
+- 把现有 [src/apps/mobile/harmonyos](https://github.com/openBitFun/OpenBitFun-Mobile/tree/main/src/apps/mobile/harmonyos) 手机 Remote App 改称为 PC 本地产品；
 - 在其他设备运行 Runtime，再由 HarmonyOS PC 远程控制。
 
 完整的 HarmonyOS PC 支持同时包含本地 CLI/TUI 与 GUI。GUI 是另一项必需交付形态，但由独立产品专题设计和

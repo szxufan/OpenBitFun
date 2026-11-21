@@ -68,7 +68,7 @@
     "sectionDescription": "決定工具操作是否需要確認，以及哪些操作允許或拒絕",
     "mode": "預設權限模式",
     "ask": "需要確認",
-    "askDescription": "修改檔案、執行命令或存取外部服務時先確認。",
+    "askDescription": "普通工作區編輯、已識別的唯讀命令、任務排程和會話間訊息自動放行；其他命令、刪除、敏感檔案和發布操作仍需確認。",
     "fullAccess": "完全存取",
     "fullAccessDescription": "不再逐次確認工具操作。",
     "fullAccessWarningTitle": "啟用完全存取？",

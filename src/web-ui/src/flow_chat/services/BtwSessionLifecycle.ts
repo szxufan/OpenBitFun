@@ -1,4 +1,6 @@
-import { agentAPI, sessionAPI } from '@/infrastructure/api';
+import { agentAPI, btwAPI, sessionAPI } from '@/infrastructure/api';
+import { classifyPeerHostRefusal } from '@/infrastructure/peer-device/peerHostRefusal';
+import { renderedHostCanForkSessions } from '@/infrastructure/peer-device/renderedHostCapabilities';
 import { removeBtwSessionFromAgentCanvas } from '@/app/components/panels/content-canvas/stores/canvasStore';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import { askUserQuestionDraftStore } from '../store/askUserQuestionDraftStore';
@@ -17,7 +19,9 @@ const savedForks = new Map<string, string>();
 
 export function canSaveBtwSessionAsFork(sessionId: string): boolean {
   const session = flowChatStore.getState().sessions.get(sessionId);
-  return session?.sessionKind === 'btw' && Boolean(
+  return session?.sessionKind === 'btw'
+    // Saving forks on the rendered host, which an older CLI peer host refuses.
+    && renderedHostCanForkSessions() && Boolean(
     session.dialogTurns.length || session.btwOrigin?.requestId || session.isHistorical,
   );
 }
@@ -74,6 +78,21 @@ export function saveBtwSessionAsFork(sessionId: string): Promise<void> {
   });
 }
 
+/**
+ * Stop the side question's running turn. Peer CLI hosts released before
+ * `cancel_session` refuse it as not implemented, but they do run `btw_cancel`,
+ * which stops the turn its request started. Any other failure still blocks the
+ * close, so the tab is kept and the user can retry.
+ */
+async function cancelBtwRuntime(sessionId: string, requestId: string | undefined): Promise<void> {
+  try {
+    await agentAPI.cancelSession(sessionId);
+  } catch (error) {
+    if (!requestId || !classifyPeerHostRefusal(error)) throw error;
+    await btwAPI.cancel({ requestId });
+  }
+}
+
 /** Explicit tab closure owns runtime deletion; view unmounts never call this. */
 export function discardBtwSession(sessionId: string): Promise<void> {
   const scope = getActiveSurfaceScope();
@@ -86,7 +105,7 @@ export function discardBtwSession(sessionId: string): Promise<void> {
     // An empty side draft has no host session yet. A request ID also covers
     // forks whose acknowledgement failed after the host accepted them.
     if (!isBtwSessionDraft(latest) || latest.btwOrigin?.requestId) {
-      await agentAPI.cancelSession(sessionId);
+      await cancelBtwRuntime(sessionId, latest.btwOrigin?.requestId);
       scope.assertCurrent('delete BTW session');
       await agentAPI.deleteSession(sessionId, requireSessionOwningWorkspaceId(latest));
       scope.assertCurrent('release BTW session state');

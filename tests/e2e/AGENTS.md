@@ -38,6 +38,19 @@ pnpm --dir tests/e2e exec wdio run ./config/wdio.conf.ts --spec "./specs/<file>.
 
 Prefer the narrowest relevant spec first, then broaden only if needed.
 
+For ACP queue recovery, finish Desktop and production frontend builds, then run
+`node tests/e2e/scripts/run-acp-queue-recovery.mjs`. The isolated macOS native
+runner uses a controlled ACP subprocess over real stdio, production controls,
+and read-only singleton diagnostics. It covers background reload recovery,
+session switching, non-blocking metadata reads and live metadata updates,
+model-change publication, ACP send-now queue promotion, delayed cancellation,
+admission deduplication, protocol errors and child-process exit/reconnect.
+ACP send-now promotes a queued message for execution after the current prompt;
+it does not inject native steering into an external agent. It retains `acp-queue-recovery.json`, event logs
+and screenshots in the printed temporary directory. Frontend/binary/font-profile
+overrides match the other native workload runners. This is local Desktop
+coverage; it does not establish live-provider or any remote-scenario behavior.
+
 For the static/streaming long-session performance matrix, see the workload and
 measurement definitions in [README.md](README.md#long-session-performance).
 After building Desktop and production frontend assets, run

@@ -41,6 +41,7 @@ export interface FileEditGroupData extends FlowGroupBase {
 }
 
 export interface FlowGroupDataByCategory {
+  visualize: FlowGroupBase & { category: 'visualize' };
   explore: ExploreGroupData;
   context: ContextLoadGroupData;
   interface: InterfaceGroupData;
@@ -70,6 +71,7 @@ export function getFlowGroupStateIds(group: FlowGroupBase): readonly string[] {
 export function isFlowGroupExpanded(group: FlowGroupBase & { category?: FlowGroupCategory }, states?: ReadonlyMap<string, boolean>): boolean {
   const choice = getFlowGroupDisclosureChoice(group, states);
   // Failed file revisions stay visible until the reader explicitly folds them.
+  if (group.category === 'visualize') return choice ?? false;
   return choice ?? ((group.category === 'file-edit' && group.needsAttention === true)
     || group.phase === 'collecting' || group.phase === 'settling'
     || (group.phase === undefined && group.isGroupStreaming));

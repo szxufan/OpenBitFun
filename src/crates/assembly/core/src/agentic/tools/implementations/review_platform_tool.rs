@@ -4,7 +4,8 @@
 //! keeping provider-specific product semantics inside `ReviewPlatformService`.
 
 use crate::agentic::tools::framework::{
-    Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext, ValidationResult,
+    PermissionIntent, Tool, ToolExposure, ToolRenderOptions, ToolResult, ToolUseContext,
+    ValidationResult,
 };
 use crate::service::review_platform::{
     ReviewPlatformApprovalRequest, ReviewPlatformCreatePullRequestRequest,
@@ -425,6 +426,56 @@ When returning pull request results to the user, include the provider web URL so
         input
             .and_then(Self::action)
             .is_some_and(|action| !WRITE_ACTIONS.contains(&action))
+    }
+
+    fn permission_intents(
+        &self,
+        input: &Value,
+        context: &ToolUseContext,
+    ) -> OpenBitFunResult<Vec<PermissionIntent>> {
+        let readonly = matches!(
+            Self::action(input),
+            Some(
+                ACTION_WORKSPACE_SNAPSHOT
+                    | ACTION_LIST_REMOTES
+                    | ACTION_LIST
+                    | ACTION_COUNT
+                    | ACTION_GET
+                    | ACTION_GET_DETAIL_PAGE
+                    | ACTION_GET_CI_LOG
+            )
+        );
+        let repository = input
+            .get("repository_path")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                context
+                    .workspace
+                    .as_ref()
+                    .map(|workspace| workspace.root_path_string())
+            })
+            .unwrap_or_else(|| "<current-repository>".into());
+        let platform = input
+            .get("platform")
+            .and_then(Value::as_str)
+            .unwrap_or("current");
+        let pull_request = input
+            .get("pull_request_id")
+            .and_then(Value::as_str)
+            .unwrap_or("repository");
+        let mut intent = PermissionIntent::new(
+            if readonly {
+                "review.read"
+            } else {
+                "review.write"
+            },
+            vec![format!("{platform}:{repository}:{pull_request}")],
+        );
+        if input.get("pull_request_id").is_none() {
+            intent.save_resources.clear();
+        }
+        Ok(vec![intent])
     }
 
     async fn validate_input(

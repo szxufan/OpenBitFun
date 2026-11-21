@@ -49,6 +49,7 @@ describe('SceneTopBar', () => {
     vi.clearAllMocks();
     isMaximized.mockResolvedValue(false);
     isFullscreen.mockResolvedValue(false);
+    vi.stubGlobal('navigator', { platform: 'Linux x86_64', userAgent: 'Linux' });
     vi.stubGlobal('__TAURI_INTERNALS__', {
       invoke: vi.fn(),
       metadata: { currentWindow: { label: 'main' } },
@@ -189,7 +190,9 @@ describe('SceneTopBar', () => {
       expect(maximize).toHaveBeenCalledTimes(3);
     });
 
-    it('excludes the whole tab from window gestures as other tabs open and close', async () => {
+    it.each([false, true])('excludes the whole tab on Windows with maximized=%s as other tabs open and close', async maximized => {
+      vi.stubGlobal('navigator', { platform: 'Win32', userAgent: 'Windows' });
+      isMaximized.mockResolvedValue(maximized);
       for (const tabCount of [1, 2, 1]) {
         const toolbar = renderBar(tabCount);
         const tab = toolbar.querySelector('[role="tab"]')!;
@@ -204,7 +207,9 @@ describe('SceneTopBar', () => {
       }
     });
 
-    it('leaves multi-tab labels and item padding to tab interaction', async () => {
+    it.each([false, true])('leaves Windows multi-tab labels and item padding to tab interaction with maximized=%s', async maximized => {
+      vi.stubGlobal('navigator', { platform: 'Win32', userAgent: 'Windows' });
+      isMaximized.mockResolvedValue(maximized);
       const toolbar = renderBar(2);
       const tab = toolbar.querySelector<HTMLButtonElement>('[role="tab"][data-openbitfun-value="1"]')!;
       for (const target of [tab, tab.querySelector('span')!, tab.closest('[data-openbitfun-part="item"]')!]) {
@@ -217,7 +222,9 @@ describe('SceneTopBar', () => {
       expect(maximize).not.toHaveBeenCalled();
     });
 
-    it.each([1, 2])('excludes close buttons, nested SVGs, scene actions and editable fields with %i tabs', async tabCount => {
+    it.each([1, 2])('excludes close buttons, nested SVGs, scene actions and editable fields with %i tabs on maximized Windows', async tabCount => {
+      vi.stubGlobal('navigator', { platform: 'Win32', userAgent: 'Windows' });
+      isMaximized.mockResolvedValue(true);
       const toolbar = renderBar(tabCount);
       for (const target of toolbar.querySelectorAll('button:not([role="tab"]), svg, path, input, [contenteditable] span')) {
         await mouseDown(target);
@@ -227,6 +234,58 @@ describe('SceneTopBar', () => {
       expect(sceneState.closeTab).toHaveBeenCalledOnce();
       expect(startDragging).not.toHaveBeenCalled();
       expect(maximize).not.toHaveBeenCalled();
+    });
+
+    it('keeps maximized Windows panel tabs, padding and close icons outside window gestures', async () => {
+      vi.stubGlobal('navigator', { platform: 'Win32', userAgent: 'Windows' });
+      isMaximized.mockResolvedValue(true);
+      const { TabGroup } = await import('@openbitfun/ui');
+      const select = vi.fn();
+      const close = vi.fn();
+      act(() => root.render(<SceneTopBar panelOpen onMaximize={maximize} panelTabs={
+        <TabGroup value="0" onValueChange={select} items={[
+          { value: '0', label: <span>First panel</span> },
+          { value: '1', label: <span>Second panel</span>, endAction:
+            <button aria-label="Close panel" onClick={close}><svg><path d="M0 0L1 1" /></svg></button> },
+        ]} />
+      } />));
+      const panel = host.querySelector('.openbitfun-scene-top-bar__panel-region')!;
+      for (const target of panel.querySelectorAll('[role="tab"], [data-openbitfun-part="item"], span, button, svg, path')) {
+        await mouseDown(target);
+        doubleClick(target);
+      }
+      act(() => panel.querySelector<HTMLButtonElement>('[role="tab"][data-openbitfun-value="1"]')!.click());
+      act(() => panel.querySelector<HTMLButtonElement>('[aria-label="Close panel"]')!.click());
+      expect(select).toHaveBeenCalledWith('1');
+      expect(close).toHaveBeenCalledOnce();
+      expect(startDragging).not.toHaveBeenCalled();
+      expect(maximize).not.toHaveBeenCalled();
+    });
+
+    it('delegates maximized Windows blank chrome to native dragging without rerendering', async () => {
+      vi.stubGlobal('navigator', { platform: 'Win32', userAgent: 'Windows' });
+      const toolbar = renderBar(2);
+      await mouseDown(toolbar);
+      expect(startDragging).toHaveBeenCalledOnce();
+
+      isMaximized.mockResolvedValue(true);
+      await mouseDown(toolbar);
+      expect(startDragging).toHaveBeenCalledTimes(2);
+      expect(isMaximized).toHaveBeenCalledTimes(2);
+      expect(isFullscreen).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([false, true])('blocks Windows fullscreen with maximized=%s and allows dragging after leaving it without rerendering', async maximized => {
+      vi.stubGlobal('navigator', { platform: 'Win32', userAgent: 'Windows' });
+      isMaximized.mockResolvedValue(maximized);
+      isFullscreen.mockResolvedValue(true);
+      const toolbar = renderBar(2);
+      await mouseDown(toolbar);
+      expect(startDragging).not.toHaveBeenCalled();
+
+      isFullscreen.mockResolvedValue(false);
+      await mouseDown(toolbar);
+      expect(startDragging).toHaveBeenCalledOnce();
     });
 
     it('uses click detail to preserve double-click maximize without blocking separate drags', async () => {
@@ -245,7 +304,7 @@ describe('SceneTopBar', () => {
       { maximized: true, fullscreen: false },
       { maximized: false, fullscreen: true },
       { maximized: true, fullscreen: true },
-    ])('blocks dragging while maximized=$maximized/fullscreen=$fullscreen and restores it without rerendering', async ({ maximized, fullscreen }) => {
+    ])('keeps non-Windows dragging blocked while maximized=$maximized/fullscreen=$fullscreen and restores it without rerendering', async ({ maximized, fullscreen }) => {
       const toolbar = renderBar(2);
       await mouseDown(toolbar);
       expect(startDragging).toHaveBeenCalledOnce();

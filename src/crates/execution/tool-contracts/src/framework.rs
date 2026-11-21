@@ -11,6 +11,7 @@ use openbitfun_core_types::ToolImageAttachment;
 use openbitfun_runtime_ports::DelegationPolicy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 use std::marker::PhantomData;
@@ -75,6 +76,13 @@ pub enum DeferredToolUsageError {
         tool_name: String,
         get_tool_spec_tool_name: String,
     },
+    DefinitionChanged {
+        tool_name: String,
+        get_tool_spec_tool_name: String,
+    },
+    ToolUnavailable {
+        tool_name: String,
+    },
     StaleSpec {
         tool_name: String,
         loaded_generation: u64,
@@ -92,6 +100,17 @@ impl fmt::Display for DeferredToolUsageError {
             } => write!(
                 formatter,
                 "Tool '{tool_name}' has no loaded definition in the current context. Call {get_tool_spec_tool_name} with {{\"tool_name\":\"{tool_name}\"}} to read its full usage instructions and input schema before invoking it. If compaction removed an earlier definition, reload it even if the summary says it was loaded."
+            ),
+            Self::ToolUnavailable { tool_name } => write!(
+                formatter,
+                "Deferred tool '{tool_name}' is unavailable in the current context."
+            ),
+            Self::DefinitionChanged {
+                tool_name,
+                get_tool_spec_tool_name,
+            } => write!(
+                formatter,
+                "The loaded spec for deferred tool '{tool_name}' is stale because its definition or provider changed. Call {get_tool_spec_tool_name} again before invoking it."
             ),
             Self::StaleSpec {
                 tool_name,
@@ -151,6 +170,7 @@ pub fn validate_deferred_tool_usage(
     deferred_tools: &[String],
     loaded_deferred_tool_specs: &[LoadedDeferredToolSpec],
     current_catalog_generation: u64,
+    current_spec_fingerprint: Option<&str>,
     get_tool_spec_tool_name: &str,
 ) -> Result<(), DeferredToolUsageError> {
     // The admission helper is shared by direct and deferred calls. A receipt
@@ -164,8 +184,20 @@ pub fn validate_deferred_tool_usage(
         .iter()
         .find(|loaded| loaded.tool_name == tool_name)
     {
-        if loaded.catalog_generation == current_catalog_generation {
+        if loaded.matches(current_catalog_generation, current_spec_fingerprint) {
             return Ok(());
+        }
+        if loaded.spec_fingerprint.is_some() {
+            return Err(if current_spec_fingerprint.is_some() {
+                DeferredToolUsageError::DefinitionChanged {
+                    tool_name: tool_name.to_owned(),
+                    get_tool_spec_tool_name: get_tool_spec_tool_name.to_owned(),
+                }
+            } else {
+                DeferredToolUsageError::ToolUnavailable {
+                    tool_name: tool_name.to_owned(),
+                }
+            });
         }
         return Err(DeferredToolUsageError::StaleSpec {
             tool_name: tool_name.to_string(),
@@ -332,6 +364,8 @@ pub struct GetToolSpecDetail {
     pub tool_name: String,
     pub description: String,
     pub input_schema: Value,
+    pub output_schema: Value,
+    pub spec_fingerprint: String,
     pub catalog_generation: u64,
 }
 
@@ -342,6 +376,7 @@ impl GetToolSpecDetail {
             "description": self.description.clone(),
             "input_schema": self.input_schema.clone(),
             "catalog_generation": self.catalog_generation,
+            "spec_fingerprint": self.spec_fingerprint,
         })
     }
 }
@@ -538,6 +573,7 @@ pub struct GetToolSpecLoadObservation<'a> {
     pub tool_name: &'a str,
     pub loaded_tool_name: Option<&'a str>,
     pub catalog_generation: Option<u64>,
+    pub spec_fingerprint: Option<&'a str>,
     pub is_error: bool,
 }
 
@@ -545,6 +581,18 @@ pub struct GetToolSpecLoadObservation<'a> {
 pub struct LoadedDeferredToolSpec {
     pub tool_name: String,
     pub catalog_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec_fingerprint: Option<String>,
+}
+
+impl LoadedDeferredToolSpec {
+    fn matches(&self, generation: u64, current_fingerprint: Option<&str>) -> bool {
+        match self.spec_fingerprint.as_deref() {
+            Some(loaded) => Some(loaded) == current_fingerprint,
+            // Historical sessions only recorded the global catalog generation.
+            None => self.catalog_generation == generation,
+        }
+    }
 }
 
 pub fn collect_loaded_deferred_tool_specs(
@@ -571,6 +619,7 @@ pub fn collect_loaded_deferred_tool_specs(
                     LoadedDeferredToolSpec {
                         tool_name: tool_name.to_string(),
                         catalog_generation,
+                        spec_fingerprint: observation.spec_fingerprint.map(str::to_owned),
                     },
                 );
             }
@@ -745,6 +794,11 @@ pub trait ContextualToolManifestItem<Context>: ToolRegistryItem
 where
     Context: Sync,
 {
+    /// Stable dispatch target when one provider exposes multiple routes with the same name.
+    fn deferred_spec_route_id(&self, _context: &Context) -> Option<String> {
+        None
+    }
+
     async fn is_available_in_context(&self, _context: &Context) -> bool {
         true
     }
@@ -937,18 +991,45 @@ where
         return Err(format!("Tool '{tool_name}' cannot inspect itself"));
     }
 
+    Ok(contextual_tool_spec(tool.as_ref(), context).await)
+}
+
+/// Materialize the receipt from the same contextual definition that the caller sees.
+pub async fn contextual_tool_spec<Tool, Context>(
+    tool: &Tool,
+    context: &Context,
+) -> GetToolSpecDetail
+where
+    Tool: ContextualToolManifestItem<Context> + ?Sized,
+    Context: Sync,
+{
     let description = tool
         .description_with_context(context)
         .await
         .unwrap_or_else(|_| format!("Tool: {}", tool.name()));
     let input_schema = tool.input_schema_for_model_with_context(context).await;
-
-    Ok(GetToolSpecDetail {
-        tool_name: tool_name.to_string(),
+    let output_schema = tool.output_schema();
+    let mut contract = serde_json::json!([
+        tool.name(),
+        tool.dynamic_tool_info(),
+        tool.deferred_spec_route_id(context),
         description,
         input_schema,
+        output_schema
+    ]);
+    contract.sort_all_objects();
+    let spec_fingerprint = format!(
+        "sha256:{:x}",
+        Sha256::digest(contract.to_string().as_bytes())
+    );
+    GetToolSpecDetail {
+        tool_name: tool.name().to_string(),
+        description,
+        input_schema,
+        output_schema,
+        spec_fingerprint,
         catalog_generation: 0,
-    })
+    }
 }
 
 pub async fn resolve_get_tool_spec_detail_from_provider<Tool, Context, Provider>(
@@ -962,10 +1043,15 @@ where
     Context: Sync,
     Provider: GetToolSpecCatalogProvider<Tool, Context> + ?Sized,
 {
+    let generation = provider.catalog_generation().await;
     let deferred_tools = provider
         .deferred_tools_for_get_tool_spec(Some(context))
         .await?;
-    resolve_get_tool_spec_detail(&deferred_tools, tool_name, context, get_tool_spec_tool_name).await
+    let mut detail =
+        resolve_get_tool_spec_detail(&deferred_tools, tool_name, context, get_tool_spec_tool_name)
+            .await?;
+    detail.catalog_generation = generation;
+    Ok(detail)
 }
 
 pub async fn resolve_get_tool_spec_execution_result_from_provider<Tool, Context, Provider>(
@@ -981,12 +1067,13 @@ where
     Provider: GetToolSpecCatalogProvider<Tool, Context> + ?Sized,
 {
     let current_generation = provider.catalog_generation().await;
-    let loaded_names = loaded_deferred_tool_specs
+    // Only legacy receipts can establish freshness without resolving the contextual tool.
+    let legacy_loaded_names = loaded_deferred_tool_specs
         .iter()
-        .filter(|spec| spec.catalog_generation == current_generation)
+        .filter(|spec| spec.matches(current_generation, None))
         .map(|spec| spec.tool_name.clone())
         .collect::<Vec<_>>();
-    match resolve_get_tool_spec_execution_plan(input, &loaded_names)? {
+    match resolve_get_tool_spec_execution_plan(input, &legacy_loaded_names)? {
         GetToolSpecExecutionPlan::DuplicateLoad(result) => Ok(result),
         GetToolSpecExecutionPlan::LoadDetail { tool_name } => {
             let deferred_tools = provider
@@ -1003,6 +1090,12 @@ where
                 )
                 .await
                 .map_err(GetToolSpecExecutionError::Detail)?;
+                if loaded_deferred_tool_specs.iter().any(|loaded| {
+                    loaded.tool_name == tool_name
+                        && loaded.matches(current_generation, Some(&detail.spec_fingerprint))
+                }) {
+                    return Ok(build_get_tool_spec_duplicate_load_result(tool_name));
+                }
                 let detail = GetToolSpecDetail {
                     catalog_generation: current_generation,
                     ..detail

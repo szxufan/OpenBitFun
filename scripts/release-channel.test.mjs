@@ -191,17 +191,15 @@ function writeFixture(root, relative, content) {
 }
 
 
-test('Desktop, CLI and SSH dispatch consume only the versioned stable feeds', () => {
+test('Desktop and CLI updaters consume the versioned stable feeds', () => {
   const stable = resolveReleaseChannel('stable');
-  for (const file of [
-    'src/apps/desktop/src/api/system_api.rs',
-    'src/crates/services/services-integrations/src/remote_ssh/dispatch_ssh.rs',
-  ]) {
-    const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-    assert.ok(source.includes(stable.primaryUpdaterEndpoint), file);
-    assert.ok(source.includes(stable.fallbackUpdaterEndpoint), file);
-    assert.doesNotMatch(source, /https:[^"\s]+\/latest\.json/);
-  }
+  const desktop = readFileSync(new URL('../src/apps/desktop/src/api/system_api.rs', import.meta.url), 'utf8');
+  assert.ok(desktop.includes(stable.primaryUpdaterEndpoint));
+  assert.ok(desktop.includes(stable.fallbackUpdaterEndpoint));
+  assert.doesNotMatch(desktop, /https:[^"\s]+\/latest\.json/);
+  const dispatch = readFileSync(new URL('../src/crates/services/services-integrations/src/remote_ssh/dispatch_ssh.rs', import.meta.url), 'utf8');
+  assert.ok(!dispatch.includes(stable.primaryUpdaterEndpoint));
+  assert.ok(!dispatch.includes(stable.fallbackUpdaterEndpoint));
   const cli = readFileSync(new URL('../src/apps/cli/src/self_update.rs', import.meta.url), 'utf8');
   assert.ok(cli.includes('https://github.com/szxufan/OpenBitFun/releases/latest/download/linux-binaries-v1.json'));
   assert.ok(cli.includes('https://iso.mylinkpi.cn/obf/release/linux-binaries-v1.json'));

@@ -337,7 +337,6 @@ async function startApplication(): Promise<void> {
   const windowKind = new URLSearchParams(window.location.search).get('openbitfunWindow');
   const isAgentCompanionWindow = windowKind === 'agent-companion';
   const isDesktopCardWindow = windowKind === 'desktop-card';
-  const isGenUIGalleryWindow = import.meta.env.DEV && windowKind === 'genui-gallery';
   // Select the dependency graph before importing either window. Start loading
   // alongside appearance initialization, avoiding another startup waterfall.
   // Keep separate import statements: a conditional import expression can be
@@ -347,8 +346,6 @@ async function startApplication(): Promise<void> {
     windowModule = import('./app/components/AgentCompanionDesktopPet/AgentCompanionDesktopPet');
   } else if (isDesktopCardWindow) {
     windowModule = import('./app/components/DesktopCard/DesktopCardWindow');
-  } else if (isGenUIGalleryWindow) {
-    windowModule = import('./tools/generative-ui/GenUIGallery');
   } else {
     windowModule = import('./app/startup/MainApplicationRoot');
   }
@@ -367,7 +364,7 @@ async function startApplication(): Promise<void> {
   });
   const { default: WindowContent } = await windowModule;
   const renderStartedAt = nowMs();
-  if (isAgentCompanionWindow || isDesktopCardWindow || isGenUIGalleryWindow) {
+  if (isAgentCompanionWindow || isDesktopCardWindow) {
     const windowStep = isDesktopCardWindow ? 'scheduleDesktopCardRender' : 'scheduleAgentCompanionRender';
     const windowPhase = isDesktopCardWindow ? 'desktop_card_render_scheduled' : 'agent_companion_render_scheduled';
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

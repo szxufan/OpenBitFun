@@ -6,6 +6,8 @@ import { activateSurface } from '@/infrastructure/peer-device/deviceSurface';
 
 const cancelSessionTask = vi.fn();
 const interruptDialogTurn = vi.fn();
+const cancelDialogTurn = vi.fn();
+const renderedHost = vi.hoisted(() => ({ recoverable: true }));
 
 vi.mock('@/flow_chat/store/FlowChatStore', () => ({
   flowChatStore: {
@@ -24,12 +26,16 @@ vi.mock('@/flow_chat/store/FlowChatStore', () => ({
 vi.mock('@/infrastructure/api/service-api/AgentAPI', () => ({
   agentAPI: {
     interruptDialogTurn,
-    cancelDialogTurn: vi.fn(),
+    cancelDialogTurn,
   },
 }));
 
 vi.mock('@/infrastructure/peer-device/peerModeFlag', () => ({
   isPeerDeviceModeActive: () => false,
+}));
+
+vi.mock('@/infrastructure/peer-device/renderedHostCapabilities', () => ({
+  renderedHostInterruptsRecoverably: () => renderedHost.recoverable,
 }));
 
 describe('SessionStateMachine recoverable interruption', () => {
@@ -51,6 +57,21 @@ describe('SessionStateMachine recoverable interruption', () => {
 
     expect(interruptDialogTurn).toHaveBeenCalledWith('session-1', 'turn-1');
     expect(cancelSessionTask).not.toHaveBeenCalled();
+  });
+
+  it('hard-cancels when the rendered peer host cannot interrupt recoverably', async () => {
+    renderedHost.recoverable = false;
+    cancelDialogTurn.mockReset();
+    cancelDialogTurn.mockResolvedValue(undefined);
+    try {
+      const machine = new SessionStateMachineImpl('session-1');
+      await machine.transition(SessionExecutionEvent.START, { taskId: 'session-1', dialogTurnId: 'turn-1' });
+      await machine.transition(SessionExecutionEvent.USER_CANCEL);
+      expect(cancelDialogTurn).toHaveBeenCalledWith('session-1', 'turn-1');
+      expect(interruptDialogTurn).not.toHaveBeenCalled();
+    } finally {
+      renderedHost.recoverable = true;
+    }
   });
 });
 

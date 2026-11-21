@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "0dc0b3cce270f605ddad45071a21963cdd0d760a507a9a869dbba23c7b895312",
+  "catalogDigest": "387a53e41117dfb6a341934a9a53c8162bc97c3b01cc4462312d71514fc22011",
   "count": 231,
   "reasonCounts": {
     "externalAuth": 4,
@@ -2120,6 +2120,22 @@
     },
     {
       "capabilityId": "feature.remote-connect",
+      "itemId": "device-control-permission",
+      "titleZh": "本机可被控制",
+      "titleEn": "Allow control of this device",
+      "reasonCode": "unstructuredInteraction",
+      "reasonZh": "请在当前设备的「设备与连接」概览中切换「本机可被控制」，选择其他设备能否连接这台设备。",
+      "reasonEn": "Choose “Allow control of this device” in the local Devices & Connections overview to set whether other devices can connect to this one.",
+      "presentationTarget": {
+        "kind": "event",
+        "eventName": "openbitfun:open-remote-connect"
+      },
+      "evidence": [
+        "command:remote_connect_set_allowed"
+      ]
+    },
+    {
+      "capabilityId": "feature.remote-connect",
       "itemId": "connection-methods",
       "titleZh": "使用免部署官方 Relay 或桌面端局域网 Relay（可同时开启）",
       "titleEn": "Use the zero-setup official Relay or Desktop LAN Relay concurrently",
@@ -2213,28 +2229,6 @@
         "command:peer_control_detach",
         "command:peer_controller_set_active",
         "command:peer_mode_ping"
-      ]
-    },
-    {
-      "capabilityId": "feature.detached-dispatch",
-      "itemId": "provision",
-      "titleZh": "为目标主机自动检测、安装或更新 OpenBitFun CLI 运行环境",
-      "titleEn": "Provision the target host and install or update the OpenBitFun CLI",
-      "reasonCode": "unstructuredInteraction",
-      "reasonZh": "「为目标主机自动检测、安装或更新 OpenBitFun CLI 运行环境」涉及远端安装进度轮询、网络下载与中途取消控制；智能体会打开目标配置界面，由你确认并观察安装完成。",
-      "reasonEn": "\"Provision the target host and install or update the OpenBitFun CLI\" involves live remote installation polling and cancellation controls; the Agent opens the target provisioning flow so you can confirm and monitor setup.",
-      "presentationTarget": {
-        "kind": "event",
-        "eventName": "openbitfun:open-remote-connect",
-        "detail": {
-          "group": "account"
-        }
-      },
-      "evidence": [
-        "command:dispatch_provision_target",
-        "command:dispatch_install_cli_start",
-        "command:dispatch_install_cli_poll",
-        "command:dispatch_install_cli_cancel"
       ]
     },
     {

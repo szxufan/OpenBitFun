@@ -353,43 +353,6 @@ fn ensure_persisted_account_session() -> Result<()> {
     }
 }
 
-/// Install without printing human-oriented output. The provisioning command
-/// needs stdout to remain a single JSON document for the SSH controller.
-pub(super) fn install_service_for_provisioning() -> Result<String> {
-    let executable = current_exe_path()?;
-    let message = install_platform_service(&executable)?;
-    if let Err(error) = ensure_platform_service_persistent() {
-        if let Err(recovery) = uninstall_platform_service() {
-            return Err(error.context(format!("Daemon provisioning rollback failed; service registration was retained: {recovery:#}")));
-        }
-        return Err(error);
-    }
-    Ok(message)
-}
-
-/// Best-effort rollback companion for account provisioning.
-pub(super) fn uninstall_service_for_provisioning() -> Result<String> {
-    uninstall_platform_service()
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn ensure_platform_service_persistent() -> Result<()> {
-    // SAFETY: getuid has no preconditions and does not dereference pointers.
-    let uid = unsafe { libc::getuid() }.to_string();
-    let output = run_command("loginctl", &["show-user", &uid, "-p", "Linger", "--value"])?;
-    if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "yes" {
-        return Ok(());
-    }
-    Err(anyhow!(
-        "the daemon started, but login linger could not be enabled; refusing to claim reboot persistence"
-    ))
-}
-
-#[cfg(any(target_os = "macos", not(unix)))]
-fn ensure_platform_service_persistent() -> Result<()> {
-    Ok(())
-}
-
 /// Stop and remove the auto-start service.
 pub(crate) fn uninstall_service() -> Result<()> {
     let message = uninstall_platform_service()?;

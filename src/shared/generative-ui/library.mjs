@@ -1,19 +1,4 @@
-import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
-
-/**
- * Keep prompt generation on the same implementation as Open Intelligent UI.
- * The product catalog still owns the renderer contract, so this adapter only
- * turns the catalog's positional signatures into lang-core's LibrarySpec.
- */
-const requireOpenUI = createRequire(new URL('../../web-ui/package.json', import.meta.url));
-const { generateSystemPrompt } = requireOpenUI('@openuidev/lang-core');
-// The default profile is a faithful Open Intelligent UI port. Keep the
-// upstream worked examples and wording as a checked-in resource instead of
-// silently regenerating them from OpenBitFun's component catalog.
-const upstreamOpenUISystemPrompt = readFileSync(new URL('./openui-system-prompt.txt', import.meta.url), 'utf8').trim();
-
-/** Product declarations -> immutable libraries -> one generation/validation schema. */
+/** Recorded GenUI programs use the library revision and schemas bundled here. */
 export function extendLibrary(base, extension, id) {
   if (extension.removeActions || extension.actions) throw new Error('Library actions are retired; register OpenUI action bridge capabilities instead');
   const next = structuredClone(base);
@@ -88,68 +73,6 @@ export function compileCatalog(source) {
     if (!library || !template.roots.length || template.roots.some(root => !Object.hasOwn(library.components, root))) throw new Error('Template requires an available library and root components');
   }
 
-// OpenUI Lang is positional. Keep this prompt derived from the same product
-// declarations that compile the runtime library so the model sees the exact
-// signatures that GenUIOpenUI.tsx registers.
-function openUISchemaType(schema) {
-  if (!schema || typeof schema !== 'object') return 'any';
-  if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum.map(value => JSON.stringify(value)).join(' | ');
-  if (Array.isArray(schema.anyOf)) return schema.anyOf.map(openUISchemaType).join(' | ');
-  if (schema.type === 'array') return `${openUISchemaType(schema.items)}[]`;
-  if (schema.type === 'object') {
-    const properties = Object.entries(schema.properties ?? {}).map(([key, value]) => `${key}${(schema.required ?? []).includes(key) ? '' : '?'}: ${openUISchemaType(value)}`);
-    return properties.length ? `{${properties.join(', ')}}` : 'object';
-  }
-  if (schema.type === 'integer' || schema.type === 'number') return 'number';
-  if (schema.type === 'boolean') return 'boolean';
-  if (schema.type === 'string') return 'string';
-  return 'any';
-}
-
-function openUIComponentSignature(name, component) {
-  const args = [];
-  // The React adapter inserts slot props first, then required catalog props,
-  // the OpenUI action prop for eventful components, and optional props.
-  for (const slot of Object.keys(component.slots ?? {})) {
-    const optional = component.slotRequired?.[slot] === false ? '?' : '';
-    args.push(`${slot}${optional}: ${(component.slots[slot] ?? []).join(' | ')}[]`);
-  }
-  const properties = component.props?.properties ?? {};
-  const required = new Set(component.props?.required ?? []);
-  for (const key of Object.keys(properties).filter(key => required.has(key))) args.push(`${key}: ${openUISchemaType(properties[key])}`);
-  if (component.action) args.push('action?: ActionExpression');
-  for (const key of Object.keys(properties).filter(key => !required.has(key))) args.push(`${key}?: ${openUISchemaType(properties[key])}`);
-  return `${name}(${args.join(', ')})`;
-}
-
-function openUILibrarySpec(library) {
-  return {
-    id: library.id,
-    root: library.metadata?.rootComponent ?? Object.keys(library.components)[0],
-    components: Object.fromEntries(Object.entries(library.components).map(([name, component]) => [name, {
-      signature: openUIComponentSignature(name, component),
-      description: component.description,
-    }])),
-    functions: Object.fromEntries(Object.entries(library.functions ?? {}).map(([name, fn]) => [name, {
-      signature: `@${name}(${(fn.params ?? []).map((param, index) => `${fn.paramNames?.[index] ?? `arg${index}`}${fn.optionalParams?.includes(index) ? '?' : ''}: ${openUISchemaType(param)}`).join(', ')}) → ${openUISchemaType(fn.returns)}`,
-      description: fn.description,
-    }])),
-  };
-}
-
-function openUILibraryPrompt(library, promptOptions) {
-  return generateSystemPrompt({
-    library: openUILibrarySpec(library),
-    promptOptions,
-  });
-}
-
-const openuiLangReference = [
-  'OpenUI Lang source.content is the raw declarative program, not JSON, JSX, TSX, markdown or a compiled artifact; do not include ``` fences in source.content.',
-  'Use one statement per line: `identifier = Expression`. The first statement should be `root = Component(...)`; references may be forward-referenced but every non-root statement must be reachable from root.',
-  'Arguments are positional, not named: use `Card([body], "Title")`, never `Card(children: [body], title: "Title")`. Child slots are arrays of statement references.',
-  'Use `$name` for reactive state bindings and `@Function(...)` for listed pure functions. Event handlers use OpenUI built-ins such as `@ToAssistant(...)`, `@OpenUrl(...)` or `Action([...])`, subject to the host capability bridge. Use only the selected library signatures and the examples supplied below.',
-].join(' ');
   const str = { type: 'string', minLength: 1 };
   const ref = name => ({ $ref: '#/$defs/' + name });
   const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
@@ -162,14 +85,6 @@ const openuiLangReference = [
   const app = { type: 'object', properties: { schemaVersion: { const: 2 }, id: str, title: str, description: { type: 'string' }, template: { enum: Object.keys(source.templates) }, libraryId: { enum: libraryIds }, libraryRevision: { type: 'integer' }, designSpec: designSpecIdentity, htmlRuntime, source: { anyOf: [ref('openuiDocument'), ref('htmlDocument')] }, state: { type: 'object', additionalProperties: ref('state') } }, required: ['schemaVersion', 'id', 'title', 'template', 'libraryId', 'libraryRevision', 'designSpec', 'source', 'state'], additionalProperties: true };
   const propertyOrder = ['schemaVersion', 'id', 'title', 'description', 'template', 'libraryId', 'libraryRevision', 'designSpec', 'htmlRuntime', 'source', 'state'];
   app.properties = Object.fromEntries(propertyOrder.map(key => [key, app.properties[key]]));
-  app.description = source.rules.join(' ') + ' Templates: ' + JSON.stringify(source.templates) + '. Libraries: ' + JSON.stringify(libraries);
-  const message = { anyOf: [
-    object({ createSurface: object({ id: str, title: str, description: { type: 'string' }, template: { enum: Object.keys(source.templates) }, libraryId: { enum: libraryIds }, libraryRevision: { type: 'integer' }, designSpec: designSpecIdentity, source: { anyOf: [ref('openuiDocument'), ref('htmlDocument')] } }, ['id', 'title', 'template', 'libraryId', 'libraryRevision', 'designSpec', 'source']) }),
-    object({ updateDataModel: object({ state: app.properties.state, values: { type: 'object' } }, []) }),
-  ] };
-  const generation = object({ protocol: { const: 'openbitfun.genui.v1' }, messages: { type: 'array', minItems: 1, items: message } });
-  const generationInstructions = 'Write protocol first, then messages. For a new component application, prefer createSurface.source.kind = openui-lang and stream the raw OpenUI Lang program in source.content as it is produced; keep stable statement IDs so completed statements can render before the enclosing transport object closes. Use only the selected library. For a free design request, use source.kind = html-document with HTML/CSS/SVG. The host renders both source kinds in the selected design specification and rejects TSX or per-app compilation. updateDataModel only provides initial state values and must not be required for the first render. ' + openuiLangReference;
-  generation.description = generationInstructions + ' ' + app.description;
   const profiles = structuredClone(source.profiles ?? {});
   for (const profile of Object.values(profiles)) {
     if (!profile.templates?.length || profile.templates.length !== 1 || profile.templates.some(id => !source.templates[id])) throw new Error('Profile must bind exactly one available template');
@@ -182,18 +97,6 @@ const openuiLangReference = [
   }
   app.properties.designSpec = object({ id: { enum: Object.keys(source.designSpecs ?? {}) }, revision: { type: 'integer' } });
   app.properties.designSpec.required = ['id', 'revision'];
-  app.description = app.description + ' Design specifications: ' + JSON.stringify(source.designSpecs) + '. Profiles: ' + JSON.stringify(profiles);
-  generation.description += ' Design specifications: ' + JSON.stringify(source.designSpecs) + '. Profiles: ' + JSON.stringify(profiles);
-  const promptOptions = { bindings: true, additionalRules: source.rules, examples: source.examples };
-  const profilePromptOverrides = { openui: upstreamOpenUISystemPrompt, ...(source.profileSystemPrompts ?? {}) };
-  const openuiPrompts = Object.fromEntries(Object.entries(libraries).map(([id, library]) => [id, id === 'openui.v1' ? (profilePromptOverrides.openui ?? openUILibraryPrompt(library, promptOptions)) : openUILibraryPrompt(library, promptOptions)]));
-  const genuiSystemPrompts = Object.fromEntries(Object.entries(profiles).map(([profileId, profile]) => {
-    const template = source.templates[profile.templates[0]];
-    const library = libraries[template.library];
-    const generated = openUILibraryPrompt(library, promptOptions);
-    const override = profilePromptOverrides[profileId];
-    return [profileId, override ?? generated];
-  }));
   const libraryAdapters = Object.fromEntries(Object.entries(libraries).map(([id, library]) => [id, { ...structuredClone(library.metadata), id }]));
-  return { contractVersion: 4, $defs: { state, htmlDocument, openuiDocument }, app, generation, generationInstructions, openuiLangReference, openuiPrompts, genuiSystemPrompts, libraries, libraryAdapters, templates: source.templates, legacyTemplateLibraries: source.legacyTemplateLibraries ?? {}, designSpecs: source.designSpecs ?? {}, profiles, rules: source.rules, htmlRuntime: source.htmlRuntime };
+  return { contractVersion: 4, $defs: { state, htmlDocument, openuiDocument }, app, libraries, libraryAdapters, templates: source.templates, legacyTemplateLibraries: source.legacyTemplateLibraries ?? {}, designSpecs: source.designSpecs ?? {}, profiles, rules: source.rules, htmlRuntime: source.htmlRuntime };
 }

@@ -19,6 +19,7 @@ import { resolveDevServerPorts } from '../../scripts/dev-server-ports.mjs';
 const host = process.env.TAURI_DEV_HOST;
 const requireFromWebUi = createRequire(path.join(__dirname, 'package.json'));
 const { port: devPort, hmrPort } = resolveDevServerPorts();
+const { visualizeDevGuide } = requireFromWebUi('../../scripts/visualize-dev-kit.cjs');
 const designSystemUiSourceDirectory = path.resolve(
   __dirname,
   '../../design-system/packages/ui/src',
@@ -161,6 +162,9 @@ export default defineConfig(({ mode, command }) => {
   }
 
   return {
+    define: {
+      'import.meta.env.OPENBITFUN_VISUALIZE_DEV_KIT': command === 'serve' && !!visualizeDevGuide(path.resolve(__dirname, '../..')),
+    },
     // Independent dev ports must not replace each other's optimized deps.
     // In-process generators use their own config and cache directory.
     cacheDir: path.resolve(__dirname, 'node_modules/.vite', `dev-${devPort}`),

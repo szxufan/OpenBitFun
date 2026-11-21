@@ -21,24 +21,6 @@ pub fn generate_secret() -> [u8; 32] {
     StaticSecret::random_from_rng(rand::rngs::OsRng).to_bytes()
 }
 
-/// Derive a distinct bootstrap key that is stable for an idempotent request.
-/// Knowledge of the target key does not reveal the provisioning device's key.
-pub fn provisioning_secret(
-    parent_secret: &[u8; 32],
-    device_id: &str,
-    request_id: &str,
-) -> [u8; 32] {
-    let mut secret = [0; 32];
-    let info = format!("{device_id}:{request_id}");
-    Hkdf::<Sha256>::new(
-        Some(b"OpenBitFun device provisioning v1.0.0"),
-        parent_secret,
-    )
-    .expand(info.as_bytes(), &mut secret)
-    .expect("32-byte HKDF output is valid");
-    secret
-}
-
 pub fn public_key(secret: &[u8; 32]) -> [u8; 32] {
     PublicKey::from(&StaticSecret::from(*secret)).to_bytes()
 }
@@ -129,16 +111,6 @@ pub fn derive_message_key_psk(
 mod tests {
     use super::*;
     use crate::remote_connect::encryption::{decrypt_from_base64, encrypt_to_base64};
-
-    #[test]
-    fn provisioning_keys_are_isolated_and_replayable() {
-        let parent = [7; 32];
-        let key = provisioning_secret(&parent, "target", "request");
-        assert_ne!(key, parent);
-        assert_eq!(key, provisioning_secret(&parent, "target", "request"));
-        assert_ne!(key, provisioning_secret(&parent, "other", "request"));
-        assert_ne!(key, provisioning_secret(&parent, "target", "other"));
-    }
 
     #[test]
     fn messages_round_trip_between_independent_devices_only() {

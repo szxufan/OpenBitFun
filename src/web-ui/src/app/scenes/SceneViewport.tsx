@@ -26,9 +26,9 @@ import { useSceneManager } from '../hooks/useSceneManager';
 import { useI18n } from '@/infrastructure/i18n/hooks/useI18n';
 import { useDialogCompletionNotify } from '../hooks/useDialogCompletionNotify';
 import { Spinner, SplitViewSurface } from '@openbitfun/ui';
-import { selectedScene, tabPane } from '../workbench/scenePaneModel';
+import { selectedScene, standaloneSettingsPane, tabPane } from '../workbench/scenePaneModel';
+import { useWorkbenchPaneLayout, workbenchSplitMode } from '../workbench/workbenchPaneLayoutStore';
 import { useSceneStore } from '../stores/sceneStore';
-import { useSessionPaneLayout } from './session/sessionPaneLayoutStore';
 import SettingsScene from './settings/SettingsScene';
 import { DEFAULT_SETTINGS_PAGE_ID, preloadSettingsPage } from './settings/settingsRegistry';
 import { backgroundTaskScheduler } from '@/shared/utils/backgroundTaskScheduler';
@@ -161,7 +161,8 @@ const SceneViewport: React.FC<SceneViewportProps> = ({ workspacePath, isEntering
   } = useSceneManager();
   const { t } = useI18n('common');
   const resources = useContentResourceStore(state => state.resources);
-  const pane = useSessionPaneLayout();
+  const { mode, hasSession } = useWorkbenchPaneLayout();
+  const splitMode = paned ? workbenchSplitMode(mode, standaloneSettingsPane(paneSelections, hasSession)) : 'split';
   const primaryTabId = paned ? selectedScene(paneSelections.primary) : activeTabId;
   const secondaryTabId = paned ? selectedScene(paneSelections.secondary) : null;
   const activeRenderedSceneId: RenderedSceneId | null = primaryTabId ? getSceneViewId(primaryTabId)
@@ -204,7 +205,7 @@ const SceneViewport: React.FC<SceneViewportProps> = ({ workspacePath, isEntering
           const location = paned && isSecondary ? 'secondary' : 'primary';
           const selectedId = location === 'secondary' ? secondarySceneId : activeRenderedSceneId;
           const transition = location === 'secondary' ? secondaryTransition : primaryTransition;
-          const paneVisible = !paned || (location === 'secondary' ? pane.mode !== 'chat-only' : pane.mode !== 'content-only');
+          const paneVisible = splitMode === 'split' || splitMode === location;
           const isActive = tabId === selectedId && paneVisible;
           const isOutgoing = !isActive && tabId === transition.outgoingTabId;
           const isIncoming = isActive && transition.pendingTransition?.incomingTabId === tabId;

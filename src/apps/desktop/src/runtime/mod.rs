@@ -40,6 +40,11 @@ impl DesktopRuntimeContext {
         acp_client_service: Option<Arc<openbitfun_acp::AcpClientService>>,
         session_event_journal: Arc<SessionEventJournal>,
     ) -> Result<Self, String> {
+        if let Some(service) = acp_client_service.as_ref() {
+            service.configure_execution_journal(Arc::new(
+                session_host_effects::AcpJournalAdapter(session_event_journal.clone()),
+            ))?;
+        }
         let host_effects = Arc::new(ProductionDesktopSessionHostEffects::new(acp_client_service));
         let session_application = DesktopSessionApplication::build(
             coordinator,

@@ -933,6 +933,7 @@ export interface MarkdownRendererProps {
   className?: string;
   isStreaming?: boolean;
   expandDetailsByDefault?: boolean;
+  renderArtifactLink?: (href: string, label: string, wide?: boolean) => React.ReactNode;
   onOpenVisualization?: (visualization: any) => void;
   onFileViewRequest?: (filePath: string, fileName: string, lineRange?: LineRange) => void;
   /** File IO belongs to the supplied callback; host explorer/browser actions are unavailable. */
@@ -965,6 +966,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
   isStreaming = false,
   expandDetailsByDefault = false,
   onOpenVisualization,
+  renderArtifactLink,
   onFileViewRequest,
   fileActionsViaCallbackOnly = false,
   onImageRead,
@@ -990,6 +992,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
   const workspaceIdRef = useLiveValueRef(fileAccess ? fileAccess.scope.workspaceId : workspaceId);
   const currentWorkspacePathRef = useLiveValueRef(fileAccess?.scope.workspacePath ?? currentWorkspacePath);
   const expandDetailsByDefaultRef = useLiveValueRef(expandDetailsByDefault);
+  const renderArtifactLinkRef = useLiveValueRef(renderArtifactLink);
   const onOpenVisualizationRef = useLiveValueRef(onOpenVisualization);
   const onFileViewRequestRef = useLiveValueRef(onFileViewRequest);
   const fileActionsViaCallbackOnlyRef = useLiveValueRef(fileActionsViaCallbackOnly);
@@ -1728,7 +1731,13 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
       );
     },
     
-    p({ node: _node, children, align, style, className, ...props }: any) {
+    p({ node, children, align, style, className, ...props }: any) {
+      const only = node?.children?.length === 1 ? node.children[0] : undefined;
+      if (renderArtifactLinkRef.current && only?.tagName === 'a'
+        && only.children?.length === 1 && only.children[0].type === 'text') {
+        const artifact = renderArtifactLinkRef.current(only.properties?.href, only.children[0].value);
+        if (artifact) return artifact;
+      }
       return (
         <p
           {...props}
@@ -1741,6 +1750,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
     }
   }), [
     thinking,
+    renderArtifactLinkRef,
     onFileDownloadRef,
     onImageReadRef,
     onImagePreviewRef,

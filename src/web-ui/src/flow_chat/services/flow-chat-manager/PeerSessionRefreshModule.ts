@@ -35,6 +35,7 @@ import {
 } from '../../state-machine/types';
 import type { AnyFlowItem, DialogTurn, FlowToolItem, Session } from '../../types/flow-chat';
 import { isUnmaterializedSessionDraft } from '../../utils/sessionDraft';
+import { isAcpFlowSession } from '../../utils/acpSession';
 import { installLiveSessionInteractionMailbox } from '../liveSessionInteractionStore';
 import { agenticEventListener } from '../AgenticEventListener';
 import { pendingQueueManager } from './PendingQueueModule';
@@ -507,6 +508,15 @@ export function installPeerSessionRefresh(context: FlowChatContext): () => void 
     }
     const session = state.sessions.get(sessionId);
     if (!isSessionProjectionAttachable(session)) {
+      // A reloaded background ACP session may never have been clicked. Its
+      // still-running prompt must be recovered without making the controller
+      // activate that tab. Reuse the existing bounded, deduplicated prewarm.
+      if (session && isAcpFlowSession(session) && session.historyState === 'metadata-only') {
+        const scope = getActiveSurfaceScope();
+        void import('./SessionModule').then(({ prewarmHistoricalSession }) => {
+          if (scope.isCurrent()) prewarmHistoricalSession(context, sessionId);
+        });
+      }
       return;
     }
     ensureSubscription();
@@ -787,7 +797,12 @@ export function installPeerSessionRefresh(context: FlowChatContext): () => void 
     }
     immediateTimer = setTimeout(() => {
       immediateTimer = null;
-      void runRefresh(sessionId);
+      void runRefresh(sessionId).finally(() => {
+        // A request can return before installing an attachment (for example,
+        // no active tab during startup). It must not strand a named repair
+        // queued behind that initial request.
+        if (!inFlight && immediateTimer === null) drainFollowUpRefresh();
+      });
     }, 0);
   }
 
@@ -835,7 +850,23 @@ export function installPeerSessionRefresh(context: FlowChatContext): () => void 
     document.addEventListener('visibilitychange', handleVisibilityChanged);
   }
 
-  scheduleRefresh();
+  // Hydration can finish before this listener is installed. Its explicit gap
+  // is durable, but the notification was not; repair background sessions too,
+  // without waiting for another token or requiring their tab to be activated.
+  const initialScope = getActiveSurfaceScope();
+  const initialState = context.flowChatStore.getState();
+  const initialGaps = new Set<string>();
+  if (initialScope.surfaceId === 'local') {
+    for (const sessionId of initialState.sessions.keys()) {
+      if (isRuntimeSessionProjectionStale(initialScope.surfaceId, sessionId)) {
+        initialGaps.add(sessionId);
+        scheduleRefresh(sessionId);
+      }
+    }
+  }
+  if (initialGaps.size === 0 || (initialState.activeSessionId && !initialGaps.has(initialState.activeSessionId))) {
+    scheduleRefresh(initialState.activeSessionId ?? undefined);
+  }
 
   return () => {
     disposed = true;

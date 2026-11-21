@@ -1,0 +1,46 @@
+{
+  "title": "OpenBitFun 的六层架构",
+  "spec": {
+    "version": 2,
+    "kind": "layers",
+    "description": "依赖从上往下。点选一层，查看它的职责和代表模块。",
+    "layers": [
+      {
+        "name": "接口与入口",
+        "path": "src/apps · src/web-ui · src/crates/interfaces",
+        "summary": "桌面、命令行和 Web 界面在这一层接收用户操作，再把请求交给下层处理。",
+        "modules": ["desktop", "cli", "web-ui"]
+      },
+      {
+        "name": "产品组装",
+        "path": "src/crates/assembly",
+        "summary": "决定一个产品启用哪些能力，并在启动时把内置 Agent 内容、适配器和服务接起来。",
+        "modules": ["core", "agent-content", "product-capabilities"]
+      },
+      {
+        "name": "适配器",
+        "path": "src/crates/adapters",
+        "summary": "在产品内部接口与外部协议之间做转换，让不同模型提供方和通信方式接入同一套产品逻辑。",
+        "modules": ["ai-adapters", "transport", "agent-runtime-ipc"]
+      },
+      {
+        "name": "服务",
+        "path": "src/crates/services",
+        "summary": "执行文件访问、终端进程和网络通信等实际操作，供不同宿主复用。",
+        "modules": ["services-core", "terminal", "relay-service"]
+      },
+      {
+        "name": "执行原语",
+        "path": "src/crates/execution",
+        "summary": "驱动 Agent 的运行循环，组织流式输出和工具调用，使同一个任务可以在不同宿主上执行。",
+        "modules": ["agent-runtime", "agent-stream", "tool-execution"]
+      },
+      {
+        "name": "稳定契约与产品领域",
+        "path": "src/crates/contracts",
+        "summary": "定义各层交换的数据、事件和端口，以及跨宿主共享的领域规则。",
+        "modules": ["core-types", "events", "runtime-ports"]
+      }
+    ]
+  }
+}

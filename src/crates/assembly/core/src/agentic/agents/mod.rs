@@ -119,7 +119,6 @@ pub fn standard_harness_tools() -> Vec<String> {
         "get_goal".to_string(),
         "create_goal".to_string(),
         "update_goal".to_string(),
-        "GenerativeUI".to_string(),
         "Skill".to_string(),
         "AskUserQuestion".to_string(),
         "ReviewPlatform".to_string(),

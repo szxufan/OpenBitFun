@@ -3050,6 +3050,7 @@ mod tests {
         tool_items: Vec<ToolItemData>,
     ) -> DialogTurnData {
         DialogTurnData {
+            published_figures: Default::default(),
             turn_id: turn_id.to_string(),
             turn_index,
             session_id: "session-1".to_string(),

@@ -58,6 +58,8 @@ pub struct ExecCommandRequest {
     pub tty: bool,
     pub yield_time_ms: Option<u64>,
     pub max_output_chars: Option<usize>,
+    /// End only the initial output wait; the launched process remains active.
+    pub wait_interrupt: Option<tokio_util::sync::CancellationToken>,
     pub lifecycle_tx: Option<mpsc::UnboundedSender<ExecProcessLifecycleEvent>>,
     pub output_capture_tx: Option<mpsc::UnboundedSender<ExecOutputChunk>>,
 }
@@ -335,16 +337,22 @@ impl ExecProcessManager {
         let started_at = tokio::time::Instant::now();
         let collected = process
             .output
-            .collect_until(
+            .collect_until_interruptible(
                 cursor,
                 deadline_from_now(request.yield_time_ms),
                 request.max_output_chars.unwrap_or(usize::MAX),
                 output_tx.as_ref(),
+                request.wait_interrupt.as_ref(),
             )
             .await;
 
-        let exit_code = process.output.exit_code().await;
-        let closed = process.output.is_closed().await;
+        // Keep bytes arriving after the final drain available to the next poll.
+        let closed = collected.closed;
+        let exit_code = if closed {
+            process.output.exit_code().await
+        } else {
+            None
+        };
         let completion = if closed {
             Some(completion_for_closed_process(
                 process.out_of_band_control_action(),
@@ -360,7 +368,7 @@ impl ExecProcessManager {
         }
 
         Ok(ExecCommandResponse {
-            wait_interrupted: false,
+            wait_interrupted: collected.wait_interrupted,
             chunk_id: new_chunk_id(),
             wall_time_seconds: started_at.elapsed().as_secs_f64(),
             output: collected.output,
@@ -1926,6 +1934,7 @@ mod tests {
                 tty: false,
                 yield_time_ms: Some(5_000),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -1953,6 +1962,7 @@ mod tests {
                 tty: false,
                 yield_time_ms: Some(5_000),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2003,6 +2013,7 @@ mod tests {
                 tty: false,
                 yield_time_ms: Some(5_000),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2033,6 +2044,7 @@ mod tests {
                 tty: false,
                 yield_time_ms: Some(100),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2080,6 +2092,7 @@ mod tests {
                 tty: false,
                 yield_time_ms: Some(100),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: Some(tx),
                 output_capture_tx: None,
             })
@@ -2124,6 +2137,7 @@ mod tests {
                     tty: false,
                     yield_time_ms: Some(30_000),
                     max_output_chars: Some(10_000),
+                    wait_interrupt: None,
                     lifecycle_tx: Some(tx),
                     output_capture_tx: None,
                 })
@@ -2183,6 +2197,7 @@ mod tests {
                 tty: true,
                 yield_time_ms: Some(100),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2240,6 +2255,7 @@ mod tests {
                 tty: true,
                 yield_time_ms: Some(500),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2281,6 +2297,7 @@ mod tests {
                 tty: true,
                 yield_time_ms: Some(500),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2335,6 +2352,7 @@ mod tests {
                 tty: false,
                 yield_time_ms: Some(100),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2389,6 +2407,7 @@ mod tests {
                 tty: false,
                 yield_time_ms: Some(500),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2464,6 +2483,7 @@ print("parent_exit", flush=True)"#;
                 tty: false,
                 yield_time_ms: Some(700),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2592,6 +2612,7 @@ print("parent_exit", flush=True)"#;
                 tty: false,
                 yield_time_ms: Some(1_500),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2657,6 +2678,7 @@ print("parent_exit", flush=True)"#;
                 tty: false,
                 yield_time_ms: Some(1_500),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2702,6 +2724,7 @@ print("parent_exit", flush=True)"#;
                 tty: true,
                 yield_time_ms: Some(500),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -2742,6 +2765,7 @@ print("parent_exit", flush=True)"#;
                 tty: true,
                 yield_time_ms: Some(500),
                 max_output_chars: Some(10_000),
+                wait_interrupt: None,
                 lifecycle_tx: None,
                 output_capture_tx: None,
             })
@@ -3076,7 +3100,10 @@ mod wait_interrupt_tests {
             request.append_enter = true;
             let response = manager.write_stdin(request).await.unwrap();
             assert!(response.wait_interrupted);
-            assert_eq!(input.recv().await.unwrap(), format!("{chars}\n").as_bytes());
+            assert_eq!(
+                input.recv().await.unwrap(),
+                input_bytes_for_write(chars, true)
+            );
             let mut next = poll(None);
             next.yield_time_ms = Some(0);
             assert!(!manager.write_stdin(next).await.unwrap().wait_interrupted);

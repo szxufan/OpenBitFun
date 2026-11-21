@@ -184,6 +184,9 @@ impl From<Session> for openbitfun_runtime_ports::AgentSessionCreateResult {
 /// Session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionConfig {
+    /// Legacy context window snapshot required by older readers of session state.
+    /// It may still hold the 128128 fallback. Resolve request budgets from the
+    /// active model's context window or the model pool's shared budget.
     pub max_context_tokens: usize,
     pub auto_compact: bool,
     pub enable_tools: bool,

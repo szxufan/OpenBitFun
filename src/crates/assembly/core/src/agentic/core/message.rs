@@ -849,6 +849,7 @@ mod tests {
             vec![openbitfun_agent_tools::LoadedDeferredToolSpec {
                 tool_name: "Read".into(),
                 catalog_generation: 4,
+                spec_fingerprint: None,
             }];
         message.metadata.model_execution = Some(super::ModelExecutionMetadata {
             model_config_id: "economy".into(),

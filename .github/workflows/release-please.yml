@@ -58,6 +58,16 @@ jobs:
             exit 0
           fi
 
+          # Fork policy: an open beta cycle (any v<version>-* prerelease tag)
+          # blocks the automatic stable tag. Upstream's release commit bumps
+          # the manifest version mid-cycle; the fork publishes betas from
+          # explicit v<version>-beta.N tags and promotes to stable manually.
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}-*" >/dev/null 2>&1; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "reason=beta_cycle_open" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "previous_version=$PREV_VERSION" >> "$GITHUB_OUTPUT"
           echo "should_release=true" >> "$GITHUB_OUTPUT"
           echo "reason=version_changed" >> "$GITHUB_OUTPUT"

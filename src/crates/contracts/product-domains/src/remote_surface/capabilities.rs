@@ -22,6 +22,7 @@ use super::PeerHostKind;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PeerHostCapability {
+    /// Recognize older peers that can select a library for the retired GenUI tool.
     GenUiLibrariesV1,
     ModelRoutingV1,
     ModelPoolSelectionV1,
@@ -113,6 +114,12 @@ pub enum PeerHostCapability {
     WorkspaceLatexPreviewV1,
     /// `copy_session` copies a whole session without a caller-selected turn id.
     WholeSessionCopyV1,
+    /// `fork_session` branches a session at a persisted turn. Every Desktop host
+    /// has implemented it; CLI hosts gained it together with this key.
+    SessionForkV1,
+    /// `interrupt_dialog_turn` stops a Turn so `recover_interrupted_dialog_turn`
+    /// can resume it. Without this key a controller uses hard cancellation.
+    RecoverableInterruptionV1,
     /// Bounded session trajectory summaries and host-side body search.
     SessionTrajectoryV1,
     /// `search_referenceable_sessions` accepts an omitted query to browse.
@@ -191,6 +198,8 @@ impl PeerHostCapability {
         Self::WorkspaceHtmlPreviewV1,
         Self::WorkspaceLatexPreviewV1,
         Self::WholeSessionCopyV1,
+        Self::SessionForkV1,
+        Self::RecoverableInterruptionV1,
         Self::SessionTrajectoryV1,
         Self::SessionReferenceBrowseV1,
         Self::UserQuestionResponse,
@@ -254,6 +263,8 @@ impl PeerHostCapability {
             Self::SessionTrajectoryV1 => "session_trajectory_v1",
             Self::SessionReferenceBrowseV1 => "session_reference_browse_v1",
             Self::WholeSessionCopyV1 => "whole_session_copy_v1",
+            Self::SessionForkV1 => "session_fork_v1",
+            Self::RecoverableInterruptionV1 => "recoverable_interruption_v1",
             Self::UserQuestionResponse => "user_question_response",
             Self::UserQuestionInteractionV1 => "user_question_interaction_v1",
             Self::PskPairingV1 => "psk_pairing_v1",
@@ -274,7 +285,6 @@ impl PeerHostCapability {
 /// Desktop publishes everything except `TerminalCursorReplayV1`: it fans out
 /// `terminal_event`, and that key selects the other delivery path.
 const DESKTOP_CAPABILITIES: &[PeerHostCapability] = &[
-    PeerHostCapability::GenUiLibrariesV1,
     PeerHostCapability::ModelRoutingV1,
     PeerHostCapability::ModelPoolSelectionV1,
     PeerHostCapability::SubagentModelOverridePolicyV1,
@@ -320,6 +330,8 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::WorkspaceHtmlPreviewV1,
     PeerHostCapability::WorkspaceLatexPreviewV1,
     PeerHostCapability::WholeSessionCopyV1,
+    PeerHostCapability::SessionForkV1,
+    PeerHostCapability::RecoverableInterruptionV1,
     PeerHostCapability::SessionTrajectoryV1,
     PeerHostCapability::SessionReferenceBrowseV1,
     PeerHostCapability::UserQuestionResponse,
@@ -355,6 +367,9 @@ const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::RemoteConnectControlV1,
     PeerHostCapability::CancelTool,
     PeerHostCapability::ToolCatalog,
+    PeerHostCapability::WholeSessionCopyV1,
+    PeerHostCapability::SessionForkV1,
+    PeerHostCapability::RecoverableInterruptionV1,
     PeerHostCapability::SessionTrajectoryV1,
     PeerHostCapability::ChatMcpCatalogV1,
     PeerHostCapability::WorkspaceIconV1,
@@ -423,17 +438,21 @@ mod tests {
                 capability.key()
             );
         }
+        let desktop_exclusions = [
+            PeerHostCapability::TerminalCursorReplayV1,
+            PeerHostCapability::GenUiLibrariesV1,
+        ];
         for capability in PeerHostCapability::ALL {
             assert_eq!(
                 advertises(PeerHostKind::Desktop, *capability),
-                *capability != PeerHostCapability::TerminalCursorReplayV1,
-                "Desktop advertises everything but the cursor replay path: {}",
+                !desktop_exclusions.contains(capability),
+                "unexpected desktop advertisement for {}",
                 capability.key()
             );
         }
         assert_eq!(
             advertised_by(PeerHostKind::Desktop).len(),
-            PeerHostCapability::ALL.len() - 1
+            PeerHostCapability::ALL.len() - desktop_exclusions.len()
         );
         assert!(!advertises(
             PeerHostKind::Desktop,
@@ -481,7 +500,10 @@ mod tests {
             Some(&Value::Bool(true))
         );
         assert!(!cli.contains_key("product_control_presentation_v1"));
-        assert!(!cli.contains_key("whole_session_copy_v1"));
+        // CLI hosts gained `copy_session` and `fork_session` together.
+        assert_eq!(cli["whole_session_copy_v1"], true);
+        assert_eq!(cli["session_fork_v1"], true);
+        assert_eq!(cli["recoverable_interruption_v1"], true);
         assert!(!cli.contains_key("review_platform_v1"));
         assert!(!cli.contains_key("host_terminal_workspace_v1"));
         assert_eq!(

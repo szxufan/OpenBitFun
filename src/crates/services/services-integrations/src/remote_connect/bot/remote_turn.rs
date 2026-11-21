@@ -47,10 +47,15 @@ impl RemoteBotTarget {
     }
 
     async fn rpc_response(&self, command: Value) -> Result<Value, String> {
+        let session = self
+            .account
+            .session(&self.relay_url)
+            .await
+            .map_err(|e| e.to_string())?;
         let reply = AccountClient::new()
             .device_rpc(
                 &self.relay_url,
-                &self.account,
+                &session,
                 &self.device_id,
                 &command.to_string(),
             )

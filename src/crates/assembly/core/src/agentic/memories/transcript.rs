@@ -344,6 +344,7 @@ mod tests {
 
     fn base_turn(user_content: &str) -> DialogTurnData {
         DialogTurnData {
+            published_figures: Default::default(),
             turn_id: "turn_1".to_string(),
             turn_index: 0,
             session_id: "session_1".to_string(),

@@ -39,9 +39,12 @@
   },
   "skin": {
     "title": "Visual skin packs",
-    "description": "Import a skin pack generated from a reference image. It changes the visual language across the workspace while keeping the product structure intact.",
     "import": "Import skin pack",
     "importing": "Importing…",
+    "create": "Create skin",
+    "createPrompt": "Use the built-in {{skill}} skill to create an importable OpenBitFun visual skin pack based on [your reference materials or attached image].",
+    "assistantUnavailable": "No primary assistant workspace is available on this device.",
+    "createFailed": "Couldn't open a skin design conversation.",
     "empty": "No imported skin packs yet.",
     "generated": "Generated visual theme",
     "previewAlt": "Preview of {{name}}",

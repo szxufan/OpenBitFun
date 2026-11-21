@@ -17,6 +17,8 @@ const PREVIEW_FILE_NAMES: Record<UsageContextCategory, string> = {
 export async function openSessionContextPreview(params: {
   sessionId: string;
   reportSessionId: string;
+  /** The visible conversation owns the canvas when inspecting an input-target child. */
+  canvasSessionId?: string;
   workspaceId?: string;
   title: string;
   category: UsageContextCategory;
@@ -26,6 +28,7 @@ export async function openSessionContextPreview(params: {
   onEstimate?: (estimate: UsageContextEstimate) => void;
 }): Promise<'opened' | 'unavailable' | 'stale'> {
   const surface = getActiveSurfaceScope();
+  const canvasSessionId = params.canvasSessionId ?? params.sessionId;
   const session = flowChatStore.getState().sessions.get(params.sessionId);
   const workspaceId = params.workspaceId || session?.workspaceId || session?.config?.workspaceId;
   // Dispatch reports belong to the target. Never read the controller's prompt cache.
@@ -52,7 +55,7 @@ export async function openSessionContextPreview(params: {
   const content = estimate?.contents?.[params.category];
   if (typeof content !== 'string') return 'unavailable';
 
-  openAgentCanvasTabForSession(params.sessionId, {
+  openAgentCanvasTabForSession(canvasSessionId, {
     type: params.category === 'toolDefinitions' ? 'tool-definitions' : 'markdown-editor',
     title: params.title,
     data: params.category === 'toolDefinitions' ? { content, readOnly: true }
@@ -65,7 +68,7 @@ export async function openSessionContextPreview(params: {
       resourceScope: { surfaceId: surface.surfaceId, workspaceId },
     },
   });
-  if (useAgentCanvasStore.getState().scopeKey === params.sessionId && typeof window !== 'undefined') {
+  if (useAgentCanvasStore.getState().scopeKey === canvasSessionId && typeof window !== 'undefined') {
     window.dispatchEvent(new window.CustomEvent('expand-right-panel'));
   }
   return 'opened';

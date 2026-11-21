@@ -144,6 +144,8 @@ default = []
 devtools = ["openbitfun-computer-use/test-support", "tauri/devtools", "openbitfun-webdriver/embedded"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# Keep Linux desktop packages independent of the build distribution's bzip2 SONAME.
+bzip2 = { workspace = true, features = ["static"] }
 libc = { workspace = true }
 gtk = { workspace = true }
 

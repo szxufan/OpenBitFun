@@ -114,6 +114,7 @@ import {
   stripOptimisticTurnAdoption,
 } from '../../utils/optimisticTurnAdoption';
 import { isAcpFlowSession } from '../../utils/acpSession';
+import { nextStorageTurnIndex, resolveStorageTurnIndex } from '../../utils/flowChatTurnIdentity';
 import { workspaceManager } from '@/infrastructure/services/business/workspaceManager';
 import { resolveLegacySessionWorkspace } from '@/infrastructure/api/service-api/legacyWorkspaceCompatibility';
 
@@ -2161,6 +2162,12 @@ function handleDialogTurnStarted(context: FlowChatContext, event: any): void {
   }
 
   if (!dialogTurn) {
+    const backendTurnIndex = typeof turnIndex === 'number' ? turnIndex : undefined;
+    let storageTurnIndex = backendTurnIndex;
+    if (storageTurnIndex === undefined && freshSession?.historyState === 'ready' && isAcpFlowSession(freshSession)) {
+      // ACP replay can reconstruct a turn after the optimistic copy was lost.
+      storageTurnIndex = resolveStorageTurnIndex(freshSession, turnId) ?? nextStorageTurnIndex(freshSession);
+    }
     const newTurn: DialogTurn = {
       id: turnId,
       sessionId,
@@ -2176,8 +2183,8 @@ function handleDialogTurnStarted(context: FlowChatContext, event: any): void {
       modelRounds: [],
       status: 'pending',
       startTime: Date.now(),
-      storageTurnIndex: typeof turnIndex === 'number' ? turnIndex : undefined,
-      backendTurnIndex: typeof turnIndex === 'number' ? turnIndex : undefined,
+      storageTurnIndex,
+      backendTurnIndex,
     };
     bindSubmittedMessageScrollIntent(sessionId, turnId, newTurn.userMessage.id);
     const replacedTempTurn = tempTurnId

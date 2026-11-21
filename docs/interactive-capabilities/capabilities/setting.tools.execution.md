@@ -11,9 +11,9 @@ title_en: "Execution & Collaboration"
 
 > 设置 / Setting
 
-集中调优工具超时、向用户提问等待时间、子智能体默认模型与并发策略、按需加载工具、PTC 工具呈现、参数 JSON 修复、Deep Review 容量与 GenUI 默认组件库，并串联权限及设备控制开关。
+集中调优工具超时、向用户提问等待时间、子智能体默认模型与并发策略、按需加载工具、PTC 工具呈现、参数 JSON 修复、Deep Review 容量，并串联权限及设备控制开关。
 
-Tune tool call and user-question timeouts, subagent default models and concurrency, Load tools as needed, PTC presentation, JSON argument repair, Deep Review capacity, and the default GenUI library alongside linked permission and device controls.
+Tune tool call and user-question timeouts, subagent default models and concurrency, Load tools as needed, PTC presentation, JSON argument repair, Deep Review capacity alongside linked permission and device controls.
 
 ## 适用场景 / When to use it
 
@@ -58,10 +58,6 @@ Tune tool call and user-question timeouts, subagent default models and concurren
   - Set maximum parallel Deep Review reviewers and queue wait time
   - 说明：根据当前模型供应商的并发限额调整深度代码评审同时运行的 Reviewer 数量与排队超时，避免一次性并发过高触发 429。
   - Why & how: Match parallel Deep Review worker counts and queue wait limits to your provider rate limits so thorough reviews do not trigger 429 throttling.
-- **智能体可直接控制 / Direct Agent control** · 选择新建生成式 UI 应用默认使用的组件库（默认 openui）
-  - Select the default GenUI component library for newly generated apps (openui by default)
-  - 说明：决定后续新生成的交互式 GenUI 应用绑定哪套组件库与视觉规范（默认为 openui），已生成的应用保持原有身份不变；设置页仅提供下拉选择，实际界面渲染位于对话或 Canvas 中。
-  - Why & how: Selects which component library and design spec newly generated GenUI apps target (openui by default) while existing apps keep their original target; this setting is a dropdown selector without an inline preview widget.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择需要确认、自动审批或完全访问权限模式并确认高风险提示
   - Choose Ask, Auto-approve, or Full access permission mode and confirm high-risk warnings
   - 说明：点击后将自动跳转至“模型与智能体 → 权限规则”页调整全局默认权限姿态与自动审批审查器。
@@ -105,8 +101,8 @@ Tune tool call and user-question timeouts, subagent default models and concurren
    Under Tool execution, adjust the per-tool timeout and user-question timeout (180s default; set 0 for no timeout)
 3. 在“子智能体”区块选择“子智能体默认模型”，并调整普通子智能体、Swarm 的并发上限与任务并行方式（“尽量并行”或“安全并行”）
    Under Subagents, pick the subagent default model and tune regular subagent concurrency, Swarm concurrency, and batch policy
-4. 按需开启“按需加载工具”、切换“工具呈现模式”（对新会话生效）、调整 Deep Review 容量或选择新建 GenUI 应用的默认组件库
-   Toggle Load tools as needed, tool presentation mode (applies to new sessions), Deep Review capacity, or the default GenUI component library
+4. 按需开启“按需加载工具”、切换“工具呈现模式”（对新会话生效）、调整 Deep Review 容量
+   Toggle Load tools as needed, tool presentation mode (applies to new sessions), Deep Review capacity
 
 入口 / Entry: 设置 (⌘, / Ctrl+,) → 模型与智能体 → 执行与协作 / Settings (⌘, / Ctrl+,) → Models & Agents → Execution & Collaboration (`⌘, / Ctrl+,`)
 
@@ -130,7 +126,6 @@ Tune tool call and user-question timeouts, subagent default models and concurren
 | 允许桌面控制 / Allow desktop control | `boolean` | 在系统权限已授予的前提下，一键允许或暂停智能体使用桌面控制能力（界面位于“工具与集成 → 浏览器与桌面控制”）。 | Allow or pause desktop-control actions once OS permissions are granted (displayed in Tools & Integrations → Browser & Desktop Control). |
 | 启动时自动连接浏览器 / Auto-connect browser on startup | `boolean` | 控制 OpenBitFun 启动时是否自动尝试连接外部 CDP 浏览器（默认关闭）。 | Choose whether OpenBitFun automatically tries to connect external CDP browser control on launch (off by default). |
 | 工具参数 JSON 安全修复 / Safe tool-argument JSON repair | `boolean` | 在严格安全边界内自动修复模型输出的轻微 JSON 语法瑕疵，减少因格式小错导致的调用失败。 | Automatically repair minor JSON syntax glitches in model tool arguments within strict safety bounds. |
-| 默认生成式 UI 组件库 / Default GenUI component library | `openbitfun` / `openui` | 指定新建交互式 GenUI 应用默认采用的组件库与设计规范（默认 openui）；已有应用保留原有目标身份。 | Select the component library and bound design spec for newly generated GenUI apps (openui by default); existing apps keep their original target. |
 | 允许 Agent 指定子 Agent 模型 / Allow agents to choose subagent models | `boolean` | 控制 Agent 能否在启动或继续执行子 Agent 时指定模型。 | Control whether agents can override subagent models when launching or continuing work. |
 
 ## 可以直接对智能体说 / Try saying
@@ -148,8 +143,8 @@ Tune tool call and user-question timeouts, subagent default models and concurren
   - Settings formerly grouped under Execution & Permissions now live in three focused places: runtime and concurrency here in Execution & Collaboration, approval policy in Models & Agents → Permission Rules, and Browser/Computer Use in Tools & Integrations → Browser & Desktop Control.
 - 多个子智能体同时改写同一目录文件容易产生冲突；如果任务包含写文件，把任务并行方式切到“安全并行”可确保只有只读探索任务并发执行，写操作稳妥排队。
   - If subagents will edit files in the same repository, switch the batch policy to safe-only parallelism so read-only exploration runs concurrently while file writes queue safely.
-- 修改“工具呈现模式”（原生工具 / PTC）只对切换之后新建的会话生效；GenUI 组件库下拉框默认使用 openui，同样仅影响新生成的交互界面，不会改动历史会话中已有的应用。
-  - Changing Tool presentation (Native vs PTC) applies only to newly created sessions; likewise, the GenUI library dropdown defaults to openui and affects only newly generated apps.
+- 修改“工具呈现模式”（原生工具 / PTC）只对切换之后新建的会话生效。
+  - Changing Tool presentation (Native vs PTC) applies only to newly created sessions.
 
 关联条目 / Related: `setting.ai.permissions`, `feature.agents`, `setting.tools.browser-control`, `setting.tools.desktop-control`, `feature.generative-ui`
 

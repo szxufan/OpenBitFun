@@ -421,6 +421,14 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [verifyMainWindowVisible]);
 
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    const subscription = import('@/infrastructure/api/adapters/figureInspectionBridge')
+      .then(bridge => bridge.listenForFigureChecks())
+      .catch(error => { log.error('Failed to attach the figure renderer', error); });
+    return () => { void subscription.then(off => off?.()); };
+  }, []);
+
   // Register presentation routing as soon as the product surface is usable.
   // Native discovery, readback, and settings mutations are installed during
   // Desktop setup; only UI navigation/product actions require this handshake.

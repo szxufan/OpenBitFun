@@ -11,20 +11,23 @@ pub use tool_call_accumulator::{ToolArgumentRepairKind, ToolCallCompletion};
 
 use crate::tool_call_accumulator::{
     FinalizedToolCall, PendingToolCalls, ToolCallBoundary, ToolCallFinalizeOptions,
-    ToolCallStreamKey,
+    ToolCallParamsChunk, ToolCallStreamKey,
 };
 use futures::{Stream, StreamExt};
 pub use hidden_text::{HiddenTextBlock, HiddenTextStreamParser, HiddenTextTag};
 use log::{debug, error, trace};
 use openbitfun_core_types::{errors::AiProviderError, ReasoningContentKind};
-use openbitfun_events::{AgenticEvent, AgenticEventPriority as EventPriority, ToolEventData};
+use openbitfun_events::{
+    AgenticEvent, AgenticEventPriority as EventPriority, ToolEventData, ToolEventIdentity,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashSet, VecDeque};
 use std::fmt;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tokio::time::Instant as TokioInstant;
 pub use unified::{
     ModelResponseReplayCapture, UnifiedResponse, UnifiedTokenUsage, UnifiedToolCall,
 };
@@ -318,6 +321,17 @@ pub struct StreamProcessOptions {
     pub hidden_text_tags: Vec<HiddenTextTag>,
 }
 
+const TOOL_PARAMS_WINDOW: Duration = Duration::from_millis(16);
+const TOOL_PARAMS_MAX_BYTES: usize = 4 * 1024;
+
+/// A contiguous run within one stream attempt. The first fragment is sent
+/// immediately, and a flush within the run keeps that first-fragment state.
+struct ToolParamsRun {
+    key: ToolCallStreamKey,
+    identity: ToolEventIdentity,
+    pending: Option<(String, TokioInstant)>,
+}
+
 /// Stream processing context, encapsulates state during stream processing
 struct StreamContext {
     session_id: String,
@@ -345,6 +359,7 @@ struct StreamContext {
     // Current tool call state
     pending_tool_calls: PendingToolCalls,
     finalized_tool_call_ids: HashSet<String>,
+    tool_params_run: Option<ToolParamsRun>,
 
     // Counters and flags
     stream_started_at: Instant,
@@ -393,6 +408,7 @@ impl StreamContext {
             model_response_replay: None,
             pending_tool_calls: PendingToolCalls::new(),
             finalized_tool_call_ids: HashSet::new(),
+            tool_params_run: None,
             stream_started_at: Instant::now(),
             first_chunk_ms: None,
             first_visible_output_ms: None,
@@ -541,13 +557,13 @@ enum TimedStreamItem<T> {
 
 async fn next_stream_item<S>(
     stream: &mut S,
-    watchdog_timeout: Option<std::time::Duration>,
+    watchdog_deadline: Option<TokioInstant>,
 ) -> TimedStreamItem<S::Item>
 where
     S: Stream + Unpin,
 {
-    match watchdog_timeout {
-        Some(timeout) => match tokio::time::timeout(timeout, stream.next()).await {
+    match watchdog_deadline {
+        Some(deadline) => match tokio::time::timeout_at(deadline, stream.next()).await {
             Ok(Some(item)) => TimedStreamItem::Item(item),
             Ok(None) => TimedStreamItem::End,
             Err(_) => TimedStreamItem::TimedOut,
@@ -664,6 +680,7 @@ impl StreamProcessor {
 
     /// Execute graceful shutdown from context
     async fn graceful_shutdown_from_ctx(&self, ctx: &mut StreamContext, reason: String) {
+        self.finish_tool_params_run(ctx).await;
         ctx.force_finish_pending_tool_calls();
         self.graceful_shutdown(GracefulShutdownInput {
             session_id: ctx.session_id.clone(),
@@ -788,6 +805,91 @@ impl StreamProcessor {
         );
     }
 
+    async fn emit_tool_params(
+        &self,
+        ctx: &StreamContext,
+        identity: ToolEventIdentity,
+        params: String,
+    ) {
+        self.event_sink
+            .enqueue(
+                AgenticEvent::ToolEvent {
+                    session_id: ctx.session_id.clone(),
+                    turn_id: ctx.dialog_turn_id.clone(),
+                    round_id: ctx.round_id.clone(),
+                    attempt_id: Some(ctx.attempt_id.clone()),
+                    attempt_index: Some(ctx.attempt_index),
+                    tool_event: ToolEventData::ParamsPartial { identity, params },
+                },
+                None,
+            )
+            .await;
+    }
+
+    async fn flush_tool_params(&self, ctx: &mut StreamContext) {
+        if let Some(run) = &mut ctx.tool_params_run {
+            if let Some((params, _)) = run.pending.take() {
+                let identity = run.identity.clone();
+                self.emit_tool_params(ctx, identity, params).await;
+            }
+        }
+    }
+
+    async fn finish_tool_params_run(&self, ctx: &mut StreamContext) {
+        self.flush_tool_params(ctx).await;
+        ctx.tool_params_run = None;
+    }
+
+    async fn handle_tool_params(
+        &self,
+        ctx: &mut StreamContext,
+        key: ToolCallStreamKey,
+        chunk: ToolCallParamsChunk,
+        is_snapshot: bool,
+    ) {
+        let identity = ToolEventIdentity::direct(chunk.tool_id, chunk.tool_name);
+        let params = chunk.params_chunk;
+        if is_snapshot {
+            self.emit_tool_params(ctx, identity, params).await;
+            return;
+        }
+        let Some(run) = ctx
+            .tool_params_run
+            .as_mut()
+            .filter(|run| run.key == key && run.identity == identity)
+        else {
+            self.finish_tool_params_run(ctx).await;
+            ctx.tool_params_run = Some(ToolParamsRun {
+                key,
+                identity: identity.clone(),
+                pending: None,
+            });
+            self.emit_tool_params(ctx, identity, params).await;
+            return;
+        };
+
+        let pending_bytes = run.pending.as_ref().map_or(0, |(text, _)| text.len());
+        if pending_bytes + params.len() > TOOL_PARAMS_MAX_BYTES {
+            self.flush_tool_params(ctx).await;
+        }
+        if params.len() >= TOOL_PARAMS_MAX_BYTES {
+            self.emit_tool_params(ctx, identity, params).await;
+            return;
+        }
+
+        let run = ctx
+            .tool_params_run
+            .as_mut()
+            .expect("same tool parameter run");
+        let (buffer, _) = run
+            .pending
+            .get_or_insert_with(|| (String::new(), TokioInstant::now() + TOOL_PARAMS_WINDOW));
+        buffer.push_str(&params);
+        if buffer.len() == TOOL_PARAMS_MAX_BYTES {
+            self.flush_tool_params(ctx).await;
+        }
+    }
+
     /// Handle tool call chunk
     async fn handle_tool_call_chunk(&self, ctx: &mut StreamContext, tool_call: UnifiedToolCall) {
         let UnifiedToolCall {
@@ -797,13 +899,25 @@ impl StreamProcessor {
             arguments,
             arguments_is_snapshot,
         } = tool_call;
+        let key = ToolCallStreamKey::from(tool_call_index);
         let outcome = ctx.pending_tool_calls.apply_delta(
-            ToolCallStreamKey::from(tool_call_index),
+            key.clone(),
             id,
             name,
             arguments,
             arguments_is_snapshot,
         );
+
+        if arguments_is_snapshot
+            || outcome.finalized_previous.is_some()
+            || outcome.early_detected.is_some()
+            || ctx
+                .tool_params_run
+                .as_ref()
+                .is_some_and(|run| run.key != key)
+        {
+            self.finish_tool_params_run(ctx).await;
+        }
 
         if let Some(finalized) = outcome.finalized_previous {
             ctx.record_finalized_tool_call(&finalized);
@@ -837,63 +951,7 @@ impl StreamProcessor {
         if let Some(params_partial) = outcome.params_partial {
             ctx.has_effective_output = true;
             ctx.mark_first_visible_output();
-            let _ = self
-                .event_sink
-                .enqueue(
-                    AgenticEvent::ToolEvent {
-                        session_id: ctx.session_id.clone(),
-                        turn_id: ctx.dialog_turn_id.clone(),
-                        round_id: ctx.round_id.clone(),
-                        attempt_id: Some(ctx.attempt_id.clone()),
-                        attempt_index: Some(ctx.attempt_index),
-                        tool_event: ToolEventData::ParamsPartial {
-                            identity: openbitfun_events::ToolEventIdentity::direct(
-                                params_partial.tool_id,
-                                params_partial.tool_name,
-                            ),
-                            params: params_partial.params_chunk,
-                        },
-                    },
-                    None,
-                )
-                .await;
-        }
-
-        if let Some(genui_stream) = outcome.genui_stream {
-            // A decoded OpenUI source delta is the first renderable output of
-            // a GenUI call. Mark it exactly like ParamsPartial so latency,
-            // cancellation and turn completion observe the same visibility
-            // contract even though the outer tool JSON is still incomplete.
-            ctx.has_effective_output = true;
-            ctx.mark_first_visible_output();
-            let _ = self
-                .event_sink
-                .enqueue(
-                    AgenticEvent::ToolEvent {
-                        session_id: ctx.session_id.clone(),
-                        turn_id: ctx.dialog_turn_id.clone(),
-                        round_id: ctx.round_id.clone(),
-                        attempt_id: Some(ctx.attempt_id.clone()),
-                        attempt_index: Some(ctx.attempt_index),
-                        tool_event: ToolEventData::GenUIStream {
-                            identity: openbitfun_events::ToolEventIdentity::direct(
-                                genui_stream.tool_id,
-                                genui_stream.tool_name,
-                            ),
-                            message_id: genui_stream.message_id,
-                            seq: genui_stream.seq,
-                            format: genui_stream.format,
-                            text: genui_stream.text,
-                            reset: genui_stream.reset,
-                            app_id: genui_stream.app_id,
-                            title: genui_stream.title,
-                            template: genui_stream.template,
-                            library_id: genui_stream.library_id,
-                            library_revision: genui_stream.library_revision,
-                        },
-                    },
-                    None,
-                )
+            self.handle_tool_params(ctx, key, params_partial, arguments_is_snapshot)
                 .await;
         }
     }
@@ -1151,12 +1209,22 @@ impl StreamProcessor {
             }
         };
 
+        // A parameter flush does not reset the provider idle watchdog.
+        let next_watchdog_deadline =
+            || watchdog_timeout.and_then(|timeout| TokioInstant::now().checked_add(timeout));
+        let mut watchdog_deadline = next_watchdog_deadline();
         loop {
+            let params_deadline = ctx
+                .tool_params_run
+                .as_ref()
+                .and_then(|run| run.pending.as_ref())
+                .map(|(_, deadline)| *deadline);
             tokio::select! {
                 // Check cancellation token
                 _ = cancellation_token.cancelled() => {
                     debug!("Cancel token detected, stopping stream processing: session_id={}", ctx.session_id);
                     if options.recover_partial_on_cancel && ctx.can_recover_as_partial_result() {
+                        self.finish_tool_params_run(&mut ctx).await;
                         self.send_thinking_end_if_needed(&mut ctx).await;
                         ctx.force_finish_pending_tool_calls();
                         ctx.partial_recovery_reason =
@@ -1173,8 +1241,19 @@ impl StreamProcessor {
                     ));
                 }
 
+                _ = async {
+                    if let Some(deadline) = params_deadline {
+                        tokio::time::sleep_until(deadline).await;
+                    }
+                }, if params_deadline.is_some() => {
+                    self.flush_tool_params(&mut ctx).await;
+                }
+
                 // Watch the adapter -> processor stream only when the upstream stream idle timeout is configured.
-                next_result = next_stream_item(&mut stream, watchdog_timeout) => {
+                next_result = next_stream_item(&mut stream, watchdog_deadline) => {
+                    if !matches!(next_result, TimedStreamItem::Item(Ok(_))) {
+                        self.finish_tool_params_run(&mut ctx).await;
+                    }
                     let response = match next_result {
                         TimedStreamItem::Item(Ok(response)) => response,
                         TimedStreamItem::End => {
@@ -1277,6 +1356,7 @@ impl StreamProcessor {
                     if let Some(thinking_content) = reasoning_content {
                         ctx.reasoning_content_present = true;
                         if !thinking_content.is_empty() {
+                            self.finish_tool_params_run(&mut ctx).await;
                             self.handle_thinking_chunk(
                                 &mut ctx,
                                 thinking_content,
@@ -1290,6 +1370,7 @@ impl StreamProcessor {
                     }
 
                     if let Some(text) = text {
+                        self.finish_tool_params_run(&mut ctx).await;
                         self.send_thinking_end_if_needed(&mut ctx).await;
                         self.handle_text_chunk(&mut ctx, text).await;
                         if let Some(err) = self.check_cancellation(&mut ctx, cancellation_token, "processing text chunk").await {
@@ -1321,6 +1402,7 @@ impl StreamProcessor {
                     }
 
                     if let Some(reason) = finish_reason {
+                        self.finish_tool_params_run(&mut ctx).await;
                         let completion = tool_call_completion.unwrap_or(ToolCallCompletion::Unknown);
                         let _ = ctx.finalize_all_pending_tool_calls(
                             ToolCallBoundary::FinishReason,
@@ -1330,6 +1412,7 @@ impl StreamProcessor {
                             ctx.token_limit_finish_reason = Some(reason);
                         }
                     }
+                    watchdog_deadline = next_watchdog_deadline();
                 }
             }
         }
@@ -1378,7 +1461,7 @@ mod tests {
         is_token_limit_finish_reason, GracefulShutdownInput, HiddenTextTag,
         ModelResponseReplayCapture, SseLogCollector, SseLogConfig, StreamEventSink,
         StreamProcessOptions, StreamProcessor, StreamProcessorError, ToolArgumentRepairKind,
-        ToolCall, ToolCallCompletion,
+        ToolCall, ToolCallCompletion, TOOL_PARAMS_MAX_BYTES,
     };
     use super::{UnifiedResponse, UnifiedTokenUsage, UnifiedToolCall};
     use futures::StreamExt;
@@ -1412,6 +1495,179 @@ mod tests {
 
     fn build_processor() -> StreamProcessor {
         StreamProcessor::new(Arc::new(NoopEventSink))
+    }
+
+    fn tool_params(index: usize, id: Option<&str>, params: &str) -> UnifiedResponse {
+        UnifiedResponse {
+            tool_call: Some(UnifiedToolCall {
+                tool_call_index: Some(index),
+                id: id.map(str::to_owned),
+                name: id.map(|_| "ExecCommand".to_string()),
+                arguments: Some(params.to_string()),
+                arguments_is_snapshot: false,
+            }),
+            ..Default::default()
+        }
+    }
+
+    async fn process_params_stream(
+        processor: &StreamProcessor,
+        stream: impl futures::Stream<Item = Result<UnifiedResponse, anyhow::Error>> + Send + 'static,
+        cancellation: &CancellationToken,
+    ) -> Result<super::StreamResult, super::StreamProcessError> {
+        processor
+            .process_stream(
+                stream.boxed(),
+                None,
+                None,
+                "session".into(),
+                "turn".into(),
+                "round".into(),
+                "attempt".into(),
+                1,
+                cancellation,
+            )
+            .await
+    }
+
+    #[tokio::test]
+    async fn batches_only_contiguous_params_for_the_same_tool() {
+        let sink = Arc::new(RecordingEventSink::default());
+        let processor = StreamProcessor::new(sink.clone());
+        let mut snapshot = tool_params(0, None, r#"{"cmd":"actual"}"#);
+        snapshot.tool_call.as_mut().unwrap().arguments_is_snapshot = true;
+        let stream = iter(
+            [
+                tool_params(0, Some("a"), r#"{"cmd":""#),
+                tool_params(0, None, "日"),
+                tool_params(0, None, "志"),
+                tool_params(1, Some("b"), r#"{"cmd":"pwd"}"#),
+                tool_params(0, None, " recovered"),
+                UnifiedResponse {
+                    text: Some("intervening text".into()),
+                    ..Default::default()
+                },
+                tool_params(0, None, r#""}"#),
+                snapshot,
+            ]
+            .map(Ok),
+        );
+        let result = process_params_stream(&processor, stream, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(result.tool_calls[0].arguments, json!({"cmd": "actual"}));
+        assert_eq!(result.tool_calls[1].arguments, json!({"cmd": "pwd"}));
+
+        let events = sink.events.lock().await;
+        let order = events
+            .iter()
+            .map(|event| match event {
+                AgenticEvent::ToolEvent {
+                    tool_event: ToolEventData::EarlyDetected { identity },
+                    ..
+                } => (identity.tool_id.as_str(), "detected"),
+                AgenticEvent::ToolEvent {
+                    tool_event: ToolEventData::ParamsPartial { identity, params },
+                    ..
+                } => (identity.tool_id.as_str(), params.as_str()),
+                AgenticEvent::TextChunk { text, .. } => ("text", text.as_str()),
+                event => panic!("unexpected event: {event:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            order,
+            [
+                ("a", "detected"),
+                ("a", r#"{"cmd":""#),
+                ("a", "日志"),
+                ("b", "detected"),
+                ("b", r#"{"cmd":"pwd"}"#),
+                ("a", " recovered"),
+                ("text", "intervening text"),
+                ("a", r#""}"#),
+                ("a", r#"{"cmd":"actual"}"#),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn flushes_params_at_byte_limit_and_while_provider_is_idle() {
+        let sink = Arc::new(RecordingEventSink::default());
+        let processor = StreamProcessor::new(sink.clone());
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let cancellation = CancellationToken::new();
+        let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+        let streaming = process_params_stream(&processor, stream, &cancellation);
+        let inspect = async {
+            let large = "x".repeat(TOOL_PARAMS_MAX_BYTES - 1);
+            for response in [
+                tool_params(0, Some("a"), r#"{"cmd":""#),
+                tool_params(0, None, &large),
+                tool_params(0, None, "y"),
+                tool_params(0, None, r#""}"#),
+            ] {
+                tx.send(Ok(response)).unwrap();
+            }
+            tokio::time::timeout(Duration::from_secs(1), async {
+                loop {
+                    let events = sink.events.lock().await;
+                    let params: Vec<_> = events
+                        .iter()
+                        .filter_map(|event| match event {
+                            AgenticEvent::ToolEvent {
+                                tool_event: ToolEventData::ParamsPartial { params, .. },
+                                ..
+                            } => Some(params.as_str()),
+                            _ => None,
+                        })
+                        .collect();
+                    if params.len() >= 3 {
+                        assert_eq!(params, [r#"{"cmd":""#, &format!("{large}y"), r#""}"#]);
+                        break;
+                    }
+                    drop(events);
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+            })
+            .await
+            .expect("pending params must flush with the provider stream still open");
+            drop(tx);
+        };
+        let (result, ()) = tokio::join!(streaming, inspect);
+        assert!(!result.unwrap().tool_calls[0].is_error);
+    }
+
+    #[tokio::test]
+    async fn flushes_pending_params_before_cancelling_the_tool_and_turn() {
+        let sink = Arc::new(RecordingEventSink::default());
+        let processor = StreamProcessor::new(sink.clone());
+        let cancellation = CancellationToken::new();
+        let cancel_on_next_poll = cancellation.clone();
+        let stream = iter(
+            [
+                tool_params(0, Some("a"), r#"{"cmd":""#),
+                tool_params(0, None, "pwd"),
+                tool_params(0, None, r#""}"#),
+            ]
+            .map(Ok),
+        )
+        .chain(futures::stream::poll_fn(move |_| {
+            cancel_on_next_poll.cancel();
+            std::task::Poll::Pending
+        }));
+        let result = process_params_stream(&processor, stream, &cancellation).await;
+        assert!(matches!(
+            result.unwrap_err().error,
+            StreamProcessorError::Cancelled(_)
+        ));
+        let events = sink.events.lock().await;
+        assert!(matches!(events.as_slice(),
+            [AgenticEvent::ToolEvent { tool_event: ToolEventData::EarlyDetected { .. }, .. },
+             AgenticEvent::ToolEvent { tool_event: ToolEventData::ParamsPartial { params: first, .. }, .. },
+             AgenticEvent::ToolEvent { tool_event: ToolEventData::ParamsPartial { params: last, .. }, .. },
+             AgenticEvent::ToolEvent { tool_event: ToolEventData::Cancelled { .. }, .. },
+             AgenticEvent::DialogTurnCancelled { .. }] if format!("{first}{last}") == r#"{"cmd":"pwd"}"#
+        ));
     }
 
     #[test]
@@ -1970,7 +2226,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn native_genui_source_is_visible_before_tool_arguments_finish() {
+    async fn an_unavailable_legacy_tool_name_only_emits_generic_argument_events() {
         let sink = Arc::new(RecordingEventSink::default());
         let processor = StreamProcessor::new(sink.clone());
         let stream = iter(vec![
@@ -1991,7 +2247,7 @@ mod tests {
                     tool_call_index: None,
                     id: None,
                     name: None,
-                    arguments: Some(r#"Hello")}}]}"#.to_string()),
+                    arguments: Some(r#"hello)"}}}]}"#.to_string()),
                     arguments_is_snapshot: false,
                 }),
                 ..Default::default()
@@ -2017,12 +2273,23 @@ mod tests {
         assert!(result.has_effective_output);
         assert!(result.first_visible_output_ms.is_some());
         let events = sink.events.lock().await;
+        assert_eq!(
+            result.tool_calls[0].arguments["messages"][0]["createSurface"]["source"]["content"],
+            "root = Text(hello)"
+        );
         assert!(events.iter().any(|event| matches!(
             event,
             AgenticEvent::ToolEvent {
-                tool_event: ToolEventData::GenUIStream { text, .. },
+                tool_event: ToolEventData::ParamsPartial { .. },
                 ..
-            } if text == "root = Text("
+            }
+        )));
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            AgenticEvent::ToolEvent {
+                tool_event: ToolEventData::GenUIStream { .. },
+                ..
+            }
         )));
     }
 

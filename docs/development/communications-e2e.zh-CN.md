@@ -320,7 +320,7 @@ pnpm --dir src/web-ui run test:run src/infrastructure/peer-device src/infrastruc
 真实 Docker 集成测试需显式提供测试容器名（该容器允许创建及删除测试文件）：
 
 ```bash
-OPENBITFUN_TEST_DOCKER_CONTAINER=openbitfun-comm-fixture cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::manager::tests::local_docker_workspace_round_trip -- --ignored
+OPENBITFUN_TEST_DOCKER_CONTAINER=openbitfun-comm-fixture cargo test --locked -p openbitfun-services-integrations --no-default-features --features remote-ssh-concrete --lib remote_ssh::manager::tests::container_execution::local_docker_workspace_round_trip -- --ignored
 ```
 
 Desktop 命令闭包和 Core 行为变更还需执行其最近 [Desktop guide](../../src/apps/desktop/AGENTS.md)、[Core guide](../../src/crates/assembly/core/AGENTS.md) 指定的检查；MCP、ACP 和 SDK 分别遵循各 owner guide。清单没有运行日志时，不得把这里的命令标成已通过。

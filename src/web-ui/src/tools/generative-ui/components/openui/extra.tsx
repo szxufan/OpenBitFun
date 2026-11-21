@@ -3,7 +3,8 @@
 import { defineComponent, useIsStreaming } from "@openuidev/react-lang";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import { Check, ChevronLeft, ChevronRight, Copy } from "lucide-react";
+import { RecordedVideoLink } from "../RecordedVideoLink";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Portal } from "@openbitfun/ui";
 import { getAppearanceOverlayHost } from "@/infrastructure/appearance/runtime/AppearanceOverlayHost";
@@ -115,30 +116,13 @@ export const Popover = defineComponent({
 export const Code = defineComponent({
   name: "Code",
   props: z.object({ code: z.string(), language: z.string().optional() }),
-  description: "Code block with a copy button.",
-  component: function CodeView({ props }) {
-    const [copied, setCopied] = useState(false);
-    const code = str(props.code);
-    const copy = () =>
-      void navigator.clipboard?.writeText(code).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      });
-    return (
-      <div className="iui-codeblock">
-        <div className="iui-codeblock-head">
-          <span>{str(props.language) || "code"}</span>
-          <button type="button" onClick={copy} aria-label="Copy code">
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-            {copied ? "Copied" : "Copy"}
-          </button>
-        </div>
-        <pre>
-          <code>{code}</code>
-        </pre>
-      </div>
-    );
-  },
+  description: "Recorded code block.",
+  component: ({ props }) => (
+    <div className="iui-codeblock">
+      <div className="iui-codeblock-head">{str(props.language) || "code"}</div>
+      <pre><code>{str(props.code)}</code></pre>
+    </div>
+  ),
 });
 
 export const Quote = defineComponent({
@@ -165,29 +149,11 @@ export const MathBlock = defineComponent({
 });
 
 // Media
-const YT = /(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/)([\w-]{11})|^([\w-]{11})$/;
-
 export const YouTube = defineComponent({
   name: "YouTube",
   props: z.object({ video: z.string(), title: z.string().optional() }),
-  description: "Embedded YouTube video by id or URL. Only a video you know exists.",
-  component: ({ props }) => {
-    const m = YT.exec(str(props.video).trim());
-    const id = m?.[1] ?? m?.[2];
-    if (!id) return null;
-    return (
-      <div className="iui-video">
-        <iframe
-          src={`https://www.youtube-nocookie.com/embed/${id}`}
-          title={str(props.title) || "YouTube video"}
-          loading="lazy"
-          allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-          referrerPolicy="strict-origin-when-cross-origin"
-          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
-        />
-      </div>
-    );
-  },
+  description: "Video link recorded in a saved message.",
+  component: ({ props }) => <RecordedVideoLink video={props.video} title={props.title} />,
 });
 
 // Play

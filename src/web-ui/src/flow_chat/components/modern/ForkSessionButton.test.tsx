@@ -12,6 +12,11 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const flowState = {
   sessions: new Map<string, any>(),
 };
+const peerDevice = vi.hoisted(() => ({ value: null as any }));
+
+vi.mock('@/infrastructure/peer-device/peerDeviceContextState', () => ({
+  usePeerDeviceModeOptional: () => peerDevice.value,
+}));
 
 vi.mock('react-i18next', () => ({
   initReactI18next: {
@@ -67,6 +72,7 @@ describe('ForkSessionButton', () => {
     container = dom.window.document.getElementById('root') as HTMLDivElement;
     root = createRoot(container);
     flowState.sessions = new Map();
+    peerDevice.value = null;
   });
 
   afterEach(() => {
@@ -86,6 +92,26 @@ describe('ForkSessionButton', () => {
     });
 
     expect(container.querySelector('.model-round-item__fork-btn')).toBeNull();
+  });
+
+  it('hides the fork button on a CLI peer host that cannot fork', () => {
+    flowState.sessions = new Map([
+      ['main-session', { sessionId: 'main-session', sessionKind: 'normal' }],
+    ]);
+    peerDevice.value = { peerMode: { active: true }, currentPeerCapabilities: { hostKind: 'cli' } };
+    act(() => {
+      root.render(<ForkSessionButton sessionId="main-session" turnId="turn-1" />);
+    });
+    expect(container.querySelector('.model-round-item__fork-btn')).toBeNull();
+
+    peerDevice.value = {
+      peerMode: { active: true },
+      currentPeerCapabilities: { hostKind: 'cli', sessionForkV1: true },
+    };
+    act(() => {
+      root.render(<ForkSessionButton sessionId="main-session" turnId="turn-2" />);
+    });
+    expect(container.querySelector('.model-round-item__fork-btn')).not.toBeNull();
   });
 
   it('renders the fork button for normal sessions', () => {

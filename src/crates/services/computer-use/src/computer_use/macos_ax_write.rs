@@ -47,17 +47,7 @@ fn can_write(target: AxRef) -> bool {
     if unsafe { AXUIElementGetPid(target.0, &mut pid) } != 0 {
         return false;
     }
-    let Ok(window) = super::macos_capture::bound_window_id(pid) else {
-        return false;
-    };
-    let same_window = match super::macos_ax_dump::element_window_id(target) {
-        Some(actual) => actual == window,
-        // Menu-bar actions have application scope and no window. Arbitrary
-        // controls with an unknown owning window cannot inherit that exception.
-        None => super::macos_ax_dump::is_application_menu_item(target),
-    };
-    same_window
-        && super::control_session::target_allowed(&format!("pid:{pid}/window:{window}")).is_ok()
+    super::macos_ax_dump::validate_bound_target(pid, target).is_ok()
 }
 
 fn note_dispatched_input(target: AxRef) {

@@ -1,6 +1,6 @@
 import { getToolCardStatus } from './toolCardStatus';
 import type { FlowToolItem } from '../types/flow-chat';
-import { projectEffectiveToolItem } from '../utils/toolInvocationIdentity';
+import { projectEffectiveToolItem, skillInvocationName } from '../utils/toolInvocationIdentity';
 
 function text(...values: unknown[]): string {
   return values.find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim() ?? '';
@@ -64,7 +64,7 @@ export function getToolCapsuleSummary(item: FlowToolItem, t: (key: string, optio
       break;
     case 'Skill':
       kind = t('toolCapsule.skill');
-      target = label = text(result.skill_name, result.name, input.command, input.skill_name);
+      target = label = skillInvocationName(effective) ?? '';
       break;
     case 'GetToolSpec':
       kind = t('toolCards.getToolSpec.title');

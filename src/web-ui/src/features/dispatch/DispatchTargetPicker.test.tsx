@@ -21,6 +21,11 @@ vi.mock('@/infrastructure/i18n', () => ({
 const pickerState = vi.hoisted(() => ({
   loggedIn: false,
   targets: [] as Array<Record<string, unknown>>,
+  executionDevice: null as string | null,
+}));
+
+vi.mock('@/infrastructure/peer-device/useExecutionDeviceName', () => ({
+  useExecutionDeviceName: () => pickerState.executionDevice,
 }));
 
 vi.mock('@/infrastructure/account/useAccountLoginState', () => ({
@@ -40,8 +45,8 @@ vi.mock('@/features/ssh-remote/SSHConnectionDialog', () => ({
   SSHConnectionDialog: () => null,
 }));
 
-vi.mock('./DispatchInstallDialog', () => ({
-  DispatchInstallDialog: () => null,
+vi.mock('./DispatchTargetDialog', () => ({
+  DispatchTargetDialog: () => null,
 }));
 
 const rect = (
@@ -68,6 +73,7 @@ describe('DispatchTargetPicker overlay', () => {
   beforeEach(() => {
     pickerState.loggedIn = false;
     pickerState.targets = [];
+    pickerState.executionDevice = null;
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 });
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 });
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
@@ -113,6 +119,22 @@ describe('DispatchTargetPicker overlay', () => {
     expect(menu?.style.visibility).toBe('visible');
     expect(menu?.style.left).toBe('240px');
     expect(menu?.style.top).toBe('293px');
+  });
+
+  it('names the device that runs a local-target task instead of "this computer"', async () => {
+    pickerState.executionDevice = 'Ubuntu';
+    await act(async () => {
+      root.render(
+        <DispatchTargetPicker target={{ kind: 'local' }} locked={false} onSelectTarget={vi.fn()} />,
+      );
+    });
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-testid="chat-input-dispatch-trigger"]',
+    );
+    expect(trigger?.textContent).toBe('Ubuntu');
+    await act(async () => trigger?.click());
+    expect(document.querySelector('[data-testid="dispatch-target-local-option"]')?.textContent)
+      .toContain('Ubuntu');
   });
 
   it('offers New Worktree inside the local target and reflects the selected local mode', async () => {
@@ -191,10 +213,10 @@ describe('DispatchTargetPicker overlay', () => {
     expect(onWorktreeChange).toHaveBeenLastCalledWith(false);
   });
 
-  it('lists a confirmed-incompatible device but never offers it as a target', async () => {
+  it('omits account devices from the manual dispatch menu', async () => {
     pickerState.loggedIn = true;
     pickerState.targets = [
-      { kind: 'device', deviceId: 'peer', displayName: 'Old build', online: true, incompatible: true },
+      { kind: 'device', deviceId: 'peer', displayName: 'Old build', online: true },
     ];
 
     await act(async () => {
@@ -215,11 +237,6 @@ describe('DispatchTargetPicker overlay', () => {
     const option = Array.from(
       document.querySelectorAll<HTMLButtonElement>('[data-openbitfun-menu-item]'),
     ).find(node => node.textContent?.includes('Old build'));
-    expect(option).toBeDefined();
-    // The device is visible with its reason but cannot be selected.
-    expect(option?.textContent).toContain('accountLogin.deviceClientIncompatibleTag');
-    expect(option?.querySelector('[data-openbitfun-component="status-pill"]')?.getAttribute('aria-label'))
-      .toBe('chatInput.dispatch.deviceIncompatible');
-    expect(option?.disabled).toBe(true);
+    expect(option).toBeUndefined();
   });
 });

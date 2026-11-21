@@ -4,8 +4,12 @@
 //! Unknown execution inputs never become an empty successful analysis. Spans are
 //! half-open UTF-8 byte offsets in the original command (nested programs use the
 //! containing input span, because shell quote removal changes byte coordinates).
+mod command_program;
 mod lexer;
 mod program;
+pub use command_program::{
+    parse_permission_program, powershell_permission_program, CommandProgram, PermissionGlobMatcher,
+};
 use lexer::{Redirect, Token, Word};
 use serde::Serialize;
 
