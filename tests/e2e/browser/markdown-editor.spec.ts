@@ -14,6 +14,29 @@ describe('Markdown rich text browser E2E', () => {
 
   });
 
+  it('opens relative Markdown links as workspace files without browser navigation', async () => {
+    await browser.url('about:blank');
+    await fetch('http://127.0.0.1:1450/file', {
+      method: 'PUT',
+      body: '[Workflow](references/workflow.md)\n\n[README](../README.md)',
+    });
+    await editor.open();
+    await $('[data-testid="readonly"]').click();
+    await expect($('.ProseMirror')).toHaveAttribute('contenteditable', 'false');
+    const startUrl = await browser.getUrl();
+    const startWindows = await browser.getWindowHandles();
+
+    const [workflow, readme] = await editor.richText.$$('a');
+    await expect(workflow).toHaveAttribute('href', 'references/workflow.md');
+    await workflow.click();
+    await readme.click();
+    const opened = await $('[data-testid="opened-files"]').getProperty('textContent');
+    expect(opened?.trim().split('\n')).toEqual(['/workspace/docs/references/workflow.md', '/workspace/README.md']);
+    expect(await browser.getUrl()).toBe(startUrl);
+    expect(await browser.getWindowHandles()).toEqual(startWindows);
+    await expect(editor.dirty).toHaveText('Saved');
+  });
+
   it('preserves escaped text, link titles and code spaces after a native edit, save and reload', async () => {
     const source = '# Edge cases\n\n[label](<https://example.com/a b> "a & title")\n\n\\# literal\n\n``  padded  ``\n\n~~**Remaining**: work~~\n\nAfter';
     await editor.mode(1);
@@ -134,11 +157,11 @@ describe('Markdown rich text browser E2E', () => {
       const box = checkbox.getBoundingClientRect();
       return { ...appearance, taskOnOneLine: box.top < line.bottom && box.bottom > line.top };
     }, reference);
-    await editor.block('mermaid').$('svg').waitForDisplayed();
+    await editor.block('mermaid').$('.mermaid-block__diagram svg').waitForDisplayed();
     const rich = await styles(false);
     expect(rich.taskOnOneLine).toBe(true);
     await browser.url('/tests/e2e/markdown-editor.html?reference=1');
-    await $('.m-editor-preview .mermaid-block svg').waitForDisplayed();
+    await $('.m-editor-preview .mermaid-block__diagram svg').waitForDisplayed();
     const original = await styles(true);
     expect(rich).toEqual(original);
   });
@@ -295,11 +318,11 @@ describe('Markdown rich text browser E2E', () => {
       // Track only the fixture filesystem boundary; use the production image loader.
       const { workspaceAPI } = await import('/src/infrastructure/api/index.ts');
       (window as any).__imageReads = [];
-      const original = workspaceAPI.readFileContent;
-      workspaceAPI.readFileContent = async (path: string) => {
+      const original = workspaceAPI.readWorkspaceFile;
+      workspaceAPI.readWorkspaceFile = async (workspaceId: string, path: string, encoding?: string) => {
         (window as any).__imageReads.push(path);
         if (path.endsWith('.png')) return 'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR4nGNoIBEwjGoY1TB8NQAAJYSAEGy7FvQAAAAASUVORK5CYII=';
-        return original(path);
+        return original.call(workspaceAPI, workspaceId, path, encoding);
       };
     });
     for (const name of ['new.png', 'another.png']) {
@@ -307,7 +330,7 @@ describe('Markdown rich text browser E2E', () => {
       await $('[data-testid="md-image-src"]').setValue(`./${name}`);
       await browser.keys('Enter');
       await browser.waitUntil(async () => browser.execute((path: string) =>
-        (window as any).__imageReads.includes(path), `/workspace/${name}`));
+        (window as any).__imageReads.includes(path), `/workspace/docs/${name}`));
       await expect($('[data-testid="md-image"] img')).toHaveAttribute('src', expect.stringContaining('data:image/png;base64,'));
       await browser.waitUntil(async () => browser.execute(() =>
         document.querySelector<HTMLImageElement>('[data-testid="md-image"] img')?.naturalWidth === 16));

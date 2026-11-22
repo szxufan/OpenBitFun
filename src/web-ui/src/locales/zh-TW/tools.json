@@ -90,6 +90,7 @@
       "copiedMarkdown": "已複製 Markdown",
       "viewModeLabel": "文件與源碼模式",
       "notice": {
+        "fileLinkUnavailable": "無法從目前的文件開啟此檔案連結。",
         "sourcePreviewFallback": "富文字載入失敗，你可以繼續編輯 Markdown 原始碼。"
       }
     },

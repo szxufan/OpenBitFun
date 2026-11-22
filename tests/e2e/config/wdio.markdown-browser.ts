@@ -38,7 +38,7 @@ export const config: Options.Testrunner = {
         } else if (request.url === '/metadata') {
           const info = await stat(file);
           response.setHeader('Content-Type', 'application/json');
-          response.end(JSON.stringify({ path: '/workspace/test.md', modified: info.mtimeMs, size: info.size, isFile: true, isDir: false }));
+          response.end(JSON.stringify({ path: '/workspace/docs/test.md', modified: info.mtimeMs, size: info.size, isFile: true, isDir: false }));
         } else { response.statusCode = 404; response.end(); }
       } catch (error) { response.statusCode = 500; response.end(String(error)); }
     });

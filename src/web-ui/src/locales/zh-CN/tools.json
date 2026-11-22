@@ -90,6 +90,7 @@
       "copiedMarkdown": "已复制 Markdown",
       "viewModeLabel": "文档与源码模式",
       "notice": {
+        "fileLinkUnavailable": "无法从当前文档打开此文件链接。",
         "sourcePreviewFallback": "富文本加载失败，你可以继续编辑 Markdown 源码。"
       }
     },

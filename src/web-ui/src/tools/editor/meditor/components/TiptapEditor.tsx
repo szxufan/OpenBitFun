@@ -21,9 +21,17 @@ import { Selection } from '@tiptap/pm/state';
 import { useI18n } from '@/infrastructure/i18n';
 
 import { editorAiAPI } from '@/infrastructure/api/service-api/EditorAiAPI';
+import {
+  isAbsoluteFilesystemPath,
+  isMarkdownFileHref,
+  normalizeFileLikeHref,
+  parseMarkdownLineRange,
+  resolveBaseRelativePath,
+} from '@/infrastructure/markdown/markdownFileLinks';
 import { notificationService } from '@/shared/notification-system';
 import { createLogger } from '@/shared/utils/logger';
 import { getMotionAwareScrollBehavior } from '@/shared/utils/motionPreference';
+import { openFileInBestTarget } from '@/shared/utils/tabUtils';
 import { activeEditTargetService } from '@/tools/editor/services/ActiveEditTargetService';
 import { MarkdownAlignmentExtension } from '../extensions/MarkdownAlignmentExtension';
 import { BlockIdExtension } from '../extensions/BlockIdExtension';
@@ -430,6 +438,43 @@ export const TiptapEditor = React.forwardRef<TiptapEditorHandle, TiptapEditorPro
   const inlineAiTriggerHint = t('editor.meditor.inlineAi.triggerHint');
   const placeholderOptionsRef = useRef({ placeholder, emptyDocumentPlaceholder, inlineAiTriggerHint });
   placeholderOptionsRef.current = { placeholder, emptyDocumentPlaceholder, inlineAiTriggerHint };
+  const fileLinkUnavailable = t('editor.markdownEditor.notice.fileLinkUnavailable');
+  const fileLinkContextRef = useRef({ basePath, scope: fileAccess?.scope, fileLinkUnavailable });
+  fileLinkContextRef.current = { basePath, scope: fileAccess?.scope, fileLinkUnavailable };
+
+  const handleFileLinkClick = useCallback((view: TiptapEditorInstance['view'], event: MouseEvent) => {
+    if (event.button > 1 || !(event.target instanceof Element)) return false;
+    const anchor = event.target.closest('a[href]');
+    if (!anchor || !view.dom.contains(anchor)) return false;
+    const href = anchor.getAttribute('href');
+    if (href === null || (href && !isMarkdownFileHref(href))) return false;
+
+    event.preventDefault();
+    if (!href) return true;
+    // A regular pointer click in an editable document still positions the caret.
+    if (view.editable && event.button === 0 && event.detail > 0 && !event.metaKey && !event.ctrlKey) return false;
+
+    const { basePath, scope, fileLinkUnavailable } = fileLinkContextRef.current;
+    const [pathPart] = href.split(/[?#]/, 1);
+    const hashIndex = href.indexOf('#');
+    const targetPath = normalizeFileLikeHref(pathPart);
+    if (!targetPath || (!basePath && !isAbsoluteFilesystemPath(targetPath)) || (!scope?.workspaceId && !scope?.workspacePath)) {
+      notificationService.warning(fileLinkUnavailable);
+      return true;
+    }
+
+    try {
+      openFileInBestTarget({
+        filePath: resolveBaseRelativePath(targetPath, basePath),
+        jumpToRange: hashIndex < 0 ? undefined : parseMarkdownLineRange(href.slice(hashIndex)),
+        scope,
+      });
+    } catch (error) {
+      log.warn('Failed to open Markdown file link', { error });
+      notificationService.warning(fileLinkUnavailable);
+    }
+    return true;
+  }, []);
 
   useEffect(() => {
     inlineAiStateRef.current = inlineAiState;
@@ -568,6 +613,7 @@ export const TiptapEditor = React.forwardRef<TiptapEditorHandle, TiptapEditorPro
         },
       }).configure({
         openOnClick: false,
+        isAllowedUri: (href, { defaultValidate }) => Boolean(defaultValidate(href) || isMarkdownFileHref(href)),
       }),
       // Placeholder decorations keep hints outside the document mutation path.
       // Direct paragraph DOM changes can reparse and destroy active embed editors.
@@ -648,6 +694,8 @@ export const TiptapEditor = React.forwardRef<TiptapEditorHandle, TiptapEditorPro
     editorProps: {
       attributes: { class: 'markdown-renderer' },
       handleDOMEvents: {
+        click: handleFileLinkClick,
+        auxclick: handleFileLinkClick,
         paste: () => {
           plainTextPasteRef.current = false;
           return false;

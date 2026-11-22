@@ -38,7 +38,6 @@ import {
   recordReactRenderProfile,
   startupTrace,
 } from '@/shared/utils/startupTrace';
-import path from 'path-browserify';
 import { getActiveSurfaceScope, onSurfaceActivated, type SurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import './Markdown.scss';
 import { useStreamingTextReveal } from './useStreamingTextReveal';
@@ -46,11 +45,17 @@ import { SessionMarkdownImage, type SessionImageReader } from './SessionMarkdown
 import { ImageLightbox, type ImageLightboxState } from '@/shared/ui/ImageLightbox';
 import { rehypeSourceRange, type MarkdownSourceRange } from './rehypeSourceRange';
 import { rehypeWindowsDrivePaths } from './rehypeWindowsDrivePaths';
+import {
+  COMPUTER_LINK_PREFIX,
+  FILE_LINK_PREFIX,
+  WORKSPACE_FOLDER_PLACEHOLDER,
+  isAbsoluteFilesystemPath,
+  normalizeFileLikeHref,
+  parseMarkdownLineRange,
+  resolveBaseRelativePath,
+} from './markdownFileLinks';
 
 const log = createLogger('Markdown');
-const COMPUTER_LINK_PREFIX = 'computer://';
-const FILE_LINK_PREFIX = 'file://';
-const WORKSPACE_FOLDER_PLACEHOLDER = '{{workspaceFolder}}';
 
 const MarkdownMathRenderer = lazyWithRecovery(() => import('./MarkdownMathRenderer'));
 const ThinkingMarkdown = lazyWithRecovery(() => import('./ThinkingMarkdown'));
@@ -386,46 +391,8 @@ function remarkAutolinkInternalLinks() {
   };
 }
 
-function normalizeFileLikeHref(rawHref: string): string {
-  if (/^openbitfun:\/\/(?:runtime|current-session)\//.test(rawHref)) return rawHref;
-  let filePath = rawHref;
-
-  if (rawHref.startsWith(COMPUTER_LINK_PREFIX)) {
-    filePath = rawHref.slice(COMPUTER_LINK_PREFIX.length);
-  } else if (rawHref.startsWith(FILE_LINK_PREFIX)) {
-    filePath = rawHref.slice(FILE_LINK_PREFIX.length);
-  } else if (rawHref.startsWith('file:')) {
-    filePath = rawHref.slice('file:'.length);
-  }
-
-  if (filePath.startsWith(WORKSPACE_FOLDER_PLACEHOLDER)) {
-    filePath = filePath.slice(WORKSPACE_FOLDER_PLACEHOLDER.length);
-    if (filePath.startsWith('/')) {
-      filePath = filePath.slice(1);
-    }
-  }
-
-  // Normalize URI-style Windows drive paths to native absolute paths.
-  if (/^\/{2,}[A-Za-z]:[\\/]/.test(filePath)) {
-    filePath = filePath.replace(/^\/+/, '/');
-  }
-  if (/^\/[A-Za-z]:[\\/]/.test(filePath)) {
-    filePath = filePath.slice(1);
-  }
-
-  try {
-    return decodeURIComponent(filePath);
-  } catch {
-    return filePath;
-  }
-}
-
-function normalizePath(filePath: string): string {
-  return filePath.replace(/\\/g, '/');
-}
-
 function normalizeDisplayPath(filePath: string): string {
-  const normalized = normalizePath(filePath);
+  const normalized = filePath.replace(/\\/g, '/');
 
   if (/^[A-Za-z]:\//.test(normalized)) {
     return normalized.replace(/\//g, '\\');
@@ -436,29 +403,6 @@ function normalizeDisplayPath(filePath: string): string {
   }
 
   return normalized;
-}
-
-function isAbsoluteFilesystemPath(filePath: string): boolean {
-  const normalized = normalizePath(filePath);
-  if (/^[A-Za-z]:/.test(normalized) || /^\/[A-Za-z]:/.test(normalized)) {
-    return true;
-  }
-
-  return normalized.startsWith('/') && !normalized.startsWith('//');
-}
-
-function resolveBaseRelativePath(targetPath: string, basePath?: string): string {
-  if (/^openbitfun:\/\/(?:runtime|current-session)\//.test(targetPath)) return targetPath;
-  if (!targetPath || !basePath || isAbsoluteFilesystemPath(targetPath)) {
-    return targetPath;
-  }
-
-  const normalizedTarget = normalizePath(targetPath);
-  if (normalizedTarget.startsWith('./') || normalizedTarget.startsWith('../')) {
-    return path.normalize(path.join(basePath, normalizedTarget));
-  }
-
-  return path.normalize(path.join(basePath, normalizedTarget));
 }
 
 function resolveDisplayFilePath(targetPath: string, basePath?: string, workspacePath?: string): string {
@@ -1082,27 +1026,6 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
     [markdownContent],
   );
 
-  // Parse line ranges like #L42 / 1-20
-  const parseLineRange = useCallback((hash: string): LineRange | undefined => {
-    const cleanHash = hash.replace(/^#/, '');
-
-    const lineMatchWithL = cleanHash.match(/^L(\d+)(?:-L?(\d+))?$/i);
-    if (lineMatchWithL) {
-      const start = parseInt(lineMatchWithL[1], 10);
-      const end = lineMatchWithL[2] ? parseInt(lineMatchWithL[2], 10) : undefined;
-      return { start, end };
-    }
-
-    const lineMatchWithoutL = cleanHash.match(/^(\d+)(?:-(\d+))?$/);
-    if (lineMatchWithoutL) {
-      const start = parseInt(lineMatchWithoutL[1], 10);
-      const end = lineMatchWithoutL[2] ? parseInt(lineMatchWithoutL[2], 10) : undefined;
-      return { start, end };
-    }
-
-    return undefined;
-  }, []);
-
   const handleFileViewRequest = useCallback((filePath: string, fileName: string, lineRange?: LineRange) => {
     if (onFileViewRequestRef.current) onFileViewRequestRef.current(filePath, fileName, lineRange);
     else if (fileAccessRef.current) openFileInBestTarget({ filePath, fileName, jumpToRange: lineRange, scope: fileAccessRef.current.scope });
@@ -1464,7 +1387,7 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
         if (hashIndex !== -1) {
           const hash = filePath.substring(hashIndex);
           filePath = filePath.substring(0, hashIndex);
-          lineRange = parseLineRange(hash);
+          lineRange = parseMarkdownLineRange(hash);
         } else {
           // Note: exclude Windows drive letters (e.g. C:)
           const colonMatch = filePath.match(/^(.+?):(\d+)(?:-(\d+))?$/);
@@ -1762,7 +1685,6 @@ const MarkdownSurface = React.memo<MarkdownRendererProps & { thinking?: boolean;
     handleOpenBuiltInBrowserLink,
     handleOpenVisualization,
     handleTabOpen,
-    parseLineRange,
     basePathRef,
     currentWorkspacePathRef,
     expandDetailsByDefaultRef,

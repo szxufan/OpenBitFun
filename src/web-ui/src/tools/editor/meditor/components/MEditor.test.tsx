@@ -6,9 +6,15 @@ import { closeHistory } from '@tiptap/pm/history'
 import type { EditorInstance } from '../types'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ResourceFileContext, type ResourceFileAccess } from '@/infrastructure/api/ResourceFileContext'
 
 const mocks = vi.hoisted(() => ({
   logError: vi.fn(),
+  openFile: vi.fn(),
+}))
+
+vi.mock('@/shared/utils/tabUtils', () => ({
+  openFileInBestTarget: mocks.openFile,
 }))
 
 vi.mock('@/infrastructure/markdown', () => ({
@@ -44,6 +50,7 @@ describe('MEditorErrorBoundary', () => {
     root = createRoot(container)
     consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     mocks.logError.mockReset()
+    mocks.openFile.mockReset()
   })
 
   afterEach(() => {
@@ -83,7 +90,7 @@ describe('MEditorErrorBoundary', () => {
     return (container.querySelector('.ProseMirror') as HTMLElement & { editor: Editor }).editor;
   }
 
-  async function renderEditor(markdown = sourceMarkdown, readonly = false) {
+  async function renderEditor(markdown = sourceMarkdown, readonly = false, fileAccess?: ResourceFileAccess) {
     const ref = createRef<EditorInstance>();
     const onDirtyChange = vi.fn();
     const onSave = vi.fn();
@@ -97,14 +104,61 @@ describe('MEditorErrorBoundary', () => {
         <button id="readonly" onClick={() => setLocked(!locked)}>Toggle readonly</button>
         <button id="reload" onClick={() => setValue('# Reloaded')}>Reload</button>
         <button id="mode" onClick={() => setMode(mode === 'ir' ? 'edit' : 'ir')}>Switch</button>
-        <MEditor ref={ref} value={value} onChange={setValue} onDirtyChange={onDirtyChange}
-          onSave={onSave} mode={mode} readonly={locked} />
+        <ResourceFileContext.Provider value={fileAccess ?? null}>
+          <MEditor ref={ref} value={value} onChange={setValue} onDirtyChange={onDirtyChange}
+            onSave={onSave} mode={mode} readonly={locked} basePath={fileAccess ? '/workspace/docs' : undefined} />
+        </ResourceFileContext.Provider>
       </>;
     }
     await act(async () => root.render(<Document />));
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
     return { ref, onDirtyChange, onSave, setDocumentValue: (next: string) => setDocumentValue(next) };
   }
+
+  it('opens relative file links from the document directory on its owning device and workspace', async () => {
+    const scope = {
+      surfaceId: 'peer:desktop',
+      workspaceId: 'ssh-workspace',
+      workspacePath: '/workspace',
+      remoteConnectionId: 'ssh-connection',
+    };
+    const markdown = '[Workflow](references/workflow.md) and [README](../README%20notes.md#L3-L5)';
+    const { ref, onDirtyChange } = await renderEditor(markdown, false, { scope, files: { readFileContent: vi.fn() } });
+    const [workflow, readme] = getEditor().view.dom.querySelectorAll('a');
+    expect(workflow.getAttribute('href')).toBe('references/workflow.md');
+
+    function click(link: HTMLAnchorElement, options?: MouseEventInit) {
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, ...options });
+      act(() => { link.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(true);
+    }
+
+    click(workflow);
+    expect(mocks.openFile).not.toHaveBeenCalled();
+    click(workflow, { metaKey: true });
+    expect(mocks.openFile).toHaveBeenCalledExactlyOnceWith({
+      filePath: '/workspace/docs/references/workflow.md', scope, jumpToRange: undefined,
+    });
+
+    act(() => { container.querySelector<HTMLButtonElement>('#readonly')?.click(); });
+    click(readme);
+    expect(mocks.openFile).toHaveBeenLastCalledWith({
+      filePath: '/workspace/README notes.md', scope, jumpToRange: { start: 3, end: 5 },
+    });
+    expect(ref.current?.getValue()).toBe(markdown);
+    expect(onDirtyChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it('keeps external URLs and blocks unsafe schemes when rendering file links', async () => {
+    await renderEditor('[Web](https://example.com/docs) and [Unsafe](javascript:alert%281%29)', true);
+    const [web, unsafe] = getEditor().view.dom.querySelectorAll('a');
+    expect(web.getAttribute('href')).toBe('https://example.com/docs');
+    expect(unsafe.getAttribute('href')).toBe('');
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true });
+    act(() => { unsafe.dispatchEvent(event); });
+    expect(event.defaultPrevented).toBe(true);
+    expect(mocks.openFile).not.toHaveBeenCalled();
+  });
 
   function pasteClipboard(text: string, html = '', metadata: Record<string, string> = {}) {
     const event = new Event('paste', { bubbles: true, cancelable: true });

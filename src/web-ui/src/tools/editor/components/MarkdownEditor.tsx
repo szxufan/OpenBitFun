@@ -16,7 +16,7 @@ import { createLogger } from '@/shared/utils/logger';
 import { sendDebugProbe } from '@/shared/utils/debugProbe';
 import { elapsedMs, nowMs } from '@/shared/utils/timing';
 import { globalEventBus } from '@/infrastructure/event-bus';
-import { isSamePath } from '@/shared/utils/pathUtils';
+import { dirnameAbsolutePath, isSamePath } from '@/shared/utils/pathUtils';
 import { startEditorFileSyncPolling } from '../utils/fileSyncPolling';
 import { LoadingState } from '@openbitfun/ui';
 import { useI18n } from '@/infrastructure/i18n';
@@ -139,15 +139,7 @@ const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
     hasChangesRef.current = hasChanges;
   }, [hasChanges]);
 
-  const basePath = React.useMemo(() => {
-    if (!filePath) return undefined;
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    const lastSlashIndex = normalizedPath.lastIndexOf('/');
-    if (lastSlashIndex >= 0) {
-      return normalizedPath.substring(0, lastSlashIndex);
-    }
-    return undefined;
-  }, [filePath]);
+  const basePath = filePath ? dirnameAbsolutePath(filePath).replace(/\\/g, '/') || undefined : undefined;
 
   useEffect(() => {
     isUnmountedRef.current = false;

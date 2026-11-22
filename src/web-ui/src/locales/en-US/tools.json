@@ -90,6 +90,7 @@
       "copiedMarkdown": "Copied Markdown",
       "viewModeLabel": "Document and source mode",
       "notice": {
+        "fileLinkUnavailable": "This file link could not be opened from the current document.",
         "sourcePreviewFallback": "Rich text could not load. You can continue editing the Markdown source."
       }
     },
