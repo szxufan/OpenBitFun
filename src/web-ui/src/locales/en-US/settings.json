@@ -91,6 +91,10 @@
       "externalImport": {
         "label": "External import",
         "description": "Import and manage content from other AI applications"
+      },
+      "storage": {
+        "label": "Storage",
+        "description": "View storage on this device and clean up file snapshots"
       }
     },
     "views": {
@@ -101,7 +105,6 @@
     "sections": {
       "text-selection": "Text selection",
       "message-sending": "Message sending",
-      "btw-close-confirmation": "Side conversation closing",
       "voice": "Voice",
       "shortcuts": "Keyboard Shortcuts",
       "session": "Session Defaults",
@@ -114,7 +117,8 @@
       "pet": "Pet",
       "voice-call": "Real-time voice calls",
       "desktop-cards": "Desktop cards",
-      "sidebar-navigation": "Left sidebar"
+      "sidebar-navigation": "Left sidebar",
+      "btw": "Side questions"
     }
   },
   "changeGuard": {
@@ -628,5 +632,36 @@
   },
   "archivedSessions": {
     "sectionDescription": "Grouped by workspace; restore a session to continue it, or delete it permanently with no undo"
+  },
+  "storage": {
+    "snapshots": "File snapshots",
+    "device": "Snapshot files stored on this device, including snapshots from SSH workspaces.",
+    "total": "Snapshot storage",
+    "refresh": "Refresh storage usage",
+    "unverified": "Some snapshot references could not be verified. Files with uncertain ownership will be kept.",
+    "incomplete": "Some directories could not be scanned. Totals cover the readable directories.",
+    "scanning": "Calculating snapshot sizes…",
+    "unidentified": "Unidentified workspace",
+    "unidentifiedHint": "These snapshot files are retained because their workspace owner could not be verified.",
+    "cleanup": "Clean up snapshots",
+    "scope": "Workspaces to clean",
+    "allWorkspaces": "All workspaces",
+    "period": "Sessions to clean",
+    "thirtyDays": "Inactive for over 30 days",
+    "sevenDays": "Inactive for over 7 days",
+    "all": "All eligible sessions",
+    "preview": "{{sessions}} sessions · estimated {{size}} to free",
+    "skipped": "{{sessions}} sessions excluded.",
+    "confirmTitle": "Permanently delete these file snapshots?",
+    "confirm": "{{preview}}. The affected file diffs and snapshot rollback points will be lost. Your conversations and workspace files will be kept.",
+    "result": "Cleaned {{sessions}} sessions and freed {{size}}. Skipped {{skipped}} sessions from the preview.",
+    "desktopOnly": "Open Storage in the desktop app to manage snapshots on this device.",
+    "sharedColumn": "Shared or unassigned",
+    "usedColumn": "Snapshot size",
+    "candidates": "Sessions to clean up",
+    "lastActive": "Last active",
+    "sessionCount": "Sessions · {{sessions}}",
+    "removedSession": "Session removed",
+    "noCandidates": "No sessions match this cleanup scope"
   }
 }

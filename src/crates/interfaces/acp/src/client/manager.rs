@@ -1,17 +1,21 @@
+mod replay;
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 use agent_client_protocol::schema::{
-    AgentCapabilities, CancelNotification, ClientCapabilities, CloseSessionRequest, Implementation,
-    InitializeRequest, LoadSessionRequest, LoadSessionResponse, NewSessionRequest,
-    NewSessionResponse, PermissionOption, PermissionOptionKind, ProtocolVersion,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    ResumeSessionRequest, ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigOption,
+    AgentCapabilities, CancelNotification, ClientCapabilities, CloseSessionRequest, ErrorCode,
+    Implementation, InitializeRequest, LoadSessionResponse, NewSessionRequest, NewSessionResponse,
+    PermissionOption, PermissionOptionKind, ProtocolVersion, RequestPermissionOutcome,
+    RequestPermissionRequest, RequestPermissionResponse, ResumeSessionRequest,
+    ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigOption,
     SessionConfigOptionValue, SessionModelState, SetSessionConfigOptionRequest,
     SetSessionModelRequest, StopReason,
 };
@@ -21,6 +25,7 @@ use agent_client_protocol::{
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
 use futures::io::{AsyncRead as FuturesAsyncRead, AsyncWrite as FuturesAsyncWrite};
+use futures::FutureExt;
 use log::{debug, info, warn};
 use openbitfun_agent_tools::ACP_TOOL_PREFIX;
 use openbitfun_core::agentic::tools::registry::get_global_tool_registry;
@@ -33,7 +38,7 @@ use openbitfun_core::util::errors::{OpenBitFunError, OpenBitFunResult};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::process::{Child, Command};
-use tokio::sync::{oneshot, watch, Mutex, MutexGuard, RwLock};
+use tokio::sync::{oneshot, watch, Mutex, OwnedMutexGuard, RwLock};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 use super::builtin_clients::{
@@ -46,7 +51,7 @@ use super::config::{
 };
 use super::dsh_profile::{ensure_bundled_profile, ensure_bundled_profile_remote};
 use super::execution::{AcpExecutionSnapshot, AcpExecutions};
-use super::prompt::AcpPrompt;
+use super::prompt::{AcpCancelHandle, AcpPrompt};
 use super::remote_capability_store::RemoteAcpCapabilityStore;
 use super::remote_session::{preferred_resume_strategies, AcpRemoteSessionStrategy};
 use super::remote_shell::{remote_user_shell_command, render_remote_env_assignments, shell_escape};
@@ -71,10 +76,10 @@ use super::transport::{handle_transport_closed, AcpTransport};
 const CONFIG_PATH: &str = "acp_clients";
 const CLIENT_STARTUP_TIMEOUT_SECS: u64 = 60;
 const CLIENT_STARTUP_TIMEOUT: Duration = Duration::from_secs(CLIENT_STARTUP_TIMEOUT_SECS);
+// A full history can span multiple idle timeouts while the agent is still sending updates.
+const SESSION_LOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const PERMISSION_TIMEOUT: Duration = Duration::from_secs(600);
 const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
-const LOAD_REPLAY_DRAIN_QUIET_WINDOW: Duration = Duration::from_millis(250);
-const LOAD_REPLAY_DRAIN_MAX_DURATION: Duration = Duration::from_secs(2);
 const SESSION_METADATA_DRAIN_QUIET_WINDOW: Duration = Duration::from_millis(250);
 const SESSION_METADATA_DRAIN_MAX_DURATION: Duration = Duration::from_secs(2);
 const TURN_COMPLETION_DRAIN_QUIET_WINDOW: Duration = Duration::from_millis(250);
@@ -156,6 +161,8 @@ impl AcpSessionConfigValue {
 
 pub struct AcpClientService {
     executions: AcpExecutions,
+    turn_writes: DashMap<String, Arc<Mutex<()>>>,
+    required_restores: DashMap<String, String>,
     config_service: Arc<ConfigService>,
     session_persistence: AcpSessionPersistence,
     remote_capability_store: RemoteAcpCapabilityStore,
@@ -170,13 +177,14 @@ struct PendingPermission {
 }
 
 struct AcpClientConnection {
+    detached_after_stop: AtomicBool,
     id: String,
     client_id: String,
     config: AcpClientConfig,
     status: RwLock<AcpClientStatus>,
     connection: RwLock<Option<ConnectionTo<Agent>>>,
     agent_capabilities: RwLock<Option<AgentCapabilities>>,
-    sessions: DashMap<String, Arc<AcpSessionHandle>>,
+    sessions: DashMap<String, AcpSessionHandle>,
     cancel_handles: DashMap<String, AcpCancelHandle>,
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     child: Mutex<Option<Child>>,
@@ -189,14 +197,15 @@ struct AcpRemoteSession {
     config_options: Vec<SessionConfigOption>,
     context_usage: Option<AcpSessionContextUsage>,
     available_commands: Vec<AcpAvailableCommand>,
-    discard_pending_updates_before_next_prompt: bool,
+    stop_requested: watch::Sender<()>,
 }
 
+#[derive(Clone)]
 struct ResolvedClientSession {
     client: Arc<AcpClientConnection>,
     cwd: PathBuf,
     session_key: String,
-    session: Arc<AcpSessionHandle>,
+    session: AcpSessionHandle,
 }
 
 struct StartClientConfig {
@@ -204,22 +213,16 @@ struct StartClientConfig {
     config: AcpClientConfig,
 }
 
-#[derive(Clone)]
-struct AcpCancelHandle {
-    session_id: String,
-    connection: ConnectionTo<Agent>,
-}
-
 impl AcpRemoteSession {
     fn new(metadata: watch::Sender<Option<AcpSessionOptions>>) -> Self {
         Self {
             metadata,
             active: None,
+            stop_requested: watch::channel(()).0,
             models: None,
             config_options: Vec::new(),
             context_usage: None,
             available_commands: Vec::new(),
-            discard_pending_updates_before_next_prompt: false,
         }
     }
 }
@@ -227,27 +230,30 @@ impl AcpRemoteSession {
 // The protocol receiver has exactly one owner at a time. Metadata observers
 // never take that receiver from a running prompt. An uninitialized observer
 // waits for either its first published snapshot or the initialization lock.
+#[derive(Clone)]
 struct AcpSessionHandle {
-    protocol: Mutex<AcpRemoteSession>,
+    protocol: Arc<Mutex<AcpRemoteSession>>,
     metadata: watch::Receiver<Option<AcpSessionOptions>>,
+    released: Arc<AtomicBool>,
 }
 
-enum AcpMetadataRead<'a> {
+enum AcpMetadataRead {
     Snapshot(AcpSessionOptions),
-    Protocol(MutexGuard<'a, AcpRemoteSession>),
+    Protocol(OwnedMutexGuard<AcpRemoteSession>),
 }
 
 impl AcpSessionHandle {
     fn new() -> Self {
         let (sender, metadata) = watch::channel(None);
         Self {
-            protocol: Mutex::new(AcpRemoteSession::new(sender)),
+            protocol: Arc::new(Mutex::new(AcpRemoteSession::new(sender))),
             metadata,
+            released: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    async fn metadata_or_lock(&self) -> AcpMetadataRead<'_> {
-        if let Ok(session) = self.protocol.try_lock() {
+    async fn metadata_or_lock(&self) -> AcpMetadataRead {
+        if let Ok(session) = self.protocol.clone().try_lock_owned() {
             return AcpMetadataRead::Protocol(session);
         }
         let mut metadata = self.metadata.clone();
@@ -256,7 +262,7 @@ impl AcpSessionHandle {
                 return AcpMetadataRead::Snapshot(snapshot);
             }
             tokio::select! {
-                session = self.protocol.lock() => return AcpMetadataRead::Protocol(session),
+                session = self.protocol.clone().lock_owned() => return AcpMetadataRead::Protocol(session),
                 changed = metadata.changed() => {
                     // The sender is retained by this handle's protocol state.
                     changed.expect("ACP session owns its metadata sender");
@@ -274,6 +280,7 @@ impl AcpRemoteSession {
             self.context_usage.as_ref(),
         );
         options.available_commands = Some(self.available_commands.clone());
+        options.agent_disconnected = self.active.is_none();
         self.metadata.send_replace(Some(options.clone()));
         options
     }
@@ -286,6 +293,8 @@ impl AcpClientService {
     ) -> OpenBitFunResult<Arc<Self>> {
         Ok(Arc::new(Self {
             executions: AcpExecutions::default(),
+            turn_writes: DashMap::new(),
+            required_restores: DashMap::new(),
             config_service,
             session_persistence: AcpSessionPersistence::new(path_manager.clone())?,
             remote_capability_store: RemoteAcpCapabilityStore::new(
@@ -306,16 +315,274 @@ impl AcpClientService {
         self.executions.configure_journal(journal)
     }
 
-    pub fn admit_dialog_turn(
+    /// Serializes history writes of one session. Lock order is the session
+    /// protocol lock, then this gate, then the execution table; nothing holding
+    /// this gate waits for the protocol lock.
+    fn turn_gate(&self, session: &str) -> Arc<Mutex<()>> {
+        self.turn_writes
+            .entry(session.to_owned())
+            .or_default()
+            .clone()
+    }
+
+    pub async fn admit_dialog_turn(
         &self,
         session: &str,
         turn: &str,
         client: &str,
         input: &str,
         original_input: &str,
+        metadata: Option<serde_json::Value>,
+        storage: Option<&Path>,
     ) -> Result<Option<serde_json::Value>, String> {
+        let gate = self.turn_gate(session);
+        let _write = gate.lock().await;
+        if self
+            .executions
+            .already_admitted(session, turn, client, input, original_input)?
+        {
+            if let Some(path) = storage {
+                self.checkpoint_completed_turn(path, session)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+            return Ok(None);
+        }
+        let journal = self.executions.journal()?;
+        let transcript = if let Some(path) = storage {
+            self.recover_dialog_turn(path, session, &*journal)
+                .await
+                .map_err(|e| e.to_string())?;
+            if self.executions.is_running(session) {
+                return self
+                    .executions
+                    .admit(session, turn, client, input, original_input, None);
+            }
+            let Some(data) = self
+                .session_persistence
+                .prepare_dialog_turn(path, session, turn, client, input, original_input, metadata)
+                .await
+                .map_err(|e| e.to_string())?
+            else {
+                return Ok(None);
+            };
+            Some(data)
+        } else {
+            None
+        };
         self.executions
-            .admit(session, turn, client, input, original_input)
+            .admit(session, turn, client, input, original_input, transcript)
+    }
+
+    pub async fn finish_dialog_turn(
+        &self,
+        session: &str,
+        storage: Option<&Path>,
+        name: &str,
+        payload: &mut serde_json::Value,
+    ) -> OpenBitFunResult<()> {
+        let gate = self.turn_gate(session);
+        let _write = gate.lock().await;
+        self.executions
+            .record(name, payload)
+            .map_err(OpenBitFunError::service)?;
+        if let Some(path) = storage {
+            if let Err(error) = self.checkpoint_completed_turn(path, session).await {
+                // The journal owns the observed outcome until the history write can be retried.
+                // Publish that outcome with the storage error so a view can settle the turn.
+                log::error!("Failed to save ACP turn history: session_id={session} error={error}");
+                self.executions.finish_turn(session, false);
+                payload["acpHistorySaveError"] = error.to_string().into();
+            }
+        } else {
+            self.executions.finish_turn(session, true);
+        }
+        Ok(())
+    }
+
+    pub async fn recover_stored_dialog_turn(
+        &self,
+        path: &Path,
+        session: &str,
+    ) -> OpenBitFunResult<()> {
+        let gate = self.turn_gate(session);
+        let _write = gate.lock().await;
+        let journal = self
+            .executions
+            .journal()
+            .map_err(OpenBitFunError::service)?;
+        self.recover_dialog_turn(path, session, &*journal).await
+    }
+
+    // The caller holds the session write gate. No protocol I/O takes place here.
+    async fn checkpoint_completed_turn(
+        &self,
+        path: &Path,
+        session: &str,
+    ) -> OpenBitFunResult<bool> {
+        let Some((mut data, pending)) = self.executions.completed_transcript(session) else {
+            return Ok(false);
+        };
+        if pending {
+            self.session_persistence
+                .place_pending_turn(path, &mut data)
+                .await?;
+        } else {
+            self.session_persistence
+                .commit_dialog_turn(path, &data)
+                .await?;
+        }
+        self.executions.finish_turn(session, true);
+        Ok(true)
+    }
+
+    async fn recover_dialog_turn(
+        &self,
+        path: &Path,
+        session: &str,
+        journal: &dyn super::execution::AcpProjectionJournal,
+    ) -> OpenBitFunResult<()> {
+        use openbitfun_core::service::session::TurnStatus;
+        if self.checkpoint_completed_turn(path, session).await? {
+            return Ok(());
+        }
+        if self.executions.is_running(session) {
+            return Ok(());
+        }
+        let store = &self.session_persistence.manager;
+        let Some(record) = store.load_session_metadata(path, session).await? else {
+            return Ok(());
+        };
+        if let Some(pending) = record
+            .custom_metadata
+            .as_ref()
+            .and_then(|v| v.get(super::session_persistence::PENDING_TURN_KEY))
+        {
+            let mut data: openbitfun_core::service::session::DialogTurnData =
+                serde_json::from_value(pending.clone())?;
+            // The original agent cannot have received this prompt: its storage
+            // position and receipt are committed before session/prompt is issued.
+            let terminal = journal
+                .pending_checkpoint(session)
+                .into_iter()
+                .rev()
+                .find(|event| {
+                    event.turn_id() == Some(&data.turn_id)
+                        && matches!(
+                            event,
+                            openbitfun_events::AgenticEvent::DialogTurnFailed { .. }
+                                | openbitfun_events::AgenticEvent::DialogTurnCancelled { .. }
+                        )
+                })
+                .unwrap_or_else(|| openbitfun_events::AgenticEvent::DialogTurnFailed {
+                    session_id: session.into(),
+                    turn_id: data.turn_id.clone(),
+                    error: "Session recovery was interrupted before the ACP prompt was sent."
+                        .into(),
+                    error_category: None,
+                    error_detail: None,
+                });
+            super::transcript::apply_event(&mut data, &terminal, super::transcript::now_ms());
+            self.session_persistence
+                .place_pending_turn(path, &mut data)
+                .await?;
+            journal.checkpoint_saved(session);
+            return Ok(());
+        }
+        let first = record
+            .custom_metadata
+            .as_ref()
+            .and_then(|v| v.get("acpRuntimeFromTurn"))
+            .and_then(serde_json::Value::as_u64);
+        let Some(last) = record.last_turn else {
+            return Ok(());
+        };
+        let owned = first.is_some_and(|from| last.turn_index as u64 >= from);
+        // A completed legacy turn is already durable. Its admission path will
+        // recognize the existing turn and avoid creating another record.
+        if !owned && last.status != TurnStatus::InProgress {
+            return Ok(());
+        }
+        if last.status != TurnStatus::InProgress {
+            // A previous host may have exited between the history commit and the journal acknowledgement.
+            if !self.executions.has_session(session) {
+                journal.checkpoint_saved(session);
+            }
+            return Ok(());
+        }
+        let Some(mut data) = store
+            .load_dialog_turn(path, session, last.turn_index)
+            .await?
+        else {
+            return Ok(());
+        };
+        let time = super::transcript::now_ms();
+        let events = journal.pending_checkpoint(session);
+        if !owned
+            && data.model_rounds.is_empty()
+            && !events
+                .iter()
+                .any(|event| event.turn_id() == Some(last.turn_id.as_str()))
+        {
+            // Legacy hosts persisted the optimistic input before sending it.
+            // Keep that record reusable when no output has been observed.
+            return Ok(());
+        }
+        if owned {
+            for event in events
+                .iter()
+                .filter(|e| e.turn_id() == Some(last.turn_id.as_str()))
+            {
+                super::transcript::apply_event(&mut data, event, time);
+            }
+        } else if !events.is_empty() {
+            // Older views checkpointed a prefix of the same journal. Replay
+            // onto an empty transcript first so that prefix is never doubled.
+            let mut replayed = data.clone();
+            replayed.model_rounds.clear();
+            for event in events
+                .iter()
+                .filter(|e| e.turn_id() == Some(last.turn_id.as_str()))
+            {
+                super::transcript::apply_event(&mut replayed, event, time);
+            }
+            let mut merged = data.clone();
+            if replay::merge_rounds(&mut merged, &replayed.model_rounds) {
+                data = merged;
+            }
+            if let Some(terminal) = events.iter().rev().find(|e| {
+                e.turn_id() == Some(last.turn_id.as_str())
+                    && matches!(
+                        e,
+                        openbitfun_events::AgenticEvent::DialogTurnCompleted { .. }
+                            | openbitfun_events::AgenticEvent::DialogTurnCancelled { .. }
+                            | openbitfun_events::AgenticEvent::DialogTurnFailed { .. }
+                    )
+            }) {
+                super::transcript::apply_event(&mut data, terminal, time);
+            }
+        }
+        if data.status == TurnStatus::InProgress {
+            let error = OpenBitFunError::OutcomeUnknown(
+                "The ACP connection ended before the agent confirmed the result.".into(),
+            );
+            let mut detail = error.error_detail();
+            detail.recovery_constraint = Some("acp_stop_unconfirmed".into());
+            detail.retryable = Some(false);
+            let terminal = openbitfun_events::AgenticEvent::DialogTurnFailed {
+                session_id: session.into(),
+                turn_id: data.turn_id.clone(),
+                error: error.to_string(),
+                error_category: Some(detail.category.clone()),
+                error_detail: Some(detail),
+            };
+            super::transcript::apply_event(&mut data, &terminal, time);
+        }
+        self.session_persistence
+            .commit_dialog_turn(path, &data)
+            .await?;
+        journal.checkpoint_saved(session);
+        Ok(())
     }
 
     pub fn record_dialog_event(
@@ -828,7 +1095,7 @@ impl AcpClientService {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => {
                 connect_task.abort();
-                self.cleanup_failed_startup(connection_id).await;
+                self.stop_connection_instance(&connection).await;
                 // The agent is gone; whatever it managed to say on the way out
                 // is all anyone has to go on, so put it in front of the user
                 // rather than only in the log.
@@ -845,7 +1112,7 @@ impl AcpClientService {
                         CLIENT_STARTUP_TIMEOUT_SECS
                     );
                 connect_task.abort();
-                self.cleanup_failed_startup(connection_id).await;
+                self.stop_connection_instance(&connection).await;
                 return Err(startup_timeout_error(client_id, "initialize"));
             }
         };
@@ -859,15 +1126,6 @@ impl AcpClientService {
             elapsed_ms_u64(started_at)
         );
         Ok(())
-    }
-
-    async fn cleanup_failed_startup(self: &Arc<Self>, connection_id: &str) {
-        if let Err(error) = self.stop_connection(connection_id).await {
-            warn!(
-                "Failed to clean up ACP client after startup failure: connection_id={} error={}",
-                connection_id, error
-            );
-        }
     }
 
     pub async fn stop_client(self: &Arc<Self>, client_id: &str) -> OpenBitFunResult<()> {
@@ -888,26 +1146,39 @@ impl AcpClientService {
             return Ok(());
         };
 
+        self.stop_connection_instance(&client).await;
+        Ok(())
+    }
+
+    async fn stop_connection_instance(&self, client: &Arc<AcpClientConnection>) {
+        // A concurrent startup must wait until this instance is out of the registry.
+        let mut status = client.status.write().await;
         if let Some(tx) = client.shutdown_tx.lock().await.take() {
             let _ = tx.send(());
         }
         if let Some(child) = client.child.lock().await.take() {
-            terminate_child_process_tree(connection_id, child).await;
+            terminate_child_process_tree(&client.id, child).await;
         }
         *client.connection.write().await = None;
         *client.agent_capabilities.write().await = None;
+        for session in client.sessions.iter() {
+            session.released.store(true, Ordering::Release);
+        }
         client.sessions.clear();
         client.cancel_handles.clear();
-        *client.status.write().await = AcpClientStatus::Stopped;
-        self.clients.remove(connection_id);
+        *status = AcpClientStatus::Stopped;
+        self.clients
+            .remove_if(&client.id, |_, current| Arc::ptr_eq(current, client));
         info!(
             "ACP client stopped: id={} client_id={}",
-            connection_id, client.client_id
+            client.id, client.client_id
         );
-        Ok(())
     }
 
     pub async fn release_openbitfun_session(self: &Arc<Self>, openbitfun_session_id: &str) -> bool {
+        // Session setup holds the protocol lock and may hand it straight to the
+        // prompt. Retire its pending send before waiting for that lock.
+        self.executions.cancel_pending(openbitfun_session_id, None);
         let session_key_prefix = format!("{}:", openbitfun_session_id);
         let clients = self
             .clients
@@ -915,7 +1186,7 @@ impl AcpClientService {
             .map(|entry| entry.value().clone())
             .collect::<Vec<_>>();
         let mut released = false;
-        let mut idle_client_ids = Vec::new();
+        let mut idle_clients = Vec::new();
 
         for client in clients {
             let session_keys = client
@@ -940,6 +1211,7 @@ impl AcpClientService {
             for session_key in session_keys {
                 let active_session_id =
                     if let Some((_, session)) = client.sessions.remove(&session_key) {
+                        session.released.store(true, Ordering::Release);
                         let mut session = session.protocol.lock().await;
                         let session_id = session
                             .active
@@ -980,20 +1252,16 @@ impl AcpClientService {
                 && client.sessions.is_empty()
                 && client.cancel_handles.is_empty()
             {
-                idle_client_ids.push(client.id.clone());
+                idle_clients.push(client);
             }
         }
 
-        for connection_id in idle_client_ids {
-            if let Err(error) = self.stop_connection(&connection_id).await {
-                warn!(
-                    "Failed to stop idle ACP client after session release: id={} error={}",
-                    connection_id, error
-                );
-            }
+        for client in idle_clients {
+            self.stop_connection_instance(&client).await;
         }
 
         self.executions.release(openbitfun_session_id);
+        self.turn_writes.remove(openbitfun_session_id);
         released
     }
 
@@ -1004,7 +1272,15 @@ impl AcpClientService {
     ) -> OpenBitFunResult<()> {
         self.session_persistence
             .delete_flow_session_record(session_storage_path, openbitfun_session_id)
-            .await
+            .await?;
+        self.forget_session_recovery(openbitfun_session_id);
+        Ok(())
+    }
+
+    pub fn forget_session_recovery(&self, openbitfun_session_id: &str) {
+        let prefix = format!("{openbitfun_session_id}:");
+        self.required_restores
+            .retain(|key, _| !key.starts_with(&prefix));
     }
 
     pub async fn load_json_config(&self) -> OpenBitFunResult<String> {
@@ -1053,6 +1329,41 @@ impl AcpClientService {
         })
     }
 
+    /// Observing a view never spawns an agent or waits for its protocol lock.
+    pub async fn observe_session_options(
+        &self,
+        client_id: &str,
+        session_id: &str,
+        cwd: Option<&str>,
+        storage: Option<&Path>,
+    ) -> OpenBitFunResult<AcpSessionOptions> {
+        let connection_id = session_client_connection_id(client_id, session_id);
+        let directory = cwd
+            .map(PathBuf::from)
+            .or_else(|| std::env::current_dir().ok());
+        if let (Some(directory), Some(client)) = (directory, self.clients.get(&connection_id)) {
+            if let Some(handle) = client
+                .sessions
+                .get(&build_session_key(session_id, client_id, &directory))
+            {
+                if let Some(options) = handle.metadata.borrow().clone() {
+                    return Ok(options);
+                }
+            }
+        }
+        let mut options = match storage {
+            Some(path) => {
+                self.session_persistence
+                    .saved_options(path, session_id)
+                    .await?
+            }
+            None => AcpSessionOptions::before_first_snapshot(),
+        };
+        options.agent_disconnected = true;
+        options.available_commands.get_or_insert_with(Vec::new);
+        Ok(options)
+    }
+
     pub async fn get_session_options(
         self: &Arc<Self>,
         client_id: &str,
@@ -1062,18 +1373,23 @@ impl AcpClientService {
         openbitfun_session_id: String,
     ) -> OpenBitFunResult<AcpSessionOptions> {
         let started_at = Instant::now();
-        let resolved = self
-            .resolve_or_create_client_session(
-                client_id,
-                workspace_path,
-                remote_connection_id.as_deref(),
-                &openbitfun_session_id,
-            )
-            .await?;
-
-        let mut session = match resolved.session.metadata_or_lock().await {
-            AcpMetadataRead::Snapshot(options) => return Ok(options),
-            AcpMetadataRead::Protocol(session) => session,
+        let (resolved, mut session) = loop {
+            let resolved = self
+                .resolve_or_create_client_session(
+                    client_id,
+                    workspace_path.clone(),
+                    remote_connection_id.as_deref(),
+                    &openbitfun_session_id,
+                )
+                .await?;
+            let metadata = resolved.session.metadata_or_lock().await;
+            if resolved.client.detached_after_stop.load(Ordering::Acquire) {
+                continue;
+            }
+            match metadata {
+                AcpMetadataRead::Snapshot(options) => return Ok(options),
+                AcpMetadataRead::Protocol(session) => break (resolved, session),
+            }
         };
         self.ensure_remote_session(
             &resolved.client,
@@ -1084,8 +1400,15 @@ impl AcpClientService {
             &mut session,
         )
         .await?;
-        drain_pending_session_metadata_updates(&mut session).await?;
+        let updated = drain_pending_session_metadata_updates(&mut session, false).await?;
         let options = session.publish_metadata();
+        if updated {
+            if let Some(path) = session_storage_path.as_deref() {
+                self.session_persistence
+                    .save_options(path, &openbitfun_session_id, &options)
+                    .await?;
+            }
+        }
         debug!(
             "ACP session metadata loaded: client_id={} session_id={} duration_ms={}",
             client_id,
@@ -1120,7 +1443,7 @@ impl AcpClientService {
         request: SetAcpSessionModelRequest,
         session_storage_path: Option<PathBuf>,
     ) -> OpenBitFunResult<AcpSessionOptions> {
-        let resolved = self
+        let mut resolved = self
             .resolve_or_create_client_session(
                 &request.client_id,
                 request.workspace_path,
@@ -1129,7 +1452,13 @@ impl AcpClientService {
             )
             .await?;
 
-        let mut session = resolved.session.protocol.lock().await;
+        let mut session = self
+            .lock_current_session(
+                &mut resolved,
+                &request.session_id,
+                request.remote_connection_id.as_deref(),
+            )
+            .await?;
         self.ensure_remote_session(
             &resolved.client,
             &resolved.session_key,
@@ -1162,21 +1491,13 @@ impl AcpClientService {
                     if let Some(models) = session.models.as_mut() {
                         models.current_model_id = request.model_id.clone().into();
                     }
-                    session.publish_metadata();
-                    if let Some(session_storage_path) = session_storage_path.as_deref() {
+                    let options = session.publish_metadata();
+                    if let Some(path) = session_storage_path.as_deref() {
                         self.session_persistence
-                            .update_model_id(
-                                session_storage_path,
-                                &request.session_id,
-                                &request.model_id,
-                            )
+                            .save_options(path, &request.session_id, &options)
                             .await?;
                     }
-                    return Ok(session_options_from_state(
-                        session.models.as_ref(),
-                        &session.config_options,
-                        session.context_usage.as_ref(),
-                    ));
+                    return Ok(options);
                 }
                 Err(error) => {
                     set_model_error = Some(error);
@@ -1195,17 +1516,13 @@ impl AcpClientService {
                 .await
                 .map_err(protocol_error)?;
             session.config_options = response.config_options;
-            session.publish_metadata();
-            if let Some(session_storage_path) = session_storage_path.as_deref() {
+            let options = session.publish_metadata();
+            if let Some(path) = session_storage_path.as_deref() {
                 self.session_persistence
-                    .update_model_id(session_storage_path, &request.session_id, &request.model_id)
+                    .save_options(path, &request.session_id, &options)
                     .await?;
             }
-            return Ok(session_options_from_state(
-                session.models.as_ref(),
-                &session.config_options,
-                session.context_usage.as_ref(),
-            ));
+            return Ok(options);
         }
 
         if let Some(error) = set_model_error {
@@ -1221,7 +1538,7 @@ impl AcpClientService {
         request: SetAcpSessionConfigOptionRequest,
         session_storage_path: Option<PathBuf>,
     ) -> OpenBitFunResult<AcpSessionOptions> {
-        let resolved = self
+        let mut resolved = self
             .resolve_or_create_client_session(
                 &request.client_id,
                 request.workspace_path,
@@ -1230,7 +1547,13 @@ impl AcpClientService {
             )
             .await?;
 
-        let mut session = resolved.session.protocol.lock().await;
+        let mut session = self
+            .lock_current_session(
+                &mut resolved,
+                &request.session_id,
+                request.remote_connection_id.as_deref(),
+            )
+            .await?;
         self.ensure_remote_session(
             &resolved.client,
             &resolved.session_key,
@@ -1269,13 +1592,66 @@ impl AcpClientService {
             .await
             .map_err(protocol_error)?;
         session.config_options = response.config_options;
-        session.publish_metadata();
+        let options = session.publish_metadata();
+        if let Some(path) = session_storage_path.as_deref() {
+            self.session_persistence
+                .save_options(path, &request.session_id, &options)
+                .await?;
+        }
+        Ok(options)
+    }
 
-        Ok(session_options_from_state(
-            session.models.as_ref(),
-            &session.config_options,
-            session.context_usage.as_ref(),
-        ))
+    async fn prepare_prompt_session(
+        self: &Arc<Self>,
+        resolved: &mut ResolvedClientSession,
+        session_id: &str,
+        remote_connection: Option<&str>,
+        storage: Option<&Path>,
+        timeout_seconds: Option<u64>,
+    ) -> OpenBitFunResult<(
+        OwnedMutexGuard<AcpRemoteSession>,
+        watch::Receiver<()>,
+        Option<tokio::time::Instant>,
+    )> {
+        let prepare = async {
+            let mut session = self
+                .lock_current_session(resolved, session_id, remote_connection)
+                .await?;
+            let stop = session.stop_requested.subscribe();
+            if resolved.session.released.load(Ordering::Acquire) {
+                return Err(OpenBitFunError::cancelled(
+                    "ACP prompt was released during session setup",
+                ));
+            }
+            self.ensure_remote_session(
+                &resolved.client,
+                &resolved.session_key,
+                &resolved.cwd,
+                session_id,
+                storage,
+                &mut session,
+            )
+            .await?;
+            session.publish_metadata();
+            Ok::<_, OpenBitFunError>((session, stop))
+        };
+        // A setup timeout has no execution side effects. Once submitted, only
+        // the prompt owner can expire its deadline and retire the connection.
+        if let Some(seconds) = timeout_seconds.filter(|seconds| *seconds > 0) {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(seconds);
+            let (session, stop) =
+                tokio::time::timeout_at(deadline, prepare)
+                    .await
+                    .map_err(|_| {
+                        OpenBitFunError::tool(format!(
+                            "ACP session setup timed out after {seconds}s"
+                        ))
+                    })??;
+            Ok((session, stop, Some(deadline)))
+        } else {
+            let (session, stop) = prepare.await?;
+            Ok((session, stop, None))
+        }
     }
 
     pub async fn prompt_agent(
@@ -1288,7 +1664,7 @@ impl AcpClientService {
         session_storage_path: Option<PathBuf>,
         timeout_seconds: Option<u64>,
     ) -> OpenBitFunResult<String> {
-        let resolved = self
+        let mut resolved = self
             .resolve_or_create_client_session(
                 client_id,
                 workspace_path,
@@ -1297,37 +1673,46 @@ impl AcpClientService {
             )
             .await?;
 
+        let mut unconfirmed = None;
         let run = async {
-            let mut session = resolved.session.protocol.lock().await;
-            self.ensure_remote_session(
-                &resolved.client,
-                &resolved.session_key,
-                &resolved.cwd,
-                &openbitfun_session_id,
-                session_storage_path.as_deref(),
-                &mut session,
-            )
-            .await?;
-
-            discard_pending_session_updates_if_needed(&mut session).await;
-            session.publish_metadata();
+            let (mut session, stop_requested, deadline) = self
+                .prepare_prompt_session(
+                    &mut resolved,
+                    &openbitfun_session_id,
+                    remote_connection_id.as_deref(),
+                    session_storage_path.as_deref(),
+                    timeout_seconds,
+                )
+                .await?;
+            if stop_requested.has_changed().unwrap_or(false) {
+                return Err(OpenBitFunError::cancelled(
+                    "ACP prompt cancelled before submission",
+                ));
+            }
             let active = session
                 .active
-                .as_mut()
+                .as_ref()
                 .ok_or_else(|| OpenBitFunError::service("ACP session was not initialized"))?;
-            let mut prompt = AcpPrompt::start(active, prompt);
-            read_turn_to_string(&mut session, &mut prompt).await
+            let remote_session_id = active.session_id().to_string();
+            let mut prompt = AcpPrompt::start(active, prompt, None, deadline, stop_requested);
+            let result = read_turn_to_string(&mut session, &mut prompt).await;
+            if matches!(result, Err(OpenBitFunError::OutcomeUnknown(_))) {
+                unconfirmed = Some((session, remote_session_id));
+            }
+            result
         };
 
-        if let Some(seconds) = timeout_seconds.filter(|seconds| *seconds > 0) {
-            tokio::time::timeout(Duration::from_secs(seconds), run)
-                .await
-                .map_err(|_| {
-                    OpenBitFunError::tool(format!("ACP client timed out after {}s", seconds))
-                })?
-        } else {
-            run.await
+        let result = run.await;
+        if let Some((_session_guard, remote_id)) = unconfirmed {
+            self.detach_unconfirmed_prompt(
+                &resolved,
+                &openbitfun_session_id,
+                session_storage_path.as_deref(),
+                &remote_id,
+            )
+            .await?;
         }
+        result
     }
 
     pub async fn prompt_agent_stream<F>(
@@ -1337,6 +1722,7 @@ impl AcpClientService {
         workspace_path: Option<String>,
         remote_connection_id: Option<String>,
         openbitfun_session_id: String,
+        admitted_turn: Option<&str>,
         session_storage_path: Option<PathBuf>,
         timeout_seconds: Option<u64>,
         mut on_event: F,
@@ -1344,35 +1730,132 @@ impl AcpClientService {
     where
         F: FnMut(AcpClientStreamEvent) -> OpenBitFunResult<()> + Send,
     {
-        let resolved = self
-            .resolve_or_create_client_session(
-                client_id,
-                workspace_path,
-                remote_connection_id.as_deref(),
-                &openbitfun_session_id,
-            )
-            .await?;
+        if self.executions.is_cancelling(&openbitfun_session_id) {
+            return on_event(AcpClientStreamEvent::Cancelled);
+        }
+        // Starting the agent and its handshake can take a minute, and so can the
+        // session setup below. Both run on their own tasks so a stop settles this
+        // turn at once; released handles fence detached setup from reattaching.
+        let mut cancel = match admitted_turn {
+            Some(turn) => {
+                let Some(receiver) = self
+                    .executions
+                    .pending_cancellation(&openbitfun_session_id, turn)
+                else {
+                    return on_event(AcpClientStreamEvent::Cancelled);
+                };
+                Some(receiver)
+            }
+            None => None,
+        };
+        let admission_required = admitted_turn.is_some();
+        let resolving = tokio::spawn({
+            let service = self.clone();
+            let client_id = client_id.to_owned();
+            let session_id = openbitfun_session_id.clone();
+            let remote_connection = remote_connection_id.clone();
+            async move {
+                let result = service
+                    .resolve_or_create_client_session(
+                        &client_id,
+                        workspace_path,
+                        remote_connection.as_deref(),
+                        &session_id,
+                    )
+                    .await;
+                if let Ok(resolved) = &result {
+                    if admission_required && !service.executions.has_session(&session_id) {
+                        resolved.client.sessions.remove(&resolved.session_key);
+                        return Err(OpenBitFunError::cancelled(
+                            "ACP prompt was released during session setup",
+                        ));
+                    }
+                }
+                result
+            }
+        });
+        let resolved = tokio::select! {
+            joined = resolving => joined.map_err(|error| {
+                OpenBitFunError::service(format!("ACP client startup task failed: {error}"))
+            })?,
+            () = stopped(&mut cancel) => return on_event(AcpClientStreamEvent::Cancelled),
+        };
+        if self.executions.is_cancelling(&openbitfun_session_id) {
+            return on_event(AcpClientStreamEvent::Cancelled);
+        }
+        let mut resolved = resolved?;
 
+        let mut unconfirmed = None;
         let run = async {
-            let mut session = resolved.session.protocol.lock().await;
-            self.ensure_remote_session(
-                &resolved.client,
-                &resolved.session_key,
-                &resolved.cwd,
-                &openbitfun_session_id,
+            // Setup can wait behind another restore or replay a long history. It
+            // runs on its own task so a stop settles this turn immediately. The
+            // session handle remains fenced while release retires the restore.
+            let setup = tokio::spawn({
+                let service = self.clone();
+                let mut working = resolved.clone();
+                let session_id = openbitfun_session_id.clone();
+                let remote_connection = remote_connection_id.clone();
+                let storage = session_storage_path.clone();
+                async move {
+                    if (admission_required && !service.executions.has_session(&session_id))
+                        || working.session.released.load(Ordering::Acquire)
+                    {
+                        return (
+                            working,
+                            Err(OpenBitFunError::cancelled(
+                                "ACP prompt was released during session setup",
+                            )),
+                        );
+                    }
+                    let prepared = service
+                        .prepare_prompt_session(
+                            &mut working,
+                            &session_id,
+                            remote_connection.as_deref(),
+                            storage.as_deref(),
+                            timeout_seconds,
+                        )
+                        .await;
+                    (working, prepared)
+                }
+            });
+            let (rebound, prepared) = tokio::select! {
+                joined = setup => joined.map_err(|error| {
+                    OpenBitFunError::service(format!("ACP session setup task failed: {error}"))
+                })?,
+                () = stopped(&mut cancel) => return on_event(AcpClientStreamEvent::Cancelled),
+            };
+            resolved = rebound;
+            if self.executions.is_cancelling(&openbitfun_session_id) {
+                return on_event(AcpClientStreamEvent::Cancelled);
+            }
+            let (mut session, stop_requested, deadline) = prepared?;
+            if let (Some(path), Some(mut data)) = (
                 session_storage_path.as_deref(),
-                &mut session,
-            )
-            .await?;
-
-            discard_pending_session_updates_if_needed(&mut session).await;
-            session.publish_metadata();
-            let mut prompt = {
-                let active = session
-                    .active
-                    .as_mut()
-                    .ok_or_else(|| OpenBitFunError::service("ACP session was not initialized"))?;
-                AcpPrompt::start(active, prompt)
+                self.executions.pending_turn(&openbitfun_session_id),
+            ) {
+                let gate = self.turn_gate(&openbitfun_session_id);
+                let _write = gate.lock().await;
+                self.session_persistence
+                    .place_pending_turn(path, &mut data)
+                    .await?;
+                self.executions
+                    .placed_pending_turn(&openbitfun_session_id, data.turn_index);
+            }
+            if stop_requested.has_changed().unwrap_or(false) {
+                return on_event(AcpClientStreamEvent::Cancelled);
+            }
+            let active = session
+                .active
+                .as_ref()
+                .ok_or_else(|| OpenBitFunError::service("ACP session was not initialized"))?;
+            let remote_session_id = active.session_id().to_string();
+            let Some(mut prompt) = self.executions.submit_prompt(
+                &openbitfun_session_id,
+                admitted_turn,
+                |message_id| AcpPrompt::start(active, prompt, message_id, deadline, stop_requested),
+            ) else {
+                return on_event(AcpClientStreamEvent::Cancelled);
             };
             let mut round_tracker = AcpStreamRoundTracker::new();
             let mut tool_call_tracker = AcpToolCallTracker::new();
@@ -1382,7 +1865,17 @@ impl AcpClientService {
                     let active = session.active.as_mut().ok_or_else(|| {
                         OpenBitFunError::service("ACP session was not initialized")
                     })?;
-                    prompt.read_update(active).await.map_err(protocol_error)?
+                    prompt
+                        .read_update(active)
+                        .await
+                        .map_err(OpenBitFunError::from)
+                };
+                let message = match message {
+                    Err(error @ OpenBitFunError::OutcomeUnknown(_)) => {
+                        unconfirmed = Some((session, remote_session_id));
+                        return Err(error);
+                    }
+                    result => result?,
                 };
 
                 match message {
@@ -1393,6 +1886,27 @@ impl AcpClientService {
                         )
                         .await?;
                         update_session_from_events(&mut session, &events);
+                        if events.iter().any(|e| {
+                            matches!(
+                                e,
+                                AcpClientStreamEvent::ConfigOptionsUpdated(_)
+                                    | AcpClientStreamEvent::AvailableCommandsUpdated(_)
+                            )
+                        }) {
+                            if let Some(path) = session_storage_path.as_deref() {
+                                if let Err(error) = self
+                                    .session_persistence
+                                    .save_options(
+                                        path,
+                                        &openbitfun_session_id,
+                                        &session.publish_metadata(),
+                                    )
+                                    .await
+                                {
+                                    warn!("Failed to persist ACP session options: session_id={openbitfun_session_id}, error={error}");
+                                }
+                            }
+                        }
                         for event in events {
                             for event in round_tracker.apply(event) {
                                 on_event(event)?;
@@ -1407,6 +1921,19 @@ impl AcpClientService {
                             &mut on_event,
                         )
                         .await?;
+                        if let Some(path) = session_storage_path.as_deref() {
+                            if let Err(error) = self
+                                .session_persistence
+                                .save_options(
+                                    path,
+                                    &openbitfun_session_id,
+                                    &session.publish_metadata(),
+                                )
+                                .await
+                            {
+                                warn!("Failed to persist final ACP session options: session_id={openbitfun_session_id}, error={error}");
+                            }
+                        }
                         let event = if matches!(stop_reason, StopReason::Cancelled) {
                             AcpClientStreamEvent::Cancelled
                         } else {
@@ -1421,15 +1948,47 @@ impl AcpClientService {
             Ok(())
         };
 
-        if let Some(seconds) = timeout_seconds.filter(|seconds| *seconds > 0) {
-            tokio::time::timeout(Duration::from_secs(seconds), run)
-                .await
-                .map_err(|_| {
-                    OpenBitFunError::tool(format!("ACP client timed out after {}s", seconds))
-                })?
-        } else {
-            run.await
+        let result = run.await;
+        if let Some((_session_guard, remote_id)) = unconfirmed {
+            self.detach_unconfirmed_prompt(
+                &resolved,
+                &openbitfun_session_id,
+                session_storage_path.as_deref(),
+                &remote_id,
+            )
+            .await?;
         }
+        result
+    }
+
+    async fn detach_unconfirmed_prompt(
+        &self,
+        resolved: &ResolvedClientSession,
+        openbitfun_session_id: &str,
+        session_storage_path: Option<&Path>,
+        remote_session_id: &str,
+    ) -> OpenBitFunResult<()> {
+        self.required_restores
+            .insert(resolved.session_key.clone(), remote_session_id.to_string());
+        let saved = if let Some(path) = session_storage_path {
+            self.session_persistence
+                .require_restore(path, openbitfun_session_id, remote_session_id)
+                .await
+        } else {
+            Ok(())
+        };
+        self.session_permission_modes.remove(remote_session_id);
+        resolved
+            .client
+            .detached_after_stop
+            .store(true, Ordering::Release);
+        self.stop_connection_instance(&resolved.client).await;
+        saved.map_err(|error| {
+            warn!("Failed to persist required ACP session restore: session_id={openbitfun_session_id} error={error}");
+            OpenBitFunError::OutcomeUnknown(format!(
+                "The ACP agent did not confirm the stop. Recovery information could not be saved for the next app start. Check the previous work before retrying in this session: {error}"
+            ))
+        })
     }
 
     pub async fn cancel_agent_session(
@@ -1439,6 +1998,12 @@ impl AcpClientService {
         openbitfun_session_id: String,
         expected_turn_id: Option<&str>,
     ) -> OpenBitFunResult<()> {
+        if self
+            .executions
+            .cancel_pending(&openbitfun_session_id, expected_turn_id)
+        {
+            return Ok(());
+        }
         let connection_id = session_client_connection_id(client_id, &openbitfun_session_id);
         let client = self
             .clients
@@ -1463,19 +2028,18 @@ impl AcpClientService {
 
         self.executions
             .cancel(&openbitfun_session_id, expected_turn_id, || {
-                handle
-                    .connection
-                    .send_notification(CancelNotification::new(handle.session_id.clone()))
-                    .map_err(|error| error.to_string())
+                handle.cancel().map_err(|error| error.to_string())
             })
-            .map_err(OpenBitFunError::service)?;
-        Ok(())
+            .map_err(OpenBitFunError::service)
     }
 
     pub async fn cancel_openbitfun_session(
         self: &Arc<Self>,
         openbitfun_session_id: &str,
     ) -> OpenBitFunResult<bool> {
+        if self.executions.cancel_pending(openbitfun_session_id, None) {
+            return Ok(true);
+        }
         let session_key_prefix = format!("{}:", openbitfun_session_id);
         for client in self.clients.iter().map(|entry| entry.value().clone()) {
             let handle = client
@@ -1485,10 +2049,7 @@ impl AcpClientService {
                 .map(|entry| entry.value().clone());
 
             if let Some(handle) = handle {
-                handle
-                    .connection
-                    .send_notification(CancelNotification::new(handle.session_id.clone()))
-                    .map_err(protocol_error)?;
+                handle.cancel()?;
                 return Ok(true);
             }
         }
@@ -1545,7 +2106,7 @@ impl AcpClientService {
         let session = client
             .sessions
             .entry(session_key.clone())
-            .or_insert_with(|| Arc::new(AcpSessionHandle::new()))
+            .or_insert_with(AcpSessionHandle::new)
             .clone();
         Ok(ResolvedClientSession {
             client,
@@ -1553,6 +2114,31 @@ impl AcpClientService {
             session_key,
             session,
         })
+    }
+
+    // A prompt or metadata request can already be waiting behind the turn
+    // that retired this connection. Rebind before submitting any ACP request.
+    async fn lock_current_session(
+        self: &Arc<Self>,
+        resolved: &mut ResolvedClientSession,
+        openbitfun_session_id: &str,
+        remote_connection_id: Option<&str>,
+    ) -> OpenBitFunResult<OwnedMutexGuard<AcpRemoteSession>> {
+        loop {
+            let session = resolved.session.protocol.clone().lock_owned().await;
+            if !resolved.client.detached_after_stop.load(Ordering::Acquire) {
+                return Ok(session);
+            }
+            drop(session);
+            *resolved = self
+                .resolve_or_create_client_session(
+                    &resolved.client.client_id,
+                    Some(resolved.cwd.to_string_lossy().into_owned()),
+                    remote_connection_id,
+                    openbitfun_session_id,
+                )
+                .await?;
+        }
     }
 
     async fn ensure_remote_session(
@@ -1567,95 +2153,134 @@ impl AcpClientService {
         if session.active.is_some() {
             return Ok(());
         }
-
         let cx = client.connection().await?;
-        let persisted_remote_session_id = if let Some(session_storage_path) = session_storage_path {
-            self.session_persistence
-                .load_remote_session_id(session_storage_path, openbitfun_session_id)
-                .await?
-        } else {
-            None
+        let recovery_id = self.required_restores.get(session_key).map(|id| id.clone());
+        let record = match session_storage_path {
+            Some(path) => {
+                self.session_persistence
+                    .manager
+                    .load_session_metadata(path, openbitfun_session_id)
+                    .await?
+            }
+            None => None,
         };
-        let capabilities = client.agent_capabilities.read().await.clone();
-        let mut last_resume_error: Option<String> = None;
-
-        for strategy in preferred_resume_strategies(
+        let (saved_id, saved_required) = record
+            .as_ref()
+            .and_then(|m| m.custom_metadata.as_ref())
+            .map(super::session_persistence::read_remote_binding)
+            .unwrap_or_default();
+        let require_restore = recovery_id.is_some() || saved_required;
+        let persisted_remote_session_id = recovery_id.or(saved_id);
+        let has_history_gap = record
+            .as_ref()
+            .is_some_and(AcpSessionPersistence::has_history_gap);
+        // A replay that already failed to repair this gap would fail again until
+        // the local history changes, so only a metadata read is needed.
+        let repair_history = has_history_gap
+            && !record
+                .as_ref()
+                .is_some_and(AcpSessionPersistence::repair_already_attempted);
+        if (has_history_gap || require_restore) && persisted_remote_session_id.is_none() {
+            return Err(OpenBitFunError::session("The saved ACP conversation has no original agent session ID. Its local history is available, but the agent cannot reattach to it."));
+        }
+        let capabilities = client.agent_capabilities.read().await;
+        let mut strategies = preferred_resume_strategies(
             capabilities.as_ref(),
             persisted_remote_session_id.as_deref(),
-        ) {
+            require_restore,
+        );
+        if repair_history && capabilities.as_ref().is_some_and(|caps| caps.load_session) {
+            strategies.retain(|step| *step != AcpRemoteSessionStrategy::Load);
+            strategies.insert(0, AcpRemoteSessionStrategy::Load);
+        }
+        drop(capabilities);
+        let mut strategies = strategies.into_iter().peekable();
+        let mut last_resume_error = None;
+
+        while let Some(strategy) = strategies.next() {
+            // ACP v1 delivers the entire transcript before answering session/load.
+            // Register the actual session receiver before sending that request.
+            let mut existing = if strategy != AcpRemoteSessionStrategy::New {
+                persisted_remote_session_id
+                    .as_ref()
+                    .map(|id| cx.attach_session(NewSessionResponse::new(id.to_owned()), Vec::new()))
+                    .transpose()
+                    .map_err(protocol_error)?
+            } else {
+                None
+            };
+            let mut replay = None;
             let response = match strategy {
-                AcpRemoteSessionStrategy::Load => {
-                    let Some(remote_session_id) = persisted_remote_session_id.as_deref() else {
+                AcpRemoteSessionStrategy::Load | AcpRemoteSessionStrategy::Resume => {
+                    let Some(remote_id) = persisted_remote_session_id.as_deref() else {
                         continue;
                     };
-                    match self
-                        .run_startup_step(
+                    if strategy == AcpRemoteSessionStrategy::Load {
+                        let receiver = existing.as_mut().expect("saved session receiver");
+                        self.run_startup_step(
                             client,
                             strategy.startup_phase_name(),
-                            cx.send_request(LoadSessionRequest::new(
-                                remote_session_id.to_string(),
+                            SESSION_LOAD_TIMEOUT,
+                            replay::load(
+                                self,
+                                client,
+                                &cx,
+                                remote_id,
                                 cwd,
-                            ))
-                            .block_task(),
+                                receiver,
+                                openbitfun_session_id,
+                                repair_history,
+                            ),
                         )
                         .await
-                        .map_err(protocol_error)
-                    {
-                        Ok(response) => new_session_response_from_load(remote_session_id, response),
-                        Err(error) => {
-                            if is_startup_timeout_error(&error) {
-                                return Err(error);
-                            }
-                            warn!(
-                                "Failed to load ACP remote session, falling back: client_id={}, remote_session_id={}, error={}",
-                                client.id, remote_session_id, error
-                            );
-                            last_resume_error = Some(error.to_string());
-                            continue;
-                        }
-                    }
-                }
-                AcpRemoteSessionStrategy::Resume => {
-                    let Some(remote_session_id) = persisted_remote_session_id.as_deref() else {
-                        continue;
-                    };
-                    match self
-                        .run_startup_step(
+                        .map(|(response, history)| {
+                            replay = Some(history);
+                            new_session_response_from_load(remote_id, response)
+                        })
+                    } else {
+                        self.run_startup_step(
                             client,
                             strategy.startup_phase_name(),
-                            cx.send_request(ResumeSessionRequest::new(
-                                remote_session_id.to_string(),
-                                cwd,
-                            ))
-                            .block_task(),
+                            CLIENT_STARTUP_TIMEOUT,
+                            cx.send_request(ResumeSessionRequest::new(remote_id.to_owned(), cwd))
+                                .block_task(),
                         )
                         .await
-                        .map_err(protocol_error)
-                    {
-                        Ok(response) => {
-                            new_session_response_from_resume(remote_session_id, response)
-                        }
-                        Err(error) => {
-                            if is_startup_timeout_error(&error) {
-                                return Err(error);
-                            }
-                            warn!(
-                                "Failed to resume ACP remote session, falling back: client_id={}, remote_session_id={}, error={}",
-                                client.id, remote_session_id, error
-                            );
-                            last_resume_error = Some(error.to_string());
-                            continue;
-                        }
+                        .map(|response| new_session_response_from_resume(remote_id, response))
                     }
                 }
-                AcpRemoteSessionStrategy::New => self
-                    .run_startup_step(
+                AcpRemoteSessionStrategy::New => {
+                    self.run_startup_step(
                         client,
                         strategy.startup_phase_name(),
+                        CLIENT_STARTUP_TIMEOUT,
                         cx.send_request(NewSessionRequest::new(cwd)).block_task(),
                     )
                     .await
-                    .map_err(protocol_error)?,
+                }
+            };
+            let response = match response {
+                Ok(response) => response,
+                Err(error) => {
+                    let can_try_another_method = matches!(
+                        error.code,
+                        ErrorCode::MethodNotFound | ErrorCode::ResourceNotFound
+                    );
+                    let error = protocol_error(error);
+                    if require_restore {
+                        last_resume_error = Some(error.to_string());
+                        break;
+                    }
+                    if strategies.peek().is_none() || !can_try_another_method {
+                        return Err(error);
+                    }
+                    warn!(
+                        "ACP session {} failed, falling back: client_id={}, remote_session_id={:?}, error={}",
+                        strategy.as_str(), client.id, persisted_remote_session_id, error
+                    );
+                    last_resume_error = Some(error.to_string());
+                    continue;
+                }
             };
 
             self.attach_remote_session(
@@ -1665,46 +2290,78 @@ impl AcpClientService {
                 session_storage_path,
                 session,
                 response,
+                existing,
+                replay,
                 strategy,
                 last_resume_error.clone(),
+                require_restore,
             )
             .await?;
+            if require_restore {
+                self.required_restores.remove(session_key);
+            }
             return Ok(());
         }
 
-        Err(OpenBitFunError::service(
-            "Failed to initialize ACP remote session".to_string(),
-        ))
+        if let Some(error) = last_resume_error {
+            return Err(OpenBitFunError::session(format!(
+                "Could not restore the original ACP session. Retry this chat to load its history, or start a new chat to continue separately. Reason: {error}"
+            )));
+        }
+        let reason = if require_restore {
+            "The previous ACP turn has an unknown outcome, and this agent does not support loading its saved session."
+        } else {
+            "This ACP agent does not support resuming or loading a saved session."
+        };
+        Err(OpenBitFunError::session(format!(
+            "{reason} Your local history is available here. Start a new chat to continue with this agent."
+        )))
     }
 
     async fn run_startup_step<T, F>(
         self: &Arc<Self>,
         client: &Arc<AcpClientConnection>,
         phase: &'static str,
+        timeout: Duration,
         future: F,
     ) -> Result<T, Error>
     where
         F: Future<Output = Result<T, Error>>,
     {
         let started_at = Instant::now();
-        let result = tokio::time::timeout(CLIENT_STARTUP_TIMEOUT, future).await;
+        let result = tokio::time::timeout(timeout, future).await;
         debug!(
             "ACP startup phase completed: client_id={} connection_id={} phase={} duration_ms={} succeeded={}",
             client.client_id, client.id, phase, elapsed_ms_u64(started_at), matches!(&result, Ok(Ok(_)))
         );
         match result {
             Ok(result) => result,
-            Err(_) => {
-                warn!(
-                    "ACP client startup timed out: id={} connection_id={} phase={} timeout_secs={}",
-                    client.client_id, client.id, phase, CLIENT_STARTUP_TIMEOUT_SECS
-                );
-                self.cleanup_failed_startup(&client.id).await;
-                Err(agent_client_protocol::util::internal_error(
-                    startup_timeout_error_message(&client.client_id, phase),
-                ))
-            }
+            Err(_) => Err(self
+                .retire_timed_out_connection(client, phase, timeout)
+                .await),
         }
+    }
+
+    async fn retire_timed_out_connection(
+        &self,
+        client: &Arc<AcpClientConnection>,
+        phase: &str,
+        timeout: Duration,
+    ) -> Error {
+        warn!(
+            "ACP client startup timed out: id={} connection_id={} phase={} timeout_secs={}",
+            client.client_id,
+            client.id,
+            phase,
+            timeout.as_secs()
+        );
+        client.detached_after_stop.store(true, Ordering::Release);
+        self.stop_connection_instance(client).await;
+        agent_client_protocol::util::internal_error(startup_timeout_error_message(
+            &client.client_id,
+            phase,
+            timeout,
+        ))
     }
 
     async fn attach_remote_session(
@@ -1715,25 +2372,37 @@ impl AcpClientService {
         session_storage_path: Option<&Path>,
         session: &mut AcpRemoteSession,
         response: NewSessionResponse,
+        existing: Option<ActiveSession<'static, Agent>>,
+        replay: Option<replay::History>,
         strategy: AcpRemoteSessionStrategy,
         last_resume_error: Option<String>,
+        require_restore: bool,
     ) -> OpenBitFunResult<()> {
-        let cx = client.connection().await?;
         let models = response.models.clone();
-        let config_options = response.config_options.clone().unwrap_or_default();
-        let active = cx
-            .attach_session(response, Vec::new())
-            .map_err(protocol_error)?;
+        let config_options = response.config_options.clone();
+        let active = match existing {
+            Some(active) => active,
+            None => client
+                .connection()
+                .await?
+                .attach_session(response, Vec::new())
+                .map_err(protocol_error)?,
+        };
+        let metadata = if let Some(mut history) = replay {
+            let metadata = std::mem::take(&mut history.metadata);
+            if let Some(path) = session_storage_path {
+                // Writers of this session's history take the same gate.
+                let gate = self.turn_gate(openbitfun_session_id);
+                let _write = gate.lock().await;
+                history
+                    .reconcile(&self.session_persistence, path, openbitfun_session_id)
+                    .await?;
+            }
+            metadata
+        } else {
+            Vec::new()
+        };
         let remote_session_id = active.session_id().to_string();
-        client.cancel_handles.insert(
-            session_key.to_string(),
-            AcpCancelHandle {
-                session_id: remote_session_id.clone(),
-                connection: active.connection(),
-            },
-        );
-        self.session_permission_modes
-            .insert(remote_session_id.clone(), client.config.permission_mode);
         if let Some(session_storage_path) = session_storage_path {
             self.session_persistence
                 .update_remote_session_state(
@@ -1742,14 +2411,31 @@ impl AcpClientService {
                     &remote_session_id,
                     strategy.as_str(),
                     last_resume_error,
+                    require_restore,
                 )
                 .await?;
         }
+        if client.connection.read().await.is_some() {
+            self.session_permission_modes
+                .insert(remote_session_id, client.config.permission_mode);
+            client.cancel_handles.insert(
+                session_key.to_string(),
+                AcpCancelHandle::new(&active, session.stop_requested.clone()),
+            );
+            session.active = Some(active);
+        }
+        update_session_from_events(session, &metadata);
         session.models = models;
-        session.config_options = config_options;
-        session.discard_pending_updates_before_next_prompt =
-            matches!(strategy, AcpRemoteSessionStrategy::Load);
-        session.active = Some(active);
+        if let Some(options) = config_options {
+            session.config_options = options;
+        }
+        drain_pending_session_metadata_updates(session, true).await?;
+        let options = session.publish_metadata();
+        if let Some(path) = session_storage_path {
+            self.session_persistence
+                .save_options(path, openbitfun_session_id, &options)
+                .await?;
+        }
         Ok(())
     }
 
@@ -2132,6 +2818,7 @@ fn current_unix_timestamp_ms() -> u64 {
 impl AcpClientConnection {
     fn new(id: String, client_id: String, config: AcpClientConfig) -> Self {
         Self {
+            detached_after_stop: AtomicBool::new(false),
             id,
             client_id,
             config,
@@ -2194,6 +2881,17 @@ async fn wait_for_client_connection(
         }
 
         tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+/// Resolves once the accepted turn is stopped or released before its prompt was
+/// sent. A released execution drops its sender, which is the same end for this turn.
+async fn stopped(cancel: &mut Option<watch::Receiver<bool>>) {
+    match cancel.as_mut() {
+        Some(cancel) => {
+            let _ = cancel.wait_for(|stopped| *stopped).await;
+        }
+        None => std::future::pending::<()>().await,
     }
 }
 
@@ -2498,7 +3196,7 @@ async fn read_turn_to_string(
                 .active
                 .as_mut()
                 .ok_or_else(|| OpenBitFunError::service("ACP session was not initialized"))?;
-            prompt.read_update(active).await.map_err(protocol_error)?
+            prompt.read_update(active).await?
         };
 
         match message {
@@ -2509,8 +3207,11 @@ async fn read_turn_to_string(
                 update_session_from_events(session, &events);
                 append_agent_text(&mut output, events);
             }
-            SessionMessage::StopReason(_) => {
+            SessionMessage::StopReason(reason) => {
                 drain_pending_turn_text(session, &mut tool_call_tracker, &mut output).await?;
+                if reason == StopReason::Cancelled {
+                    return Err(OpenBitFunError::cancelled("ACP prompt cancelled"));
+                }
                 break;
             }
             _ => {}
@@ -2573,7 +3274,8 @@ fn append_agent_text(output: &mut String, events: Vec<AcpClientStreamEvent>) {
 
 async fn drain_pending_session_metadata_updates(
     session: &mut AcpRemoteSession,
-) -> OpenBitFunResult<()> {
+    initial: bool,
+) -> OpenBitFunResult<bool> {
     let started_at = Instant::now();
     let mut drained_count = 0usize;
     let mut tool_call_tracker = AcpToolCallTracker::new();
@@ -2581,27 +3283,38 @@ async fn drain_pending_session_metadata_updates(
     while started_at.elapsed() < SESSION_METADATA_DRAIN_MAX_DURATION {
         let update = {
             let Some(active) = session.active.as_mut() else {
-                return Ok(());
+                break;
             };
-            tokio::time::timeout(SESSION_METADATA_DRAIN_QUIET_WINDOW, active.read_update()).await
+            if initial {
+                tokio::time::timeout(SESSION_METADATA_DRAIN_QUIET_WINDOW, active.read_update())
+                    .await
+                    .ok()
+            } else {
+                active.read_update().now_or_never()
+            }
         };
 
         match update {
-            Ok(Ok(SessionMessage::SessionMessage(dispatch))) => {
+            Some(Ok(SessionMessage::SessionMessage(dispatch))) => {
                 let events =
                     acp_dispatch_to_stream_events_with_tracker(dispatch, &mut tool_call_tracker)
                         .await?;
                 update_session_from_events(session, &events);
                 drained_count += 1;
             }
-            Ok(Ok(SessionMessage::StopReason(_))) => {
+            Some(Ok(SessionMessage::StopReason(_))) => {
                 drained_count += 1;
             }
-            Ok(Ok(_)) => {
+            Some(Ok(_)) => {
                 drained_count += 1;
             }
-            Ok(Err(error)) => return Err(protocol_error(error)),
-            Err(_) => break,
+            Some(Err(_)) => {
+                // A successful setup already supplied the metadata. A closed receiver
+                // makes that snapshot offline and future prompts must reattach.
+                session.active = None;
+                break;
+            }
+            None => break,
         }
     }
 
@@ -2612,58 +3325,7 @@ async fn drain_pending_session_metadata_updates(
         );
     }
 
-    Ok(())
-}
-
-async fn discard_pending_session_updates_if_needed(session: &mut AcpRemoteSession) {
-    if !session.discard_pending_updates_before_next_prompt {
-        return;
-    }
-
-    session.discard_pending_updates_before_next_prompt = false;
-    let started_at = Instant::now();
-    let mut discarded_count = 0usize;
-    while started_at.elapsed() < LOAD_REPLAY_DRAIN_MAX_DURATION {
-        let update = {
-            let Some(active) = session.active.as_mut() else {
-                return;
-            };
-            tokio::time::timeout(LOAD_REPLAY_DRAIN_QUIET_WINDOW, active.read_update()).await
-        };
-
-        match update {
-            Ok(Ok(SessionMessage::SessionMessage(dispatch))) => {
-                let mut tracker = AcpToolCallTracker::new();
-                if let Ok(events) =
-                    acp_dispatch_to_stream_events_with_tracker(dispatch, &mut tracker).await
-                {
-                    update_session_from_events(session, &events);
-                }
-                discarded_count += 1;
-            }
-            Ok(Ok(SessionMessage::StopReason(_))) => {
-                discarded_count += 1;
-            }
-            Ok(Ok(_)) => {
-                discarded_count += 1;
-            }
-            Ok(Err(error)) => {
-                warn!(
-                    "Failed to discard ACP load replay update before prompt: error={}",
-                    error
-                );
-                break;
-            }
-            Err(_) => break,
-        }
-    }
-
-    if discarded_count > 0 {
-        info!(
-            "Discarded ACP load replay updates before prompt: count={}",
-            discarded_count
-        );
-    }
+    Ok(drained_count > 0)
 }
 
 fn update_session_from_events(session: &mut AcpRemoteSession, events: &[AcpClientStreamEvent]) {
@@ -2718,7 +3380,7 @@ fn update_session_config_options(session: &mut AcpRemoteSession, events: &[AcpCl
     session.config_options = options;
 }
 
-fn protocol_error(error: impl std::fmt::Display) -> OpenBitFunError {
+pub(super) fn protocol_error(error: impl std::fmt::Display) -> OpenBitFunError {
     OpenBitFunError::service(format!("ACP protocol error: {}", error))
 }
 
@@ -2833,21 +3495,21 @@ fn startup_exit_error_message(client_id: &str, stderr_detail: &str) -> String {
 const STARTUP_TIMEOUT_ERROR_PREFIX: &str = "ACP startup timed out:";
 
 fn startup_timeout_error(client_id: &str, phase: &str) -> OpenBitFunError {
-    OpenBitFunError::service(startup_timeout_error_message(client_id, phase))
+    OpenBitFunError::service(startup_timeout_error_message(
+        client_id,
+        phase,
+        CLIENT_STARTUP_TIMEOUT,
+    ))
 }
 
-fn startup_timeout_error_message(client_id: &str, phase: &str) -> String {
+fn startup_timeout_error_message(client_id: &str, phase: &str, timeout: Duration) -> String {
     format!(
         "{} client '{}' exceeded {}s during {} and was terminated. Please try again after the client is ready.",
         STARTUP_TIMEOUT_ERROR_PREFIX,
         client_id,
-        CLIENT_STARTUP_TIMEOUT_SECS,
+        timeout.as_secs(),
         phase
     )
-}
-
-fn is_startup_timeout_error(error: &OpenBitFunError) -> bool {
-    error.to_string().contains(STARTUP_TIMEOUT_ERROR_PREFIX)
 }
 
 fn select_permission_by_kind(
@@ -2905,10 +3567,13 @@ fn select_permission_option_id(options: &[PermissionOption], approve: bool) -> S
 }
 
 #[cfg(test)]
+mod recovery_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    fn test_client_connection(id: &str) -> Arc<AcpClientConnection> {
+    pub(super) fn test_client_connection(id: &str) -> Arc<AcpClientConnection> {
         Arc::new(AcpClientConnection::new(
             id.to_string(),
             "opencode".to_string(),
@@ -3076,7 +3741,7 @@ mod tests {
     #[test]
     fn formats_startup_timeout_error_message() {
         assert_eq!(
-            startup_timeout_error_message("codex", "initialize"),
+            startup_timeout_error_message("codex", "initialize", CLIENT_STARTUP_TIMEOUT),
             "ACP startup timed out: client 'codex' exceeded 60s during initialize and was terminated. Please try again after the client is ready."
         );
     }

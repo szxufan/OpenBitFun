@@ -890,6 +890,10 @@ impl ConfigManager {
         }
         let mut candidate = self.config_with_value(path, json_value)?;
         let config = &mut candidate.config;
+        if path == "ai.btw" || path.starts_with("ai.btw.") {
+            openbitfun_config_contracts::btw::validate_model_selection(&config.ai)
+                .map_err(OpenBitFunError::validation)?;
+        }
         // Whole-document/AI replacements are ingestion boundaries, like import.
         // Ordinary field updates must not perform legacy migration.
         if path.is_empty() || path == "ai" {
@@ -1841,6 +1845,51 @@ mod tests {
                 .unwrap();
         assert!(disk.ai.agent_model_selections.is_none());
         assert!(disk.ai.effective_model_selections().is_err());
+    }
+
+    #[tokio::test]
+    async fn btw_defaults_preserve_unavailable_choices_and_allow_explicit_repair() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = Arc::new(PathManager::with_user_root_for_tests(
+            temp.path().join("btw-defaults"),
+        ));
+        paths.initialize_user_directories().await.unwrap();
+        let mut document = serde_json::to_value(GlobalConfig::default()).unwrap();
+        let saved = serde_json::json!({"model_selection":{"kind":"future","target":"new"},"extension":true});
+        document["ai"]["btw"] = saved.clone();
+        tokio::fs::write(
+            paths.app_config_file(),
+            serde_json::to_vec(&document).unwrap(),
+        )
+        .await
+        .unwrap();
+        let mut manager = ConfigManager::new(manager_settings(paths.clone()))
+            .await
+            .unwrap();
+        manager.set("app.language", "en-US").await.unwrap();
+        let exported: serde_json::Value =
+            serde_json::from_slice(&tokio::fs::read(paths.app_config_file()).await.unwrap())
+                .unwrap();
+        assert_eq!(exported["ai"]["btw"], saved);
+        let missing = serde_json::json!({"kind":"model","model_ref":"missing"});
+        assert!(manager
+            .set("ai.btw.model_selection", missing)
+            .await
+            .is_err());
+        assert_eq!(manager.get::<serde_json::Value>("ai.btw").unwrap(), saved);
+        manager
+            .set(
+                "ai.btw.model_selection",
+                serde_json::json!({"kind":"inherit"}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            manager
+                .get::<serde_json::Value>("ai.btw.extension")
+                .unwrap(),
+            true
+        );
     }
 
     #[tokio::test]

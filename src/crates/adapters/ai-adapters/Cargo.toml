@@ -38,6 +38,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+image = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tokio-stream = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
@@ -61,6 +62,7 @@ zbus-secret-service-keyring-store = { workspace = true, optional = true }
 [features]
 local-tokenizer = ["dep:tokenizers"]
 
+vision-input = ["dep:base64", "dep:image", "image/bmp", "image/gif", "image/jpeg", "image/png", "image/webp"]
 image-generation = ["dep:base64"]
 subscription-auth = [
     "dep:apple-native-keyring-store",

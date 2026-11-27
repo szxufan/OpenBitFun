@@ -415,9 +415,10 @@ export function projectSettingsCatalogDestination(capabilityId, destination, ite
   if (destination.kind !== 'settings') return destination;
   const capability = SETTINGS_MIGRATIONS.capabilities[capabilityId];
   const input = capability?.items?.[itemId] ?? capability?.destination ?? destination;
+  const migratedSection = SETTINGS_MIGRATIONS.sections?.[input.pageId]?.[input.sectionId];
   const migratedView = SETTINGS_MIGRATIONS.views[input.pageId]?.[input.viewId];
-  const migrated = migratedView ?? SETTINGS_MIGRATIONS.pages[input.pageId];
-  const sectionId = input.sectionId ?? migrated?.sectionId;
+  const migrated = migratedSection ?? migratedView ?? SETTINGS_MIGRATIONS.pages[input.pageId];
+  const sectionId = migratedSection?.sectionId ?? input.sectionId ?? migrated?.sectionId;
   return {
     kind: 'settings',
     pageId: migrated?.pageId ?? input.pageId,

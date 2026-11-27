@@ -4,15 +4,18 @@ import { useI18n } from '@/infrastructure/i18n';
 import { ConfigPageRow, ConfigPageSection } from '@/infrastructure/config/components/common';
 import { setConfirmBtwClose, shouldConfirmBtwClose } from '@/infrastructure/preferences/btwCloseConfirmation';
 import { useSettingsSectionAnchor } from '../shared/useSettingsSectionAnchor';
+import { BtwModelSettingsRow } from './BtwModelSettingsRow';
 
-export default function BtwCloseConfirmationSettingsSection() {
+export default function BtwSettingsSection() {
   const { t } = useI18n('settings/application');
+  const { t: tModels } = useI18n('settings/models');
   const [enabled, setEnabled] = useState(shouldConfirmBtwClose);
-  const sectionAnchor = useSettingsSectionAnchor('btw-close-confirmation', true);
+  const sectionAnchor = useSettingsSectionAnchor('btw', true);
 
   return (
     <div id={sectionAnchor}>
-      <ConfigPageSection title={t('btwCloseConfirmation.title')}>
+      <ConfigPageSection title={tModels('btwModel.title')}>
+        <BtwModelSettingsRow />
         <ConfigPageRow label={t('btwCloseConfirmation.label')} description={t('btwCloseConfirmation.description')} align="center">
           <Switch
             checked={enabled}

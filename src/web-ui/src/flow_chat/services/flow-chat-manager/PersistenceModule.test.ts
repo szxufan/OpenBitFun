@@ -121,6 +121,17 @@ describe('PersistenceModule', () => {
     },
   );
 
+  it('lets the ACP host persist its own turn and checkpoints turns from older hosts', async () => {
+    const turn = createDialogTurn('completed');
+    const context = createContext(turn, { workspaceId: 'workspace-local', config: { agentType: 'acp:codex' } });
+    turn.userMessage.metadata = { acpRuntimeOwnsHistory: true };
+    await saveDialogTurnToDisk(context, SESSION_ID, TURN_ID);
+    expect(mockSaveSessionTurn).not.toHaveBeenCalled();
+    delete turn.userMessage.metadata.acpRuntimeOwnsHistory;
+    await saveDialogTurnToDisk(context, SESSION_ID, TURN_ID);
+    expect(mockSaveSessionTurn).toHaveBeenCalledOnce();
+  });
+
   it('saves a visible result receipt with its retained generation and no metadata read', async () => {
     const turn = createDialogTurn('completed');
     turn.recoveryEpoch = 2;

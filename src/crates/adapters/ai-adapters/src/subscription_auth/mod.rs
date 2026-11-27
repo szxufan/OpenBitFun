@@ -1,10 +1,11 @@
 //! In-app subscription authentication.
 //!
 //! Lets OpenBitFun sign in to another product's subscription (Codex/ChatGPT,
-//! Antigravity/Google, OpenCode, xAI/SuperGrok, Hermes/Nous Portal) with an in-app OAuth flow,
-//! and use the resulting tokens to authenticate AI requests. Secret material
-//! is stored separately from the non-secret account metadata. macOS uses a
-//! prompt-free encrypted local vault; other platforms use their native store.
+//! OpenCode, xAI/SuperGrok, Hermes/Nous Portal) with an in-app OAuth flow while
+//! retaining legacy Antigravity/Google state for cleanup. Secret material
+//! authenticates AI requests and is stored separately from non-secret account
+//! metadata. macOS uses a prompt-free encrypted local vault; other platforms
+//! use their native store.
 //!
 //! There is no upgrade path for the previous Codex/Gemini CLI disk-scan import.
 
@@ -96,13 +97,13 @@ pub(crate) const OPENCODE_COMPAT_VERSION: &str = "1.18.29";
 
 pub const OPENCODE_GO_REQUIRES_API_KEY: &str = "OpenCode Console OAuth supports Zen only. Edit this model to use the OpenCode Go API-key preset. Existing configuration and credentials have been preserved.";
 
-/// One of the subscription providers OpenBitFun can sign in to.
+/// One of the subscription providers OpenBitFun can or could sign in to.
 ///
-/// `Workbuddy` and `WorkbuddyAi` are retired: the vendor stopped allowing
-/// subscription-token access, so their sign-in, credential refresh, catalog and
-/// billing protocols were removed. The variants stay deserializable and keep
-/// their keys so persisted model configuration, stored credentials and account
-/// slots written by earlier releases still load instead of failing.
+/// Antigravity, `Workbuddy` and `WorkbuddyAi` are retired: their subscription
+/// import or access paths are no longer supported. Their variants stay
+/// deserializable and keep their keys so persisted model configuration, stored
+/// credentials and account slots written by earlier releases still load
+/// instead of failing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubscriptionProvider {
@@ -146,9 +147,8 @@ impl SubscriptionHttpOptions {
 
 impl SubscriptionProvider {
     /// Providers that can still be signed in to, in display order.
-    pub const ALL: [SubscriptionProvider; 7] = [
+    pub const ALL: [SubscriptionProvider; 6] = [
         Self::Codex,
-        Self::Antigravity,
         Self::Opencode,
         Self::Grok,
         Self::Hermes,
@@ -159,11 +159,15 @@ impl SubscriptionProvider {
     /// Providers whose sign-in and request protocols were removed. They are
     /// never offered to users, but their stored accounts stay readable so an
     /// upgrade can show and clean up what an earlier release created.
-    pub const RETIRED: [SubscriptionProvider; 2] = [Self::Workbuddy, Self::WorkbuddyAi];
+    pub const RETIRED: [SubscriptionProvider; 3] =
+        [Self::Antigravity, Self::Workbuddy, Self::WorkbuddyAi];
 
     /// True when this provider no longer has a usable vendor protocol.
     pub fn is_retired(self) -> bool {
-        matches!(self, Self::Workbuddy | Self::WorkbuddyAi)
+        matches!(
+            self,
+            Self::Antigravity | Self::Workbuddy | Self::WorkbuddyAi
+        )
     }
 
     /// Error returned by every account, catalog, quota and inference path for a
@@ -171,7 +175,7 @@ impl SubscriptionProvider {
     /// is refused.
     pub fn retired_error(self) -> anyhow::Error {
         anyhow!(
-            "{} subscription access is no longer supported by the vendor. \
+            "{} subscription access is no longer supported. \
              Existing configuration is preserved; create an API key provider to keep using these models",
             self.display_label()
         )
@@ -212,7 +216,7 @@ impl SubscriptionProvider {
     fn display_label(self) -> String {
         match self {
             Self::Codex => "Codex (ChatGPT)",
-            Self::Antigravity => "Antigravity (Google)",
+            Self::Antigravity => "Antigravity (Google, removed)",
             Self::Opencode => "OpenCode Console (Zen)",
             Self::Grok => "xAI (SuperGrok)",
             Self::Hermes => "Hermes (Nous Portal)",
@@ -244,8 +248,7 @@ impl SubscriptionProvider {
 
         match self {
             Self::Codex => &[Browser, Device],
-            Self::Antigravity => &[Browser],
-            Self::Workbuddy | Self::WorkbuddyAi => &[],
+            Self::Antigravity | Self::Workbuddy | Self::WorkbuddyAi => &[],
             Self::Opencode | Self::Grok | Self::Hermes | Self::Zcode | Self::ZcodeCn => &[Device],
         }
     }
@@ -908,15 +911,6 @@ async fn start_login_in_account_slot(
                 )
                 .await
             }
-            SubscriptionProvider::Antigravity => {
-                antigravity::begin_login_for_account(
-                    store_key,
-                    begin_cancel.clone(),
-                    expected_revision,
-                    options.clone(),
-                )
-                .await
-            }
             SubscriptionProvider::Opencode => {
                 opencode::begin_login_for_account(
                     store_key,
@@ -944,9 +938,9 @@ async fn start_login_in_account_slot(
                 )
                 .await
             }
-            SubscriptionProvider::Workbuddy | SubscriptionProvider::WorkbuddyAi => {
-                Err(provider.retired_error())
-            }
+            SubscriptionProvider::Antigravity
+            | SubscriptionProvider::Workbuddy
+            | SubscriptionProvider::WorkbuddyAi => Err(provider.retired_error()),
             SubscriptionProvider::Zcode | SubscriptionProvider::ZcodeCn => {
                 zcode::begin_login_for_account(
                     provider,
@@ -1192,7 +1186,7 @@ pub async fn resolve_with_options(
 ) -> Result<ResolvedCredential> {
     match provider {
         SubscriptionProvider::Codex => codex::resolve(options).await,
-        SubscriptionProvider::Antigravity => antigravity::resolve(options).await,
+        SubscriptionProvider::Antigravity => Err(provider.retired_error()),
         SubscriptionProvider::Opencode => opencode::resolve(options).await,
         SubscriptionProvider::Grok => grok::resolve(options).await,
         SubscriptionProvider::Hermes => hermes::resolve(options).await,
@@ -1443,14 +1437,28 @@ mod tests {
         store::upsert("workbuddy", account_fixture("stale-access", "old-subject"))
             .await
             .unwrap();
+        store::upsert(
+            "antigravity",
+            account_fixture("legacy-antigravity-access", "legacy-subject"),
+        )
+        .await
+        .unwrap();
         assert!(list_accounts().await.iter().any(|account| account.provider
             == SubscriptionProvider::Workbuddy
+            && account.connected));
+        assert!(list_accounts().await.iter().any(|account| account.provider
+            == SubscriptionProvider::Antigravity
             && account.connected));
         assert!(accounts::list_account_instances()
             .await
             .unwrap()
             .iter()
-            .any(|instance| instance.account_id == "workbuddy"));
+            .any(|instance| instance.account_id == "workbuddy" && !instance.enabled));
+        assert!(accounts::list_account_instances()
+            .await
+            .unwrap()
+            .iter()
+            .any(|instance| instance.account_id == "antigravity" && !instance.enabled));
     }
 
     #[tokio::test]
@@ -2144,10 +2152,7 @@ mod tests {
                 SubscriptionLoginMethod::Device,
             ]
         );
-        assert_eq!(
-            SubscriptionProvider::Antigravity.login_methods(),
-            &[SubscriptionLoginMethod::Browser]
-        );
+        assert_eq!(SubscriptionProvider::Antigravity.login_methods(), &[]);
         assert_eq!(
             SubscriptionProvider::Opencode.login_methods(),
             &[SubscriptionLoginMethod::Device]
@@ -2173,7 +2178,7 @@ mod tests {
         .await
         .unwrap_err();
 
-        assert!(error.to_string().contains("does not support"));
+        assert!(error.to_string().contains("no longer supported"));
     }
 
     #[test]

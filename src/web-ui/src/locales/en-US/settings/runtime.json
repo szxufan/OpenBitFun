@@ -1,4 +1,21 @@
 {
+  "externalControl": {
+    "port": "Listening port",
+    "title": "External control",
+    "enable": "Enable local HTTP access",
+    "description": "Allow integrations to run tasks in selected local project workspaces. Review tool approvals in Desktop.",
+    "retry": "Retry",
+    "endpoint": "API address",
+    "name": "Integration name",
+    "workspaces": "Allowed workspaces",
+    "origin": "Browser origin (optional)",
+    "originHint": "For direct browser access, enter the exact origin including its port. Leave empty for backend integrations.",
+    "access": "Integration access",
+    "issue": "Create token",
+    "token": "Access token",
+    "tokenHint": "Copy this token now. It is displayed once.",
+    "revoke": "Revoke access"
+  },
   "defaultHarness": {
     "title": "Default agent execution mode",
     "description": "Applies to new standard sessions; assistants, ACP, and sessions with an explicit mode are unaffected",

@@ -255,6 +255,7 @@
     "waitingForModelResponse": "等待模型响应..."
   },
   "historyState": {
+    "turnSaveFailed": "本轮已结束，会话记录保存失败。{{error}}",
     "emptyWindow": "这段历史中没有可显示的消息。",
     "loadingTitle": "正在加载历史会话",
     "loadingDescription": "正在准备该会话的历史内容。",
@@ -1429,7 +1430,8 @@
     "nestedDisabled": "侧问会话中不能继续新建侧问",
     "error": "失败",
     "close": "关闭",
-    "noSession": "当前没有可用于 /btw 的会话"
+    "noSession": "当前没有可用于 /btw 的会话",
+    "submitFailed": "无法发起侧问：{{error}}"
   },
   "childSession": {
     "stopReview": "中止审核",

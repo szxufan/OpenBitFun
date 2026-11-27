@@ -200,3 +200,17 @@ fn abnormal_exit_child_holds_writer() {
         std::thread::park();
     }
 }
+
+#[test]
+fn preview_is_read_only_and_maintenance_excludes_same_process_operations() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    std::fs::create_dir(&sessions).unwrap();
+    assert!(!SessionWriteLock::is_in_use(&sessions, "old").unwrap());
+    assert!(!root.path().join(".session-write-locks").exists());
+    let maintenance = SessionWriteLock::try_acquire_for_maintenance(&sessions, "old").unwrap();
+    assert!(SessionWriteLock::is_in_use(&sessions, "old").unwrap());
+    assert!(SessionWriteLock::try_acquire_for_operation(&sessions, "old").is_err());
+    drop(maintenance);
+    assert!(!SessionWriteLock::is_in_use(&sessions, "old").unwrap());
+}

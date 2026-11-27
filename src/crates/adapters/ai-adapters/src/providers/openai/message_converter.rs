@@ -1,5 +1,6 @@
 //! OpenAI message format converter
 
+use crate::client::format::ApiFormat;
 use crate::stream::types::responses::OPENAI_RESPONSES_REPLAY_PROTOCOL;
 use crate::types::{Message, ToolDefinition};
 use log::{error, warn};
@@ -8,6 +9,76 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 
 pub struct OpenAIMessageConverter;
+
+enum ContentPart<'a> {
+    Text(&'a str),
+    ImageUrl {
+        url: &'a str,
+        detail: Option<&'a str>,
+    },
+    ImageFile {
+        id: &'a str,
+        detail: Option<&'a str>,
+    },
+}
+
+impl<'a> ContentPart<'a> {
+    fn parse(part: &'a Value, role: &str, format: ApiFormat) -> Option<Self> {
+        match part["type"].as_str()? {
+            "text" | "input_text" | "output_text" => Some(Self::Text(part["text"].as_str()?)),
+            "image_url" | "input_image"
+                if role == "user"
+                    || (format == ApiFormat::OpenAIResponses && role != "assistant") =>
+            {
+                let image = &part["image_url"];
+                let detail = image["detail"].as_str().or_else(|| part["detail"].as_str());
+                if let Some(url) = image["url"].as_str().or_else(|| image.as_str()) {
+                    return Some(Self::ImageUrl { url, detail });
+                }
+                if format == ApiFormat::OpenAIResponses && part["type"] == "input_image" {
+                    return Some(Self::ImageFile {
+                        id: part["file_id"].as_str()?,
+                        detail,
+                    });
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn wire(self, role: &str, format: ApiFormat) -> Value {
+        let responses = format == ApiFormat::OpenAIResponses;
+        let (mut item, detail) = match self {
+            Self::Text(text) => {
+                let kind = if responses {
+                    OpenAIMessageConverter::responses_text_item_type(role)
+                } else {
+                    "text"
+                };
+                return json!({"type": kind, "text": text});
+            }
+            Self::ImageUrl { url, detail } if responses => {
+                (json!({"type": "input_image", "image_url": url}), detail)
+            }
+            Self::ImageUrl { url, detail } => (
+                json!({"type": "image_url", "image_url": {"url": url}}),
+                detail,
+            ),
+            Self::ImageFile { id, detail } => {
+                (json!({"type": "input_image", "file_id": id}), detail)
+            }
+        };
+        if let Some(detail) = detail {
+            if responses {
+                item["detail"] = json!(detail);
+            } else {
+                item["image_url"]["detail"] = json!(detail);
+            }
+        }
+        item
+    }
+}
 
 impl OpenAIMessageConverter {
     pub fn convert_messages_to_responses_input(
@@ -328,12 +399,14 @@ impl OpenAIMessageConverter {
         }
 
         Some(
-            Self::parse_responses_content_parts(role, content).unwrap_or_else(|| {
-                vec![json!({
-                    "type": text_item_type,
-                    "text": content,
-                })]
-            }),
+            Self::parse_content_parts(role, content, ApiFormat::OpenAIResponses).unwrap_or_else(
+                || {
+                    vec![json!({
+                        "type": text_item_type,
+                        "text": content,
+                    })]
+                },
+            ),
         )
     }
 
@@ -345,93 +418,24 @@ impl OpenAIMessageConverter {
         }
     }
 
-    fn parse_responses_content_parts(role: &str, content: &str) -> Option<Vec<Value>> {
-        let items = serde_json::from_str::<Value>(content)
-            .ok()?
-            .as_array()?
-            .clone();
-        if items.is_empty() {
-            return None;
-        }
-        let text_item_type = Self::responses_text_item_type(role);
-        let mut content_items = Vec::with_capacity(items.len());
-
-        for item in items {
-            let item_type = item.get("type").and_then(Value::as_str)?;
-            match item_type {
-                "text" | "input_text" | "output_text" => {
-                    let text = item.get("text").and_then(Value::as_str)?;
-                    content_items.push(json!({
-                        "type": text_item_type,
-                        "text": text,
-                    }));
-                }
-                "image_url" if role != "assistant" => {
-                    let image_url = Self::extract_image_url_value(item.get("image_url")?)?;
-                    content_items.push(json!({
-                        "type": "input_image",
-                        "image_url": image_url,
-                    }));
-                }
-                _ => return None,
-            }
-        }
-
-        Some(content_items)
+    #[cfg(feature = "vision-input")]
+    pub(crate) fn can_render_user_part(part: &Value, format: ApiFormat) -> bool {
+        ContentPart::parse(part, "user", format).is_some()
     }
 
-    fn parse_chat_completions_content_parts(role: &str, content: &str) -> Option<Vec<Value>> {
-        // Tool text is opaque, even when it happens to contain JSON content parts.
-        // Keeping it a string also works with providers that reject text arrays.
+    fn parse_content_parts(role: &str, content: &str, format: ApiFormat) -> Option<Vec<Value>> {
+        // Tool text is opaque, including JSON that happens to resemble content parts.
         if role == "tool" {
             return None;
         }
-        let items = serde_json::from_str::<Value>(content)
-            .ok()?
-            .as_array()?
-            .clone();
-        if items.is_empty() {
+        let parts: Vec<Value> = serde_json::from_str(content).ok()?;
+        if parts.is_empty() {
             return None;
         }
-        let mut content_items = Vec::with_capacity(items.len());
-
-        for item in items {
-            let item_type = item.get("type").and_then(Value::as_str)?;
-            match item_type {
-                "text" | "input_text" | "output_text" => {
-                    let text = item.get("text").and_then(Value::as_str)?;
-                    content_items.push(json!({
-                        "type": "text",
-                        "text": text,
-                    }));
-                }
-                "image_url" if role == "user" => {
-                    let image_url_value = item.get("image_url")?;
-                    let image_url = Self::extract_image_url_value(image_url_value)?;
-                    let mut content_item = json!({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": image_url,
-                        }
-                    });
-                    if let Some(detail) = image_url_value.get("detail").and_then(Value::as_str) {
-                        content_item["image_url"]["detail"] = Value::String(detail.to_string());
-                    }
-                    content_items.push(content_item);
-                }
-                _ => return None,
-            }
-        }
-
-        Some(content_items)
-    }
-
-    fn extract_image_url_value(value: &Value) -> Option<String> {
-        value
-            .get("url")
-            .and_then(Value::as_str)
-            .or_else(|| value.as_str())
-            .map(ToString::to_string)
+        parts
+            .iter()
+            .map(|part| Some(ContentPart::parse(part, role, format)?.wire(role, format)))
+            .collect()
     }
 
     fn convert_single_message(mut msg: Message) -> Value {
@@ -466,7 +470,7 @@ impl OpenAIMessageConverter {
                 }
             } else {
                 if let Some(content_parts) =
-                    Self::parse_chat_completions_content_parts(&msg.role, &content)
+                    Self::parse_content_parts(&msg.role, &content, ApiFormat::OpenAIChat)
                 {
                     openai_msg["content"] = Value::Array(content_parts);
                 } else {

@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => {
     peerActive: false,
     initialBtwModelSupported: false,
     initialBtwTargetSupported: false,
+    btwDefaultsSupported: false,
     onClearContexts: vi.fn(),
     getSendPreference: vi.fn(),
   };
@@ -49,6 +50,9 @@ vi.mock('../services/FlowChatManager', () => ({
 
 vi.mock('@/infrastructure/api/service-api/ModelPoolAPI', () => ({
   supportsBtwModelPools: () => !mocks.peerActive || mocks.initialBtwTargetSupported,
+}));
+vi.mock('@/infrastructure/config/services/btwModelDefaults', () => ({
+  supportsBtwModelDefaults: () => mocks.btwDefaultsSupported,
 }));
 vi.mock('../services/BtwThreadService', () => ({ sendMessageToBtwSession: mocks.sendBtw }));
 vi.mock('@/infrastructure/peer-device/peerDeviceContextState', () => ({
@@ -130,6 +134,7 @@ describe('useMessageSender', () => {
     mocks.peerActive = false;
     mocks.initialBtwModelSupported = false;
     mocks.initialBtwTargetSupported = false;
+    mocks.btwDefaultsSupported = false;
     mocks.sessions.set('created-session', { mode: 'Standard' });
     mocks.ensureBackendSession.mockResolvedValue(undefined);
     mocks.sendBtw.mockResolvedValue({ requestId: 'request-1' });
@@ -302,6 +307,29 @@ describe('useMessageSender', () => {
     await act(async () => sendFromProbe?.());
     expect(mocks.sendMessage).toHaveBeenCalledOnce();
     expect(mocks.sendBtw).toHaveBeenCalledOnce();
+  });
+
+  it.each([undefined, 'pool-a'])('lets the host resolve untouched BTW defaults (parent pool=%s)', async modelPoolId => {
+    mocks.btwDefaultsSupported = true;
+    mocks.sessions.set('side', { sessionId: 'side', sessionKind: 'btw', parentSessionId: 'parent',
+      dialogTurns: [], config: { modelName: 'parent-model', modelPoolId, reasoningPreset: 'high' } });
+    await act(async () => root.render(<ExcerptProbe sessionId="side" />));
+    await act(async () => sendFromProbe?.());
+    const request = mocks.sendBtw.mock.calls[0][0];
+    expect(request).not.toHaveProperty('modelId');
+    expect(request).not.toHaveProperty('initialModelSelection');
+    expect(request).not.toHaveProperty('initialModelTarget');
+  });
+
+  it('preserves an explicit first-message model even when BTW defaults are available', async () => {
+    mocks.btwDefaultsSupported = true;
+    mocks.sessions.set('side', { sessionId: 'side', sessionKind: 'btw', parentSessionId: 'parent',
+      dialogTurns: [], config: { modelName: 'chosen', reasoningPreset: 'high', btwModelSelectionExplicit: true } });
+    await act(async () => root.render(<ExcerptProbe sessionId="side" />));
+    await act(async () => sendFromProbe?.());
+    expect(mocks.sendBtw).toHaveBeenCalledWith(expect.objectContaining({
+      initialModelTarget: { selection: { kind: 'model', model_ref: 'chosen' }, reasoningPreset: 'high' },
+    }));
   });
 
   it.each([false, true])('preserves an inherited pool without a scalar override (peer=%s)', async peer => {

@@ -49,7 +49,7 @@
   },
   "subscriptionAuth": {
     "sectionTitle": "Subscription accounts",
-    "sectionDescription": "Connect Codex, Antigravity, OpenCode, xAI, Hermes, or ZCode subscriptions",
+    "sectionDescription": "Connect Codex, OpenCode, xAI, Hermes, or ZCode subscriptions",
     "rescan": "Refresh status",
     "import": "Use as model",
     "login": "Sign in",
@@ -66,7 +66,7 @@
     "refreshFailed": "Refresh failed: {{error}}",
     "loginSuccess": "Signed in",
     "loginFailed": "Sign-in failed: {{error}}",
-    "peerLoginRequiresLocalDevice": "Antigravity sign-in must be completed on the device running OpenBitFun. Switch to that device and sign in there.",
+    "peerLoginRequiresLocalDevice": "Antigravity subscription sign-in is no longer supported. Existing configurations are preserved.",
     "logoutSuccess": "Signed out",
     "logoutCleanupPending": "Signed out. Credential cleanup is pending and will retry automatically.",
     "logoutFailed": "Sign-out failed: {{error}}",
@@ -82,7 +82,7 @@
     "chooseRegionHint": "Select the platform where you have a Coding Plan subscription.",
     "products": {
       "codex": "Codex",
-      "antigravity": "Antigravity",
+      "antigravity": "Antigravity (removed)",
       "opencode": "OpenCode",
       "grok": "Grok",
       "hermes": "Hermes",
@@ -92,7 +92,7 @@
     },
     "details": {
       "codex": "ChatGPT",
-      "antigravity": "Google",
+      "antigravity": "Removed · subscription import is no longer supported",
       "opencode": "Zen",
       "grok": "SuperGrok",
       "hermes": "Nous Portal",
@@ -112,7 +112,7 @@
       "opencode": "OpenCode",
       "apiKey": "API Key",
       "codex": "Codex",
-      "antigravity": "Antigravity",
+      "antigravity": "Antigravity (removed)",
       "grok": "Grok",
       "hermes": "Hermes",
       "workbuddy": "WorkBuddy (removed)",
@@ -153,7 +153,7 @@
     "confirmForget": "Remove account",
     "forgetSuccess": "Subscription account removed",
     "openCodeRemoved": "OpenCode Console OAuth supports Zen only. Select API key and enter a Go key. Your existing model configuration is preserved.",
-    "retiredProvider": "WorkBuddy subscriptions were removed because the vendor no longer allows subscription access. Your configuration and credentials are preserved; create an API key provider to keep using these models.",
+    "retiredProvider": "This subscription provider was removed because subscription access is no longer supported. Your configuration and credentials are preserved; create an API key provider to keep using these models.",
     "editorDescription": "Models from this service share the signed-in subscription account",
     "accountLabel": "Account",
     "accountAuthentication": "Subscription account",
@@ -1064,5 +1064,15 @@
     "noCandidates": "No eligible backup models",
     "mode": "Routing",
     "modeHint": "Automatic switching tries the backups in order after a failure; a fixed choice only uses that channel and never switches."
+  },
+  "btwModel": {
+    "title": "Side questions",
+    "label": "Default model",
+    "inherit": "Inherit parent session",
+    "pool": "Model pool: {{name}}",
+    "unavailable": "Saved selection is unavailable — choose another model or inherit",
+    "unsupported": "This host does not support side-question model defaults.",
+    "failed": "Could not load or save the side-question model setting. Your saved choice is retained.",
+    "retry": "Retry"
   }
 }

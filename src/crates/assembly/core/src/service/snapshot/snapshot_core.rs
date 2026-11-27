@@ -546,20 +546,9 @@ impl SnapshotCore {
                 "Found baseline snapshot: file_path={:?} baseline_id={}",
                 file_path, baseline_id
             );
-            match self
-                .snapshot_system
+            self.snapshot_system
                 .get_snapshot_content(&baseline_id)
-                .await
-            {
-                Ok(content) => content,
-                Err(e) => {
-                    warn!(
-                        "Failed to read baseline snapshot: baseline_id={} error={}",
-                        baseline_id, e
-                    );
-                    String::new()
-                }
-            }
+                .await?
         } else {
             debug!(
                 "No baseline snapshot found, file may not have been modified: file_path={:?}",
@@ -600,13 +589,13 @@ impl SnapshotCore {
         };
 
         let before = self
-            .load_snapshot_text(boundary.before_snapshot_id.as_deref())
-            .await;
+            .read_recorded_snapshot_text(boundary.before_snapshot_id.as_deref())
+            .await?;
         let after = if boundary.file_deleted_in_session {
             String::new()
         } else {
-            self.load_snapshot_text(boundary.after_snapshot_id.as_deref())
-                .await
+            self.read_recorded_snapshot_text(boundary.after_snapshot_id.as_deref())
+                .await?
         };
 
         debug!(
@@ -1322,6 +1311,12 @@ impl SnapshotCore {
         self.sessions_dir.join(format!("{}.json", safe))
     }
 
+    pub(super) fn forget_cleaned_history(&mut self, removed: &super::maintenance::Removed) {
+        self.sessions.retain(|id, _| !removed.sessions.contains(id));
+        self.snapshot_system.forget_cleaned_files(removed);
+        self.rebuild_operation_index();
+    }
+
     fn rebuild_operation_index(&mut self) {
         self.operation_index.clear();
         for (session_id, session) in &self.sessions {
@@ -1423,7 +1418,7 @@ fn change_kind_from_session_boundary(boundary: &SessionFileBoundary) -> &'static
     }
 }
 
-fn sanitize_id(id: &str) -> String {
+pub(super) fn sanitize_id(id: &str) -> String {
     id.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {

@@ -4,7 +4,6 @@ import VoiceSettingsSection from './VoiceSettingsSection';
 import TextSelectionSettingsSection from './TextSelectionSettingsSection';
 import MessageSendingSettingsSection from './MessageSendingSettingsSection';
 import ScheduleSendPresetsSettingsSection from './ScheduleSendPresetsSettingsSection';
-import BtwCloseConfirmationSettingsSection from './BtwCloseConfirmationSettingsSection';
 
 export default function InputSettingsPage() {
   return (
@@ -12,7 +11,6 @@ export default function InputSettingsPage() {
       <VoiceSettingsSection />
       <MessageSendingSettingsSection />
       <ScheduleSendPresetsSettingsSection />
-      <BtwCloseConfirmationSettingsSection />
       <TextSelectionSettingsSection />
       <KeyboardShortcutsSection />
     </SettingsPage>

@@ -119,10 +119,27 @@ pub(super) async fn acp_dispatch_to_stream_events_with_tracker(
     dispatch: agent_client_protocol::Dispatch,
     tracker: &mut AcpToolCallTracker,
 ) -> OpenBitFunResult<Vec<AcpClientStreamEvent>> {
+    decode_session_update(dispatch, tracker)
+        .await
+        .map(|(_, events)| events)
+}
+
+/// User chunks delimit historical turns and carry an optional stable ACP message ID.
+pub(super) async fn decode_session_update(
+    dispatch: agent_client_protocol::Dispatch,
+    tracker: &mut AcpToolCallTracker,
+) -> OpenBitFunResult<(
+    Option<(Option<String>, Option<String>)>,
+    Vec<AcpClientStreamEvent>,
+)> {
+    let mut user = None;
     let mut events = Vec::new();
     MatchDispatch::new(dispatch)
         .if_notification(async |notification: SessionNotification| {
             match notification.update {
+                SessionUpdate::UserMessageChunk(chunk) => {
+                    user = Some((chunk.message_id.clone(), content_chunk_text(chunk)));
+                }
                 SessionUpdate::AgentMessageChunk(chunk) => {
                     if let Some(text) = content_chunk_text(chunk) {
                         events.push(AcpClientStreamEvent::AgentText(text));
@@ -170,7 +187,7 @@ pub(super) async fn acp_dispatch_to_stream_events_with_tracker(
         .await
         .otherwise_ignore()
         .map_err(protocol_error)?;
-    Ok(events)
+    Ok((user, events))
 }
 
 fn content_chunk_text(chunk: ContentChunk) -> Option<String> {

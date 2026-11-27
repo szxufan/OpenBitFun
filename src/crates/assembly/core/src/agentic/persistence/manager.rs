@@ -849,7 +849,7 @@ impl PersistenceManager {
         self.session_layout(workspace_path).index_path()
     }
 
-    fn session_layout(&self, workspace_path: &Path) -> SessionStorageLayout {
+    pub(super) fn session_layout(&self, workspace_path: &Path) -> SessionStorageLayout {
         SessionStorageLayout::new(self.project_sessions_dir(workspace_path))
     }
 
@@ -3522,6 +3522,22 @@ impl PersistenceManager {
         let _persistence_guard = persistence_lock.lock().await;
 
         let observed_revision = self.turn_window_revision(workspace_path, session_id).await;
+        if let Some(revision) = observed_revision
+            .as_ref()
+            .filter(|_| loaded_turns.is_empty())
+        {
+            if let Some(catalog) = self
+                .cached_complete_turn_catalog(
+                    workspace_path,
+                    session_id,
+                    revision,
+                    visible_total_turn_count,
+                )
+                .await
+            {
+                return Ok(catalog);
+            }
+        }
         let mut scanned_paths = None;
         let (physical_indices, can_persist_physical_projection) = match self
             .list_indexed_turn_paths(workspace_path, session_id)
@@ -3990,6 +4006,25 @@ impl PersistenceManager {
         workspace_path: &Path,
         turn: &DialogTurnData,
     ) -> OpenBitFunResult<()> {
+        self.write_dialog_turn(workspace_path, turn, false).await
+    }
+
+    /// UI checkpoints from older clients may still arrive after the host took
+    /// ownership. Decide under the same session write lock as the actual update.
+    pub async fn save_external_view_checkpoint(
+        &self,
+        workspace_path: &Path,
+        turn: &DialogTurnData,
+    ) -> OpenBitFunResult<()> {
+        self.write_dialog_turn(workspace_path, turn, true).await
+    }
+
+    async fn write_dialog_turn(
+        &self,
+        workspace_path: &Path,
+        turn: &DialogTurnData,
+        observer: bool,
+    ) -> OpenBitFunResult<()> {
         Self::validate_session_id(&turn.session_id)?;
         #[cfg(feature = "external-sources")]
         Box::pin(self.assert_native_history_mutation(workspace_path, &turn.session_id)).await?;
@@ -4020,6 +4055,17 @@ impl PersistenceManager {
                     turn.session_id
                 ))
             })?;
+        if observer
+            && turn.kind == DialogTurnKind::UserDialog
+            && metadata
+                .custom_metadata
+                .as_ref()
+                .and_then(|m| m.get("acpRuntimeFromTurn"))
+                .and_then(|v| v.as_u64())
+                .is_some_and(|first| turn.turn_index as u64 >= first)
+        {
+            return Ok(());
+        }
         self.ensure_turns_dir(workspace_path, &turn.session_id)
             .await?;
 
@@ -4242,6 +4288,24 @@ impl PersistenceManager {
             ))
             .await?
             .map(|file| file.turn))
+    }
+
+    /// Highest Turn position that has a stored file, independent of the
+    /// metadata Turn count, which can lag behind after an interrupted write.
+    pub async fn max_stored_turn_index(
+        &self,
+        workspace_path: &Path,
+        session_id: &str,
+    ) -> OpenBitFunResult<Option<usize>> {
+        Self::validate_session_id(session_id)?;
+        #[cfg(feature = "external-sources")]
+        self.ensure_external_session_materialized(workspace_path, session_id)
+            .await?;
+        Ok(self
+            .list_indexed_turn_paths(workspace_path, session_id)
+            .await?
+            .last()
+            .map(|(index, _)| *index))
     }
 
     async fn list_indexed_turn_paths(
@@ -6966,6 +7030,11 @@ mod tests {
         )
         .expect("complete catalog should deserialize");
         assert_eq!(persisted_complete, complete);
+        let read_catalog =
+            || manager.load_session_turn_catalog(workspace.path(), &session_id, &[], 5);
+        assert_eq!(read_catalog().await.unwrap(), complete);
+        std::fs::remove_file(&catalog_path).expect("remove the repaired sidecar");
+        assert!(!read_catalog().await.unwrap().complete);
     }
 
     #[tokio::test]

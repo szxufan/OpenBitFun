@@ -7661,6 +7661,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   <div className="openbitfun-chat-input__model-usage-group" data-openbitfun-component="chat-input" data-openbitfun-part="model">
                   <ModelSelector
                     currentMode={effectiveSendAgentType}
+                    isSceneActive={isSceneActive}
                     sessionId={effectiveTargetSessionId || undefined}
                     isSubagentSession={isSubagentInputTarget}
                     currentTokens={tokenUsage.current}

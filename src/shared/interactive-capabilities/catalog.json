@@ -8597,11 +8597,11 @@
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“开启或关闭侧问（/btw）面板关闭前的丢弃确认提示”保存在当前界面的交互偏好中，智能体会为你打开“输入与交互 → 侧问关闭确认”开关位置。",
-            "reasonEn": "“Enable or disable the confirmation prompt before closing a /btw side conversation” is stored as a client UI interaction preference; the Agent opens Input & Interaction → Side-Question Close Confirmation for you."
+            "reasonZh": "“开启或关闭侧问（/btw）面板关闭前的丢弃确认提示”保存在当前界面的交互偏好中，智能体会为你打开“会话与记忆 → 侧问”中的确认开关。",
+            "reasonEn": "“Enable or disable the confirmation prompt before closing a /btw side conversation” is stored as a client UI interaction preference; the Agent opens Session & Memory → Side questions for you."
           },
           "evidence": [
-            "source:src/web-ui/src/app/scenes/settings/pages/application/BtwCloseConfirmationSettingsSection.tsx#BtwCloseConfirmationSettingsSection"
+            "source:src/web-ui/src/app/scenes/settings/pages/ai/BtwSettingsSection.tsx#BtwSettingsSection"
           ]
         },
         {
@@ -9388,8 +9388,8 @@
         },
         {
           "id": "subscription-auth",
-          "titleZh": "登录 Codex、ZCode、OpenCode、Grok、Antigravity、Hermes 等订阅账号与多号订阅池",
-          "titleEn": "Sign in to Codex, ZCode, OpenCode, Grok, Antigravity, Hermes, and multi-account subscription pools",
+          "titleZh": "登录 Codex、ZCode、OpenCode、Grok、Hermes 等订阅账号与多号订阅池",
+          "titleEn": "Sign in to Codex, ZCode, OpenCode, Grok, Hermes, and multi-account subscription pools",
           "descriptionZh": "支持浏览器或设备码授权登录（含智谱国内版与 Z.ai 国际版 ZCode），可在卡片上直观查看 OpenCode 与 Grok 实时额度面板，并将多个账号编成订阅池在限流时自动故障轮换。",
           "descriptionEn": "Sign in via browser or device code (including ZCode CN and Z.ai Intl), view live OpenCode and Grok quota panels, and group multiple accounts into a subscription pool that rotates automatically on rate limits.",
           "control": {
@@ -11553,6 +11553,22 @@
       ],
       "items": [
         {
+          "id": "external-control",
+          "titleZh": "为本机集成授权工作区",
+          "titleEn": "Authorize workspaces for local integrations",
+          "descriptionZh": "启用本机 HTTP 接口，为每个集成创建或撤销令牌。外部任务在桌面会话中运行。",
+          "descriptionEn": "Enable local HTTP access and issue or revoke workspace-scoped integration tokens. Submitted tasks run in desktop sessions.",
+          "control": {
+            "kind": "open",
+            "reasonCode": "visualSelection",
+            "reasonZh": "用户需要在桌面设置中选择此集成可以访问的工作区，并复制仅在创建时显示一次的令牌。",
+            "reasonEn": "In Desktop settings, the user chooses which workspaces the integration can access and copies the token while it is visible at creation."
+          },
+          "evidence": [
+            "command:desktop_external_control"
+          ]
+        },
+        {
           "id": "permissions",
           "titleZh": "查看“允许桌面控制”开关及“辅助功能”、“屏幕录制”系统授权状态并完成授权",
           "titleEn": "Inspect Allow desktop control plus Accessibility and Screen Recording grants and authorize in OS settings",
@@ -13083,6 +13099,75 @@
       "options": []
     },
     {
+      "id": "setting.data.storage",
+      "kind": "setting",
+      "categoryId": "data",
+      "directoryGroupId": "settings-data",
+      "order": 53,
+      "entryPathZh": "设置 → 数据与维护 → 存储空间",
+      "entryPathEn": "Settings → Data & Maintenance → Storage",
+      "titleZh": "存储空间",
+      "titleEn": "Storage",
+      "summaryZh": "按工作区查看本机文件快照占用，手动清理符合条件的会话。",
+      "summaryEn": "Inspect local file snapshot usage by workspace and clean up eligible session histories.",
+      "keywordsZh": [
+        "存储空间",
+        "快照清理"
+      ],
+      "keywordsEn": [
+        "storage",
+        "snapshot cleanup"
+      ],
+      "highlightsZh": [
+        "查看每个工作区的快照占用及共享文件大小。"
+      ],
+      "highlightsEn": [
+        "See snapshot usage and shared file sizes for each workspace."
+      ],
+      "items": [
+        {
+          "id": "clean",
+          "titleZh": "预览并清理会话文件快照",
+          "titleEn": "Preview and clean up session file snapshots",
+          "descriptionZh": "选择工作区和未活跃时长，核对会话及预计释放空间后确认清理。",
+          "descriptionEn": "Choose workspaces and an inactivity period, review the affected sessions and estimated space, then confirm cleanup.",
+          "control": {
+            "kind": "open",
+            "reasonCode": "unstructuredInteraction",
+            "reasonZh": "“预览并清理会话文件快照”会永久移除所选会话的文件回退记录，请在存储空间页面核对并确认。",
+            "reasonEn": "“Preview and clean up session file snapshots” opens Storage so you can review the affected sessions before permanently removing their file rollback history."
+          },
+          "evidence": [
+            "command:inspect_snapshot_storage",
+            "command:clean_snapshot_storage"
+          ]
+        }
+      ],
+      "stepsZh": [
+        "打开存储空间，选择工作区和清理范围。",
+        "核对预览并确认删除文件快照。"
+      ],
+      "stepsEn": [
+        "Open Storage and select the workspaces and inactivity period.",
+        "Review the preview and confirm deletion of file snapshots."
+      ],
+      "agentExamplesZh": [
+        "打开快照存储设置"
+      ],
+      "agentExamplesEn": [
+        "Open snapshot storage settings"
+      ],
+      "relatedIds": [
+        "setting.data.archived"
+      ],
+      "destination": {
+        "kind": "settings",
+        "pageId": "data.storage"
+      },
+      "operations": [],
+      "options": []
+    },
+    {
       "id": "setting.data.archived",
       "kind": "setting",
       "categoryId": "data",
@@ -13726,6 +13811,9 @@
     },
     "agentic": {
       "capabilityId": "feature.ai-assistant"
+    },
+    "external_control": {
+      "capabilityId": "setting.tools.desktop-control"
     },
     "frontend_workbench": {
       "capabilityId": "feature.ai-assistant"

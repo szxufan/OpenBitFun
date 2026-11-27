@@ -82,7 +82,6 @@ import { NativeModelSelectionPanel, type ModelRole } from './NativeModelSelectio
 import './ModelSelector.scss';
 
 const log = createLogger('ModelSelector');
-const ACP_SESSION_OPTIONS_TIMEOUT_MS = 65_000;
 const MODEL_SELECTOR_EXIT_DURATION_MS = 100;
 const EMPTY_MODELS: AIModelConfig[] = [];
 const EMPTY_DEFAULT_MODELS: DefaultModelsConfig = {};
@@ -124,6 +123,8 @@ interface ModelSelectorProps {
   dropdownPlacement?: 'top' | 'bottom';
   /** Current session ID (used to update the selected session model). */
   sessionId?: string;
+  /** Only the visible composer initializes missing ACP session options. */
+  isSceneActive?: boolean;
   /** Whether the active input target is a Task subagent session. */
   isSubagentSession?: boolean;
   /** Current token count. */
@@ -344,22 +345,6 @@ const getAvailabilityLabel = (
   }
 };
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeoutId = window.setTimeout(() => reject(new Error(message)), timeoutMs);
-    promise.then(
-      value => {
-        window.clearTimeout(timeoutId);
-        resolve(value);
-      },
-      error => {
-        window.clearTimeout(timeoutId);
-        reject(error);
-      },
-    );
-  });
-}
-
 const syncAcpContextUsageToStore = (
   sessionId: string | undefined,
   options: AcpSessionOptions,
@@ -376,6 +361,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   className = '',
   dropdownPlacement = 'top',
   sessionId,
+  isSceneActive = true,
   isSubagentSession = false,
   currentTokens = 0,
   maxTokens = 0,
@@ -540,6 +526,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     acpClientIdFromAgentType(activeSession?.config.agentType) ??
     acpClientIdFromAgentType(activeSession?.mode);
   const isAcpSession = Boolean(acpClientId && sessionId);
+  const persistModeDefault = persistSharedModeDefault && activeSession?.sessionKind !== 'btw';
   const targetIsSubagent = isSubagentSession || activeSession?.sessionKind === 'subagent';
 
   const sessionPoolId = useSyncExternalStore(
@@ -689,7 +676,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     return () => { configLoadRequestRef.current += 1; unsubscribe(); };
   }, [loadConfigData, deviceSurfaceScope.epoch]);
 
-  const loadAcpOptions: () => Promise<void> = useCallback(async () => {
+  const loadAcpOptions = useCallback(async (reason: 'open' | 'observe' | 'connect'): Promise<void> => {
     const scope = deviceSurfaceScope;
     if (!scope.isCurrent()) return;
     const requestId = ++acpOptionsLoadRequestRef.current;
@@ -700,14 +687,14 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     }
 
     setAcpOptionsLoadState('loading');
-    const shouldShowRestoreToast = !acpOptionsRef.current && acpRestoreToastShownRef.current !== sessionId;
+    const shouldShowRestoreToast = reason === 'connect' && (!acpOptionsRef.current || acpOptionsRef.current.agentDisconnected) && acpRestoreToastShownRef.current !== sessionId;
     const startup = {
       requestId: createAcpStartupRequestId(), clientId: acpClientId, action: 'restore' as const, scope,
       retry: async () => {
         if (!scope.isCurrent() || modelSelectionScopeRef.current !== modelSelectionScopeKey
           || requestId !== acpOptionsLoadRequestRef.current) return;
         acpRestoreToastShownRef.current = null;
-        await loadAcpOptions();
+        await loadAcpOptions(reason);
       },
     };
     const dismissStartup = () => emitAcpSessionStartup({ ...startup, phase: 'finish', cancelled: true });
@@ -720,23 +707,25 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     let succeeded = false;
     let failure: string | undefined;
     try {
-      const options = await withTimeout(
-        ACPClientAPI.getSessionOptions({
-          sessionId,
-          clientId: acpClientId,
-          workspaceId: activeSession?.workspaceId || activeSession?.config.workspaceId,
-          workspacePath: activeSession?.workspacePath || activeSession?.config.workspacePath,
-          remoteConnectionId: activeSession?.remoteConnectionId,
-          remoteSshHost: activeSession?.remoteSshHost,
-        }),
-        ACP_SESSION_OPTIONS_TIMEOUT_MS,
-        `Timed out restoring ACP session options for ${acpClientId}`,
-      );
+      const options = await ACPClientAPI.getSessionOptions({
+        observeOnly: reason !== 'connect',
+        sessionId,
+        clientId: acpClientId,
+        workspaceId: activeSession?.workspaceId || activeSession?.config.workspaceId,
+        workspacePath: activeSession?.workspacePath || activeSession?.config.workspacePath,
+        remoteConnectionId: activeSession?.remoteConnectionId ?? activeSession?.config.remoteConnectionId,
+        remoteSshHost: activeSession?.remoteSshHost,
+      });
       succeeded = true;
-      if (requestId !== acpOptionsLoadRequestRef.current || !scope.isCurrent()) return;
+      if (requestId !== acpOptionsLoadRequestRef.current || !scope.isCurrent()
+        || modelSelectionScopeRef.current !== modelSelectionScopeKey) return;
       setAcpOptions(options);
-      setAcpOptionsLoadState('ready');
       syncAcpContextUsageToStore(sessionId, options);
+      if (reason === 'open' && options.needsInitialOptions) {
+        await loadAcpOptions('connect');
+      } else {
+        setAcpOptionsLoadState('ready');
+      }
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error);
       if (requestId !== acpOptionsLoadRequestRef.current || !scope.isCurrent()) return;
@@ -751,6 +740,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     }
   }, [
     activeSession?.config.workspacePath,
+    activeSession?.config.remoteConnectionId,
     activeSession?.remoteConnectionId,
     activeSession?.remoteSshHost,
     activeSession?.workspacePath,
@@ -775,21 +765,22 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     acpOptionsRef.current = acpOptions;
   }, [acpOptions]);
 
+  const initializeAcpOnOpen = isAcpSession && !externalSelection && isSceneActive;
   useEffect(() => {
-    void loadAcpOptions();
+    void loadAcpOptions(initializeAcpOnOpen ? 'open' : 'observe');
     return () => {
       acpOptionsLoadRequestRef.current += 1;
       acpStartupDismissRef.current?.();
       acpStartupDismissRef.current = null;
     };
-  }, [loadAcpOptions]);
+  }, [initializeAcpOnOpen, loadAcpOptions]);
 
   useEffect(() => {
     if (!isAcpSession || !sessionId || !acpClientId) return;
 
     return ACPClientAPI.onSessionOptionsChanged((event) => {
       if (event.sessionId === sessionId && event.clientId === acpClientId) {
-        loadAcpOptions();
+        void loadAcpOptions('observe');
       }
     });
   }, [acpClientId, isAcpSession, loadAcpOptions, sessionId]);
@@ -1130,6 +1121,11 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       return { status: acpOptionsLoadState === 'error' ? 'load-error' : 'loading', canSend: false };
     }
 
+    if (acpOptions.needsInitialOptions && !acpOptions.currentModelId) {
+      return { status: acpOptionsLoadState === 'error' ? 'load-error' : 'loading', canSend: true };
+    }
+    if (acpOptions.agentDisconnected) return { status: 'ready', canSend: true };
+
     const hasAcpExecutionTarget = Boolean(
       acpAvailableModels.length > 0 || acpMode || acpFastMode,
     );
@@ -1347,7 +1343,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const modelInformationLoading = availability.status === 'loading'
     || (isNativeModelSelection && configLoadState === 'ready' && catalogLoadState === 'loading')
     || (isAcpSession && !externalSelection && acpOptionsLoadState === 'loading');
-  const canConfigureNativeDefaults = isNativeModelSelection && persistSharedModeDefault && !targetIsSubagent;
+  const canConfigureNativeDefaults = isNativeModelSelection && persistModeDefault && !targetIsSubagent;
   const routing = useModelRouting({
     identity: routingIdentity, epoch: deviceSurfaceScope.epoch,
     request: { sessionId, workspaceId: activeSession?.workspaceId || activeSession?.config.workspaceId,
@@ -1567,7 +1563,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       }
 
       await updateTargetSessionModel();
-      if (persistSharedModeDefault) {
+      if (sessionId && activeSession?.sessionKind === 'btw') store.markBtwModelSelectionExplicit(sessionId);
+      if (persistModeDefault) {
         const saveDefault = rememberModeSelection({ kind: 'model', model_ref: modelId });
         if (!sessionId) {
           // A selector without a draft/session has no other owner for the next
@@ -1617,6 +1614,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   }, [
     allModels,
     loadConfigData,
+    activeSession?.sessionKind,
     activeSession?.config.workspacePath,
     activeSession?.remoteConnectionId,
     activeSession?.remoteSshHost,
@@ -1630,7 +1628,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     isAcpSession,
     loading,
     modelSelectionScopeKey,
-    persistSharedModeDefault,
+    persistModeDefault,
     routing.pending,
     reasoningLoading,
     recentPresetForModel,
@@ -1756,7 +1754,10 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     const session = store.getState().sessions.get(sessionId);
     if (!session) return false;
     const previousPreset = session.config.reasoningPreset;
-    if (previousPreset === normalizedPreset) return true;
+    if (previousPreset === normalizedPreset) {
+      if (session.sessionKind === 'btw') store.markBtwModelSelectionExplicit(sessionId);
+      return true;
+    }
 
     const selectionScope = getActiveSurfaceScope();
     setReasoningLoading(true);
@@ -1775,6 +1776,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
         });
       }
       selectionScope.assertCurrent('select reasoning preset');
+      if (session.sessionKind === 'btw') store.markBtwModelSelectionExplicit(sessionId);
       if (!targetIsSubagent) {
         setRecentReasoningPreset(concreteModelId, normalizedPreset);
         setPreSessionReasoningSelection({
@@ -1954,7 +1956,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
           store.updateSessionModelPool(sessionId, pool.id, undefined, true);
         }
       }
-      if (!targetIsSubagent && persistSharedModeDefault) {
+      if (sessionId && activeSession?.sessionKind === 'btw') store.markBtwModelSelectionExplicit(sessionId);
+      if (!targetIsSubagent && persistModeDefault) {
         const saved = rememberModeSelection({ kind: 'pool', pool_id: pool.id });
         if (!sessionId) await saved;
         else void saved.catch(error => {
@@ -2091,7 +2094,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
       setKeyboardNavigationOpen(true);
       setDropdownOpen(true);
       if (isAcpSession && !externalSelection && !modelInformationLoading) {
-        void loadAcpOptions();
+        void loadAcpOptions('connect');
       }
       if (!hasSettingsPanel) {
         openPanel('models', true);
@@ -2282,7 +2285,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const displayedAvailability = externalSelection ? externalAvailability
     : isAcpSession ? acpAvailability : nativeAvailability;
   const showModelLoadingState = modelInformationLoading && (
-    isNativeModelSelection ? configLoadState === 'loading' || !modelCatalog : isAcpSelection ? !acpOptions : !displayedModel
+    isNativeModelSelection ? configLoadState === 'loading' || !modelCatalog
+      : isAcpSelection ? !acpOptions || (acpOptions.needsInitialOptions && !displayedModel) : !displayedModel
   );
   useEffect(() => {
     // An ACP response may hand model ownership entirely to its separate mode control.
@@ -2294,7 +2298,8 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     : poolError ? t('modelSelector.pools.loadError')
       : poolsLoading ? t('modelSelector.status.loading') : t('modelSelector.pools.pendingSelection'));
   const showModelConfiguration = isNativeModelSelection && nativeAvailability.status === 'unconfigured';
-  const modelLabel = showModelConfiguration ? t('modelSelector.noModelSelected') : poolId ? poolLabel : isAcpSelection && !showModelChoices
+  const modelLabel = showModelConfiguration ? t('modelSelector.noModelSelected') : poolId ? poolLabel
+    : isAcpSelection && (!showModelChoices || (!displayedModel && displayedAvailability.status === 'ready'))
     ? t('modelSelector.modelSettings')
     : currentModelMode === 'smart' ? t('modelSelector.modes.smart')
       : currentModelMode === 'pool' ? t('modelSelector.modes.pool')
@@ -2330,7 +2335,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
     // A command request is a keyboard interaction: focus the current choice
     // instead of leaving focus in the composer.
     setKeyboardNavigationOpen(true);
-    if (isAcpSelection && !modelInformationLoading) void loadAcpOptions();
+    if (isAcpSelection && !modelInformationLoading) void loadAcpOptions('connect');
     if (!hasSettingsPanel) {
       openPanel('models', true);
     }
@@ -2557,7 +2562,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
             if (nextOpen) {
               resetDropdownNavigation();
               setKeyboardNavigationOpen(event.detail === 0);
-              if (isAcpSelection && !modelInformationLoading) void loadAcpOptions();
+              if (isAcpSelection && !modelInformationLoading) void loadAcpOptions('connect');
               if (!hasSettingsPanel) {
                 openPanel('models', true);
               }

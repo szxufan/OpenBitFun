@@ -70,24 +70,30 @@ async fn prompt_suggestion_enabled() -> bool {
 /// unchanged, then the suggestion instruction as the only appended message.
 pub(super) async fn build_prompt_suggestion_messages(
     request: &PromptSuggestionRequest,
-) -> crate::util::errors::OpenBitFunResult<Vec<AIMessage>> {
+) -> crate::util::errors::OpenBitFunResult<(Vec<AIMessage>, usize)> {
     let reminders = request
         .prepended_reminders
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let mut ai_messages = ExecutionEngine::build_ai_messages_for_send(
+    let mut image_context = crate::agentic::tools::ToolUseContext::for_tool_listing(
+        request.workspace.clone(),
+        request.workspace_services.clone(),
+    );
+    image_context.session_id = Some(request.session_id.clone());
+    let (mut ai_messages, image_turn_start) = ExecutionEngine::build_ai_message_prefix_for_send(
         &request.messages,
         &request.ai_client.config.format,
-        request.workspace.as_ref(),
-        request.workspace_services.as_ref(),
+        image_context,
         &request.turn_id,
+        Message::image_turn_start(&request.messages, &request.turn_id),
         request.attach_images,
+        request.model_request_context.retain_latest_user_image,
         &reminders,
     )
     .await?;
     ai_messages.push(AIMessage::user(prompt_suggestion_instruction().to_string()));
-    Ok(ai_messages)
+    Ok((ai_messages, image_turn_start))
 }
 
 async fn generate_prompt_suggestion(
@@ -161,10 +167,11 @@ where
 
 async fn request_prompt_suggestion_response(
     request: &PromptSuggestionRequest,
-    ai_messages: Vec<AIMessage>,
+    (ai_messages, image_turn_start): (Vec<AIMessage>, usize),
     trace: Option<ModelExchangeTraceConfig>,
 ) -> anyhow::Result<Option<String>> {
-    let context = suggestion_request_context(&request.model_request_context);
+    let mut context = suggestion_request_context(&request.model_request_context);
+    context.image_turn_start = Some(image_turn_start);
     let response = request
         .ai_client
         .send_message_once_with_trace_and_request_context(
@@ -696,6 +703,7 @@ mod tests {
             output_schema: Some(
                 serde_json::json!({"type": "object", "properties": {"report": {"type": "string"}}}),
             ),
+            ..Default::default()
         };
         let suggestion = suggestion_request_context(&context);
         assert_eq!(
@@ -740,7 +748,7 @@ mod tests {
         ];
         let reminders = vec!["skill listing".to_string()];
         let reminder_refs = reminders.iter().map(String::as_str).collect::<Vec<_>>();
-        let round_messages = ExecutionEngine::build_ai_messages_for_send(
+        let (round_messages, round_boundary) = ExecutionEngine::build_ai_messages_for_send(
             &messages,
             &ai_client.config.format,
             None,
@@ -764,10 +772,11 @@ mod tests {
             workspace_services: None,
             attach_images: false,
         };
-        let suggestion_messages = build_prompt_suggestion_messages(&request)
+        let (suggestion_messages, boundary) = build_prompt_suggestion_messages(&request)
             .await
             .expect("suggestion messages");
 
+        assert_eq!(boundary, round_boundary);
         assert_eq!(suggestion_messages.len(), round_messages.len() + 1);
         assert_eq!(
             serde_json::to_value(&suggestion_messages[..round_messages.len()]).unwrap(),

@@ -3,6 +3,9 @@ use crate::util::types::{Message as AIMessage, ToolCall as AIToolCall, ToolImage
 use crate::util::TokenCounter;
 use log::warn;
 use openbitfun_agent_runtime::prompt_markup::is_system_reminder_only;
+use openbitfun_ai_adapters::vision_tokens::{
+    estimate_image_tokens, inline_image_dimensions, UNKNOWN_IMAGE_DIMENSIONS,
+};
 use openbitfun_core_types::{ModelResponseReplay, ReasoningContentKind};
 pub use openbitfun_runtime_ports::{CompressionContract, CompressionContractItem};
 use serde::{Deserialize, Serialize};
@@ -63,6 +66,9 @@ pub struct MessageMetadata {
     pub turn_id: Option<String>,
     pub round_id: Option<String>,
     pub tokens: Option<usize>,
+    /// Runtime snapshots of tool output pixels, retained when inline bytes are redacted on disk.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_image_references: Vec<String>,
     /// Anthropic extended thinking signature (for passing back in multi-turn conversations)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_signature: Option<String>,
@@ -430,37 +436,45 @@ impl From<Message> for AIMessage {
                 result_for_assistant,
                 is_error,
                 image_attachments,
-            } => {
-                // Tool messages must include tool_call_id
-                // Prefer result_for_assistant (text specifically for AI), if None or empty then use result (data field)
-                let content_for_ai = if let Some(assistant_text) = result_for_assistant {
-                    // Check if empty string
-                    if assistant_text.trim().is_empty() {
-                        // If empty, use serialized result
-                        serde_json::to_string(&result)
-                            .unwrap_or(format!("Tool {} execution completed", tool_name))
-                    } else {
-                        assistant_text
-                    }
-                } else {
-                    // If no result_for_assistant, use serialized result
-                    serde_json::to_string(&result)
-                        .unwrap_or(format!("Tool {} execution completed", tool_name))
-                };
+            } => Message::ai_tool_result(
+                tool_id,
+                tool_name,
+                &result,
+                result_for_assistant,
+                is_error,
+                image_attachments,
+                model_response_replay,
+            ),
+        }
+    }
+}
 
-                Self {
-                    role: "tool".to_string(),
-                    content: Some(content_for_ai),
-                    reasoning_content: None,
-                    thinking_signature: None,
-                    tool_calls: None,
-                    tool_call_id: Some(tool_id),
-                    name: Some(tool_name),
-                    is_error: Some(is_error),
-                    tool_image_attachments: image_attachments.clone(),
-                    model_response_replay: model_response_replay.clone(),
-                }
-            }
+impl Message {
+    /// Build the provider's tool reply without copying image bytes that this request omits.
+    pub(crate) fn ai_tool_result(
+        tool_id: String,
+        tool_name: String,
+        result: &serde_json::Value,
+        result_for_assistant: Option<String>,
+        is_error: bool,
+        image_attachments: Option<Vec<ToolImageAttachment>>,
+        model_response_replay: Option<ModelResponseReplay>,
+    ) -> AIMessage {
+        AIMessage {
+            role: "tool".into(),
+            content: Some(
+                result_for_assistant
+                    .filter(|text| !text.trim().is_empty())
+                    .unwrap_or_else(|| result.to_string()),
+            ),
+            reasoning_content: None,
+            thinking_signature: None,
+            tool_calls: None,
+            tool_call_id: Some(tool_id),
+            name: Some(tool_name),
+            is_error: Some(is_error),
+            tool_image_attachments: image_attachments,
+            model_response_replay,
         }
     }
 }
@@ -473,6 +487,36 @@ impl From<&Message> for AIMessage {
 }
 
 impl Message {
+    pub(crate) fn skip_for_model_send(&self) -> bool {
+        matches!(
+            self.metadata.semantic_kind,
+            Some(MessageSemanticKind::ComputerUseVerificationScreenshot)
+                | Some(MessageSemanticKind::ComputerUsePostActionSnapshot)
+        )
+    }
+
+    pub(crate) fn image_turn_start(messages: &[Self], current_turn_id: &str) -> usize {
+        messages
+            .iter()
+            .position(|message| {
+                message.metadata.turn_id.as_deref() == Some(current_turn_id)
+                    && !message.skip_for_model_send()
+            })
+            .unwrap_or(messages.len())
+    }
+
+    /// An assistant response consumes preceding observations, including all
+    /// images returned by the previous parallel tool call batch.
+    pub(crate) fn fresh_image_start(messages: &[Self], turn_start: usize) -> usize {
+        let turn_start = turn_start.min(messages.len());
+        messages[turn_start..]
+            .iter()
+            .rposition(|message| {
+                message.role == MessageRole::Assistant && !message.skip_for_model_send()
+            })
+            .map_or(turn_start, |index| turn_start + index + 1)
+    }
+
     pub fn system(text: String) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
@@ -694,37 +738,54 @@ impl Message {
         tokens
     }
 
-    fn estimate_image_tokens(metadata: Option<&serde_json::Value>) -> usize {
-        let (width, height) = metadata
-            .and_then(|m| {
-                let w = m.get("width").and_then(|v| v.as_u64());
-                let h = m.get("height").and_then(|v| v.as_u64());
-                match (w, h) {
-                    (Some(w), Some(h)) if w > 0 && h > 0 => Some((w as u32, h as u32)),
-                    _ => None,
-                }
-            })
-            .unwrap_or((1024, 1024));
+    fn user_image_dimensions(image: &ImageContextData) -> Option<(u32, u32)> {
+        if let Some(size) = image
+            .data_url
+            .as_deref()
+            .and_then(|url| url.split_once(','))
+            .and_then(|(_, data)| inline_image_dimensions(&image.mime_type, data))
+        {
+            return Some(size);
+        }
 
-        let tiles_w = width.div_ceil(512);
-        let tiles_h = height.div_ceil(512);
-        let tiles = (tiles_w.max(1) * tiles_h.max(1)) as usize;
-        50 + tiles * 200
+        // Path-only images may live on another host. Use their saved dimensions.
+        let metadata = image.metadata.as_ref()?;
+        let dimension = |key: &str| {
+            u32::try_from(metadata.get(key)?.as_u64()?)
+                .ok()
+                .filter(|&size| size > 0)
+        };
+        Some((dimension("width")?, dimension("height")?))
     }
 
     pub fn estimate_tokens_with_reasoning(&self, include_reasoning: bool) -> usize {
-        let mut total = 0usize;
-        total += 4;
+        let text_tokens = self.estimate_non_image_tokens_with_reasoning(include_reasoning);
+        let add_image = |total: usize, dimensions: Option<(u32, u32)>| {
+            let (width, height) = dimensions.unwrap_or(UNKNOWN_IMAGE_DIMENSIONS);
+            total.saturating_add(estimate_image_tokens(width, height))
+        };
+        match &self.content {
+            MessageContent::Multimodal { images, .. } => images
+                .iter()
+                .map(Self::user_image_dimensions)
+                .fold(text_tokens, add_image),
+            MessageContent::ToolResult {
+                image_attachments: Some(images),
+                ..
+            } => images
+                .iter()
+                .map(|image| inline_image_dimensions(&image.mime_type, &image.data_base64))
+                .fold(text_tokens, add_image),
+            _ => text_tokens,
+        }
+    }
+
+    pub fn estimate_non_image_tokens_with_reasoning(&self, include_reasoning: bool) -> usize {
+        let mut total = 4;
 
         match &self.content {
-            MessageContent::Text(text) => {
+            MessageContent::Text(text) | MessageContent::Multimodal { text, .. } => {
                 total += TokenCounter::estimate_tokens(text);
-            }
-            MessageContent::Multimodal { text, images } => {
-                total += TokenCounter::estimate_tokens(text);
-                for image in images {
-                    total += Self::estimate_image_tokens(image.metadata.as_ref());
-                }
             }
             MessageContent::Mixed {
                 reasoning_content,
@@ -756,7 +817,6 @@ impl Message {
                 tool_name,
                 result,
                 result_for_assistant,
-                image_attachments,
                 ..
             } => {
                 if let Some(text) = result_for_assistant.as_ref().filter(|s| !s.is_empty()) {
@@ -765,11 +825,6 @@ impl Message {
                     total += TokenCounter::estimate_tokens(&json_str);
                 } else {
                     total += TokenCounter::estimate_tokens(tool_name);
-                }
-                if let Some(imgs) = image_attachments {
-                    for _ in imgs {
-                        total += Self::estimate_image_tokens(None);
-                    }
                 }
             }
         }
@@ -841,6 +896,60 @@ mod tests {
         ModelResponseReplay, ModelResponseReplayItem, ReasoningContentKind,
     };
     use serde_json::json;
+
+    #[test]
+    fn restored_tool_results_and_inline_uploads_use_the_encoded_image_dimensions() {
+        use super::{ImageContextData, ToolImageAttachment, ToolResult};
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        use std::io::Cursor;
+
+        for (size, expected_tokens) in [(512, 250), (2048, 3250)] {
+            let mut png = Cursor::new(Vec::new());
+            image::DynamicImage::new_luma8(size, size)
+                .write_to(&mut png, image::ImageFormat::Png)
+                .unwrap();
+            let data = STANDARD.encode(png.into_inner());
+            let user = Message::user_multimodal(
+                "Screenshot".into(),
+                vec![ImageContextData {
+                    id: "screenshot".into(),
+                    image_path: None,
+                    data_url: Some(format!("data:image/png;base64,{data}")),
+                    mime_type: "image/png".into(),
+                    metadata: None,
+                }],
+            );
+            let mut result = ToolResult {
+                tool_id: "call".into(),
+                tool_name: "view_image".into(),
+                effective_tool_name: None,
+                result: json!({}),
+                result_for_assistant: Some("Screenshot".into()),
+                is_error: false,
+                duration_ms: None,
+                image_attachments: None,
+            };
+            let text_tokens =
+                Message::tool_result(result.clone()).estimate_tokens_with_reasoning(false);
+            result.image_attachments = Some(vec![ToolImageAttachment {
+                mime_type: "image/png".into(),
+                data_base64: data,
+            }]);
+
+            let stored = serde_json::to_value(Message::tool_result(result)).unwrap();
+            let restored: Message = serde_json::from_value(stored).unwrap();
+            for message in [user, restored] {
+                assert_eq!(
+                    message.estimate_non_image_tokens_with_reasoning(false),
+                    text_tokens
+                );
+                assert_eq!(
+                    message.estimate_tokens_with_reasoning(false) - text_tokens,
+                    expected_tokens
+                );
+            }
+        }
+    }
 
     #[test]
     fn ptc_specs_and_routed_execution_metadata_round_trip_together_with_legacy_defaults() {

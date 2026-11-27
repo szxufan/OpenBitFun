@@ -54,6 +54,17 @@ describe('sessionComposerStore', () => {
     expect(sessionComposerStore.getState().getDraft('session-b').value).toBe('draft b');
   });
 
+  it('keeps bootstrap ownership on restoration and clears it when text is edited', () => {
+    const store = sessionComposerStore.getState();
+    store.setPrefill('assistant', 'Initialize', 'assistant-bootstrap', LOCAL_SURFACE_ID);
+    store.setValue('assistant', 'Initialize');
+    expect(store.getDraft('assistant').prefillSource).toBe('assistant-bootstrap');
+    store.setValue('assistant', 'My own prompt');
+    expect(store.getDraft('assistant').prefillSource).toBeUndefined();
+    store.setValue('assistant', 'Initialize');
+    expect(store.getDraft('assistant').prefillSource).toBeUndefined();
+  });
+
   it('saves the previous contexts and restores the complete next draft on activation', () => {
     const store = sessionComposerStore.getState();
     store.setValue('session-a', 'draft a');

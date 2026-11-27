@@ -1,5 +1,11 @@
 //! Model-specific image input budgets for an outgoing request copy.
 
+#[cfg(feature = "vision-input")]
+pub(super) mod context;
+#[cfg(all(test, feature = "vision-input"))]
+mod context_tests;
+
+use crate::client::format::ApiFormat;
 use crate::types::Message;
 use anyhow::Result;
 use openbitfun_core_types::errors::{AiProviderError, ErrorCategory};
@@ -27,13 +33,18 @@ pub(super) fn validate_extra_body(
     Ok(())
 }
 
-/// Keep the newest image-bearing messages within the selected model's budget.
+/// Send pixels for new inputs and retain references to images in history.
+/// Keep the newest pending images within the selected model's count limit.
 /// Within one message, retain the first images in their original order. Tool
 /// identities, text, reasoning and replay state are otherwise left intact.
 pub(super) fn project(
     mut messages: Vec<Message>,
     max_images: Option<usize>,
+    turn_start: Option<usize>,
+    format: ApiFormat,
+    retain_latest_user_image: bool,
 ) -> Result<Vec<Message>> {
+    project_history(&mut messages, turn_start, format, retain_latest_user_image);
     let Some(mut remaining) = max_images else {
         return Ok(messages);
     };
@@ -71,25 +82,150 @@ pub(super) fn project(
                     ));
                 }
             }
-            "user" => project_user_content(&mut message.content, &mut remaining),
+            "user" => project_user_content(&mut message.content, &mut remaining, format),
             _ => {}
         }
     }
     Ok(messages)
 }
 
-fn project_user_content(content: &mut Option<String>, remaining: &mut usize) {
-    let Some(original) = content.as_deref() else {
-        return;
-    };
-    let Ok(Value::Array(mut parts)) = serde_json::from_str::<Value>(original) else {
-        return;
-    };
-    // Ordinary JSON remains text. Require a recognizable content-part array,
-    // rather than recursively treating arbitrary image-looking fields as pixels.
-    if !parts.iter().all(is_content_part) {
-        return;
+/// A gateway can reject a batch even when all its images fit the context window.
+pub(super) fn smaller_tool_batch(messages: &[Message]) -> Option<Vec<Message>> {
+    let count = messages
+        .iter()
+        .filter(|message| message.role == "tool")
+        .map(|message| message.tool_image_attachments.as_ref().map_or(0, Vec::len))
+        .sum::<usize>();
+    if count < 2 {
+        return None;
     }
+    let mut keep_one = true;
+    let mut reduced = Vec::with_capacity(messages.len());
+    for message in messages.iter().rev() {
+        let attachments = message
+            .tool_image_attachments
+            .as_deref()
+            .unwrap_or_default();
+        if message.role != "tool" || attachments.is_empty() {
+            reduced.push(message.clone());
+            continue;
+        }
+        let keep = usize::from(std::mem::take(&mut keep_one));
+        let mut adjusted = Message {
+            content: message.content.clone(),
+            role: message.role.clone(),
+            reasoning_content: message.reasoning_content.clone(),
+            thinking_signature: message.thinking_signature.clone(),
+            tool_calls: message.tool_calls.clone(),
+            tool_call_id: message.tool_call_id.clone(),
+            name: message.name.clone(),
+            is_error: message.is_error,
+            model_response_replay: message.model_response_replay.clone(),
+            tool_image_attachments: (keep > 0).then(|| attachments[..keep].to_vec()),
+        };
+        if attachments.len() > keep {
+            let text = adjusted.content.get_or_insert_with(String::new);
+            text.push_str("\n[Some tool images were omitted to fit the request body. Read the images in separate calls if needed.]");
+        }
+        reduced.push(adjusted);
+    }
+    reduced.reverse();
+    Some(reduced)
+}
+
+/// A response confirms receipt of all preceding inputs. Consecutive user
+/// messages or parallel tool results after it may still await their first send.
+fn project_history(
+    messages: &mut [Message],
+    turn_start: Option<usize>,
+    format: ApiFormat,
+    retain_latest_user_image: bool,
+) {
+    let turn_start = turn_start.unwrap_or(0).min(messages.len());
+    let pending_start = messages[turn_start..]
+        .iter()
+        .rposition(|message| message.role == "assistant")
+        .map_or(turn_start, |index| turn_start + index + 1);
+    let retained = retain_latest_user_image
+        .then(|| {
+            messages.iter().rposition(|message| {
+                message.role == "user"
+                    && user_parts(&message.content, format)
+                        .is_some_and(|parts| parts.iter().any(is_image_part))
+            })
+        })
+        .flatten();
+    for (index, message) in messages[..pending_start].iter_mut().enumerate() {
+        match message.role.as_str() {
+            "tool" => {
+                if let Some(images) = message
+                    .tool_image_attachments
+                    .take()
+                    .filter(|images| !images.is_empty())
+                {
+                    let text = message.content.get_or_insert_with(String::new);
+                    text.push_str(&format!(
+                        "\n[{} earlier tool image(s). Read the source again if pixels are needed.]",
+                        images.len()
+                    ));
+                }
+            }
+            "user" if Some(index) != retained => {
+                let Some(mut parts) = user_parts(&message.content, format) else {
+                    continue;
+                };
+                let mut changed = false;
+                for part in parts.iter_mut().filter(|part| is_image_part(part)) {
+                    let url = &part["image_url"];
+                    let reference = url["url"]
+                        .as_str()
+                        .or_else(|| url.as_str())
+                        .or_else(|| part["source"]["url"].as_str())
+                        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+                        .or_else(|| part["file_id"].as_str())
+                        .or_else(|| part["source"]["file_id"].as_str());
+                    let text = match reference {
+                        Some(reference) => format!("[Earlier image reference: {reference}]"),
+                        None => "[Earlier image. Reattach or read it again if pixels are needed.]"
+                            .into(),
+                    };
+                    *part = json!({"type":"text", "text":text});
+                    changed = true;
+                }
+                if changed {
+                    message.content = Some(Value::Array(parts).to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+// OpenAI treats an unrecognized array as literal text. Gemini recognizes
+// individual image parts alongside unknown siblings; Anthropic forwards the array.
+fn user_parts(content: &Option<String>, format: ApiFormat) -> Option<Vec<Value>> {
+    let content = content.as_deref()?.trim_start();
+    if !content.starts_with('[') {
+        return None;
+    }
+    let parts: Vec<Value> = serde_json::from_str(content).ok()?;
+    if matches!(format, ApiFormat::OpenAIChat | ApiFormat::OpenAIResponses)
+        && !parts.iter().all(is_content_part)
+    {
+        return None;
+    }
+    if matches!(format, ApiFormat::Gemini | ApiFormat::GeminiCodeAssist)
+        && !crate::providers::GeminiMessageConverter::is_user_content_parts(&parts)
+    {
+        return None;
+    }
+    Some(parts)
+}
+
+fn project_user_content(content: &mut Option<String>, remaining: &mut usize, format: ApiFormat) {
+    let Some(mut parts) = user_parts(content, format) else {
+        return;
+    };
     let image_count = parts.iter().filter(|part| is_image_part(part)).count();
     let keep = image_count.min(*remaining);
     *remaining -= keep;
@@ -143,6 +279,8 @@ fn is_image_part(part: &Value) -> bool {
         }
         Some("image") => part.get("source").is_some_and(|source| {
             image_url(source.get("url"))
+                || (source["type"] == "file"
+                    && source["file_id"].as_str().is_some_and(|id| !id.is_empty()))
                 || (source
                     .get("media_type")
                     .and_then(Value::as_str)
@@ -174,6 +312,10 @@ mod tests {
     use crate::providers::gemini::message_converter::GeminiMessageConverter;
     use crate::providers::openai::message_converter::OpenAIMessageConverter;
     use crate::types::ToolImageAttachment;
+
+    fn project(messages: Vec<Message>, max_images: Option<usize>) -> Result<Vec<Message>> {
+        super::project(messages, max_images, None, ApiFormat::OpenAIChat, false)
+    }
 
     fn image(id: &str) -> Value {
         json!({"type": "image_url", "image_url": {"url": format!("data:image/png;base64,{id}")}})
@@ -326,16 +468,21 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_continue_reprojects_old_history_with_the_actual_clients_limit() {
+    fn a_plain_continue_keeps_a_repeatable_text_reference() {
         let mut history = vec![tool_images("batch", 4)];
         assert_eq!(count(&project(history.clone(), Some(5)).unwrap()), 4);
         assert_eq!(count(&project(history.clone(), Some(3)).unwrap()), 3);
+        history.push(Message::assistant("I have inspected the images.".into()));
         history.push(Message::user("Continue.".into()));
         let projected = project(history.clone(), Some(3)).unwrap();
-        assert_eq!(count(&projected), 3);
-        assert_eq!(projected[1].content.as_deref(), Some("Continue."));
+        assert_eq!(count(&projected), 0);
+        assert_eq!(projected[2].content.as_deref(), Some("Continue."));
         assert_eq!(count(&history), 4);
-        assert_eq!(count(&project(projected, Some(3)).unwrap()), 3);
+        let expected = serde_json::to_value(&projected).unwrap();
+        assert_eq!(
+            serde_json::to_value(project(projected, Some(3)).unwrap()).unwrap(),
+            expected
+        );
     }
 
     #[test]
@@ -480,6 +627,10 @@ mod tests {
         let mut selected = initial.clone();
         selected.config.max_images_per_request = Some(3);
         let mut history = vec![tool_images("batch", 4)];
+        // Use actual one-pixel images so the 4K window exercises the count limit.
+        for image in history[0].tool_image_attachments.as_mut().unwrap() {
+            image.data_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=".into();
+        }
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             initial
                 .send_message_once_with_trace_and_request_context(history.clone(), None, None, None)
@@ -489,6 +640,7 @@ mod tests {
                 .send_message_once_with_trace_and_request_context(history.clone(), None, None, None)
                 .await
                 .unwrap();
+            history.push(Message::assistant("I inspected the images.".into()));
             history.push(Message::user("Continue.".into()));
             selected
                 .send_message_once_with_trace_and_request_context(history.clone(), None, None, None)
@@ -502,8 +654,49 @@ mod tests {
         assert_eq!(requests.len(), 3);
         assert_eq!(wire_count(&requests[0]["messages"]), 4);
         assert_eq!(wire_count(&requests[1]["messages"]), 3);
-        assert_eq!(wire_count(&requests[2]["messages"]), 3);
+        assert_eq!(wire_count(&requests[2]["messages"]), 0);
         assert_eq!(count(&history), 4);
+    }
+
+    #[test]
+    fn historical_image_parts_preserve_text_and_existing_references() {
+        let inline = image("unrepeatable-pixels");
+        let url = "https://example.com/diagram.png";
+        let known = Message::user(
+            json!([
+                {"type":"text","text":"Compare these images"},
+                inline, {"type":"image_url","image_url":{"url":url}},
+                {"type":"input_image","file_id":"file-diagram"}
+            ])
+            .to_string(),
+        );
+        let literal = Message::user(json!([inline, {"record":"application data"}]).to_string());
+        let messages = vec![
+            known,
+            literal,
+            Message::assistant("Done".into()),
+            user_images(&["new"]),
+            Message::user("Review the details.".into()),
+        ];
+        let original = serde_json::to_value(&messages).unwrap();
+        let projected = super::project(
+            messages.clone(),
+            None,
+            None,
+            ApiFormat::OpenAIResponses,
+            false,
+        )
+        .unwrap();
+        let old = projected[0].content.as_deref().unwrap();
+        assert!(
+            old.contains(url)
+                && old.contains("file-diagram")
+                && old.contains("Compare these images")
+        );
+        assert!(!old.contains("unrepeatable-pixels"));
+        assert_eq!(projected[1].content, messages[1].content);
+        assert_eq!(projected[3].content, messages[3].content);
+        assert_eq!(serde_json::to_value(messages).unwrap(), original);
     }
 
     #[test]
@@ -565,6 +758,64 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("1 image(s) omitted"));
+        }
+    }
+
+    #[test]
+    fn consumed_images_keep_their_user_and_tool_roles_on_the_wire() {
+        let call = crate::ToolCall {
+            id: "capture".into(),
+            name: "view_image".into(),
+            arguments: json!({"path":"screen.png"}),
+            raw_arguments: None,
+        };
+        let history = vec![
+            user_images(&["upload"]),
+            Message::assistant_with_tools(vec![call]),
+            tool_images("capture", 1),
+            Message::assistant("Reviewed both images.".into()),
+            Message::user("Continue.".into()),
+        ];
+        for (format, model) in [
+            (ApiFormat::OpenAIChat, "test"),
+            (ApiFormat::OpenAIResponses, "test"),
+            (ApiFormat::Anthropic, "test"),
+            (ApiFormat::Gemini, "gemini-3-pro"),
+            (ApiFormat::Gemini, "gemini-2.5-pro"),
+        ] {
+            let projected = super::project(history.clone(), None, None, format, false).unwrap();
+            let wire = match format {
+                ApiFormat::OpenAIChat => OpenAIMessageConverter::convert_messages(projected),
+                ApiFormat::OpenAIResponses => {
+                    OpenAIMessageConverter::convert_messages_to_responses_input(projected).1
+                }
+                ApiFormat::Anthropic => AnthropicMessageConverter::convert_messages(projected).1,
+                _ => GeminiMessageConverter::convert_messages(projected, model).1,
+            };
+            assert_eq!(wire[0]["role"], "user");
+            assert!(wire[0].to_string().contains("Inspect these images"));
+            let result = &wire[2];
+            match format {
+                ApiFormat::OpenAIChat => {
+                    assert_eq!(result["role"], "tool");
+                    assert_eq!(result["tool_call_id"], "capture");
+                }
+                ApiFormat::OpenAIResponses => {
+                    assert_eq!(result["type"], "function_call_output");
+                    assert_eq!(result["call_id"], "capture");
+                }
+                ApiFormat::Anthropic => {
+                    assert_eq!(result["role"], "user");
+                    assert_eq!(result["content"][0]["type"], "tool_result");
+                    assert_eq!(result["content"][0]["tool_use_id"], "capture");
+                }
+                _ => {
+                    assert_eq!(result["role"], "user");
+                    assert_eq!(result["parts"][0]["functionResponse"]["name"], "view_image");
+                }
+            }
+            assert!(result.to_string().contains("Image attached"));
+            assert_eq!(wire_count(&Value::Array(wire)), 0);
         }
     }
 

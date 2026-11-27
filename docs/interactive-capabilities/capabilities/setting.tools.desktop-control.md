@@ -24,6 +24,10 @@ Manage the Allow desktop control master switch for native desktop GUI automation
 
 ## 完整功能清单 / Everything included
 
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 为本机集成授权工作区
+  - Authorize workspaces for local integrations
+  - 说明：启用本机 HTTP 接口，为每个集成创建或撤销令牌。外部任务在桌面会话中运行。
+  - Why & how: Enable local HTTP access and issue or revoke workspace-scoped integration tokens. Submitted tasks run in desktop sessions.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 查看“允许桌面控制”开关及“辅助功能”、“屏幕录制”系统授权状态并完成授权
   - Inspect Allow desktop control plus Accessibility and Screen Recording grants and authorize in OS settings
   - 说明：在 macOS 上需同时授予“辅助功能”（用于模拟点击与键盘输入）和“屏幕录制”（用于截取目标画面）才能完整运行桌面自动化；未就绪时可直接点击“系统设置”跳转授权。

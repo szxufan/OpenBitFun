@@ -123,10 +123,16 @@ persistence first and then captures the context snapshot.
 The child session is initialized from a captured parent context snapshot:
 
 - same parent agent type
-- same workspace and model config
+- same workspace, with parent model configuration inherited by default
 - inherited message context
 - cloned session-level prompt cache
 - seeded skill/agent listing baselines derived from the parent session
+
+`ai.btw.model_selection` may instead choose a model or pool for new side questions.
+The host resolves that default before the first turn, below an explicit child
+selection, and existing children retain their own choice. A changed model starts
+with its own default reasoning. The context snapshot remains inherited; provider
+cache reuse still depends on the selected model's normal cache identity checks.
 
 That gives the side thread an already-built conversational prefix.
 

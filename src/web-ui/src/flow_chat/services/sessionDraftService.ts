@@ -48,11 +48,14 @@ export async function prepareSessionDraftForCommand(session: Session): Promise<S
 
 export function draftWorkspace(session: Session | undefined): WorkspaceInfo | undefined {
   const id = session?.draft?.workspaceId;
-  return id ? workspaceManager.getState().openedWorkspaces.get(id) : undefined;
+  if (!id) return undefined;
+  const state = workspaceManager.getState();
+  return state.openedWorkspaces.get(id) ?? state.assistantWorkspaces?.find(workspace => workspace.id === id);
 }
 
 export function canSelectSessionWorkspace(session: Session | undefined, submitting = false): boolean {
   return !!session && !!session.draft && session.draft.phase === 'editing'
+    && draftWorkspace(session)?.workspaceKind !== WorkspaceKind.Assistant
     && !isSessionBindingLocked(session, submitting)
     && !session.parentSessionId && !session.isTransient
     && !session.config.dispatchTarget && !session.config.dispatchJobId;

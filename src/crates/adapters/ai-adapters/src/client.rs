@@ -26,7 +26,7 @@ use crate::types::*;
 use anyhow::Result;
 use format::ApiFormat;
 use log::warn;
-use openbitfun_core_types::errors::AiProviderError;
+use openbitfun_core_types::errors::{AiProviderError, ErrorCategory};
 use reqwest::Client;
 use std::time::Duration;
 use std::{fmt, future::Future, pin::Pin, sync::Arc};
@@ -379,7 +379,10 @@ impl AIClient {
         extra_body: Option<serde_json::Value>,
         trace: Option<ModelExchangeTraceConfig>,
     ) -> Result<StreamResponse> {
-        self.send_message_stream_with_extra_body_and_max_attempts(
+        let messages = self
+            .prepare_message_inputs(messages, tools.as_deref(), None, extra_body.as_ref())
+            .await?;
+        self.send_prepared_message_stream(
             messages,
             tools,
             extra_body,
@@ -415,15 +418,16 @@ impl AIClient {
         trace: Option<ModelExchangeTraceConfig>,
     ) -> Result<StreamResponse> {
         let custom_body = self.config.custom_request_body.clone();
-        self.send_message_stream_with_extra_body_and_max_attempts(
-            messages,
-            tools,
-            custom_body,
-            1,
-            trace,
-            request_context,
-        )
-        .await
+        let messages = self
+            .prepare_message_inputs(
+                messages,
+                tools.as_deref(),
+                request_context.as_ref(),
+                custom_body.as_ref(),
+            )
+            .await?;
+        self.send_prepared_message_stream(messages, tools, custom_body, 1, trace, request_context)
+            .await
     }
 
     pub async fn send_message(
@@ -537,9 +541,17 @@ impl AIClient {
     ) -> Result<GeminiResponse> {
         let request_context =
             crate::providers::shared::prepare_request_context(self, request_context);
+        let messages = self
+            .prepare_message_inputs(
+                messages,
+                tools.as_deref(),
+                request_context.as_ref(),
+                extra_body.as_ref(),
+            )
+            .await?;
         for attempt in 0..max_attempts {
             let stream_response = match self
-                .send_message_stream_with_extra_body_and_max_attempts(
+                .send_prepared_message_stream(
                     messages.clone(),
                     tools.clone(),
                     extra_body.clone(),
@@ -554,7 +566,9 @@ impl AIClient {
                     if attempt == max_attempts - 1
                         || error
                             .downcast_ref::<AiProviderError>()
-                            .is_some_and(|error| error.delivery_uncertain)
+                            .is_some_and(|error| {
+                                error.delivery_uncertain || error.http_status == Some(413)
+                            })
                     {
                         return Err(error);
                     }
@@ -588,7 +602,9 @@ impl AIClient {
                     if attempt == max_attempts - 1
                         || error
                             .downcast_ref::<AiProviderError>()
-                            .is_some_and(|error| error.delivery_uncertain)
+                            .is_some_and(|error| {
+                                error.delivery_uncertain || error.http_status == Some(413)
+                            })
                     {
                         return Err(error);
                     }
@@ -608,7 +624,62 @@ impl AIClient {
         unreachable!("send_message retry loop always returns")
     }
 
-    async fn send_message_stream_with_extra_body_and_max_attempts(
+    async fn prepare_message_inputs(
+        &self,
+        messages: Vec<Message>,
+        tools: Option<&[ToolDefinition]>,
+        request_context: Option<&ModelRequestContext>,
+        extra_body: Option<&serde_json::Value>,
+    ) -> Result<Vec<Message>> {
+        // Project only the outgoing copy, against the actual selected client.
+        responses_websocket::validate(self)?;
+        // Account/channel failover and direct analysis calls share this boundary.
+        let messages = image_budget::project(
+            messages,
+            self.config.max_images_per_request,
+            request_context.and_then(|context| context.image_turn_start),
+            ApiFormat::parse(&self.config.format)?,
+            request_context.map_or_else(
+                || tools.is_none_or(<[_]>::is_empty),
+                |context| context.retain_latest_user_image,
+            ),
+        )?;
+        image_budget::validate_extra_body(self.config.max_images_per_request, extra_body)?;
+        #[cfg(feature = "vision-input")]
+        let replaced = image_budget::context::validate_override(
+            self,
+            &messages,
+            tools,
+            request_context,
+            extra_body,
+        )?;
+        #[cfg(feature = "vision-input")]
+        let messages = if !replaced
+            && messages
+                .iter()
+                .any(image_budget::context::may_contain_images)
+        {
+            let budget = image_budget::context::Budget::for_request(
+                self,
+                tools,
+                request_context,
+                extra_body,
+            )?;
+            // Decoding and resampling a large screenshot can occupy a CPU for
+            // a full scheduling slice. Keep it off the async transport worker.
+            tokio::task::spawn_blocking(move || -> Result<_> {
+                let mut messages = messages;
+                image_budget::context::apply(&mut messages, budget)?;
+                Ok(messages)
+            })
+            .await??
+        } else {
+            messages
+        };
+        Ok(messages)
+    }
+
+    async fn send_prepared_message_stream(
         &self,
         messages: Vec<Message>,
         tools: Option<Vec<ToolDefinition>>,
@@ -617,11 +688,64 @@ impl AIClient {
         trace: Option<ModelExchangeTraceConfig>,
         request_context: Option<ModelRequestContext>,
     ) -> Result<StreamResponse> {
-        // Project only the outgoing copy, against the actual selected client.
-        responses_websocket::validate(self)?;
-        // Account/channel failover and direct analysis calls share this boundary.
-        let messages = image_budget::project(messages, self.config.max_images_per_request)?;
-        image_budget::validate_extra_body(self.config.max_images_per_request, extra_body.as_ref())?;
+        let can_reduce_batch = extra_body.as_ref().is_none_or(|body| {
+            ["messages", "input", "contents"]
+                .iter()
+                .all(|key| body.get(key).is_none())
+        });
+        let Some(smaller) = can_reduce_batch
+            .then(|| image_budget::smaller_tool_batch(&messages))
+            .flatten()
+        else {
+            return self
+                .send_wire_message_stream(
+                    messages,
+                    tools,
+                    extra_body,
+                    max_tries,
+                    trace,
+                    request_context,
+                )
+                .await;
+        };
+        let outcome = self
+            .send_wire_message_stream(
+                messages,
+                tools.clone(),
+                extra_body.clone(),
+                max_tries,
+                trace.clone(),
+                request_context.clone(),
+            )
+            .await;
+        if let Err(error) = &outcome {
+            if error
+                .downcast_ref::<AiProviderError>()
+                .is_some_and(|error| {
+                    error.http_status == Some(413)
+                        && error.category == ErrorCategory::InvalidRequest
+                        && !error.delivery_uncertain
+                })
+            {
+                // Only a confirmed byte-limit rejection is safe to resend. This
+                // retry changes the body and retains the tool-call protocol.
+                return self
+                    .send_wire_message_stream(smaller, tools, extra_body, 1, trace, request_context)
+                    .await;
+            }
+        }
+        outcome
+    }
+
+    async fn send_wire_message_stream(
+        &self,
+        messages: Vec<Message>,
+        tools: Option<Vec<ToolDefinition>>,
+        extra_body: Option<serde_json::Value>,
+        max_tries: usize,
+        trace: Option<ModelExchangeTraceConfig>,
+        request_context: Option<ModelRequestContext>,
+    ) -> Result<StreamResponse> {
         match ApiFormat::parse(&self.config.format)? {
             ApiFormat::OpenAIChat => {
                 openai::chat::send_stream(
@@ -953,6 +1077,7 @@ mod tests {
                 "type": "object",
                 "properties": { "summary": { "type": "string" } }
             })),
+            ..Default::default()
         }
     }
 
@@ -962,6 +1087,7 @@ mod tests {
             conversation_scope: None,
             prompt_cache_route_key: Some("lineage-1".to_string()),
             output_schema: None,
+            ..Default::default()
         };
         let official = openai::chat::build_request_body_with_context(
             &make_test_client("openai", None),
@@ -2954,6 +3080,54 @@ mod tests {
         let response = result.expect("the second stream attempt should succeed");
         assert_eq!(response.text, "Recovered");
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn oversized_http_body_reaches_the_caller_without_a_retry() {
+        use axum::http::StatusCode;
+        use openbitfun_core_types::errors::{AiProviderError, ErrorCategory};
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&attempts);
+        let app = Router::new().route(
+            "/chat/completions",
+            post(move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+                async {
+                    (
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "<html><title>413 Request Entity Too Large</title></html>",
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = make_test_client("openai", None);
+        client.config.request_url =
+            format!("http://{}/chat/completions", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let messages = vec![crate::types::Message::user(
+            "Inspect the attachment.".into(),
+        )];
+
+        let streamed = client
+            .send_message_stream(messages.clone(), None, None)
+            .await
+            .err()
+            .unwrap();
+        let aggregated = client.send_message(messages, None).await.err().unwrap();
+        server.abort();
+
+        for error in [streamed, aggregated] {
+            let detail = error.downcast_ref::<AiProviderError>().unwrap();
+            assert_eq!(detail.http_status, Some(413));
+            assert_eq!(detail.category, ErrorCategory::InvalidRequest);
+            assert!(detail.message.contains("Crop images"));
+        }
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            2,
+            "one HTTP request per call"
+        );
     }
 
     #[test]

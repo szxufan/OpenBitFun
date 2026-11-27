@@ -14,6 +14,13 @@ never seen, so it opens no subscription and reads no history; a host rejection
 there would falsely lock an empty session as a failed restore. The subscription
 starts when the host accepts the draft.
 
+Opening a blank conversation in the UI, including Claw, reserves a frontend draft.
+Creation reuses a blank, unsubmitted draft on the rendered device after resolving
+the workspace's actual mode. User text, attachments, pending submissions and
+recovery states prevent reuse; an untouched assistant bootstrap prefill is kept.
+An explicit command such as setting an assistant's default session may materialize
+the draft before the first message so its persisted pointer addresses a host record.
+
 `RelaySessionHistory` owns one subscription per visible surface/session.
 `SessionRecordReplica` applies both replayed pages and live canonical records
 using stable IDs, revisions and tombstones; every page comes from the online

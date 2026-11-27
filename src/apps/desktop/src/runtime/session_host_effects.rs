@@ -13,11 +13,22 @@ impl openbitfun_acp::client::AcpProjectionJournal for AcpJournalAdapter {
         event: &openbitfun_events::AgenticEvent,
     ) -> Option<openbitfun_acp::client::AcpEventCursor> {
         self.0
-            .record(event)
+            .record_until_checkpoint(event)
             .map(|cursor| openbitfun_acp::client::AcpEventCursor {
                 stream_id: cursor.stream_id,
                 cursor: cursor.cursor,
             })
+    }
+
+    fn pending_checkpoint(&self, session: &str) -> Vec<openbitfun_events::AgenticEvent> {
+        self.0
+            .pending_checkpoint(session)
+            .map(|log| log.events)
+            .unwrap_or_default()
+    }
+
+    fn checkpoint_saved(&self, session: &str) {
+        self.0.checkpoint_saved(session);
     }
 
     fn snapshot(&self, session: &str) -> openbitfun_acp::client::AcpEventProjectionSnapshot {
@@ -44,6 +55,20 @@ impl ProductionDesktopSessionHostEffects {
 
 #[async_trait]
 impl DesktopSessionHostEffects for ProductionDesktopSessionHostEffects {
+    async fn recover_acp_history(
+        &self,
+        path: &std::path::Path,
+        session: &str,
+    ) -> Result<(), String> {
+        if let Some(service) = &self.acp_client_service {
+            service
+                .recover_stored_dialog_turn(path, session)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
     fn supports_acp_projection(&self) -> bool {
         self.acp_client_service.is_some()
     }
@@ -64,6 +89,12 @@ impl DesktopSessionHostEffects for ProductionDesktopSessionHostEffects {
                 events: projection.events,
             },
         })
+    }
+
+    fn forget_session_recovery(&self, session_id: &str) {
+        if let Some(service) = self.acp_client_service.as_ref() {
+            service.forget_session_recovery(session_id);
+        }
     }
 
     async fn release_session(&self, session_id: &str) {

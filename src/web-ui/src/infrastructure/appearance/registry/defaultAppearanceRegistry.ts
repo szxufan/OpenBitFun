@@ -130,6 +130,7 @@ import { themeTokenAppearanceAdapter } from '../adapters/ThemeTokenAppearanceAda
 import { tiptapEditorAppearanceDescriptor } from '@/tools/editor/meditor/components/TiptapEditor.appearance';
 import { workspaceProjectPermissionsDialogAppearanceDescriptor } from '@/app/components/NavPanel/sections/workspaces/WorkspaceProjectPermissionsDialog.appearance';
 import { workspaceSessionBatchModalAppearanceDescriptor } from '@/app/components/NavPanel/sections/workspaces/WorkspaceSessionBatchModal.appearance';
+import { snapshotStorageAppearanceDescriptor } from '@/app/scenes/settings/pages/data/StorageSettingsPage.appearance';
 import { archivedSessionsConfigAppearanceDescriptor } from '@/app/scenes/settings/pages/data/ArchivedSessionsSettingsPage.appearance';
 import {
   automationSettingsPageAppearanceDescriptor,
@@ -406,6 +407,7 @@ export function createDefaultAppearanceRegistry(): AppearanceRegistry {
     .registerComponent(tiptapEditorAppearanceDescriptor)
     .registerComponent(workspaceProjectPermissionsDialogAppearanceDescriptor)
     .registerComponent(workspaceSessionBatchModalAppearanceDescriptor)
+    .registerComponent(snapshotStorageAppearanceDescriptor)
     .registerComponent(archivedSessionsConfigAppearanceDescriptor)
     .registerComponent(usageStatisticsConfigAppearanceDescriptor)
     .registerComponent(settingsNavAppearanceDescriptor)

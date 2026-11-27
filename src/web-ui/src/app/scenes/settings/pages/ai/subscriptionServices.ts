@@ -6,14 +6,14 @@ export function isZcodeProvider(provider?: SubscriptionProvider): provider is 'z
 }
 
 /**
- * Retired products no longer support subscription sign-in: the vendor stopped
- * allowing subscription-token access. Their persisted accounts stay listed so
- * users can see and remove them, but nothing offers login, refresh or import.
+ * Retired products no longer support subscription sign-in or import. Their
+ * persisted accounts stay listed so users can see and remove them, but nothing
+ * offers login, refresh or import.
  */
 export function isRetiredSubscriptionProvider(
   provider?: SubscriptionProvider,
-): provider is 'workbuddy' | 'workbuddy_ai' {
-  return provider === 'workbuddy' || provider === 'workbuddy_ai';
+): provider is 'antigravity' | 'workbuddy' | 'workbuddy_ai' {
+  return provider === 'antigravity' || provider === 'workbuddy' || provider === 'workbuddy_ai';
 }
 
 /** Presentation grouping only. Every account retains its wire provider and region. */
@@ -112,6 +112,17 @@ export interface ManagedSubscriptionAccount {
   accountId: string;
   enabled: boolean;
   upstreamIdentity?: string | null;
+}
+
+/** Reuses a signed-out slot that still retains the upstream account identity. */
+export function retainedSubscriptionAccountId(
+  accounts: ManagedSubscriptionAccount[],
+  provider: SubscriptionProvider,
+): string | undefined {
+  const retained = accounts.find(item => item.account.provider === provider
+    && !item.account.connected
+    && Boolean(item.upstreamIdentity || item.account.account));
+  return retained?.accountId;
 }
 
 /**

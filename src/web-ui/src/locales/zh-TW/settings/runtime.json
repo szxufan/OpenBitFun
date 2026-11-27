@@ -1,4 +1,21 @@
 {
+  "externalControl": {
+    "port": "監聽連接埠",
+    "title": "外部控制",
+    "enable": "啟用本機 HTTP 存取",
+    "description": "允許整合工具在選取的本機專案工作區執行任務。工具核准由桌面端處理。",
+    "retry": "重試",
+    "endpoint": "API 位址",
+    "name": "整合名稱",
+    "workspaces": "授權工作區",
+    "origin": "網頁來源（選填）",
+    "originHint": "網頁直接連線時請填寫完整來源，包含連接埠。透過後端連線時留空。",
+    "access": "整合存取權限",
+    "issue": "建立權杖",
+    "token": "存取權杖",
+    "tokenHint": "請立即複製此權杖，它只會顯示一次。",
+    "revoke": "撤銷授權"
+  },
   "defaultHarness": {
     "title": "預設智能體執行模式",
     "description": "用於一般新會話；助理、ACP 與已指定模式的會話不受影響",

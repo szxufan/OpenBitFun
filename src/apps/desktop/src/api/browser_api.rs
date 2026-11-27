@@ -431,17 +431,22 @@ pub async fn browser_webview_create(
         builder = builder.devtools(true);
     }
 
-    let webview = window
-        .add_child(
-            builder,
-            tauri::LogicalPosition::new(request.x, request.y),
-            tauri::LogicalSize::new(request.width, request.height),
-        )
-        .map_err(|e| format!("failed to create browser webview: {e}"))?;
+    let position = tauri::LogicalPosition::new(request.x, request.y);
+    let size = tauri::LogicalSize::new(request.width, request.height);
+    #[cfg(target_os = "linux")]
+    let webview =
+        crate::linux_browser_layout::create_child(window, builder, position, size).await?;
+    #[cfg(not(target_os = "linux"))]
+    let webview = {
+        let webview = window
+            .add_child(builder, position, size)
+            .map_err(|e| format!("failed to create browser webview: {e}"))?;
+        webview
+            .hide()
+            .map_err(|e| format!("failed to hide browser webview before positioning: {e}"))?;
+        webview
+    };
 
-    webview
-        .hide()
-        .map_err(|e| format!("failed to hide browser webview before positioning: {e}"))?;
     let target_url = webview.url().map(|url| url.to_string()).unwrap_or_default();
     register_browser_target(
         webview.label(),
@@ -648,10 +653,16 @@ pub async fn browser_webview_set_bounds(
         .get_webview(&request.label)
         .ok_or_else(|| format!("Webview not found: {}", request.label))?;
 
+    let position = tauri::LogicalPosition::new(request.x, request.y);
+    let size = tauri::LogicalSize::new(request.width, request.height);
+    #[cfg(target_os = "linux")]
+    return crate::linux_browser_layout::set_bounds(&webview, position, size).await;
+
+    #[cfg(not(target_os = "linux"))]
     webview
         .set_bounds(tauri::Rect {
-            position: tauri::Position::Logical(tauri::LogicalPosition::new(request.x, request.y)),
-            size: tauri::Size::Logical(tauri::LogicalSize::new(request.width, request.height)),
+            position: tauri::Position::Logical(position),
+            size: tauri::Size::Logical(size),
         })
         .map_err(|e| format!("set bounds failed: {e}"))
 }

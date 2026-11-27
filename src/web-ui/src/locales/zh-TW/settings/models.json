@@ -49,7 +49,7 @@
   },
   "subscriptionAuth": {
     "sectionTitle": "訂閱賬號",
-    "sectionDescription": "連接 Codex、Antigravity、OpenCode、xAI、Hermes 或 ZCode 訂閱",
+    "sectionDescription": "連接 Codex、OpenCode、xAI、Hermes 或 ZCode 訂閱",
     "rescan": "重新整理狀態",
     "import": "匯入使用",
     "login": "登入",
@@ -66,7 +66,7 @@
     "refreshFailed": "重新整理失敗：{{error}}",
     "loginSuccess": "登入成功",
     "loginFailed": "登入失敗：{{error}}",
-    "peerLoginRequiresLocalDevice": "Antigravity 登入必須在執行 OpenBitFun 的裝置上完成，請切換到該裝置後再登入",
+    "peerLoginRequiresLocalDevice": "Antigravity 訂閱登入已不再支援，現有設定會保留",
     "logoutSuccess": "已登出",
     "logoutCleanupPending": "已登出，憑據清理仍在等待中，稍後會自動重試",
     "logoutFailed": "登出失敗：{{error}}",
@@ -82,7 +82,7 @@
     "chooseRegionHint": "選擇你購買 Coding Plan 訂閱的平台。",
     "products": {
       "codex": "Codex",
-      "antigravity": "Antigravity",
+      "antigravity": "Antigravity（已下線）",
       "opencode": "OpenCode",
       "grok": "Grok",
       "hermes": "Hermes",
@@ -92,7 +92,7 @@
     },
     "details": {
       "codex": "ChatGPT",
-      "antigravity": "Google",
+      "antigravity": "已下線 · 不再支援訂閱匯入",
       "opencode": "Zen",
       "grok": "SuperGrok",
       "hermes": "Nous Portal",
@@ -112,7 +112,7 @@
       "opencode": "OpenCode",
       "apiKey": "API Key",
       "codex": "Codex",
-      "antigravity": "Antigravity",
+      "antigravity": "Antigravity（已下線）",
       "grok": "Grok",
       "hermes": "Hermes",
       "workbuddy": "WorkBuddy（已下線）",
@@ -153,7 +153,7 @@
     "confirmForget": "確認移除",
     "forgetSuccess": "已移除訂閱賬號",
     "openCodeRemoved": "OpenCode Console OAuth 僅支援 Zen。Go 模型請選擇 API key 並填寫金鑰，既有模型設定保留。",
-    "retiredProvider": "WorkBuddy 訂閱已下線：廠商不再支援訂閱授權。現有模型設定與憑證均保留，如需繼續使用這些模型請新增 API Key 服務。",
+    "retiredProvider": "此訂閱服務已下線：不再支援訂閱存取。現有模型設定與憑證均保留，如需繼續使用這些模型請新增 API Key 服務。",
     "editorDescription": "此服務的模型共用目前登入的訂閱帳號",
     "accountLabel": "帳號",
     "accountAuthentication": "訂閱帳號授權",
@@ -1064,5 +1064,15 @@
     "noCandidates": "暫無可用的備用模型",
     "mode": "使用方式",
     "modeHint": "自動切換會在失敗時依序嘗試備用通道；固定使用只走所選通道，失敗時不切換。"
+  },
+  "btwModel": {
+    "title": "側問",
+    "label": "預設模型",
+    "inherit": "繼承父會話",
+    "pool": "模型池：{{name}}",
+    "unavailable": "已儲存的選擇無法使用，請另選模型或恢復繼承",
+    "unsupported": "此主機不支援側問預設模型設定。",
+    "failed": "無法讀取或儲存側問模型設定，已保留原有選擇。",
+    "retry": "重試"
   }
 }

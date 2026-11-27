@@ -91,6 +91,10 @@
       "externalImport": {
         "label": "外部导入",
         "description": "导入并管理其他 AI 应用中的内容"
+      },
+      "storage": {
+        "label": "存储空间",
+        "description": "查看本机存储占用并清理文件快照"
       }
     },
     "views": {
@@ -101,7 +105,6 @@
     "sections": {
       "text-selection": "文本选择",
       "message-sending": "消息发送",
-      "btw-close-confirmation": "侧问关闭",
       "voice": "语音",
       "shortcuts": "快捷键",
       "session": "会话默认行为",
@@ -114,7 +117,8 @@
       "pet": "宠物",
       "voice-call": "实时语音通话",
       "desktop-cards": "小卡片",
-      "sidebar-navigation": "左侧导航栏"
+      "sidebar-navigation": "左侧导航栏",
+      "btw": "侧问"
     }
   },
   "changeGuard": {
@@ -628,5 +632,36 @@
   },
   "archivedSessions": {
     "sectionDescription": "按工作区分组；恢复后可继续原会话，永久删除无法撤销"
+  },
+  "storage": {
+    "snapshots": "文件快照",
+    "device": "统计本机保存的快照，包括 SSH 工作区的快照。",
+    "total": "快照总占用",
+    "refresh": "刷新存储占用",
+    "unverified": "部分快照引用无法核实，清理时会保留归属不确定的文件。",
+    "incomplete": "部分目录无法扫描。占用统计仅包含成功读取的目录。",
+    "scanning": "正在统计快照大小…",
+    "unidentified": "无法识别的工作区",
+    "unidentifiedHint": "这些快照无法核实所属工作区，清理时会保留。",
+    "cleanup": "清理快照",
+    "scope": "工作区范围",
+    "allWorkspaces": "所有工作区",
+    "period": "清理范围",
+    "thirtyDays": "超过 30 天未活跃",
+    "sevenDays": "超过 7 天未活跃",
+    "all": "全部符合条件的会话",
+    "preview": "涉及 {{sessions}} 个会话，预计释放 {{size}}",
+    "skipped": "已排除 {{sessions}} 个会话。",
+    "confirmTitle": "永久删除这些文件快照？",
+    "confirm": "{{preview}}。相关文件差异和快照回退点将永久失效。对话记录和工作区文件会保留。",
+    "result": "已清理 {{sessions}} 个会话的快照，释放 {{size}}。预览中有 {{skipped}} 个会话被跳过。",
+    "desktopOnly": "请在桌面应用的存储空间页面管理本机快照。",
+    "sharedColumn": "共享或未归属",
+    "usedColumn": "快照占用",
+    "candidates": "待清理会话",
+    "lastActive": "最近活跃",
+    "sessionCount": "{{sessions}} 个会话",
+    "removedSession": "会话已移除",
+    "noCandidates": "当前范围没有可清理的会话"
   }
 }

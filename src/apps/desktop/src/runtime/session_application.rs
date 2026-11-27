@@ -27,7 +27,7 @@ use openbitfun_core::service::remote_ssh::SSHConnectionManager;
 use openbitfun_core::service::session::{
     DialogTurnData, DialogTurnKind, SessionContextUsage, SessionMetadata, SessionStatus,
     SessionTranscriptExport, SessionTranscriptExportOptions, SessionTurnCatalog,
-    SessionTurnWindowResponse,
+    SessionTurnWindowResponse, SESSION_PROVIDER_ACP, SESSION_PROVIDER_METADATA_KEY,
 };
 use openbitfun_core::service::session_usage::SessionUsageReport;
 use openbitfun_core::service::token_usage::TokenUsageService;
@@ -237,6 +237,10 @@ pub(crate) struct DesktopSessionExecutionSnapshot {
 #[async_trait]
 pub(crate) trait DesktopSessionHostEffects: Send + Sync {
     async fn release_session(&self, session_id: &str);
+    fn forget_session_recovery(&self, _session_id: &str) {}
+    async fn recover_acp_history(&self, _path: &Path, _session: &str) -> Result<(), String> {
+        Ok(())
+    }
     fn supports_acp_projection(&self) -> bool {
         false
     }
@@ -874,8 +878,36 @@ impl DesktopSessionApplication {
         stream_id: &str,
         cursor: u64,
     ) -> Option<SessionEventBackfill> {
-        self.agent_runtime
-            .session_events_since(session_id, stream_id, cursor)
+        let mut backfill = self
+            .agent_runtime
+            .session_events_since(session_id, stream_id, cursor)?;
+        if let SessionEventBackfill::Delta {
+            cursor: end,
+            events,
+            ..
+        } = &mut backfill
+        {
+            if matches!(
+                events.last(),
+                Some(
+                    openbitfun_events::AgenticEvent::DialogTurnCompleted { .. }
+                        | openbitfun_events::AgenticEvent::DialogTurnCancelled { .. }
+                        | openbitfun_events::AgenticEvent::DialogTurnFailed { .. }
+                )
+            ) {
+                if let Some(acp) = self.host_effects.acp_execution_snapshot(session_id) {
+                    // The history write fences terminal delivery for both live subscribers and cursor readers.
+                    if acp.running
+                        && acp.projection.stream_id == stream_id
+                        && acp.projection.cursor < *end
+                    {
+                        events.pop();
+                        *end = acp.projection.cursor;
+                    }
+                }
+            }
+        }
+        Some(backfill)
     }
 
     pub(crate) fn has_acp_execution(&self, session_id: &str) -> bool {
@@ -901,6 +933,34 @@ impl DesktopSessionApplication {
         let resolve_storage_path_duration_ms =
             path_started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
         on_storage_path_resolved(resolve_storage_path_duration_ms);
+        let metadata = self
+            .compatibility
+            .load_persisted_session_metadata(&storage_path, session_id)
+            .await
+            .map_err(desktop_core_session_error)?;
+        if self.host_effects.supports_acp_projection()
+            && metadata.as_ref().is_some_and(|m| {
+                m.agent_type.starts_with("acp:")
+                    || m.custom_metadata
+                        .as_ref()
+                        .and_then(|v| v.get(SESSION_PROVIDER_METADATA_KEY))
+                        .and_then(serde_json::Value::as_str)
+                        == Some(SESSION_PROVIDER_ACP)
+            })
+        {
+            // The saved history is readable even when this recovery cannot write.
+            // Opening must not depend on it; the next send retries and reports.
+            if let Err(error) = self
+                .host_effects
+                .recover_acp_history(&storage_path, session_id)
+                .await
+            {
+                log::warn!(
+                    "Failed to recover interrupted ACP history while restoring a session: session_id={session_id} error={error}"
+                );
+            }
+        }
+        let current_context_usage = metadata.and_then(|m| m.current_context_usage);
         let (mut session, turns, total_turn_count, turn_catalog, mut timings) = self
             .compatibility
             .restore_session_view_from_storage_path(
@@ -946,12 +1006,6 @@ impl DesktopSessionApplication {
         } else {
             None
         };
-        let current_context_usage = self
-            .compatibility
-            .load_persisted_session_metadata(&storage_path, session_id)
-            .await
-            .map_err(desktop_core_session_error)?
-            .and_then(|metadata| metadata.current_context_usage);
         timings.resolve_storage_path_duration_ms = resolve_storage_path_duration_ms;
         Ok(DesktopSessionViewRestore {
             execution_projection,
@@ -1062,6 +1116,7 @@ async fn delete_session_with_host_effects(
         })
         .await
         .map_err(|error| DesktopSessionApplicationError::Runtime(error.into_message()))?;
+    host_effects.forget_session_recovery(&session_id);
     Ok(())
 }
 

@@ -19,6 +19,50 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::runtime::{DesktopRuntimeContext, DesktopSessionScopeRequest};
 
+use openbitfun_core::service::snapshot::maintenance::{
+    self, Candidate, CleanupResult, Period, StorageOverview,
+};
+
+#[derive(Deserialize)]
+pub struct InspectSnapshotStorageRequest {
+    period: Period,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanSnapshotStorageRequest {
+    workspace_id: String,
+    period: Period,
+    candidates: Vec<Candidate>,
+}
+
+#[tauri::command]
+pub async fn inspect_snapshot_storage(
+    request: InspectSnapshotStorageRequest,
+) -> Result<StorageOverview, String> {
+    maintenance::inspect(request.period)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn clean_snapshot_storage(
+    runtime: State<'_, DesktopRuntimeContext>,
+    request: CleanSnapshotStorageRequest,
+) -> Result<CleanupResult, String> {
+    ensure_local_runtime_ownership(
+        runtime.inner(),
+        &SnapshotRemoteScope {
+            workspace_id: Some(request.workspace_id.clone()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    maintenance::clean(&request.workspace_id, request.period, request.candidates)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SnapshotRemoteScope {
     #[serde(default, alias = "workspaceId")]

@@ -4810,6 +4810,7 @@ describe('FlowChatStore historical session hydration state', () => {
       sessions: new Map([
         ['acp-1', createSession({
           sessionId: 'acp-1',
+          workspaceId: fixtureWorkspaceId('D:/workspace/OpenBitFun'),
           isHistorical: true,
           historyState: 'metadata-only',
           mode: 'acp:test',
@@ -4854,7 +4855,8 @@ describe('FlowChatStore historical session hydration state', () => {
   it('does not claim that an older host repaired an ACP execution gap', async () => {
     flowChatStore.setState(() => ({
       sessions: new Map([['acp-1', createSession({
-        sessionId: 'acp-1', mode: 'acp:test', config: { agentType: 'acp:test' },
+        sessionId: 'acp-1', workspaceId: fixtureWorkspaceId('D:/workspace/OpenBitFun'),
+        mode: 'acp:test', config: { agentType: 'acp:test' },
         historyState: 'ready', isHistorical: false,
       })]]), activeSessionId: 'acp-1',
     }));
@@ -7920,6 +7922,7 @@ describe('FlowChatStore historical session hydration state', () => {
       sessions: new Map([
         ['history-1', createSession({
           sessionId: 'history-1',
+          workspaceId: fixtureWorkspaceId('D:/workspace/OpenBitFun'),
           isHistorical: true,
           historyState: 'metadata-only',
           mode: 'Standard',
@@ -8182,7 +8185,9 @@ describe('FlowChatStore historical session hydration state', () => {
 
     await flowChatStore.initializeFromDisk(fixtureWorkspaceId('D:/workspace/OpenBitFun', undefined, undefined), undefined);
 
-    expect(flowChatStore.getState().sessions.get('history-1')?.currentTokenUsage).toBeUndefined();
+    const session = flowChatStore.getState().sessions.get('history-1');
+    expect(session).toBeDefined();
+    expect(session?.currentTokenUsage).toBeUndefined();
   });
 
   it('ignores invalid persisted current context usage', async () => {

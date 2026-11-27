@@ -62,6 +62,7 @@ describe('assistant bootstrap draft', () => {
     await render();
     expect(readWorkspaceFile).toHaveBeenCalledWith('assistant-default', '/assistants/default/BOOTSTRAP.md');
     expect(sessionComposerStore.getState().getDraft('claw-1').value).toBe('nav.sessions.assistantBootstrapDraft');
+    expect(sessionComposerStore.getState().getDraft('claw-1').prefillSource).toBe('assistant-bootstrap');
     expect(submit).not.toHaveBeenCalled();
   });
 

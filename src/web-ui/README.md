@@ -376,14 +376,13 @@ open the model picker. **Refresh models** fetches the account's current list
 without signing out or reopening the editor. Saved models remain selectable;
 you can also enter a provider-supported model ID manually.
 
-Antigravity queries its authenticated `fetchAvailableModels` endpoint; Codex
-uses its subscription catalog, including models unavailable through the public
-OpenAI API. For OpenCode, choose Go/Zen and a model; OpenBitFun selects the
+Codex uses its subscription catalog, including models unavailable through the
+public OpenAI API. For OpenCode, choose Go/Zen and a model; OpenBitFun selects the
 matching Chat Completions, Responses, or Messages protocol from the account catalog.
 xAI and Hermes query their model endpoints. Hermes uses Chat Completions with
 Nous OAuth bearer authentication for all models, including `anthropic/*`, matching
 the current upstream default while its native Messages cache issue is unresolved.
-Saved model IDs and subscription credentials remain valid.
+Saved model IDs and supported subscription credentials remain valid.
 
 Subscription login supplies the required authentication and account headers even
 if a saved model used custom-header replace mode. There is no need to paste tokens
@@ -394,8 +393,8 @@ The account's returned IDs determine availability. A familiar or older ID does
 not prove the underlying model is outdated, and a model advertised by a vendor
 is not necessarily available through every subscription or OAuth client. A
 failed subscription lookup shows an error instead of presenting preset models
-as an account result. Antigravity browser login requires the local desktop;
-device-code login can authorize the other providers from another browser.
+as an account result. Antigravity subscription imports from earlier versions
+remain readable for cleanup but are rejected at runtime.
 
 ## Gitee pull requests
 

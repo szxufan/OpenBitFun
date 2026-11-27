@@ -507,7 +507,7 @@
             "items": {
               "providers": "添加内置或自定义供应商、探测 Magpie 网关与配置独立生图服务",
               "credentials-endpoint": "配置 API Key、Base URL、请求格式（含实时派生 URL 预览）与备用通道",
-              "subscription-auth": "登录 Codex、ZCode、OpenCode、Grok、Antigravity、Hermes 等订阅账号与多号订阅池",
+              "subscription-auth": "登录 Codex、ZCode、OpenCode、Grok、Hermes 等订阅账号与多号订阅池",
               "default-models": "选择主模型、快速模型、经济模型以及图像理解、图像生成和语音识别默认模型",
               "reasoning": "按模型能力选择推理预设或自定义思考预算",
               "smart-routing": "配置智能模式路由：联动主模型、经济模型与路由分类模型",
@@ -605,6 +605,7 @@
             "title": "桌面控制（Computer Use）",
             "summary": "管理智能体操作原生桌面应用界面的“允许桌面控制”总开关，清晰核查并引导授予系统“辅助功能”与“屏幕录制”权限，在可控安全边界内完成跨应用自动化。",
             "items": {
+              "external-control": "为本机集成授权工作区",
               "permissions": "查看“允许桌面控制”开关及“辅助功能”、“屏幕录制”系统授权状态并完成授权",
               "safety-posture": "结合应用级总开关、单窗口共享与主机边界安全管控桌面操作"
             }
@@ -684,6 +685,13 @@
               "distribution": "切换“按模型”与“按服务商”分布排行，并在详情查看按请求端点明细",
               "filter": "输入关键词筛选模型、服务商或请求端点的调用明细",
               "trend": "通过堆叠柱状图查看输入与输出 Token 随时间的变化趋势"
+            }
+          },
+          "storage": {
+            "title": "存储空间",
+            "summary": "按工作区查看本机文件快照占用，手动清理符合条件的会话。",
+            "items": {
+              "clean": "预览并清理会话文件快照"
             }
           },
           "archived": {

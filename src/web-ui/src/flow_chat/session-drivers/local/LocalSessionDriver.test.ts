@@ -101,10 +101,10 @@ describe('localSessionDriver conversation creation', () => {
     };
   }
 
-  it('reserves a frontend conversation without creating a host session', async () => {
+  it.each(['Standard', 'Claw'])('reserves a frontend %s conversation without creating a host session', async agentType => {
     const createSession = vi.fn();
     const context = { flowChatStore: { createSession } } as any;
-    await expect(localSessionDriver.createSession(context, seed())).resolves.toBe('reserved-session');
+    await expect(localSessionDriver.createSession(context, seed(agentType))).resolves.toBe('reserved-session');
     expect(mockCreateSession).not.toHaveBeenCalled();
     expect(createSession).toHaveBeenCalledTimes(1);
     expect(createSession.mock.calls[0][0]).toBe('reserved-session');
@@ -157,7 +157,7 @@ describe('localSessionDriver conversation creation', () => {
     const createSession = vi.fn();
     await expect(localSessionDriver.createSession(
       { flowChatStore: { createSession } } as any,
-      { ...seed('Claw'), titleDescriptor: descriptor },
+      { ...seed('Claw'), draftId: undefined, titleDescriptor: descriptor },
     )).resolves.toBe('host-session');
     expect(createSession).toHaveBeenCalledTimes(1);
     expect(createSession.mock.calls[0].at(-1)).toBe(descriptor);
@@ -184,10 +184,10 @@ describe('localSessionDriver conversation creation', () => {
     expect(mockCreateSession).not.toHaveBeenCalled();
   });
 
-  it('keeps assistant bootstrap on the existing immediate creation path', async () => {
+  it('keeps explicit backend assistant creation available for non-composer workflows', async () => {
     const createSession = vi.fn();
     const context = { flowChatStore: { createSession } } as any;
-    await expect(localSessionDriver.createSession(context, seed('Claw'))).resolves.toBe('host-session');
+    await expect(localSessionDriver.createSession(context, { ...seed('Claw'), draftId: undefined })).resolves.toBe('host-session');
     expect(mockCreateSession).toHaveBeenCalledWith(expect.objectContaining({
       agentType: 'Claw', workspaceId: 'project', workspacePath: WORKSPACE_PATH,
     }));

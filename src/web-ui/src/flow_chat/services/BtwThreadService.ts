@@ -1,5 +1,8 @@
+import { configManager } from '@/infrastructure/config/services/ConfigManager';
+import { btwModelSelection, supportsBtwModelDefaults } from '@/infrastructure/config/services/btwModelDefaults';
+import { modelPoolAPI } from '@/infrastructure/api/service-api/ModelPoolAPI';
 import { agentAPI, btwAPI } from '@/infrastructure/api';
-import type { BtwInitialModelTarget } from '@/infrastructure/api/service-api/BtwAPI';
+import type { BtwInitialModelTarget, BtwAskStreamResponse } from '@/infrastructure/api/service-api/BtwAPI';
 import { i18nService } from '@/infrastructure/i18n';
 import { notificationService } from '@/shared/notification-system';
 import { flowChatStore } from '../store/FlowChatStore';
@@ -15,6 +18,7 @@ import type { ImagePayload } from '../utils/imagePayload';
 import { absoluteSessionTurnIndexForId } from '../utils/flowChatTurnOrdinal';
 import { requireSessionWorkspaceId, sessionWorkspaceId } from '../utils/sessionWorkspace';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
+import { classifyPeerHostRefusal } from '@/infrastructure/peer-device/peerHostRefusal';
 import { isPeerReplyLost } from '@/infrastructure/peer-device/peerReplyLost';
 import { assertSessionConversationCanSubmit } from '../session-drivers/conversationCapability';
 import { trackBtwSessionSubmission } from './btwSessionSubmission';
@@ -236,6 +240,27 @@ export async function createBtwChildSession(params: {
   };
 }
 
+/** Preview only: the host resolves its authoritative default at first submit. */
+async function previewBtwSessionModel(childSessionId: string): Promise<void> {
+  if (!supportsBtwModelDefaults()) return;
+  const scope = getActiveSurfaceScope();
+  try {
+    const raw = await configManager.getConfig<unknown>('ai.btw');
+    if (!scope.isCurrent()) return;
+    const session = flowChatStore.getState().sessions.get(childSessionId);
+    if (!session || session.dialogTurns.length > 0 || session.btwOrigin?.requestId
+      || session.config.btwModelSelectionExplicit) return;
+    const selection = btwModelSelection(raw);
+    if (!selection) throw new Error('Unsupported ai.btw.model_selection');
+    if (selection.kind === 'inherit') return;
+    flowChatStore.updateSessionModelPool(childSessionId, selection.kind === 'pool' ? selection.pool_id : undefined);
+    flowChatStore.updateSessionModelName(childSessionId, selection.kind === 'model' ? selection.model_ref : undefined);
+    flowChatStore.updateSessionReasoningPreset(childSessionId, undefined);
+  } catch (error) {
+    if (scope.isCurrent()) log.warn('Could not preview BTW model defaults; host submission will validate them', { error });
+  }
+}
+
 export function createBtwSessionPlaceholder(params: {
   parentSessionId: string;
   workspacePath?: string;
@@ -299,6 +324,7 @@ export function createBtwSessionPlaceholder(params: {
       parentSession.config.modelPoolBinding);
   }
 
+  void previewBtwSessionModel(childSessionId);
   return { childSessionId, parentDialogTurnId, parentTurnIndex };
 }
 
@@ -381,7 +407,8 @@ export async function sendMessageToBtwSession(params: {
     parentTurnIndex: params.parentTurnIndex ?? childSession.btwOrigin?.parentTurnIndex,
   }, 'btw');
   const modelId = params.modelId?.trim();
-  await trackBtwSessionSubmission(params.childSessionId, () => btwAPI.askStream({
+  const submittedConfig = { ...childSession.config };
+  const response: BtwAskStreamResponse = await trackBtwSessionSubmission(params.childSessionId, () => btwAPI.askStream({
     requestId,
     sessionId: params.parentSessionId,
     childSessionId: params.childSessionId,
@@ -396,13 +423,44 @@ export async function sendMessageToBtwSession(params: {
     ...(params.initialModelTarget ? { initialModelTarget: params.initialModelTarget } : {}),
   }).catch(async error => {
     // Closing waits for this confirmation as part of the submission.
-    if (!await btwQuestionReachedHost(scope, params.childSessionId, requestId, error)) throw error;
+    if (!await btwQuestionReachedHost(scope, params.childSessionId, requestId, error)) {
+      if (scope.isCurrent() && supportsBtwModelDefaults() && !classifyPeerHostRefusal(error)) {
+        notificationService.error(i18nService.t('flow-chat:btw.submitFailed', {
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      }
+      throw error;
+    }
     log.info('Side question was admitted before its reply was lost', {
       childSessionId: params.childSessionId,
       requestId,
     });
     return { ok: true };
   }));
+  // Readback never retries an admitted turn, even if this optional read fails.
+  // Fence against a subsequent user switch while the read is in flight.
+  if (supportsBtwModelDefaults() && scope.isCurrent()) {
+    try {
+      const target = response.modelTarget ?? await modelPoolAPI.target({ sessionId: params.childSessionId,
+        workspaceId: sessionWorkspaceId(childSession), workspacePath: childSession.workspacePath,
+        remoteConnectionId: childSession.remoteConnectionId, remoteSshHost: childSession.remoteSshHost,
+        includeInternal: true });
+      const currentConfig = scope.isCurrent()
+        ? flowChatStore.getState().sessions.get(params.childSessionId)?.config : undefined;
+      if (currentConfig && currentConfig.modelName === submittedConfig.modelName
+        && currentConfig.modelPoolId === submittedConfig.modelPoolId
+        && currentConfig.reasoningPreset === submittedConfig.reasoningPreset
+        && currentConfig.btwModelSelectionExplicit === submittedConfig.btwModelSelectionExplicit) {
+        flowChatStore.updateSessionModelPool(params.childSessionId,
+          target.selection.kind === 'pool' ? target.selection.pool_id : undefined, target.binding);
+        flowChatStore.updateSessionModelName(params.childSessionId,
+          target.selection.kind === 'model' ? target.selection.model_ref : target.binding?.modelId);
+        flowChatStore.updateSessionReasoningPreset(params.childSessionId, target.reasoningPreset);
+      }
+    } catch (error) {
+      if (scope.isCurrent()) log.warn('Could not read back the admitted BTW model selection', { error });
+    }
+  }
   followBtwSessionOnPeer(scope, params.childSessionId);
   if (scope.isCurrent() && params.initialModelTarget?.selection.kind === 'pool') {
     const current = flowChatStore.getState().sessions.get(params.childSessionId);
@@ -413,7 +471,7 @@ export async function sendMessageToBtwSession(params: {
         current.config.modelPoolBinding);
     }
   }
-  if (modelId && scope.isCurrent()) {
+  if (modelId && !supportsBtwModelDefaults() && scope.isCurrent()) {
     flowChatStore.updateSessionModelName(params.childSessionId, modelId);
   }
 

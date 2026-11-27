@@ -1081,3 +1081,62 @@ async fn legacy_operation_completion_round_trip_preserves_omission_and_recorded_
         ("before\n".into(), "after\n".into(), Some(1))
     );
 }
+
+#[tokio::test]
+async fn unrelated_remote_session_can_write_with_oversized_historical_metadata() {
+    use std::io::{Seek, SeekFrom, Write};
+    let temp = tempfile::tempdir().unwrap();
+    let root = "/remote/large-history";
+    let context = runtime_context(root, temp.path(), true);
+    let fs = Arc::new(RemoteMemoryFs::new(root));
+    // Only the descriptor ends are needed at cold start. Leave the middle
+    // sparse to exercise an interrupted legacy write without allocating GiBs.
+    let record = super::types::FileSnapshot::new(
+        PathBuf::from("/remote/large-history/full.engine"),
+        Vec::new(),
+        super::types::FileMetadata {
+            size: 41u64 << 30,
+            permissions: None,
+            last_modified: UNIX_EPOCH,
+            encoding: "binary".into(),
+        },
+        super::types::SnapshotType::Before,
+    );
+    let json = serde_json::to_string_pretty(&record).unwrap();
+    let (head, tail) = json.split_once("\"compressed_content\": []").unwrap();
+    let path = context
+        .snapshot_metadata_dir
+        .join(format!("{}.json", record.snapshot_id));
+    let mut file = std::fs::File::create(&path).unwrap();
+    write!(file, "{head}\"compressed_content\": [").unwrap();
+    file.seek(SeekFrom::Current(128 << 20)).unwrap();
+    write!(file, "]{tail}").unwrap();
+    drop(file);
+    let old_len = std::fs::metadata(&path).unwrap().len();
+    let mut core = open_core(&context, fs.clone()).await;
+    let script = "/remote/large-history/resolve_snapshot.py";
+    let op = core
+        .start_file_operation(
+            "other-session",
+            0,
+            script.into(),
+            OperationType::Create,
+            "Write".into(),
+            serde_json::json!({}),
+            None,
+        )
+        .await
+        .unwrap();
+    fs.write_file(script, b"print(42)").await.unwrap();
+    core.complete_file_operation("other-session", &op, 1)
+        .await
+        .unwrap();
+    assert_eq!(core.get_session_files("other-session").len(), 1);
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), old_len);
+    assert!(core
+        .get_snapshot_content(&record.snapshot_id)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("byte limit"));
+}

@@ -30,6 +30,7 @@ import {
   type ParamsPartialToolEvent
 } from '../EventBatcher';
 import { notificationService } from '../../../shared/notification-system/services/NotificationService';
+import { i18nService } from '@/infrastructure/i18n';
 import { readBackgroundDelivery, shouldDeliverBackgroundCompletion } from '../../utils/backgroundDelivery';
 import { createLogger } from '@/shared/utils/logger';
 import { handleThreadGoalUpdated } from '../threadGoalEventService';
@@ -46,6 +47,7 @@ import type {
   ModelRoundAttemptSupersededEvent,
   OpenBuiltInBrowserEvent,
   AcpContextUsageUpdatedEvent,
+  AgenticEvent,
   PromptSuggestionEvent,
   SessionModelFallbackAppliedEvent,
   SessionReasoningPresetAutoClearedEvent,
@@ -898,6 +900,15 @@ export async function initializeEventListeners(
   });
 
   const afterRelayRecords = relayRecordsBeforeEvent(context);
+  const onTurnEnd = (handle: (event: AgenticEvent) => void) =>
+    afterRelayRecords((event: AgenticEvent) => {
+      handle(event);
+      if (event.acpHistorySaveError) {
+        notificationService.warning(i18nService.t('flow-chat:historyState.turnSaveFailed', {
+          error: event.acpHistorySaveError,
+        }));
+      }
+    });
   const callbacks: AgenticEventCallbacks = {
     onSessionCreated: (event) => {
       handleSessionCreated(context, event);
@@ -941,13 +952,13 @@ export async function initializeEventListeners(
     onModelRoundAttemptSuperseded: afterRelayRecords((event) => {
       handleModelRoundAttemptSuperseded(context, event);
     }),
-    onDialogTurnCompleted: afterRelayRecords((event) => {
+    onDialogTurnCompleted: onTurnEnd((event) => {
       handleDialogTurnComplete(context, event, onTodoWriteResult);
     }),
-    onDialogTurnFailed: afterRelayRecords((event) => {
+    onDialogTurnFailed: onTurnEnd((event) => {
       handleDialogTurnFailed(context, event);
     }),
-    onDialogTurnCancelled: afterRelayRecords((event) => {
+    onDialogTurnCancelled: onTurnEnd((event) => {
       handleDialogTurnCancelled(context, event, onTodoWriteResult);
     }),
     onDialogTurnInterrupted: afterRelayRecords((event) => {

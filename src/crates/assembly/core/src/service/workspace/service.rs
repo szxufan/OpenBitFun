@@ -2546,8 +2546,22 @@ static GLOBAL_WORKSPACE_SERVICE: std::sync::OnceLock<Arc<WorkspaceService>> =
     std::sync::OnceLock::new();
 
 pub fn set_global_workspace_service(service: Arc<WorkspaceService>) {
+    #[cfg(feature = "agent-runtime")]
+    let paths = service.path_manager.clone();
     match GLOBAL_WORKSPACE_SERVICE.set(service) {
-        Ok(_) => info!("Global workspace service set"),
+        Ok(_) => {
+            info!("Global workspace service set");
+            #[cfg(feature = "agent-runtime")]
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                runtime.spawn(async move {
+                    if let Err(e) =
+                        crate::service::snapshot::maintenance::retry_pending_deletions(&paths).await
+                    {
+                        warn!("Could not resume pending snapshot deletions: {e}");
+                    }
+                });
+            }
+        }
         Err(_) => info!("Global workspace service already exists, skipping set"),
     }
 }

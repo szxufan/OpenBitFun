@@ -19,6 +19,7 @@ pub mod session_usage;
 pub mod speech;
 pub mod subscription;
 pub mod surface;
+pub mod token_estimate;
 pub mod tool_image_attachment;
 pub mod tool_presentation;
 pub mod worktree;

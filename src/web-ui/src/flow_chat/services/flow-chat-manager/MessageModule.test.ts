@@ -666,9 +666,9 @@ describe('MessageModule session writer conflict', () => {
 });
 
 describe('MessageModule first draft submission', () => {
-  function draftContext() {
+  function draftContext(mode = 'Standard') {
     let state: any = { activeSessionId: 'draft-first', sessions: new Map([['draft-first', {
-      sessionId: 'draft-first', mode: 'Standard', workspaceId: 'b', workspacePath: '/b',
+      sessionId: 'draft-first', mode, workspaceId: 'b', workspacePath: '/b',
       dialogTurns: [], config: { modelName: 'primary' }, titleStatus: 'generated',
       maxContextTokens: 32000, draft: { workspaceId: 'b', phase: 'ready', turnId: 'reserved-first-turn' },
     }]]) };
@@ -702,8 +702,8 @@ describe('MessageModule first draft submission', () => {
     mockHostQueueSupported.mockReturnValue(false);
   });
 
-  it('commits the draft and selects the target session only after the host accepts its first message', async () => {
-    const { context, store } = draftContext();
+  it.each(['Standard', 'Claw'])('commits the %s draft only after the host accepts its first message', async mode => {
+    const { context, store } = draftContext(mode);
     mockHostQueueSubmit.mockImplementation(async () => {
       expect(store.getState().sessions.get('draft-first').draft.phase).toBe('submitting');
       expect(mockActivateMainSession).not.toHaveBeenCalled();
@@ -712,12 +712,12 @@ describe('MessageModule first draft submission', () => {
     await sendMessage(context, 'First message', 'draft-first');
     expect(mockHostQueueSubmit.mock.calls[0][2]).toBe('reserved-first-turn');
     expect(store.getState().sessions.get('draft-first').draft).toBeUndefined();
-    expect(store.getState().sessions.get('draft-first').lastSubmittedMode).toBe('Standard');
+    expect(store.getState().sessions.get('draft-first').lastSubmittedMode).toBe(mode);
     expect(mockActivateMainSession).toHaveBeenCalledWith('draft-first', expect.any(Object));
   });
 
-  it('preserves the first turn identity and locked target across an ambiguous acknowledgement', async () => {
-    const { context, store } = draftContext();
+  it.each(['Standard', 'Claw'])('preserves the first %s turn identity across an ambiguous acknowledgement', async mode => {
+    const { context, store } = draftContext(mode);
     mockHostQueueSubmit.mockRejectedValueOnce(new Error('Connection lost'));
     await expect(sendMessage(context, 'First message', 'draft-first')).rejects.toThrow('Connection lost');
     expect(store.getState().sessions.get('draft-first').draft.phase).toBe('submitting');

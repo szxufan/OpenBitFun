@@ -2,6 +2,9 @@ import { api } from './ApiClient';
 import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurface';
 import type { ImageContextData as ImageInputContextData } from './ImageContextTypes';
 
+// Older hosts may initialize and attach even for a snapshot read.
+const ACP_SNAPSHOT_TIMEOUT_MS = 125_000;
+
 export type AcpClientPermissionMode = 'ask' | 'allow_once' | 'reject_once';
 export type AcpClientStatus = 'configured' | 'starting' | 'running' | 'stopped' | 'failed';
 
@@ -96,6 +99,7 @@ export interface CancelAcpDialogTurnRequest {
 }
 
 export interface GetAcpSessionOptionsRequest {
+  observeOnly?: boolean;
   sessionId: string;
   clientId: string;
   /** Workspace identity; authoritative when present. Paths below are IO projections. */
@@ -174,6 +178,8 @@ export interface AcpContextUsage {
 }
 
 export interface AcpSessionOptions {
+  agentDisconnected?: boolean;
+  needsInitialOptions?: boolean;
   /** Included by newer hosts to share the initial metadata read. Missing means use the commands endpoint. */
   availableCommands?: AcpAvailableCommand[];
   currentModelId?: string;
@@ -465,10 +471,12 @@ export class ACPClientAPI {
   ): Promise<AcpSessionOptions> {
     const scope = getActiveSurfaceScope();
     const key = scope.key(scope.epoch, request.sessionId, request.clientId, request.workspaceId,
-      request.workspacePath, request.remoteConnectionId, request.remoteSshHost);
+      request.workspacePath, request.remoteConnectionId, request.remoteSshHost, request.observeOnly ? 'snapshot' : 'connect');
     const existing = this.sessionOptionsInFlight.get(key);
     if (existing) return existing;
-    const pending = api.invoke<AcpSessionOptions>('get_acp_session_options', { request })
+    // The host enforces an inactivity timeout during a connected history replay.
+    const pending = api.invoke<AcpSessionOptions>('get_acp_session_options', { request },
+      { timeout: request.observeOnly ? ACP_SNAPSHOT_TIMEOUT_MS : 0 })
       .then(options => {
         scope.assertCurrent('load ACP session metadata');
         if (Array.isArray(options.availableCommands)) {

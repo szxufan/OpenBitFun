@@ -8,7 +8,7 @@ import {
 } from '@/infrastructure/peer-device/deviceSurface';
 
 export type PendingLargePasteMap = Record<string, string>;
-type ComposerPrefillSource = 'skin-design';
+type ComposerPrefillSource = 'skin-design' | 'assistant-bootstrap';
 
 export interface SessionComposerDraft {
   value: string;
@@ -110,7 +110,13 @@ export const useSessionComposerStore = create<SessionComposerState>((set, get) =
   },
 
   setValue: (sessionId, value, surfaceId) => {
-    set(state => updateDraft(state, sessionId, { value }, surfaceId));
+    set(state => {
+      const current = state.drafts[draftKey(sessionId, surfaceId)];
+      // Passive restoration keeps the template marker; editing makes it user content.
+      const prefillSource = current?.prefillSource === 'assistant-bootstrap' && current.value !== value
+        ? undefined : current?.prefillSource;
+      return updateDraft(state, sessionId, { value, prefillSource }, surfaceId);
+    });
   },
 
   setPrefill: (sessionId, value, prefillSource, surfaceId) => {

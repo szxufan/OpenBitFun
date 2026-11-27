@@ -1,10 +1,12 @@
 pub mod events;
 pub mod file_lock_manager;
 pub mod isolation_manager;
+pub mod maintenance;
 pub mod manager;
 pub mod service;
 pub mod snapshot_core;
 pub mod snapshot_system;
+pub(crate) mod storage;
 pub mod types;
 
 #[cfg(test)]

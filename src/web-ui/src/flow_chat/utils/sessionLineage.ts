@@ -209,6 +209,8 @@ export function hasActiveSessionLineageDescendants(
   for (const session of liveSessions.values()) {
     if (
       session.sessionId === rootSessionId ||
+      // Side questions have their own pane and do not light the overview indicator.
+      session.sessionKind === 'btw' ||
       !isActiveSessionLineageLifecycle(sessionLineageLifecycleForSession(session))
     ) {
       continue;

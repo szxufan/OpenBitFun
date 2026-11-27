@@ -64,6 +64,7 @@ const persistenceMocks = vi.hoisted(() => ({
 
 const stateMachineMocks = vi.hoisted(() => ({
   delete: vi.fn(),
+  getCurrentState: vi.fn(() => 'idle'),
 }));
 
 const dispatchStoreMocks = vi.hoisted(() => ({
@@ -127,6 +128,7 @@ vi.mock('./TextChunkModule', () => ({
 
 vi.mock('../../state-machine', () => ({
   stateMachineManager: stateMachineMocks,
+  SessionExecutionState: { IDLE: 'idle' },
 }));
 
 vi.mock('@/features/dispatch/dispatchJobStore', () => ({
@@ -210,6 +212,8 @@ function createContext(
       workspacePath?: string,
       remoteConnectionId?: string,
       remoteSshHost?: string,
+      _titleDescriptor?: unknown,
+      draft?: Session['draft'],
     ) => {
       const nextSession = createSession({
         sessionId,
@@ -217,8 +221,11 @@ function createContext(
         isHistorical: false,
         historyState: 'ready',
         config: {
+          ...config,
           agentType: agentType ?? (config?.agentType as string | undefined) ?? 'Standard',
         },
+        workspaceId: config?.workspaceId as string | undefined,
+        draft,
         mode: agentType ?? 'Standard',
         workspacePath: workspacePath ?? (config?.workspacePath as string | undefined) ?? session.workspacePath,
         remoteConnectionId,
@@ -422,10 +429,12 @@ describe('createChatSession', () => {
     });
     const { context } = createContext(createSession());
     try {
-      await expect(createChatSession(context, { workspaceId: assistant.id }, 'Claw', true)).resolves.toBe('created-1');
-      expect(agentApiMocks.createSession).toHaveBeenCalledWith(expect.objectContaining({
-        workspaceId: assistant.id, workspacePath: assistant.rootPath, agentType: 'Claw',
-      }));
+      const id = await createChatSession(context, { workspaceId: assistant.id }, 'Claw', true);
+      expect(context.flowChatStore.getState().sessions.get(id)).toMatchObject({
+        workspaceId: assistant.id, workspacePath: assistant.rootPath, mode: 'Claw',
+        draft: { workspaceId: assistant.id, phase: 'editing' },
+      });
+      expect(agentApiMocks.createSession).not.toHaveBeenCalled();
     } finally {
       workspaceState.mockRestore();
     }
@@ -457,6 +466,59 @@ describe('createChatSession', () => {
     ]);
 
     expect(agentApiMocks.createSession).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['Standard', 'Claw'])('reuses sequential and concurrent %s draft requests without a host create', async mode => {
+    const { context, flowChatStore } = createContext(createSession());
+    const config = { workspaceId: 'workspace-1' };
+    const ids = await Promise.all([
+      createChatSession(context, config, mode, true),
+      createChatSession(context, config, mode, true),
+    ]);
+    expect(ids[0]).toBe(ids[1]);
+    flowChatStore.switchSession('history-1');
+    expect(await createChatSession(context, config, mode, true)).toBe(ids[0]);
+    expect(flowChatStore.getState().activeSessionId).toBe(ids[0]);
+    expect(flowChatStore.createSession).toHaveBeenCalledOnce();
+    expect(agentApiMocks.createSession).not.toHaveBeenCalled();
+  });
+
+  it('resolves the configured default mode before looking for reusable drafts', async () => {
+    projectDefaults.read.mockResolvedValueOnce({ supported: true, defaults: { mode: 'Cowork' } });
+    agentApiMocks.getAvailableModes.mockResolvedValue([{ id: 'Standard' }, { id: 'Cowork' }]);
+    const { context, flowChatStore } = createContext(createSession({
+      sessionId: 'cowork-draft', mode: 'Cowork', sessionKind: 'normal',
+      isHistorical: false, historyState: 'new',
+      draft: { workspaceId: 'workspace-1', phase: 'editing', turnId: 'first' },
+    }));
+    expect(await createChatSession(context, { workspaceId: 'workspace-1' }, undefined, true)).toBe('cowork-draft');
+    expect(flowChatStore.createSession).not.toHaveBeenCalled();
+    expect(agentApiMocks.createSession).not.toHaveBeenCalled();
+  });
+
+  it('creates another draft once the existing composer has user content', async () => {
+    const { sessionComposerStore } = await import('../../store/sessionComposerStore');
+    const { context, flowChatStore } = createContext(createSession());
+    const first = await createChatSession(context, { workspaceId: 'workspace-1' }, 'Claw', true);
+    sessionComposerStore.getState().setValue(first, 'Unsent request');
+    try {
+      const second = await createChatSession(context, { workspaceId: 'workspace-1' }, 'Claw', true);
+      expect(second).not.toBe(first);
+      expect(flowChatStore.createSession).toHaveBeenCalledTimes(2);
+      expect(sessionComposerStore.getState().getDraft(first).value).toBe('Unsent request');
+      expect(agentApiMocks.createSession).not.toHaveBeenCalled();
+    } finally { sessionComposerStore.getState().removeDrafts([first]); }
+  });
+
+  it('keeps concurrent drafts with explicit different models separate', async () => {
+    const { context, flowChatStore } = createContext(createSession());
+    const [first, second] = await Promise.all([
+      createChatSession(context, { workspaceId: 'workspace-1', modelName: 'a' }, 'Standard', true),
+      createChatSession(context, { workspaceId: 'workspace-1', modelName: 'b' }, 'Standard', true),
+    ]);
+    expect(first).not.toBe(second);
+    expect(flowChatStore.getState().sessions.get(first)?.config.modelName).toBe('a');
+    expect(flowChatStore.getState().sessions.get(second)?.config.modelName).toBe('b');
   });
 
   it('does not reuse or project a session creation from a superseded device activation', async () => {

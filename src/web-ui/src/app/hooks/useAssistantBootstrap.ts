@@ -43,6 +43,9 @@ export function useAssistantBootstrap(
       const latest = sessionComposerStore.getState().getDraft(sessionId);
       if (latest.updatedAt !== draft.updatedAt || latest.value || latest.contexts.length) return;
       onDraftReady(t('nav.sessions.assistantBootstrapDraft'));
+      sessionComposerStore.getState().setPrefill(
+        sessionId, t('nav.sessions.assistantBootstrapDraft'), 'assistant-bootstrap', requestScope.surfaceId,
+      );
     }).catch(error => {
       if (cancelled || !requestScope.isCurrent()) return;
       // Completed assistants no longer have BOOTSTRAP.md. Other failures remain diagnosable.

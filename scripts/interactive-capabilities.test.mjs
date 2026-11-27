@@ -29,6 +29,15 @@ test('historical settings wire targets resolve through the current presentation 
   assert.deepEqual(projectSettingsCatalogDestination(automation.id, hooks.destination, hooks.id), {
     kind: 'settings', pageId: 'tools.automation', sectionId: 'hooks',
   });
+  const input = runtimeCatalog.capabilities.find(({ id }) => id === 'setting.application.input');
+  const btwClose = input.items.find(({ id }) => id === 'btw-close-confirmation');
+  assert.deepEqual(btwClose.destination, { kind: 'settings', pageId: 'application.voice', sectionId: 'btw-close-confirmation' });
+  assert.deepEqual(projectSettingsCatalogDestination(input.id, btwClose.destination, btwClose.id), {
+    kind: 'settings', pageId: 'ai.session-memory', sectionId: 'btw',
+  });
+  assert.deepEqual(projectSettingsCatalogDestination('legacy', { kind: 'settings', pageId: 'application.input', sectionId: 'btw-close-confirmation' }), {
+    kind: 'settings', pageId: 'ai.session-memory', sectionId: 'btw',
+  });
   const computerUse = runtimeCatalog.capabilities.find(({ id }) => id === 'feature.computer-use');
   assert.deepEqual(projectSettingsCatalogDestination(computerUse.id, computerUse.destination), {
     kind: 'settings', pageId: 'tools.desktop-control',

@@ -97,6 +97,24 @@ impl PersistenceManager {
         });
     }
 
+    pub(super) async fn cached_complete_turn_catalog(
+        &self,
+        workspace_path: &Path,
+        session_id: &str,
+        revision: &TurnWindowRevision,
+        visible_count: usize,
+    ) -> Option<SessionTurnCatalog> {
+        let key = self.turn_catalog_path(workspace_path, session_id);
+        let cache = self.turn_window_index_cache.lock().await;
+        let entry = cache.entries.iter().find(|entry| entry.key == key)?;
+        let catalog = &entry.index.catalog;
+        (entry.revision == *revision
+            && !entry.index.needs_catalog_repair
+            && catalog.complete
+            && catalog.entries.len() == visible_count)
+            .then(|| catalog.clone())
+    }
+
     pub(super) async fn forget_turn_window_index(&self, workspace_path: &Path, session_id: &str) {
         let key = self.turn_catalog_path(workspace_path, session_id);
         self.turn_window_index_cache

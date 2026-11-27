@@ -82,6 +82,7 @@ const flowChatStoreMocks = vi.hoisted(() => {
       return () => subscribers.delete(callback);
     }),
     updateSessionModelPool: vi.fn(),
+    markBtwModelSelectionExplicit: vi.fn(),
     updateSessionModelName: vi.fn(),
     updateSessionReasoningPreset: vi.fn(),
     updateSessionMaxContextTokens: vi.fn(),
@@ -1592,6 +1593,21 @@ describe('ModelSelector provider levels', () => {
     )?.textContent).toContain('reasoningSelector.levels.high');
   });
 
+  it('marks an explicit BTW model choice without changing future main-session defaults', async () => {
+    flowChatStoreMocks.sessions.set('side', { sessionId: 'side', sessionKind: 'btw',
+      agentBackedTransient: true, isTransient: true, dialogTurns: [], config: { modelName: 'acme-fast' } });
+    await renderSelector(CATALOG_MODELS, 'primary', 'side');
+    await openModelList();
+    await act(async () => searchTrigger().click());
+    await searchFor('deep');
+    await act(async () => modelOption('acme-deep')!.click());
+    expect(flowChatStoreMocks.store.markBtwModelSelectionExplicit).toHaveBeenCalledWith('side');
+    expect(flowChatStoreMocks.sessions.get('side')?.config.modelName).toBe('acme-deep');
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(configManager.updateConfig).not.toHaveBeenCalled();
+    expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])('allows Battery mode in BTW and updates the appropriate owner (started=%s)', async started => {
     poolApiMocks.supported = true;
     poolApiMocks.list.mockResolvedValue({ version: 1, pools: [
@@ -1614,6 +1630,8 @@ describe('ModelSelector provider levels', () => {
       expect(flowChatStoreMocks.sessions.get('side')?.config.modelPoolSelectionPending).toBe(true);
     }
     expect(agentAPI.updateSessionModel).not.toHaveBeenCalled();
+    expect(configManager.setConfig).not.toHaveBeenCalled();
+    expect(flowChatStoreMocks.store.markBtwModelSelectionExplicit).toHaveBeenCalledWith('side');
   });
 
   it('offers only model pool configuration when battery mode has no pools', async () => {

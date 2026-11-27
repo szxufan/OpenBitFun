@@ -72,6 +72,20 @@ impl MessageHelper {
         tools: Option<&[ToolDefinition]>,
         reasoning_policy: RequestReasoningTokenPolicy,
     ) -> usize {
+        Self::estimate_request_tokens_with(
+            messages,
+            tools,
+            reasoning_policy,
+            Message::estimate_tokens_with_reasoning,
+        )
+    }
+
+    pub(crate) fn estimate_request_tokens_with(
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+        reasoning_policy: RequestReasoningTokenPolicy,
+        estimate_message: fn(&Message, bool) -> usize,
+    ) -> usize {
         let reasoning_frontier_start = match reasoning_policy {
             RequestReasoningTokenPolicy::FullHistory => Some(0),
             RequestReasoningTokenPolicy::LatestTurnOnly => {
@@ -86,7 +100,7 @@ impl MessageHelper {
             .map(|(index, message)| {
                 let include_reasoning =
                     reasoning_frontier_start.is_some_and(|frontier_start| index >= frontier_start);
-                message.estimate_tokens_with_reasoning(include_reasoning)
+                estimate_message(message, include_reasoning)
             })
             .sum::<usize>();
 

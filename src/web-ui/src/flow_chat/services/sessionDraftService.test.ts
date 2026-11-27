@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { activateSurface, resetDeviceSurfaceForTest } from '@/infrastructure/peer-device/deviceSurface';
 import type { WorkspaceInfo } from '@/shared/types';
 import type { Session } from '../types/flow-chat';
 import type { FlowChatContext } from './flow-chat-manager/types';
@@ -9,14 +10,14 @@ import { shouldSyncSessionModelSelection } from '../utils/modelSelectionTarget';
 import { chatInputSessionSubscriptionKey } from '../utils/chatInputSessionSubscription';
 
 const ports = vi.hoisted(() => ({ create: vi.fn(), metadata: vi.fn(), permission: vi.fn(), routing: vi.fn(), model: vi.fn(),
-  workspaces: new Map<string, WorkspaceInfo>() }));
+  workspaces: new Map<string, WorkspaceInfo>(), assistants: [] as WorkspaceInfo[] }));
 vi.mock('@/infrastructure/api/service-api/AgentAPI', () => ({ agentAPI: {
   createSession: ports.create, updateSessionPermissionMode: ports.permission,
   getModelRoutingStatus: ports.routing, updateSessionModel: ports.model,
 } }));
 vi.mock('@/infrastructure/api/service-api/SessionAPI', () => ({ sessionAPI: { loadSessionMetadata: ports.metadata } }));
 vi.mock('@/infrastructure/services/business/workspaceManager', () => ({ workspaceManager: {
-  getState: () => ({ openedWorkspaces: ports.workspaces, recentWorkspaces: [] }),
+  getState: () => ({ openedWorkspaces: ports.workspaces, recentWorkspaces: [], assistantWorkspaces: ports.assistants }),
 } }));
 vi.mock('./sessionTitleMetadata', () => ({ initializeSessionTitleMetadata: vi.fn() }));
 vi.mock('@/infrastructure/i18n', () => ({ i18nService: { t: (key: string) => key } }));
@@ -36,7 +37,9 @@ function harness(overrides: Partial<Session> = {}) {
 }
 
 beforeEach(() => {
+  resetDeviceSurfaceForTest();
   vi.clearAllMocks();
+  ports.assistants.length = 0;
   ports.workspaces.clear();
   for (const id of ['a', 'b', 'c']) ports.workspaces.set(id, { id, rootPath: `/${id}`, workspaceKind: 'normal' } as WorkspaceInfo);
   ports.create.mockImplementation(async request => ({ ...request, modelId: request.config.modelName }));
@@ -45,8 +48,61 @@ beforeEach(() => {
   ports.routing.mockResolvedValue({ apiVersion: 1, available: true });
   ports.model.mockResolvedValue(undefined);
 });
+afterEach(() => resetDeviceSurfaceForTest());
 
 describe('new conversation workspace ownership', () => {
+  it('materializes a Claw draft with its reserved identity and keeps its assistant workspace fixed', async () => {
+    const assistant = { id: 'a', rootPath: '/assistants/a', workspaceKind: 'assistant' } as WorkspaceInfo;
+    ports.workspaces.set('a', assistant);
+    const h = harness({ mode: 'Claw', config: { modelName: 'chosen', reasoningPreset: 'high' },
+      draft: { workspaceId: 'a', phase: 'editing', turnId: 'first-turn', permissionMode: 'auto' } });
+    expect(canSelectSessionWorkspace(h.read())).toBe(false);
+    expect(() => selectDraftWorkspace(h.context, 'reserved', 'b')).toThrow('locked');
+    expect(ports.create).not.toHaveBeenCalled();
+    await materializeSessionDraft(h.context, 'reserved');
+    expect(ports.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      sessionId: 'reserved', requestId: 'reserved', agentType: 'Claw', workspaceId: 'a',
+      workspacePath: '/assistants/a', config: expect.objectContaining({ modelName: 'chosen', reasoningPreset: 'high' }),
+    }));
+    expect(ports.permission).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'reserved', workspaceId: 'a', mode: 'auto' }));
+    expect(h.read().draft).toMatchObject({ phase: 'ready', turnId: 'first-turn' });
+    await materializeSessionDraft(h.context, 'reserved');
+    expect(ports.create).toHaveBeenCalledOnce();
+  });
+
+  it('can materialize a known assistant opened from its catalog before workspace activation finishes', async () => {
+    ports.workspaces.delete('a');
+    ports.assistants.push({ id: 'a', rootPath: '/assistants/a', workspaceKind: 'assistant' } as WorkspaceInfo);
+    const h = harness({ mode: 'Claw' });
+    expect(canSelectSessionWorkspace(h.read())).toBe(false);
+    await materializeSessionDraft(h.context, 'reserved');
+    expect(ports.create).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'a', workspacePath: '/assistants/a' }));
+  });
+
+  it('recovers Claw creation from an existing host record after a lost reply', async () => {
+    const h = harness({ mode: 'Claw' });
+    ports.create.mockRejectedValueOnce(new Error('Reply lost'));
+    await expect(materializeSessionDraft(h.context, 'reserved')).rejects.toThrow('Reply lost');
+    ports.metadata.mockResolvedValueOnce({ sessionId: 'reserved', workspaceId: 'a',
+      sessionName: 'New', agentType: 'Claw', modelName: 'model' });
+    await materializeSessionDraft(h.context, 'reserved');
+    expect(ports.create).toHaveBeenCalledOnce();
+    expect(h.read().mode).toBe('Claw');
+    expect(h.read().draft?.phase).toBe('ready');
+  });
+
+  it('rejects a late Claw create reply after switching devices', async () => {
+    let finish!: (value: object) => void;
+    ports.create.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const h = harness({ mode: 'Claw' });
+    const creating = materializeSessionDraft(h.context, 'reserved');
+    activateSurface('peer');
+    finish({ sessionId: 'reserved', workspaceId: 'a' });
+    await expect(creating).rejects.toMatchObject({ isSurfaceChangedError: true });
+    expect(h.read().draft?.phase).toBe('creating');
+    expect(ports.permission).not.toHaveBeenCalled();
+  });
+
   it('changes the draft target without navigating or creating anything; only first send binds the target', async () => {
     const h = harness();
     const before = chatInputSessionSubscriptionKey(h.read());

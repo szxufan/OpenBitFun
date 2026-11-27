@@ -41,15 +41,17 @@ pub struct BtwAskStreamRequest {
     pub user_message_metadata: Option<serde_json::Value>,
     #[serde(default)]
     pub initial_model_selection: Option<openbitfun_runtime_ports::AgentSessionModelSelection>,
-    /// Requires btw_model_pool_selection_v1; omitted means inherit the parent binding.
+    /// Requires btw_model_pool_selection_v1; omitted uses the host BTW default.
     #[serde(default)]
     pub initial_model_target: Option<openbitfun_runtime_ports::AgentSessionModelTargetSelection>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BtwAskStreamResponse {
     pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_target: Option<openbitfun_core_types::model_pool::SessionModelTarget>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -132,6 +134,10 @@ pub async fn btw_ask_stream(
         .await
         .map_err(|e| e.to_string())?;
 
+    let model_target = coordinator
+        .get_session_manager()
+        .get_session(&child_session_id)
+        .map(openbitfun_core::agentic::session::session_model_target);
     state
         .side_question_runtime
         .register_btw_turn(
@@ -161,12 +167,36 @@ pub async fn btw_ask_stream(
         }
     });
 
-    Ok(BtwAskStreamResponse { ok: true })
+    Ok(BtwAskStreamResponse {
+        ok: true,
+        model_target,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn btw_admission_response_reads_legacy_and_keeps_new_target_optional_for_old_readers() {
+        let legacy: BtwAskStreamResponse =
+            serde_json::from_value(serde_json::json!({"ok":true})).unwrap();
+        assert!(legacy.model_target.is_none());
+        assert_eq!(
+            serde_json::to_value(legacy).unwrap(),
+            serde_json::json!({"ok":true})
+        );
+        let current: BtwAskStreamResponse = serde_json::from_value(serde_json::json!({
+            "ok":true, "modelTarget": { "sessionId":"child", "selection":{"kind":"model","model_ref":"side-model"}, "reasoningPreset":null },
+        })).unwrap();
+        #[derive(Deserialize)]
+        struct LegacyResponse {
+            ok: bool,
+        }
+        let old_reader: LegacyResponse =
+            serde_json::from_value(serde_json::to_value(current).unwrap()).unwrap();
+        assert!(old_reader.ok);
+    }
 
     #[test]
     fn btw_request_reads_legacy_payloads_and_round_trips_optional_metadata() {

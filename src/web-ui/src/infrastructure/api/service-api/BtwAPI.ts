@@ -1,5 +1,5 @@
 import { api } from './ApiClient';
-import { supportsBtwModelPools, type ModelSelection } from './ModelPoolAPI';
+import { supportsBtwModelPools, type ModelSelection, type SessionModelTarget } from './ModelPoolAPI';
 import { createTauriCommandError } from '../errors/TauriCommandError';
 import type { ImageContextData as ImageInputContextData } from './ImageContextTypes';
 
@@ -20,14 +20,16 @@ export interface BtwAskStreamRequest {
   imageContexts?: ImageInputContextData[];
   /** Optional UI metadata; question always contains the complete readable fallback. */
   userMessageMetadata?: Record<string, unknown>;
-  /** Negotiated on peers; omission retains the parent's model/reasoning policy. */
+  /** Negotiated on peers; omission uses the host BTW default (inherit by default). */
   initialModelSelection?: { modelId: string; reasoningPreset?: string };
-  /** Requires btw_model_pool_selection_v1. Omit to inherit the parent's binding. */
+  /** Requires btw_model_pool_selection_v1. Omit to use the host BTW default. */
   initialModelTarget?: BtwInitialModelTarget;
 }
 
 export interface BtwAskStreamResponse {
   ok: boolean;
+  /** New hosts return the committed choice with admission, including BTW defaults. */
+  modelTarget?: SessionModelTarget | null;
 }
 
 export interface BtwCancelRequest {

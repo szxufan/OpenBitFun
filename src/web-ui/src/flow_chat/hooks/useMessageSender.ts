@@ -26,6 +26,7 @@ import { getActiveSurfaceScope } from '@/infrastructure/peer-device/deviceSurfac
 import { usePeerDeviceModeOptional } from '@/infrastructure/peer-device/peerDeviceContextState';
 import { isBtwSessionDraft } from '../utils/modelSelectionTarget';
 import { sendMessageToBtwSession } from '../services/BtwThreadService';
+import { supportsBtwModelDefaults } from '@/infrastructure/config/services/btwModelDefaults';
 import { supportsBtwModelPools } from '@/infrastructure/api/service-api/ModelPoolAPI';
 import type { BtwInitialModelTarget } from '@/infrastructure/api/service-api/BtwAPI';
 import { buildImagePayload, stripImageContextTags } from '../utils/imagePayload';
@@ -263,17 +264,20 @@ export function useMessageSender(props: UseMessageSenderProps): UseMessageSender
         }
         // An inherited pool must retain the host's parent binding. Only explicit
         // changes use typed selection; never flatten pool intent to modelName.
+        const explicitSelection = targetSession.config.btwModelSelectionExplicit
+          || modelPoolSelectionPending;
+        const useHostDefault = supportsBtwModelDefaults() && !explicitSelection;
         let initialModelTarget: BtwInitialModelTarget | undefined;
         if (modelPoolId && modelPoolSelectionPending) {
           initialModelTarget = { selection: { kind: 'pool', pool_id: modelPoolId } };
-        } else if (!modelPoolId && canSetInitialBtwTarget) {
+        } else if (!modelPoolId && !useHostDefault && canSetInitialBtwTarget) {
           initialModelTarget = {
             selection: { kind: 'model', model_ref: modelName || 'primary' }, reasoningPreset,
           };
         }
         await sendMessageToBtwSession({ parentSessionId, childSessionId: targetSession.sessionId,
           question: fullMessage, imagePayload,
-          ...(!modelPoolId && !initialModelTarget ? { modelId: modelName,
+          ...(!modelPoolId && !useHostDefault && !initialModelTarget ? { modelId: modelName,
             ...(canSetInitialBtwModel ? { initialModelSelection: {
               modelId: modelName || 'primary', reasoningPreset,
             } } : {}),

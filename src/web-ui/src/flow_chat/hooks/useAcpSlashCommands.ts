@@ -44,6 +44,7 @@ export function useAcpSlashCommands(
 
     let cancelled = false;
     ACPClientAPI.getSessionCommands({
+      observeOnly: true,
       sessionId,
       clientId,
       workspaceId,

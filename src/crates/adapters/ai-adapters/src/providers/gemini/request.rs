@@ -12,7 +12,47 @@ use crate::types::{
 };
 use anyhow::{anyhow, Result};
 use log::debug;
+use openbitfun_core_types::errors::AiProviderError;
 use reqwest::RequestBuilder;
+use std::io::{self, Write};
+
+const GEMINI_INLINE_REQUEST_LIMIT: usize = 20_000_000;
+
+#[derive(Default)]
+struct JsonByteCount(usize);
+
+impl Write for JsonByteCount {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0 = self.0.saturating_add(bytes.len());
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+fn check_inline_request_size(url: &str, body: &serde_json::Value) -> Result<()> {
+    // The public Gemini API limits the whole inline request, including JSON
+    // framing and base64. Custom gateways can enforce their own HTTP limits.
+    if !reqwest::Url::parse(url).is_ok_and(|url| {
+        url.scheme() == "https" && url.host_str() == Some("generativelanguage.googleapis.com")
+    }) {
+        return Ok(());
+    }
+    let mut size = JsonByteCount::default();
+    serde_json::to_writer(&mut size, body)?;
+    if size.0 > GEMINI_INLINE_REQUEST_LIMIT {
+        return Err(AiProviderError::from_parts(
+            "The Gemini request exceeds the 20 MB inline request limit.".into(),
+            None,
+            None,
+            Some(413),
+        )
+        .into());
+    }
+    Ok(())
+}
 
 pub(crate) fn apply_headers(
     client: &AIClient,
@@ -571,6 +611,7 @@ pub(crate) async fn send_stream(
         extra_body,
         request_context.as_ref(),
     )?;
+    check_inline_request_size(&url, &request_body)?;
     let idle_timeout = client.stream_options.idle_timeout;
     let ttft_timeout = client.stream_options.ttft_timeout;
 
@@ -594,6 +635,22 @@ pub(crate) async fn send_stream(
 mod tests {
     use super::*;
     use crate::providers::gemini::{code_assist, discovery};
+
+    #[test]
+    fn gemini_inline_request_limit_counts_serialized_json_only_on_public_api() {
+        let url =
+            "https://generativelanguage.googleapis.com/v1beta/models/test:streamGenerateContent";
+        let mut data = "a".repeat(GEMINI_INLINE_REQUEST_LIMIT - 2);
+        assert!(check_inline_request_size(url, &data.clone().into()).is_ok());
+        // A quote occupies two bytes when escaped in a JSON string.
+        data.pop();
+        data.push('"');
+        let body = data.into();
+        let error = check_inline_request_size(url, &body).unwrap_err();
+        let provider = error.downcast_ref::<AiProviderError>().unwrap();
+        assert_eq!(provider.http_status, Some(413));
+        assert!(check_inline_request_size("http://localhost:8080/gemini", &body).is_ok());
+    }
 
     fn api_key_client(base_url: &str) -> AIClient {
         AIClient::new(

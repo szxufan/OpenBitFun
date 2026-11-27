@@ -13,6 +13,7 @@ mod session_persistence;
 mod stream;
 mod tool;
 mod tool_card_bridge;
+mod transcript;
 mod transport;
 
 pub use config::{

@@ -781,6 +781,25 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let disposed = false;
+    const subscription = import('@/infrastructure/api/service-api/DesktopExternalControlAPI')
+      .then(({ listenForControllerSessionOpen }) => listenForControllerSessionOpen(async (sessionId, workspaceId) => {
+        if (disposed) return;
+        try {
+          const { openAgentCompanionSession } = await import('./services/openAgentCompanionSession');
+          if (!disposed && !await openAgentCompanionSession(sessionId, 'local', workspaceId)) {
+            log.warn('External controller session could not be opened', { sessionId });
+          }
+        } catch (error) {
+          log.warn('Failed to navigate to external controller session', { sessionId, error });
+        }
+      }))
+      .catch(error => { log.warn('Failed to subscribe to external controller navigation', { error }); });
+    return () => { disposed = true; void subscription.then(remove => remove?.()); };
+  }, []);
+
+  useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | null = null;
     void import('@tauri-apps/api/event')

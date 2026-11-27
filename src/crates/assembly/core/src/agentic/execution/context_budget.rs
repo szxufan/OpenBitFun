@@ -1,7 +1,7 @@
 //! Input admission budgets shared by ordinary requests and pool routing.
 
-use crate::service::config::types::automatic_max_output_tokens;
 use openbitfun_core_types::model_pool::ModelPoolContextBudget;
+use openbitfun_core_types::token_estimate::{automatic_max_output_tokens, INPUT_SAFETY_RESERVE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct CompressionTriggerBudget {
@@ -12,8 +12,6 @@ pub(super) struct CompressionTriggerBudget {
 }
 
 impl CompressionTriggerBudget {
-    const SAFETY_RESERVE_TOKENS: usize = 10_000;
-
     /// The active model or pool owns the request budget. Persisted session
     /// windows can describe a previous model or a legacy creation default.
     pub(super) fn for_request(
@@ -30,7 +28,7 @@ impl CompressionTriggerBudget {
         let output_reserve_tokens = configured_max_tokens
             .map(|value| value as usize)
             .unwrap_or_else(|| automatic_max_output_tokens(context_window as u32) as usize);
-        let safety_reserve_tokens = Self::SAFETY_RESERVE_TOKENS;
+        let safety_reserve_tokens = INPUT_SAFETY_RESERVE;
         Self {
             context_window,
             input_limit: context_window
@@ -43,7 +41,7 @@ impl CompressionTriggerBudget {
     pub(super) fn for_pool(budget: ModelPoolContextBudget) -> Self {
         let context_window = budget.context_window as usize;
         let input_limit = budget.input_limit as usize;
-        let safety_reserve_tokens = Self::SAFETY_RESERVE_TOKENS.min(context_window);
+        let safety_reserve_tokens = INPUT_SAFETY_RESERVE.min(context_window);
         Self {
             context_window,
             input_limit,

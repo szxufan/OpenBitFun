@@ -1,13 +1,15 @@
+use super::storage::{
+    descriptor, limit_error, read_bounded, write_atomic, CONTENT_JOBS, CONTENT_LIMIT,
+};
 use crate::service::snapshot::isolation_manager::IsolationManager;
 use crate::service::snapshot::types::{
-    FileMetadata, FileSnapshot, OptimizedContent, SnapshotError, SnapshotResult, SnapshotType,
-    StorageStats,
+    FileMetadata, FileSnapshot, SnapshotError, SnapshotResult, SnapshotType, StorageStats,
 };
 use crate::service::workspace_runtime::{WorkspaceRuntimeContext, WorkspaceRuntimeTarget};
 use log::{debug, error, info, warn};
 use openbitfun_runtime_ports::{WorkspaceFileSystem, WorkspaceMetadata, WorkspacePathKind};
 use openbitfun_services_core::workspace::LocalWorkspaceFs;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -92,8 +94,17 @@ impl BaselineCache {
                 continue;
             }
 
-            let content = fs::read_to_string(&path).ok()?;
-            let metadata: FileSnapshot = serde_json::from_str(&content).ok()?;
+            let metadata = match descriptor(&path) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    warn!(
+                        "Skipping unavailable baseline {}: {}",
+                        path.display(),
+                        error
+                    );
+                    continue;
+                }
+            };
 
             if metadata.snapshot_type == SnapshotType::Baseline
                 && metadata.file_path.as_os_str() == file_path.as_os_str()
@@ -142,14 +153,14 @@ impl BaselineCache {
             file_path: file_path.to_path_buf(),
             content_hash: before_snapshot.content_hash.clone(),
             snapshot_type: SnapshotType::Baseline,
-            compressed_content: before_snapshot.compressed_content.clone(),
+            compressed_content: Vec::new(),
             timestamp: SystemTime::now(),
             metadata: before_snapshot.metadata.clone(),
         };
 
         let baseline_meta_path = self.baseline_dir.join(format!("{}.json", baseline_id));
         let metadata_json = serde_json::to_string_pretty(&baseline_metadata)?;
-        fs::write(&baseline_meta_path, metadata_json)?;
+        write_atomic(&baseline_meta_path, metadata_json.as_bytes())?;
 
         debug!(
             "Created baseline snapshot: file_path={:?} baseline_id={} metadata_path={}",
@@ -199,7 +210,7 @@ impl BaselineCache {
 
         let baseline_meta_path = self.baseline_dir.join(format!("{}.json", baseline_id));
         let metadata_json = serde_json::to_string_pretty(&baseline_metadata)?;
-        fs::write(&baseline_meta_path, metadata_json)?;
+        write_atomic(&baseline_meta_path, metadata_json.as_bytes())?;
 
         {
             let mut cache = self.cache.write().await;
@@ -224,6 +235,7 @@ pub struct FileSnapshotSystem {
     snapshot_metadata_dir: PathBuf,
     hash_to_path: HashMap<String, PathBuf>,
     active_snapshots: HashMap<String, FileSnapshot>,
+    capture_limit: usize,
     compression_enabled: bool,
     dedup_enabled: bool,
     baseline_cache: BaselineCache,
@@ -267,10 +279,17 @@ impl FileSnapshotSystem {
             snapshot_dir,
             hash_to_path: HashMap::new(),
             active_snapshots: HashMap::new(),
+            capture_limit: super::types::SnapshotConfig::default()
+                .max_snapshot_size_mb
+                .saturating_mul(1024 * 1024),
             compression_enabled: true,
             dedup_enabled: true,
             baseline_cache: BaselineCache::new(runtime_context.snapshot_baselines_dir.clone()),
         }
+    }
+
+    pub(super) fn set_capture_budget_mb(&mut self, mb: usize) {
+        self.capture_limit = mb.saturating_mul(1024 * 1024);
     }
 
     pub(crate) fn workspace_fs(&self) -> SnapshotResult<&dyn WorkspaceFileSystem> {
@@ -307,10 +326,15 @@ impl FileSnapshotSystem {
 
     pub(crate) async fn read_workspace_text(&self, path: &Path) -> SnapshotResult<String> {
         self.validate_workspace_path(path).await?;
+        let _permit = CONTENT_JOBS
+            .acquire()
+            .await
+            .expect("snapshot semaphore stays open");
         let bytes = self
             .workspace_fs()?
-            .read_file(path.to_string_lossy().as_ref())
-            .await?;
+            .read_file_bounded(path.to_string_lossy().as_ref(), CONTENT_LIMIT)
+            .await?
+            .ok_or_else(|| limit_error(path, CONTENT_LIMIT))?;
         String::from_utf8(bytes).map_err(|error| {
             SnapshotError::Io(std::io::Error::new(std::io::ErrorKind::InvalidData, error))
         })
@@ -405,12 +429,7 @@ impl FileSnapshotSystem {
             load_tasks.push(tokio::task::spawn_blocking(move || {
                 let mut snapshots = Vec::with_capacity(chunk.len());
                 for path in chunk {
-                    let parsed = fs::read_to_string(&path)
-                        .map_err(SnapshotError::from)
-                        .and_then(|content| {
-                            serde_json::from_str::<FileSnapshot>(&content)
-                                .map_err(SnapshotError::from)
-                        });
+                    let parsed = descriptor(&path);
                     match parsed {
                         Ok(snapshot) => snapshots.push(snapshot),
                         Err(e) => {
@@ -452,9 +471,7 @@ impl FileSnapshotSystem {
 
     /// Loads snapshot metadata.
     async fn load_snapshot_metadata(&self, path: &Path) -> SnapshotResult<FileSnapshot> {
-        let content = fs::read_to_string(path)?;
-        let snapshot: FileSnapshot = serde_json::from_str(&content)?;
-        Ok(snapshot)
+        descriptor(path)
     }
 
     /// Creates a file snapshot.
@@ -492,13 +509,52 @@ impl FileSnapshotSystem {
                 file_path.display()
             )));
         }
-        let content = self
-            .workspace_fs()?
-            .read_file(file_path.to_string_lossy().as_ref())
+        let size = workspace_metadata.size.unwrap_or(0);
+        if size > self.capture_limit as u64 {
+            return Err(limit_error(file_path, self.capture_limit));
+        }
+        let _permit = CONTENT_JOBS
+            .acquire()
+            .await
+            .expect("snapshot semaphore stays open");
+        let (content_hash, metadata) = if size > CONTENT_LIMIT as u64 {
+            let (hash, recorded_size) = super::storage::stream_blob(
+                self.workspace_fs()?,
+                file_path,
+                &self.snapshot_by_hash_dir,
+                self.capture_limit,
+            )
             .await?;
-        let metadata = Self::extract_file_metadata(&workspace_metadata, &content)?;
-
-        let content_hash = self.calculate_content_hash(&content);
+            (
+                hash,
+                Self::file_metadata(&workspace_metadata, recorded_size, "unknown")?,
+            )
+        } else {
+            let limit = self.capture_limit.min(CONTENT_LIMIT);
+            let content = self
+                .workspace_fs()?
+                .read_file_bounded(file_path.to_string_lossy().as_ref(), limit)
+                .await?
+                .ok_or_else(|| limit_error(file_path, limit))?;
+            let metadata = Self::extract_file_metadata(&workspace_metadata, &content)?;
+            let content_hash = self.calculate_content_hash(&content);
+            let blob_path = self.get_content_path(&content_hash);
+            if !blob_path.exists() {
+                let gzip_input = content.starts_with(&[0x1f, 0x8b]);
+                let compressed = if gzip_input || (self.compression_enabled && content.len() > 1024)
+                {
+                    Some(self.compress_content(&content)?)
+                } else {
+                    None
+                };
+                let stored = compressed
+                    .as_deref()
+                    .filter(|data| gzip_input || data.len() < content.len() * 4 / 5)
+                    .unwrap_or(&content);
+                write_atomic(&blob_path, stored)?;
+            }
+            (content_hash, metadata)
+        };
 
         if !independent_handle
             && self.dedup_enabled
@@ -518,18 +574,12 @@ impl FileSnapshotSystem {
             );
         }
 
-        let optimized_content = self.optimize_content(&content);
-
         let snapshot = FileSnapshot {
             snapshot_id: Uuid::new_v4().to_string(),
             file_path: file_path.to_path_buf(),
             content_hash: content_hash.clone(),
             snapshot_type: SnapshotType::Before,
-            compressed_content: match optimized_content {
-                OptimizedContent::Raw(data) => data,
-                OptimizedContent::Compressed(data) => data,
-                OptimizedContent::Reference(_) => Vec::new(),
-            },
+            compressed_content: Vec::new(),
             timestamp: SystemTime::now(),
             metadata,
         };
@@ -550,54 +600,36 @@ impl FileSnapshotSystem {
         metadata: &WorkspaceMetadata,
         content: &[u8],
     ) -> SnapshotResult<FileMetadata> {
+        let encoding = if content.is_ascii() {
+            "ascii"
+        } else if std::str::from_utf8(content).is_ok() {
+            "utf-8"
+        } else {
+            "binary"
+        };
+        Self::file_metadata(metadata, content.len() as u64, encoding)
+    }
+
+    fn file_metadata(
+        metadata: &WorkspaceMetadata,
+        size: u64,
+        encoding: &str,
+    ) -> SnapshotResult<FileMetadata> {
         Ok(FileMetadata {
-            size: content.len() as u64,
+            size,
             permissions: metadata.permissions,
             last_modified: metadata.modified.ok_or_else(|| {
                 SnapshotError::ConfigError(
                     "Workspace provider did not supply a modification time for the snapshot".into(),
                 )
             })?,
-            encoding: if content.is_ascii() {
-                "ascii"
-            } else if std::str::from_utf8(content).is_ok() {
-                "utf-8"
-            } else {
-                "binary"
-            }
-            .into(),
+            encoding: encoding.into(),
         })
     }
 
     /// Computes content hash.
     fn calculate_content_hash(&self, content: &[u8]) -> String {
         format!("{:x}", md5::compute(content))
-    }
-
-    /// Optimizes content storage.
-    fn optimize_content(&self, content: &[u8]) -> OptimizedContent {
-        if self.dedup_enabled {
-            let hash = self.calculate_content_hash(content);
-            let content_path = self.get_content_path(&hash);
-            if self.hash_to_path.contains_key(&hash) && content_path.exists() {
-                return OptimizedContent::Reference(hash);
-            }
-        }
-
-        if self.compression_enabled && content.len() > 1024 {
-            match self.compress_content(content) {
-                Ok(compressed) => {
-                    if compressed.len() < content.len() * 4 / 5 {
-                        return OptimizedContent::Compressed(compressed);
-                    }
-                }
-                Err(e) => {
-                    warn!("Content compression failed: error={}", e);
-                }
-            }
-        }
-
-        OptimizedContent::Raw(content.to_vec())
     }
 
     /// Compresses content.
@@ -611,34 +643,11 @@ impl FileSnapshotSystem {
         encoder.finish()
     }
 
-    /// Decompresses content.
-    fn decompress_content(&self, compressed: &[u8]) -> Result<Vec<u8>, std::io::Error> {
-        use flate2::read::GzDecoder;
-        use std::io::Read;
-
-        let mut decoder = GzDecoder::new(compressed);
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed)?;
-        Ok(decompressed)
-    }
-
-    /// Stores a snapshot.
     async fn store_snapshot(&self, snapshot: &FileSnapshot) -> SnapshotResult<()> {
-        let content_path = self.get_content_path(&snapshot.content_hash);
-        if !content_path.exists() {
-            fs::write(&content_path, &snapshot.compressed_content)?;
-        }
-
-        let metadata_path = self.get_metadata_path(&snapshot.snapshot_id);
-        let metadata_json = serde_json::to_string_pretty(snapshot)?;
-        fs::write(&metadata_path, metadata_json)?;
-
-        debug!(
-            "Snapshot stored: snapshot_id={} content_path={}",
-            snapshot.snapshot_id,
-            content_path.display()
-        );
-        Ok(())
+        write_atomic(
+            &self.get_metadata_path(&snapshot.snapshot_id),
+            &serde_json::to_vec_pretty(snapshot)?,
+        )
     }
 
     /// Returns the content file path.
@@ -707,38 +716,55 @@ impl FileSnapshotSystem {
     pub async fn restore_snapshot_content(&self, snapshot_id: &str) -> SnapshotResult<Vec<u8>> {
         let snapshot = self.load_snapshot_from_disk(snapshot_id).await?;
 
-        if !snapshot.compressed_content.is_empty() {
-            return self.extract_content_from_snapshot(&snapshot);
+        let path = self.get_content_path(&snapshot.content_hash);
+        if snapshot.metadata.size > CONTENT_LIMIT as u64 {
+            return Err(limit_error(&snapshot.file_path, CONTENT_LIMIT));
         }
-
-        let content_path = self.get_content_path(&snapshot.content_hash);
-        if !content_path.exists() {
-            return Err(SnapshotError::SnapshotNotFound(format!(
-                "content file not found: {}",
-                content_path.display()
+        let _permit = CONTENT_JOBS
+            .acquire()
+            .await
+            .expect("snapshot semaphore stays open");
+        let stored = match fs::File::open(&path) {
+            Ok(file) => read_bounded(file, CONTENT_LIMIT + 64 * 1024, &path)?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                // Legacy records may have the only remaining copy inline.
+                let metadata_path = self.get_metadata_path(snapshot_id);
+                let file = fs::File::open(&metadata_path)?;
+                let json_limit = CONTENT_LIMIT * 9 + 65536;
+                if file.metadata()?.len() > json_limit as u64 {
+                    return Err(limit_error(&metadata_path, json_limit));
+                }
+                let record: FileSnapshot = serde_json::from_reader(std::io::BufReader::new(
+                    std::io::Read::take(file, json_limit as u64 + 1),
+                ))?;
+                if record.compressed_content.is_empty() {
+                    return Err(SnapshotError::SnapshotNotFound(path.display().to_string()));
+                }
+                record.compressed_content
+            }
+            Err(error) => return Err(error.into()),
+        };
+        // Old blobs carry no codec tag. Check the raw hash first so an original
+        // gzip file is restored byte-for-byte instead of being decoded twice.
+        if stored.len() as u64 == snapshot.metadata.size
+            && self.calculate_content_hash(&stored) == snapshot.content_hash
+        {
+            return Ok(stored);
+        }
+        let decoded = read_bounded(
+            flate2::read::GzDecoder::new(stored.as_slice()),
+            snapshot.metadata.size as usize,
+            &path,
+        )?;
+        if decoded.len() as u64 != snapshot.metadata.size
+            || self.calculate_content_hash(&decoded) != snapshot.content_hash
+        {
+            return Err(SnapshotError::ConfigError(format!(
+                "Snapshot content failed verification: {}",
+                snapshot_id
             )));
         }
-
-        let compressed_content = fs::read(&content_path)?;
-
-        match self.decompress_content(&compressed_content) {
-            Ok(decompressed) => Ok(decompressed),
-            Err(_) => Ok(compressed_content),
-        }
-    }
-
-    /// Extracts content from a snapshot.
-    fn extract_content_from_snapshot(&self, snapshot: &FileSnapshot) -> SnapshotResult<Vec<u8>> {
-        if snapshot.compressed_content.is_empty() {
-            return Err(SnapshotError::SnapshotNotFound(
-                "snapshot content is empty".to_string(),
-            ));
-        }
-
-        match self.decompress_content(&snapshot.compressed_content) {
-            Ok(decompressed) => Ok(decompressed),
-            Err(_) => Ok(snapshot.compressed_content.clone()),
-        }
+        Ok(decoded)
     }
 
     /// Restores a file to the specified path (reads snapshot directly from disk).
@@ -753,12 +779,14 @@ impl FileSnapshotSystem {
         let snapshot = self.load_snapshot_from_disk(snapshot_id).await?;
         let metadata = snapshot.metadata.clone();
 
-        let content = self.restore_snapshot_content(snapshot_id).await?;
-
-        // Provider write_file owns parent creation using its path semantics.
-        self.workspace_fs()?
-            .write_file(target_path.to_string_lossy().as_ref(), &content)
-            .await?;
+        if snapshot.metadata.size > CONTENT_LIMIT as u64 {
+            self.restore_large_blob(&snapshot, target_path).await?;
+        } else {
+            let content = self.restore_snapshot_content(snapshot_id).await?;
+            self.workspace_fs()?
+                .write_file(target_path.to_string_lossy().as_ref(), &content)
+                .await?;
+        }
 
         self.restore_file_metadata(target_path, &metadata).await?;
 
@@ -767,6 +795,111 @@ impl FileSnapshotSystem {
             target_path.display()
         );
         Ok(())
+    }
+
+    /// Large blobs, including historical backups above the capture limit,
+    /// Verify them while streaming to a sibling stage before replacing the target.
+    async fn restore_large_blob(
+        &self,
+        snapshot: &FileSnapshot,
+        target: &Path,
+    ) -> SnapshotResult<()> {
+        use std::io::Read;
+        use tokio::io::AsyncWriteExt;
+        let _permit = CONTENT_JOBS
+            .acquire()
+            .await
+            .expect("snapshot semaphore stays open");
+        use std::io::Seek;
+        let expected = snapshot.metadata.size;
+        let _stage;
+        let mut blob = match fs::File::open(self.get_content_path(&snapshot.content_hash)) {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                let path = self.get_metadata_path(&snapshot.snapshot_id);
+                let directory = self.snapshot_by_hash_dir.clone();
+                let (file, stage) = tokio::task::spawn_blocking(move || {
+                    super::storage::extract_legacy_blob(&path, &directory, expected)
+                })
+                .await
+                .map_err(|error| {
+                    SnapshotError::ConfigError(format!(
+                        "Legacy snapshot extraction failed: {error}"
+                    ))
+                })??;
+                _stage = stage;
+                file
+            }
+            Err(err) => return Err(err.into()),
+        };
+        let mut raw = blob.metadata()?.len() == expected;
+        if raw {
+            let mut magic = [0; 2];
+            blob.read_exact(&mut magic)?;
+            blob.rewind()?;
+            if magic == [0x1f, 0x8b] {
+                // A raw gzip input and a gzip blob of coincidentally identical
+                // length share the same prefix. Old references have no codec tag.
+                let mut digest = md5::Context::new();
+                std::io::copy(&mut blob, &mut digest)?;
+                raw = format!("{:x}", digest.compute()) == snapshot.content_hash;
+                blob.rewind()?;
+            }
+        }
+        let mut reader: Box<dyn Read + Send> = if raw {
+            Box::new(blob)
+        } else {
+            Box::new(flate2::read::GzDecoder::new(blob))
+        };
+        let workspace = self.workspace_fs()?;
+        let target = target.to_string_lossy();
+        let parent = if self.remote_isolation.is_some() {
+            target
+                .rsplit_once('/')
+                .map(|(dir, _)| if dir.is_empty() { "/" } else { dir })
+        } else {
+            Path::new(target.as_ref()).parent().and_then(Path::to_str)
+        }
+        .ok_or_else(|| {
+            SnapshotError::ConfigError("Snapshot restore target has no parent".into())
+        })?;
+        workspace.create_dir_all(parent).await?;
+        let stage = workspace.join_path(parent, &[&format!(".snapshot-{}.tmp", Uuid::new_v4())]);
+        let writer = workspace.open_write_new(&stage).await?;
+        let result: SnapshotResult<()> = async {
+            let mut writer = writer;
+            let mut buffer = vec![0; 64 * 1024];
+            let mut digest = md5::Context::new();
+            let mut count = 0u64;
+            loop {
+                let n = reader.read(&mut buffer)?;
+                if n == 0 {
+                    break;
+                }
+                count += n as u64;
+                if count > expected {
+                    return Err(SnapshotError::ConfigError(
+                        "Snapshot exceeds recorded size".into(),
+                    ));
+                }
+                digest.consume(&buffer[..n]);
+                writer.write_all(&buffer[..n]).await?;
+            }
+            writer.shutdown().await?;
+            drop(writer);
+            if count != expected || format!("{:x}", digest.compute()) != snapshot.content_hash {
+                return Err(SnapshotError::ConfigError(
+                    "Snapshot content failed verification".into(),
+                ));
+            }
+            workspace.atomic_replace(&stage, &target).await?;
+            Ok(())
+        }
+        .await;
+        if result.is_err() {
+            let _ = workspace.remove_file(&stage).await;
+        }
+        result
     }
 
     /// Restores file metadata.
@@ -786,36 +919,66 @@ impl FileSnapshotSystem {
         Ok(())
     }
 
+    // Baselines and legacy records outside the in-memory index may be the last
+    // owner of a blob. If any descriptor is unreadable, keep all candidate blobs.
+    fn persisted_hashes(&self) -> SnapshotResult<HashSet<String>> {
+        let mut hashes = HashSet::new();
+        for dir in [
+            &self.snapshot_metadata_dir,
+            &self.baseline_cache.baseline_dir,
+        ] {
+            for entry in fs::read_dir(dir)? {
+                let path = entry?.path();
+                if path.extension().is_some_and(|ext| ext == "json") {
+                    hashes.insert(descriptor(&path)?.content_hash);
+                }
+            }
+        }
+        Ok(hashes)
+    }
+
     /// Deletes a snapshot.
     pub async fn delete_snapshot(&mut self, snapshot_id: &str) -> SnapshotResult<()> {
         info!("Deleting snapshot: snapshot_id={}", snapshot_id);
 
+        let metadata_path = self.get_metadata_path(snapshot_id);
         let snapshot = self
             .active_snapshots
-            .remove(snapshot_id)
-            .ok_or_else(|| SnapshotError::SnapshotNotFound(snapshot_id.to_string()))?;
-
-        let content_still_used = self
+            .get(snapshot_id)
+            .ok_or_else(|| SnapshotError::SnapshotNotFound(snapshot_id.to_owned()))?;
+        let hash = snapshot.content_hash.clone();
+        fs::remove_file(metadata_path)?;
+        self.active_snapshots.remove(snapshot_id);
+        if !self
             .active_snapshots
             .values()
-            .any(|s| s.content_hash == snapshot.content_hash);
-
-        if !content_still_used {
-            let content_path = self.get_content_path(&snapshot.content_hash);
-            if content_path.exists() {
-                fs::remove_file(&content_path)?;
+            .any(|s| s.content_hash == hash)
+        {
+            match self.persisted_hashes() {
+                Ok(hashes) if !hashes.contains(&hash) => {
+                    let path = self.get_content_path(&hash);
+                    if path.exists() {
+                        fs::remove_file(path)?;
+                    }
+                    self.hash_to_path.remove(&hash);
+                }
+                Err(error) => warn!(
+                    "Retaining snapshot blob because references could not be verified: {}",
+                    error
+                ),
+                _ => {}
             }
-
-            self.hash_to_path.remove(&snapshot.content_hash);
-        }
-
-        let metadata_path = self.get_metadata_path(snapshot_id);
-        if metadata_path.exists() {
-            fs::remove_file(&metadata_path)?;
         }
 
         debug!("Snapshot deleted successfully: snapshot_id={}", snapshot_id);
         Ok(())
+    }
+
+    pub(super) fn forget_cleaned_files(&mut self, removed: &super::maintenance::Removed) {
+        self.active_snapshots
+            .retain(|id, _| !removed.handles.contains(id));
+        self.hash_to_path
+            .retain(|hash, _| !removed.blobs.contains(hash));
     }
 
     /// Returns storage statistics.
@@ -885,16 +1048,12 @@ impl FileSnapshotSystem {
             }
         }
 
+        let referenced = self.persisted_hashes()?;
         for content_file in content_files {
             if let Some(file_stem) = content_file.file_stem().and_then(|s| s.to_str()) {
                 let content_hash = file_stem;
 
-                let is_referenced = self
-                    .active_snapshots
-                    .values()
-                    .any(|snapshot| snapshot.content_hash == content_hash);
-
-                if !is_referenced {
+                if !referenced.contains(content_hash) {
                     fs::remove_file(&content_file)?;
                     self.hash_to_path.remove(content_hash);
                     cleaned_count += 1;
@@ -1074,5 +1233,163 @@ mod tests {
         );
 
         fs::remove_dir_all(&context.runtime_root).expect("cleanup runtime root");
+    }
+    #[tokio::test]
+    async fn new_metadata_and_baselines_reference_one_blob_after_cleanup_and_restart() {
+        let context = test_runtime_context();
+        create_runtime_dirs(&context);
+        let path = context.runtime_root.join("example");
+        let bytes = vec![0x92; 10000];
+        fs::write(&path, &bytes).unwrap();
+        let mut system = FileSnapshotSystem::new(context.clone());
+        let before = system.create_owned_snapshot(&path).await.unwrap();
+        let baseline = system
+            .create_baseline_from_snapshot(&path, &before)
+            .await
+            .unwrap();
+        for id in [&before, &baseline] {
+            let json = fs::read(system.get_metadata_path(id)).unwrap();
+            // The old reader requires the content field even for a reference.
+            let legacy_reader: FileSnapshot = serde_json::from_slice(&json).unwrap();
+            assert!(legacy_reader.compressed_content.is_empty());
+            assert!(json.len() < 1024);
+        }
+        system.delete_snapshot(&before).await.unwrap();
+        let mut cold = FileSnapshotSystem::new(context.clone());
+        cold.initialize().await.unwrap();
+        assert_eq!(cold.cleanup_orphaned_snapshots().await.unwrap(), 0);
+        assert_eq!(
+            cold.restore_snapshot_content(&baseline).await.unwrap(),
+            bytes
+        );
+        fs::remove_dir_all(context.runtime_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn legacy_inline_only_payload_is_loaded_on_demand_and_round_trips() {
+        let context = test_runtime_context();
+        create_runtime_dirs(&context);
+        let path = context.runtime_root.join("binary");
+        let bytes = vec![173; 65536];
+        let record = FileSnapshot::new(
+            path.clone(),
+            bytes.clone(),
+            FileMetadata {
+                size: bytes.len() as u64,
+                permissions: None,
+                last_modified: SystemTime::now(),
+                encoding: "binary".into(),
+            },
+            SnapshotType::Before,
+        );
+        let mut system = FileSnapshotSystem::new(context.clone());
+        let json = serde_json::to_vec_pretty(&record).unwrap();
+        fs::write(system.get_metadata_path(&record.snapshot_id), &json).unwrap();
+        system.initialize().await.unwrap();
+        assert!(system.list_snapshots()[0].compressed_content.is_empty());
+        system
+            .restore_file(&record.snapshot_id, &path)
+            .await
+            .unwrap();
+        assert_eq!(fs::read(path).unwrap(), bytes);
+        assert_eq!(
+            fs::read(system.get_metadata_path(&record.snapshot_id)).unwrap(),
+            json
+        );
+        fs::remove_dir_all(context.runtime_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn streamed_legacy_restore_verifies_before_replacing_existing_target() {
+        let context = test_runtime_context();
+        create_runtime_dirs(&context);
+        let path = context.runtime_root.join("target");
+        fs::write(&path, b"keep").unwrap();
+        let bytes = vec![127; CONTENT_LIMIT + 1];
+        let mut record = FileSnapshot::new(
+            path.clone(),
+            bytes.clone(),
+            FileMetadata {
+                size: bytes.len() as u64,
+                permissions: None,
+                last_modified: SystemTime::now(),
+                encoding: "binary".into(),
+            },
+            SnapshotType::Before,
+        );
+        record.compressed_content.clear();
+        let system = FileSnapshotSystem::new(context.clone());
+        system.store_snapshot(&record).await.unwrap();
+        let blob = system.get_content_path(&record.content_hash);
+        fs::write(&blob, system.compress_content(b"short").unwrap()).unwrap();
+        assert!(system
+            .restore_file(&record.snapshot_id, &path)
+            .await
+            .is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"keep");
+        // Legacy baseline with an inline gzip payload and a collected blob.
+        fs::remove_file(&blob).unwrap();
+        record.compressed_content = system.compress_content(&bytes).unwrap();
+        fs::write(
+            system.get_metadata_path(&record.snapshot_id),
+            serde_json::to_vec_pretty(&record).unwrap(),
+        )
+        .unwrap();
+        system
+            .restore_file(&record.snapshot_id, &path)
+            .await
+            .unwrap();
+        assert_eq!(fs::read(path).unwrap(), bytes);
+        fs::remove_dir_all(context.runtime_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn oversized_source_is_rejected_before_a_snapshot_is_written() {
+        let context = test_runtime_context();
+        create_runtime_dirs(&context);
+        let path = context.runtime_root.join("engine");
+        fs::File::create(&path)
+            .unwrap()
+            .set_len(CONTENT_LIMIT as u64 + 1)
+            .unwrap();
+        let mut system = FileSnapshotSystem::new(context.clone());
+        system.set_capture_budget_mb(8);
+        assert!(system
+            .create_owned_snapshot(&path)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("byte limit"));
+        assert_eq!(
+            fs::read_dir(&system.snapshot_by_hash_dir).unwrap().count(),
+            0
+        );
+        assert_eq!(
+            fs::read_dir(&system.snapshot_metadata_dir).unwrap().count(),
+            0
+        );
+        fs::remove_dir_all(context.runtime_root).unwrap();
+    }
+    #[tokio::test]
+    async fn large_file_uses_a_streamed_blob_and_round_trips_after_restart() {
+        let context = test_runtime_context();
+        create_runtime_dirs(&context);
+        let path = context.runtime_root.join("engine");
+        let bytes = vec![42; CONTENT_LIMIT + 1];
+        fs::write(&path, &bytes).unwrap();
+        let mut system = FileSnapshotSystem::new(context.clone());
+        let id = system.create_owned_snapshot(&path).await.unwrap();
+        drop(system);
+        fs::remove_file(&path).unwrap();
+        let mut cold = FileSnapshotSystem::new(context.clone());
+        cold.initialize().await.unwrap();
+        assert_eq!(
+            cold.get_snapshot_recorded_size_bytes(&id).await.unwrap(),
+            bytes.len() as u64
+        );
+        assert!(cold.get_snapshot_content(&id).await.is_err());
+        cold.restore_file(&id, &path).await.unwrap();
+        assert_eq!(fs::read(path).unwrap(), bytes);
+        fs::remove_dir_all(context.runtime_root).unwrap();
     }
 }

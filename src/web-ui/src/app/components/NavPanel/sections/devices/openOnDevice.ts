@@ -18,7 +18,7 @@ import { flowChatStore } from '@/flow_chat/store/FlowChatStore';
 import { flowChatManager } from '@/flow_chat/services/FlowChatManager';
 import { openMainSession } from '@/flow_chat/services/sessionActivation';
 import { prewarmRelaySessionHistory } from '@/flow_chat/services/RelaySessionHistory';
-import { findReusableEmptySessionId, flowChatSessionConfigForWorkspace } from '@/app/utils/projectSessionWorkspace';
+import { flowChatSessionConfigForWorkspace } from '@/app/utils/projectSessionWorkspace';
 import { WorkspaceKind, type WorkspaceInfo } from '@/shared/types';
 import { openLatestAssistantSession } from '../workspaces/openLatestAssistantSession';
 import { useSceneStore } from '@/app/stores/sceneStore';
@@ -177,9 +177,7 @@ export async function createDeviceSession(
   const scope = getActiveSurfaceScope();
   const workspace = liveWorkspace(workspaceId);
   const mode = workspace.workspaceKind === WorkspaceKind.Assistant ? 'Claw' : undefined;
-  // Same reuse rule as the local "new session" action.
-  const sessionId = findReusableEmptySessionId(workspace, mode)
-    ?? await flowChatManager.createChatDraft(flowChatSessionConfigForWorkspace(workspace), mode);
+  const sessionId = await flowChatManager.createChatDraft(flowChatSessionConfigForWorkspace(workspace), mode);
   scope.assertCurrent('open new device session');
   await openMainSession(sessionId, { workspaceId, activateWorkspace, isCurrent: scope.isCurrent });
 }

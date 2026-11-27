@@ -35,6 +35,6 @@ Desktop 注入既有的会话事件日志，通过可选的 `executionProjection
 
 元数据并发验证：
 `cargo test -p openbitfun-acp --no-default-features --features client,openbitfun-core/git --lib client::manager::tests::metadata_`。
-协议接收器仍串行持有；按会话保存的 watch 快照支持长请求或变更期间的读取。
-首次读取等待快照发布或初始化锁释放；模型、配置变更和流内元数据更新后发布新快照。
-空闲读取仍排空待处理通知；重建连接不得复用旧快照，不能增加第二个协议流读取者来解决阻塞。
+长请求持有协议接收器。切换视图读取宿主的实时快照或已保存的会话选项。显式操作可以重新连接原会话并消费待处理的更新。由唯一的接收器发布模型、命令和配置变化。
+
+使用 `client::manager::recovery_tests` 验证会话历史持久化、冷启动查看和响应前的 ACP 历史回放。宿主先将工作区会话的终态写入正式历史，再发布完成事件并清理日志。

@@ -36,19 +36,24 @@ provider-neutral contracts owned by `openbitfun-agent-stream`.
   `cargo test --locked -p openbitfun-ai-adapters --lib providers::openai::chat::tests`.
 - Do not move provider-neutral stream DTOs, replay policy, or tool-call
   accumulation ownership back into this crate.
-- Optional model image-input ceilings are applied to outgoing message copies at
-  the shared AIClient send boundary, including single-attempt Responses calls.
-  Count user image parts and tool attachments together; preserve durable history,
-  tool-result identities, opaque tool text and non-image media. Newer messages
-  keep their pixels first, with explicit omission text for older pixels. Verify
-  with `cargo test --locked -p openbitfun-ai-adapters --lib client::image_budget::tests`.
+- Project images on the outgoing message copy at the shared AIClient send
+  boundary, including single-attempt Responses calls. Once the assistant has
+  answered, historical uploads and tool images carry text and available
+  references. Preserve tool-result identities, opaque tool text, non-image
+  media and durable attachments. New uploads, parallel tool results and images
+  produced by an explicit reread share the selected model's optional image count
+  limit. With `vision-input`, fit these pending images to the context remaining
+  after text, tools, reserved output and the safety margin.
+  A gateway HTTP 413 stops retries of the same body. An explicit model context
+  error keeps its token-overflow classification.
+  Verify with `cargo test --locked -p openbitfun-ai-adapters --features vision-input --lib -- client::image_budget vision_tokens oversized_http_body`.
 - Normalize explicitly reported response models into the typed stream
   `response_model` observation. Responses/Codex lifecycle metadata is emitted
   before an associated error, and Chat Completions model identifiers remain
   separate from the configured request model. Never infer an observation from
   URLs, model selection or error text. Inline-think buffering must not hide it,
   and metadata alone must not satisfy TTFT or become effective output.
-- Subscription auth (Codex/Antigravity codex CLI user-agent probing) may reuse
+- Subscription auth (Codex and legacy Antigravity codex CLI user-agent probing) may reuse
   lower-layer service command helpers for PATH and process-platform behavior; do
   not introduce host framework calls.
 - Keep `subscription-auth` optional so standalone protocol adapters do not pull
@@ -77,7 +82,7 @@ Compared on 2026-09-08 against [OpenCode v1.18.29](https://github.com/anomalyco/
 - Subscription credentials own authentication and account headers regardless
   of saved replace mode or header casing. Use OpenBitFun attribution for Codex;
   retain provider-required compatibility headers for xAI and
-  Antigravity. Public API-key configurations retain their authentication policy.
+  legacy Antigravity. Public API-key configurations retain their authentication policy.
 - `prepare_account_request_route` exposes credential-free provider protocol/model facts
   without credential IO or subscription identity. It shares the route definition
   with real credential resolution for static routes; OpenCode's final route
@@ -126,7 +131,7 @@ Compared on 2026-09-08 against [OpenCode v1.18.29](https://github.com/anomalyco/
 
 - Explicit account slots use `<provider>-account-<canonical UUID v4>` in the
   existing v2 credential store; each provider key remains its legacy default.
-  Codex, Antigravity, OpenCode Zen, Grok and Hermes share slot validation,
+  Codex, legacy Antigravity, OpenCode Zen, Grok and Hermes share slot validation,
   conditional identity commits and resolved-client binding through `accounts`;
   each provider owns authorization, refresh and trusted routing. Named-slot
   reauthentication must preserve its upstream account identity. Resolve,
@@ -215,9 +220,9 @@ business-session token for inference or silently switch Coding Plan requests ont
 Start/gift plans. Region and project endpoints are adapter-owned. Catalog
 failures remain errors.
 
-WorkBuddy (`workbuddy`, `workbuddy_ai`) is retired. The vendor stopped allowing
-subscription-token access, so its sign-in, refresh, catalog, request-dialect and
-billing protocols were deleted. `SubscriptionProvider::{Workbuddy, WorkbuddyAi}`
+Antigravity and WorkBuddy (`workbuddy`, `workbuddy_ai`) are retired. Their
+subscription import and access paths were removed. `SubscriptionProvider::{Antigravity,
+Workbuddy, WorkbuddyAi}`
 stay deserializable, keep their store keys, and are absent from
 `SubscriptionProvider::ALL` so nothing offers them; every login, resolve,
 catalog, quota and route path returns `SubscriptionProvider::retired_error()`.
@@ -301,7 +306,7 @@ cargo test --locked -p openbitfun-ai-adapters --features local-tokenizer --lib l
 ```
 
 Subscription model discovery must use the authenticated account catalog.
-Antigravity uses `v1internal:fetchAvailableModels`; preserve returned wire IDs
+Legacy Antigravity uses `v1internal:fetchAvailableModels`; preserve returned wire IDs
 and restrict alias translation to known legacy names. Codex's `supported_in_api`
 flag describes the public API, not subscription availability. OpenCode public catalog
 models must stay grouped by plan and wire format. Never mask a failed account

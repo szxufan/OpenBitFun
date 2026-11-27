@@ -44,6 +44,8 @@ pub enum PeerHostCapability {
     BtwInitialModelSelectionV1,
     /// BTW accepts typed initial model/pool choices and retains inherited bindings.
     BtwModelPoolSelectionV1,
+    /// Host-owned BTW defaults apply only when no initial override was supplied.
+    BtwModelDefaultsV1,
     /// Persistent control conversations and idempotent voice history are available.
     ControlConversationV1,
     /// A fresh persistent control conversation can be selected without deleting history.
@@ -164,6 +166,7 @@ impl PeerHostCapability {
         Self::RuntimeAttachmentUploadV1,
         Self::BtwInitialModelSelectionV1,
         Self::BtwModelPoolSelectionV1,
+        Self::BtwModelDefaultsV1,
         Self::ControlConversationV1,
         Self::ControlConversationResetV1,
         Self::TargetedSessionRollback,
@@ -229,6 +232,7 @@ impl PeerHostCapability {
             Self::ControlConversationResetV1 => "control_conversation_reset_v1",
             Self::BtwInitialModelSelectionV1 => "btw_initial_model_selection_v1",
             Self::BtwModelPoolSelectionV1 => "btw_model_pool_selection_v1",
+            Self::BtwModelDefaultsV1 => "btw_model_defaults_v1",
             Self::TargetedSessionRollback => "targeted_session_rollback",
             Self::TokenUsageStatistics => "token_usage_statistics",
             Self::SubscriptionAccountsV1 => "subscription_accounts_v1",
@@ -296,6 +300,7 @@ const DESKTOP_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::RuntimeAttachmentUploadV1,
     PeerHostCapability::BtwInitialModelSelectionV1,
     PeerHostCapability::BtwModelPoolSelectionV1,
+    PeerHostCapability::BtwModelDefaultsV1,
     PeerHostCapability::ControlConversationV1,
     PeerHostCapability::ControlConversationResetV1,
     PeerHostCapability::TargetedSessionRollback,
@@ -359,6 +364,7 @@ const CLI_CAPABILITIES: &[PeerHostCapability] = &[
     PeerHostCapability::RuntimeAttachmentUploadV1,
     PeerHostCapability::BtwInitialModelSelectionV1,
     PeerHostCapability::BtwModelPoolSelectionV1,
+    PeerHostCapability::BtwModelDefaultsV1,
     PeerHostCapability::TargetedSessionRollback,
     PeerHostCapability::TokenUsageStatistics,
     PeerHostCapability::ModelChannelRoutingV1,
@@ -474,6 +480,9 @@ mod tests {
             PeerHostKind::Cli,
             PeerHostCapability::BtwModelPoolSelectionV1
         ));
+        for host in [PeerHostKind::Desktop, PeerHostKind::Cli] {
+            assert!(advertises(host, PeerHostCapability::BtwModelDefaultsV1));
+        }
     }
 
     #[test]

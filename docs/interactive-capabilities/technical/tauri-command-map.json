@@ -1,11 +1,11 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "387a53e41117dfb6a341934a9a53c8162bc97c3b01cc4462312d71514fc22011",
-  "commandCount": 715,
+  "catalogDigest": "2cc4fddea2616df7d0bbda40f33fb0f1ca1c141e474f39c19c0a47825a2b276b",
+  "commandCount": 718,
   "coverage": {
-    "commandCount": 715,
-    "documentedCommandCount": 632,
+    "commandCount": 718,
+    "documentedCommandCount": 635,
     "implementationCommandCount": 83,
     "implementationDigest": "7e8386e21c06379bddd4e96ba2d19ce7e9a1375c2bece079286bbf757c93244f"
   },
@@ -1117,6 +1117,22 @@
       "remoteWorkspacePolicy": "RemoteUnsupported"
     },
     {
+      "id": "clean_snapshot_storage",
+      "moduleId": "snapshot_service",
+      "capabilityId": "setting.data.storage",
+      "capabilityIds": [
+        "setting.data.storage"
+      ],
+      "documentedItemIds": [
+        "setting.data.storage:clean"
+      ],
+      "visibility": "documented",
+      "rustPath": "clean_snapshot_storage",
+      "sourceFile": "src/apps/desktop/src/api/snapshot_service.rs",
+      "signature": "fn clean_snapshot_storage( runtime: State<'_, DesktopRuntimeContext>, request: CleanSnapshotStorageRequest, ) -> Result<CleanupResult, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
+    },
+    {
       "id": "cleanup_invalid_workspaces",
       "moduleId": "commands",
       "capabilityId": "feature.projects",
@@ -1742,7 +1758,7 @@
       "visibility": "documented",
       "rustPath": "api::agentic_api::create_session",
       "sourceFile": "src/apps/desktop/src/api/agentic_api.rs",
-      "signature": "fn create_session( coordinator: State<'_, Arc<ConversationCoordinator>>, app_state: State<'_, AppState>, runtime: State<'_, DesktopRuntimeContext>, mut request: CreateSessionRequest, ) -> Result<CreateSessionResponse, String>",
+      "signature": "fn create_session( coordinator: State<'_, Arc<ConversationCoordinator>>, app_state: State<'_, AppState>, runtime: State<'_, DesktopRuntimeContext>, request: CreateSessionRequest, ) -> Result<CreateSessionResponse, String>",
       "remoteWorkspacePolicy": "LegacyUnaudited"
     },
     {
@@ -2180,6 +2196,22 @@
       "sourceFile": "src/apps/desktop/src/desktop_cards/commands.rs",
       "signature": "fn desktop_card_set_visible( cards: State<'_, Arc<DesktopCards>>, request: DesktopCardSetVisibleRequest, ) -> Result<DesktopCardRecord, String>",
       "remoteWorkspacePolicy": "LocalOnly"
+    },
+    {
+      "id": "desktop_external_control",
+      "moduleId": "external_control",
+      "capabilityId": "setting.tools.desktop-control",
+      "capabilityIds": [
+        "setting.tools.desktop-control"
+      ],
+      "documentedItemIds": [
+        "setting.tools.desktop-control:external-control"
+      ],
+      "visibility": "documented",
+      "rustPath": "external_control::desktop_external_control",
+      "sourceFile": "src/apps/desktop/src/external_control.rs",
+      "signature": "fn desktop_external_control( webview: tauri::Webview, app: AppHandle, request: ControllerSettingsRequest, ) -> Result<Value, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "dispatch_answer",
@@ -5165,6 +5197,22 @@
       "sourceFile": "src/apps/desktop/src/api/commands.rs",
       "signature": "fn initialize_workspace_startup_state( state: State<'_, AppState>, app: tauri::AppHandle, startup_trace: State<'_, DesktopStartupTrace>, ) -> Result<WorkspaceStartupStateSnapshotDto, String>",
       "remoteWorkspacePolicy": "RemoteRouted"
+    },
+    {
+      "id": "inspect_snapshot_storage",
+      "moduleId": "snapshot_service",
+      "capabilityId": "setting.data.storage",
+      "capabilityIds": [
+        "setting.data.storage"
+      ],
+      "documentedItemIds": [
+        "setting.data.storage:clean"
+      ],
+      "visibility": "documented",
+      "rustPath": "inspect_snapshot_storage",
+      "sourceFile": "src/apps/desktop/src/api/snapshot_service.rs",
+      "signature": "fn inspect_snapshot_storage( request: InspectSnapshotStorageRequest, ) -> Result<StorageOverview, String>",
+      "remoteWorkspacePolicy": "WorkspaceAgnostic"
     },
     {
       "id": "install_acp_client_cli",

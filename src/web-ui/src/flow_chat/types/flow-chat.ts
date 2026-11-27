@@ -675,6 +675,8 @@ export interface SessionConfig {
   modelPoolId?: string;
   /** Draft-only intent, committed after the runtime session is created. */
   modelPoolSelectionPending?: boolean;
+  /** Draft-only user override; inherited/default previews never set this flag. */
+  btwModelSelectionExplicit?: boolean;
   modelPoolBinding?: import('@/infrastructure/api/service-api/ModelPoolAPI').ModelPoolBinding;
   /** Explicit reasoning preset for the next turn; omitted means model default. */
   reasoningPreset?: string;

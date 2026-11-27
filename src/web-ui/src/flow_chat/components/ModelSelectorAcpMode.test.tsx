@@ -25,6 +25,7 @@ const aiApiMocks = vi.hoisted(() => ({
 
 const flowChatStoreMocks = vi.hoisted(() => {
   type TestSession = {
+    workspaceId?: string;
     workspacePath?: string;
     remoteConnectionId?: string;
     remoteSshHost?: string;
@@ -34,6 +35,7 @@ const flowChatStoreMocks = vi.hoisted(() => {
   const store = {
     getState: () => ({ sessions }),
     subscribe: vi.fn(() => () => undefined),
+    markBtwModelSelectionExplicit: vi.fn(),
     updateSessionModelName: vi.fn(),
     updateSessionReasoningPreset: vi.fn(),
     updateSessionMaxContextTokens: vi.fn(),
@@ -111,6 +113,7 @@ describe('ModelSelector ACP mode picker', () => {
     activateSurface('local');
     flowChatStoreMocks.sessions.clear();
     flowChatStoreMocks.sessions.set('acp-session', {
+      workspaceId: 'workspace-1',
       workspacePath: '/tmp/project',
       config: { agentType: 'acp:dsh' },
     });
@@ -161,6 +164,7 @@ describe('ModelSelector ACP mode picker', () => {
   };
 
   it('shows loading without duplicating the request and closes the model card for a mode-only response', async () => {
+    vi.useFakeTimers();
     let resolveOptions!: (options: AcpSessionOptions) => void;
     vi.mocked(ACPClientAPI.getSessionOptions).mockReturnValueOnce(new Promise(resolve => {
       resolveOptions = resolve;
@@ -173,6 +177,9 @@ describe('ModelSelector ACP mode picker', () => {
     expect(document.body.querySelector('[data-testid="chat-model-selector-loading"]')?.textContent)
       .toContain('modelSelector.status.loading');
     expect(ACPClientAPI.getSessionOptions).toHaveBeenCalledTimes(1);
+    expect(ACPClientAPI.getSessionOptions).toHaveBeenCalledWith(expect.objectContaining({ workspaceId: 'workspace-1' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(75_000); });
+    expect(trigger.getAttribute('aria-busy')).toBe('true');
 
     await act(async () => resolveOptions({ availableModels: [], configOptions: [MODE_OPTION] }));
     expect(container.querySelector('[data-testid="chat-model-selector-btn"]')).toBeNull();
@@ -215,28 +222,55 @@ describe('ModelSelector ACP mode picker', () => {
     expect(onAvailabilityChange).toHaveBeenLastCalledWith({ status: 'ready', canSend: true });
   });
 
-  it('retries failed initialization from the startup notification and ignores it after unmount', async () => {
+  it('restores an old session on opening and lets the startup notification retry a failure', async () => {
     const events: any[] = [];
     const handler = (event: Event) => events.push((event as CustomEvent).detail);
     window.addEventListener('openbitfun:acp-session-creation', handler);
     try {
-      vi.mocked(ACPClientAPI.getSessionOptions).mockRejectedValueOnce(new Error('Agent initialize failed'));
+      vi.mocked(ACPClientAPI.getSessionOptions)
+        .mockResolvedValueOnce({ agentDisconnected: true, needsInitialOptions: true, availableModels: [], configOptions: [] })
+        .mockRejectedValueOnce(new Error('Agent initialize failed'));
       await act(async () => root.render(<ModelSelector currentMode="acp:dsh" sessionId="acp-session" />));
+      expect(ACPClientAPI.getSessionOptions).toHaveBeenNthCalledWith(1, expect.objectContaining({ observeOnly: true }));
+      expect(ACPClientAPI.getSessionOptions).toHaveBeenLastCalledWith(expect.objectContaining({ observeOnly: false }));
       const failed = events.find(event => event.phase === 'finish');
       expect(failed).toMatchObject({ succeeded: false, error: 'Agent initialize failed', action: 'restore' });
       vi.mocked(ACPClientAPI.getSessionOptions).mockResolvedValueOnce({
         currentModelId: 'remote', availableModels: [{ id: 'remote', name: 'Remote' }], configOptions: [],
       });
       await act(async () => failed.retry());
-      expect(ACPClientAPI.getSessionOptions).toHaveBeenCalledTimes(2);
       expect(events.filter(event => event.phase === 'start')).toHaveLength(2);
       expect(events.at(-1)).toMatchObject({ phase: 'finish', succeeded: true });
+      expect(container.querySelector('[data-testid="chat-model-selector-btn"]')?.textContent).toContain('Remote');
       act(() => root.render(null));
       await failed.retry();
-      expect(ACPClientAPI.getSessionOptions).toHaveBeenCalledTimes(2);
+      expect(ACPClientAPI.getSessionOptions).toHaveBeenCalledTimes(3);
     } finally {
       window.removeEventListener('openbitfun:acp-session-creation', handler);
     }
+  });
+
+  it('opens an old session without blocking send while its first model snapshot arrives', async () => {
+    const missing = { agentDisconnected: true, needsInitialOptions: true, availableModels: [], configOptions: [] };
+    let resolve!: (options: AcpSessionOptions) => void;
+    vi.mocked(ACPClientAPI.getSessionOptions).mockResolvedValueOnce(missing).mockResolvedValueOnce(missing)
+      .mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    const availability = vi.fn();
+    const selector = (active: boolean) => <ModelSelector currentMode="acp:dsh" sessionId="acp-session"
+      isSceneActive={active} onAvailabilityChange={availability} />;
+    await act(async () => root.render(selector(false)));
+    expect(ACPClientAPI.getSessionOptions).toHaveBeenCalledTimes(1);
+    expect(ACPClientAPI.getSessionOptions).toHaveBeenCalledWith(expect.objectContaining({ observeOnly: true }));
+    await act(async () => root.render(selector(true)));
+    const trigger = container.querySelector<HTMLButtonElement>('[data-testid="chat-model-selector-btn"]')!;
+    expect(trigger.textContent).toContain('modelSelector.status.loading');
+    expect(availability).toHaveBeenLastCalledWith({ status: 'loading', canSend: true });
+    expect(ACPClientAPI.getSessionOptions).toHaveBeenLastCalledWith(expect.objectContaining({ observeOnly: false }));
+    await act(async () => resolve({
+      currentModelId: 'remote', availableModels: [{ id: 'remote', name: 'Remote' }], configOptions: [],
+    }));
+    expect(trigger.textContent).toContain('Remote');
+    expect(availability).toHaveBeenLastCalledWith({ status: 'ready', canSend: true });
   });
 
   it('dismisses pending startup feedback when its session view is unmounted', async () => {
@@ -245,8 +279,16 @@ describe('ModelSelector ACP mode picker', () => {
     window.addEventListener('openbitfun:acp-session-creation', handler);
     let resolve!: (options: AcpSessionOptions) => void;
     try {
-      vi.mocked(ACPClientAPI.getSessionOptions).mockReturnValueOnce(new Promise(done => { resolve = done; }));
+      vi.mocked(ACPClientAPI.getSessionOptions)
+        .mockResolvedValueOnce({ agentDisconnected: true, availableModels: [], configOptions: [] })
+        .mockReturnValueOnce(new Promise(done => { resolve = done; }));
       await act(async () => root.render(<ModelSelector currentMode="acp:dsh" sessionId="acp-session" />));
+      expect(events).toHaveLength(0);
+      expect(ACPClientAPI.getSessionOptions).toHaveBeenLastCalledWith(expect.objectContaining({ observeOnly: true }));
+      const trigger = container.querySelector<HTMLButtonElement>('[data-testid="chat-model-selector-btn"]')!;
+      expect(trigger.textContent).toContain('modelSelector.modelSettings');
+      await act(async () => trigger.click());
+      expect(ACPClientAPI.getSessionOptions).toHaveBeenLastCalledWith(expect.objectContaining({ observeOnly: false }));
       act(() => root.render(null));
       expect(events.at(-1)).toMatchObject({ phase: 'finish', cancelled: true, requestId: events[0].requestId });
       await act(async () => resolve({ availableModels: [], configOptions: [] }));
@@ -293,10 +335,9 @@ describe('ModelSelector ACP mode picker', () => {
     await act(async () => root.render(<ModelSelector currentMode="acp:dsh" sessionId="acp-session" />));
     await act(async () => root.render(<ModelSelector currentMode="acp:dsh" sessionId="new-session" />));
     await act(async () => resolvePrevious({
-      currentModelId: 'old-model',
-      availableModels: [{ id: 'old-model', name: 'Old Model' }],
-      configOptions: [],
+      agentDisconnected: true, needsInitialOptions: true, currentModelId: 'old-model', availableModels: [], configOptions: [],
     }));
+    expect(ACPClientAPI.getSessionOptions).toHaveBeenCalledTimes(2);
     const trigger = container.querySelector('[data-testid="chat-model-selector-btn"]');
     expect(trigger?.textContent).toContain('New Model');
     expect(trigger?.textContent).not.toContain('Old Model');

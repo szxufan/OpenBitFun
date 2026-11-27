@@ -596,6 +596,7 @@ export interface AIConfig {
   agent_model_defaults: AgentModelDefaultsConfig;
   agent_model_selections?: AgentModelSelections;
   task_models: TaskModelsConfig;
+  btw?: { model_selection: AgentModelTargetSelection; [key: string]: unknown };
   agent_profiles: Record<string, StoredAgentProfileConfigItem>;
   proxy: ProxyConfig;
   request_timeout: number;

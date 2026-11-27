@@ -63,6 +63,7 @@ import {
 } from '../../utils/sessionWorkspace';
 import { driverForCreation, driverForSession } from '../../session-drivers/registry';
 import { materializeSessionDraft } from '../sessionDraftService';
+import { findReusableSessionDraft } from '../sessionDraftReuse';
 import {
   isProjectedFirstRuntimeTurn,
   isProjectedSessionEmpty,
@@ -558,6 +559,7 @@ export async function createChatSession(
       agentType,
       JSON.stringify(config.executionTargetRequest ?? { kind: 'local' }),
       JSON.stringify(config.dispatchTargetRequest ?? { kind: 'local' }),
+      draft ? JSON.stringify(config) : undefined,
     );
 
     const pendingCreation = pendingSessionCreations.get(creationKey);
@@ -569,6 +571,15 @@ export async function createChatSession(
     // activation can rerun initialization while model config is still loading.
     const createPromise = Promise.resolve().then(async () => {
       surfaceScope.assertCurrent('start session creation');
+      if (draft) {
+        const reusableId = findReusableSessionDraft(
+          context.flowChatStore.getState(), workspace.id, agentType, config,
+        );
+        if (reusableId) {
+          context.flowChatStore.switchSession(reusableId);
+          return reusableId;
+        }
+      }
       const titleDescriptor = createDefaultSessionTitleDescriptor(
         (key, options) => i18nService.t(key, options),
       );

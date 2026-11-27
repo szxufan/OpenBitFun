@@ -31,6 +31,7 @@ use std::time::Duration;
 ///
 /// Manages all components of the snapshot system.
 pub struct SnapshotManager {
+    view_stamp: Option<super::maintenance::ViewStamp>,
     snapshot_service: Arc<RwLock<SnapshotService>>,
 }
 
@@ -55,7 +56,10 @@ impl SnapshotManager {
         let mut snapshot_service = SnapshotService::new(workspace_dir, runtime_context, config);
         snapshot_service.initialize().await?;
         let snapshot_service = Arc::new(RwLock::new(snapshot_service));
-        Ok(Self { snapshot_service })
+        Ok(Self {
+            snapshot_service,
+            view_stamp: None,
+        })
     }
 
     /// Records a file change.
@@ -510,6 +514,44 @@ async fn snapshot_manager_init_lock(workspace_id: &str) -> Arc<AsyncMutex<()>> {
         .clone()
 }
 
+/// Hold the same initialization lock used by view/writer registration until disk and
+/// in-memory indexes agree. A cold cleanup never constructs a snapshot manager.
+pub(super) async fn maintenance_manager(
+    workspace_id: &str,
+    remote: bool,
+) -> (
+    tokio::sync::OwnedMutexGuard<()>,
+    Option<Arc<SnapshotManager>>,
+) {
+    if remote {
+        let key = BoundSnapshotKey {
+            workspace_id: workspace_id.to_owned(),
+        };
+        let lock = bound_snapshot_init_locks()
+            .lock()
+            .await
+            .entry(key.clone())
+            .or_default()
+            .clone();
+        let guard = lock.lock_owned().await;
+        let managers = bound_snapshot_managers().lock().await;
+        let manager = managers
+            .writers
+            .get(&key)
+            .cloned()
+            .or_else(|| managers.views.get(&key).map(|v| v.0.clone()));
+        (guard, manager)
+    } else {
+        let guard = snapshot_manager_init_lock(workspace_id)
+            .await
+            .lock_owned()
+            .await;
+        let manager = get_snapshot_manager_for_workspace(workspace_id)
+            .or_else(|| get_snapshot_view_manager_for_workspace(workspace_id));
+        (guard, manager)
+    }
+}
+
 fn canonical_snapshot_io_path(workspace_dir: &Path) -> PathBuf {
     dunce::canonicalize(workspace_dir).unwrap_or_else(|_| workspace_dir.to_path_buf())
 }
@@ -539,7 +581,7 @@ fn bound_snapshot_init_locks() -> &'static AsyncMutex<HashMap<BoundSnapshotKey, 
     LOCKS.get_or_init(|| AsyncMutex::new(HashMap::new()))
 }
 
-fn bound_snapshot_context(
+pub(super) fn bound_snapshot_context(
     identity: &WorkspaceSessionIdentity,
     mut context: WorkspaceRuntimeContext,
 ) -> SnapshotResult<WorkspaceRuntimeContext> {
@@ -688,7 +730,9 @@ async fn open_bound_snapshot_manager(
         }
         if read_only {
             if let Some((existing, has_filesystem)) = managers.views.get(&key) {
-                if *has_filesystem || workspace_fs.is_none() {
+                if (*has_filesystem || workspace_fs.is_none())
+                    && existing.view_stamp.as_ref().is_some_and(|s| s.current())
+                {
                     return Ok(existing.clone());
                 }
             }
@@ -706,6 +750,8 @@ async fn open_bound_snapshot_manager(
             tokio::fs::create_dir_all(directory).await?;
         }
     }
+    let view_stamp =
+        read_only.then(|| super::maintenance::ViewStamp::capture(&runtime_context.locks_dir));
     let has_filesystem = workspace_fs.is_some();
     let mut service = match workspace_fs {
         Some(fs) => SnapshotService::with_workspace_fs(
@@ -726,6 +772,7 @@ async fn open_bound_snapshot_manager(
         service.initialize().await?;
     }
     let manager = Arc::new(SnapshotManager {
+        view_stamp,
         snapshot_service: Arc::new(RwLock::new(service)),
     });
     let mut managers = bound_snapshot_managers().lock().await;
@@ -1402,9 +1449,13 @@ pub async fn open_snapshot_manager_for_view(
     let started_at = Instant::now();
     let runtime_context =
         get_workspace_runtime_service_arc().context_for_local_workspace(&workspace_dir);
+    let view_stamp = Some(super::maintenance::ViewStamp::capture(
+        &runtime_context.locks_dir,
+    ));
     let mut snapshot_service = SnapshotService::new(workspace_dir.clone(), runtime_context, None);
     snapshot_service.initialize_for_view().await?;
     let view = Arc::new(SnapshotManager {
+        view_stamp,
         snapshot_service: Arc::new(RwLock::new(snapshot_service)),
     });
     if let Ok(mut views) = snapshot_view_managers().write() {
@@ -1423,6 +1474,7 @@ fn get_snapshot_view_manager_for_workspace(workspace_key: &str) -> Option<Arc<Sn
         .read()
         .ok()
         .and_then(|views| views.get(workspace_key).cloned())
+        .filter(|view| view.view_stamp.as_ref().is_some_and(|s| s.current()))
 }
 
 pub fn ensure_snapshot_manager_for_workspace(

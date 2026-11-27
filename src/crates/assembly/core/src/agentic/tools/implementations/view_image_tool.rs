@@ -14,14 +14,23 @@ pub struct ViewImageTool;
 
 #[derive(Debug, Clone)]
 enum ResolvedImagePath {
-    Local(PathBuf),
-    RemoteWorkspace { logical_path: String, path: String },
+    Local {
+        path: PathBuf,
+        reference: Option<String>,
+    },
+    RemoteWorkspace {
+        logical_path: String,
+        path: String,
+    },
 }
 
 impl ResolvedImagePath {
     fn display_path(&self) -> &str {
         match self {
-            Self::Local(path) => path.to_str().unwrap_or("<non-utf8-path>"),
+            Self::Local { path, reference } => reference
+                .as_deref()
+                .or_else(|| path.to_str())
+                .unwrap_or("<non-utf8-path>"),
             Self::RemoteWorkspace { logical_path, .. } => logical_path,
         }
     }
@@ -117,7 +126,10 @@ impl ViewImageTool {
             && local_path.is_absolute()
             && !crate::agentic::tools::workspace_paths::is_openbitfun_tool_uri(input_path)
         {
-            return Ok(ResolvedImagePath::Local(local_path.to_path_buf()));
+            return Ok(ResolvedImagePath::Local {
+                path: local_path.to_path_buf(),
+                reference: None,
+            });
         }
 
         match context.map(|ctx| ctx.resolve_tool_path(input_path)) {
@@ -128,9 +140,12 @@ impl ViewImageTool {
                         path: resolved.resolved_path,
                     });
                 }
-                Ok(ResolvedImagePath::Local(PathBuf::from(
-                    resolved.resolved_path,
-                )))
+                Ok(ResolvedImagePath::Local {
+                    reference: resolved
+                        .is_runtime_artifact()
+                        .then_some(resolved.logical_path),
+                    path: PathBuf::from(resolved.resolved_path),
+                })
             }
             Some(Err(err)) => Err(err),
             None => {
@@ -141,7 +156,10 @@ impl ViewImageTool {
                         input_path
                     )));
                 }
-                Ok(ResolvedImagePath::Local(path.to_path_buf()))
+                Ok(ResolvedImagePath::Local {
+                    path: path.to_path_buf(),
+                    reference: None,
+                })
             }
         }
     }
@@ -151,25 +169,25 @@ impl ViewImageTool {
         context: Option<&ToolUseContext>,
     ) -> OpenBitFunResult<Vec<u8>> {
         match resolved {
-            ResolvedImagePath::Local(path) => {
+            ResolvedImagePath::Local { path, .. } => {
                 let metadata = fs::metadata(path).await.map_err(|err| {
                     OpenBitFunError::tool(format!(
                         "unable to locate image at {}: {}",
-                        path.display(),
+                        resolved.display_path(),
                         err
                     ))
                 })?;
                 if !metadata.is_file() {
                     return Err(OpenBitFunError::tool(format!(
                         "image path is not a file: {}",
-                        path.display()
+                        resolved.display_path()
                     )));
                 }
 
                 fs::read(path).await.map_err(|err| {
                     OpenBitFunError::tool(format!(
                         "unable to read image at {}: {}",
-                        path.display(),
+                        resolved.display_path(),
                         err
                     ))
                 })
@@ -312,7 +330,9 @@ impl Tool for ViewImageTool {
         };
 
         match &path {
-            ResolvedImagePath::Local(local_path) => match std::fs::metadata(local_path) {
+            ResolvedImagePath::Local {
+                path: local_path, ..
+            } => match std::fs::metadata(local_path) {
                 Ok(metadata) if metadata.is_file() => ValidationResult::default(),
                 Ok(_) => ValidationResult {
                     result: false,
@@ -397,6 +417,8 @@ impl Tool for ViewImageTool {
         let path = Self::resolve_path(input_path, Some(context))?;
         let bytes = Self::read_image_bytes(&path, Some(context)).await?;
         let original_mime_type = Self::mime_type_for_image(&bytes)?;
+        let source_reference =
+            crate::agentic::image_analysis::attachments::save_image(&bytes, context).await?;
         let provider = Self::primary_api_format(context);
         let processed = optimize_image_for_provider(bytes, &provider, Some(original_mime_type))
             .map_err(|err| {
@@ -421,6 +443,7 @@ impl Tool for ViewImageTool {
         // it is looking at.
         let data = json!({
             "path": path.display_path(),
+            "source_image_reference": source_reference,
             "mime_type": mime_type.clone(),
             "width": processed.width,
             "height": processed.height,
@@ -579,6 +602,101 @@ mod tests {
             None,
         );
         context
+    }
+
+    #[tokio::test]
+    async fn image_snapshot_reopens_the_original_after_a_source_is_overwritten() {
+        use base64::Engine;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("screenshot.png");
+        let original = png_bytes(3, 2);
+        fs::write(&path, &original).unwrap();
+        let mut context = local_workspace_context("openai", true, dir.path().into());
+        context.custom_data.insert(
+            "__openbitfun_test_runtime_root".into(),
+            json!(dir.path().join("runtime")),
+        );
+        let tool = ViewImageTool::new();
+        let first = tool
+            .call_impl(&json!({ "path": path }), &context)
+            .await
+            .unwrap();
+        let ToolResult::Result { data, .. } = &first[0] else {
+            panic!("expected image")
+        };
+        let reference = data["source_image_reference"].as_str().unwrap();
+        fs::write(&path, png_bytes(1, 1)).unwrap();
+        let result = tool
+            .call_impl(&json!({ "path": reference }), &context)
+            .await
+            .unwrap();
+        let ToolResult::Result {
+            data,
+            image_attachments: Some(images),
+            ..
+        } = &result[0]
+        else {
+            panic!("expected image")
+        };
+        assert_eq!(data["source_image_reference"], reference);
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(&images[0].data_base64)
+                .unwrap(),
+            original
+        );
+    }
+
+    #[tokio::test]
+    async fn image_snapshot_reopens_a_pathless_tool_frame_on_its_runtime() {
+        use crate::agentic::image_analysis::attachments::{
+            restore_tool_images, tool_image_references,
+        };
+        use base64::Engine;
+        let root = tempfile::tempdir().unwrap();
+        let mut context = remote_context("openai", true);
+        context
+            .custom_data
+            .insert("__openbitfun_test_runtime_root".into(), json!(root.path()));
+        context.session_id = Some("screenshot-session".into());
+        let original = png_bytes(3, 2);
+        let frame = crate::util::types::ToolImageAttachment {
+            mime_type: "image/png".into(),
+            data_base64: base64::engine::general_purpose::STANDARD.encode(&original),
+        };
+        let references = tool_image_references(std::slice::from_ref(&frame), &context)
+            .await
+            .unwrap();
+        let reference = &references[0];
+        assert!(reference.starts_with("openbitfun://current-session/attachments/images/"));
+        assert!(context
+            .resolve_tool_path(reference)
+            .unwrap()
+            .resolved_path
+            .starts_with(
+                root.path()
+                    .join("sessions/screenshot-session")
+                    .to_str()
+                    .unwrap()
+            ));
+        let restored = restore_tool_images(&references, &context).await.unwrap();
+        assert_eq!(restored[0].data_base64, frame.data_base64);
+        let result = ViewImageTool::new()
+            .call_impl(&json!({ "path": reference }), &context)
+            .await
+            .unwrap();
+        let ToolResult::Result {
+            data,
+            image_attachments: Some(images),
+            ..
+        } = &result[0]
+        else {
+            panic!("expected image")
+        };
+        assert_eq!(data["path"], reference.as_str());
+        assert_eq!(data["source_image_reference"], reference.as_str());
+        assert_eq!(images[0].data_base64, frame.data_base64);
+        assert!(!data.to_string().contains(root.path().to_str().unwrap()));
     }
 
     #[tokio::test]

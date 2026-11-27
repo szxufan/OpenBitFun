@@ -5,6 +5,7 @@ import DefaultHarnessSection from './DefaultHarnessSection';
 import MemorySettingsSection from './MemorySettingsSection';
 import PromptSuggestionSection from './PromptSuggestionSection';
 import SessionTitleSection from './SessionTitleSection';
+import BtwSettingsSection from './BtwSettingsSection';
 
 export default function SessionMemorySettingsPage() {
   const sessionAnchor = useSettingsSectionAnchor('session');
@@ -15,6 +16,7 @@ export default function SessionMemorySettingsPage() {
         <SessionTitleSection />
         <PromptSuggestionSection />
       </ConfigPageSectionStack>
+      <BtwSettingsSection />
       <MemorySettingsSection />
     </SettingsPage>
   );

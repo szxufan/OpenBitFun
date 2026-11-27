@@ -398,8 +398,8 @@ and coordinate metadata through the provider wire converters:
 cargo test -p openbitfun-core --no-default-features --features agent-runtime,git,tools-computer-use --lib computer_use_pixels_and_geometry_reach_real_provider_wire
 ```
 
-For configured image limits, legacy tool-image history, plain continuation after
-a provider rejection, and user attachment admission:
+For configured limits on pending images, text references to earlier tool
+observations on a plain continuation, and user attachment admission:
 
 ```bash
 cargo test --locked -p openbitfun-core --no-default-features --features agent-runtime,git --lib -- configured_image_limit input_image_count

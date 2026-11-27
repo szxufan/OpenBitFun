@@ -384,9 +384,9 @@ async fn query_billing(
             Ok((response.json().await?, None))
         }
 
-        SubscriptionProvider::Workbuddy | SubscriptionProvider::WorkbuddyAi => {
-            Err(provider.retired_error())
-        }
+        SubscriptionProvider::Antigravity
+        | SubscriptionProvider::Workbuddy
+        | SubscriptionProvider::WorkbuddyAi => Err(provider.retired_error()),
         SubscriptionProvider::Zcode | SubscriptionProvider::ZcodeCn => {
             let team = !browser_poll::text(metadata, "organization").is_empty();
             let suffix = if team { "?type=2" } else { "" };

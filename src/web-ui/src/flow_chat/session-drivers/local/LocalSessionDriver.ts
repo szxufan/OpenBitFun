@@ -184,7 +184,7 @@ export const localSessionDriver: SessionDriver = {
         : resolveReasoningPresetForSessionCreation(explicitModelName)
     );
 
-    if (seed.draftId && agentType !== 'Claw' && !config.executionTargetRequest) {
+    if (seed.draftId && !config.executionTargetRequest) {
       if (!workspaceId) throw new Error('Draft workspace ID is unavailable');
       // Both reads only depend on the model already resolved above.
       const [reasoningPreset, maxContextTokens] = await Promise.all([

@@ -16,6 +16,8 @@ pub mod subscription_auth;
 pub mod tool_call_accumulator;
 pub mod trace;
 pub mod types;
+#[cfg(feature = "vision-input")]
+pub mod vision_tokens;
 
 pub use client::{AIClient, StreamOptions, StreamResponse};
 pub use model_selector::{

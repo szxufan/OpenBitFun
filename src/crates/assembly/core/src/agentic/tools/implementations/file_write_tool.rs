@@ -79,7 +79,7 @@ impl FileWriteTool {
     ) -> OpenBitFunResult<bool> {
         let existing = context
             .file_system_for_path(resolved)?
-            .read_file(&resolved.resolved_path)
+            .read_file_bounded(&resolved.resolved_path, content.len())
             .await
             .map_err(|error| {
                 OpenBitFunError::tool(format!(
@@ -87,7 +87,7 @@ impl FileWriteTool {
                     resolved.logical_path, error
                 ))
             })?;
-        Ok(existing == content.as_bytes())
+        Ok(existing.as_deref() == Some(content.as_bytes()))
     }
 
     pub(crate) async fn preflight_write_error(

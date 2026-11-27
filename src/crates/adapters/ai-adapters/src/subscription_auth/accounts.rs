@@ -3,7 +3,7 @@
 //! Existing v2 readers/writers preserve those entries without a schema change.
 
 use super::{
-    antigravity, build_account, codex, grok, hermes, opencode, store, zcode, LoginStartResult,
+    build_account, codex, grok, hermes, opencode, store, zcode, LoginStartResult,
     SubscriptionAccount, SubscriptionHttpOptions, SubscriptionLoginMethod,
     SubscriptionLogoutResult, SubscriptionProvider,
 };
@@ -49,7 +49,7 @@ fn build_instance(
         account_id: id.into(),
         is_default: id == provider.key(),
         supports_multiple_accounts: true,
-        enabled: metadata.is_none_or(|metadata| metadata.enabled),
+        enabled: !provider.is_retired() && metadata.is_none_or(|metadata| metadata.enabled),
         upstream_account_id: metadata.and_then(|metadata| metadata.upstream_account_id.clone()),
         account,
     }
@@ -166,13 +166,12 @@ pub async fn resolve_account_with_options(
     validate_account_id(provider, id)?;
     match provider {
         SubscriptionProvider::Codex => codex::resolve_account(id, options).await,
-        SubscriptionProvider::Workbuddy | SubscriptionProvider::WorkbuddyAi => {
-            Err(provider.retired_error())
-        }
+        SubscriptionProvider::Antigravity
+        | SubscriptionProvider::Workbuddy
+        | SubscriptionProvider::WorkbuddyAi => Err(provider.retired_error()),
         SubscriptionProvider::Zcode | SubscriptionProvider::ZcodeCn => {
             zcode::resolve(provider, id, options).await
         }
-        SubscriptionProvider::Antigravity => antigravity::resolve_account(id, options).await,
         SubscriptionProvider::Grok => {
             grok::resolve_for_account(id, provider.suggested().2, options).await
         }
@@ -207,17 +206,14 @@ pub async fn recover_rejected_account_with_options(
         ));
     }
     match provider {
-        SubscriptionProvider::Workbuddy | SubscriptionProvider::WorkbuddyAi => {
-            Err(provider.retired_error())
-        }
+        SubscriptionProvider::Antigravity
+        | SubscriptionProvider::Workbuddy
+        | SubscriptionProvider::WorkbuddyAi => Err(provider.retired_error()),
         SubscriptionProvider::Zcode | SubscriptionProvider::ZcodeCn => {
             zcode::recover(provider, id, rejected_access, options).await
         }
         SubscriptionProvider::Codex => {
             codex::recover_rejected_account(id, rejected_access, upstream_account_id, options).await
-        }
-        SubscriptionProvider::Antigravity => {
-            antigravity::recover_rejected_account(id, rejected_access, options).await
         }
         SubscriptionProvider::Grok => {
             grok::recover_rejected_account(id, rejected_access, options).await

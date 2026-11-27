@@ -219,14 +219,20 @@ impl CompressionJob {
         }
     }
 
-    async fn request_summary(&self, messages: &[Message]) -> OpenBitFunResult<String> {
-        let mut messages = ExecutionEngine::build_ai_messages_for_send(
-            messages,
+    async fn request_summary(&self, plan: &CompressionPlan) -> OpenBitFunResult<String> {
+        let mut image_context = ToolUseContext::for_tool_listing(
+            self.workspace.clone(),
+            self.workspace_services.clone(),
+        );
+        image_context.session_id = Some(self.session_id.clone());
+        let (mut messages, image_turn_start) = ExecutionEngine::build_ai_message_prefix_for_send(
+            &plan.summary_request_messages,
             &self.client.config.format,
-            self.workspace.as_ref(),
-            self.workspace_services.as_ref(),
+            image_context,
             &self.turn_id,
+            plan.summary_pending_image_start,
             self.attach_images,
+            false,
             &self.reminders.ordered_reminders(),
         )
         .await?;
@@ -244,11 +250,15 @@ impl CompressionJob {
             );
         }
         messages.push(AIMessage::user(self.compressor.build_compact_prompt()));
+        let context = ModelRequestContext {
+            image_turn_start: Some(image_turn_start),
+            ..self.request_context.clone()
+        };
         super::super::compression_request::request_summary(
             self.client.clone(),
             messages,
             self.tools.clone(),
-            &self.request_context,
+            &context,
             self.trace.clone(),
         )
         .await
@@ -336,7 +346,7 @@ impl CompressionJob {
                 }
             }
 
-            let summary_result = self.request_summary(&plan.summary_request_messages).await;
+            let summary_result = self.request_summary(&plan).await;
 
             match summary_result {
                 Ok(summary) => {

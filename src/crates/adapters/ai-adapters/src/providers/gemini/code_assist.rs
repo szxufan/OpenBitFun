@@ -678,6 +678,26 @@ async fn discover_project(client: &AIClient) -> Result<String> {
     Ok(remember_project(client, project).await)
 }
 
+fn wire_model(client: &AIClient, body: &mut serde_json::Value) -> String {
+    if is_antigravity(client) {
+        let route = resolve_antigravity_model(&client.config.model, body);
+        apply_antigravity_thinking(body, &route);
+        route.model
+    } else {
+        client.config.model.clone()
+    }
+}
+
+#[cfg(feature = "vision-input")]
+pub(crate) fn image_budget_request_options(
+    client: &AIClient,
+    extra: Option<serde_json::Value>,
+) -> Result<serde_json::Value> {
+    let mut body = gemini_request::try_build_request_body(client, None, vec![], None, extra)?;
+    body["model"] = serde_json::Value::String(wire_model(client, &mut body));
+    Ok(body)
+}
+
 pub(crate) async fn send_stream(
     client: &AIClient,
     messages: Vec<Message>,
@@ -700,14 +720,10 @@ pub(crate) async fn send_stream(
     )?;
 
     let antigravity = is_antigravity(client);
-    let model = if antigravity {
-        let route = resolve_antigravity_model(&client.config.model, &inner);
-        apply_antigravity_thinking(&mut inner, &route);
+    let model = wire_model(client, &mut inner);
+    if antigravity {
         inner["sessionId"] = serde_json::json!(antigravity_session_id(&inner));
-        route.model
-    } else {
-        client.config.model.clone()
-    };
+    }
     let mut request_body = serde_json::json!({
         "model": model,
         "project": project,

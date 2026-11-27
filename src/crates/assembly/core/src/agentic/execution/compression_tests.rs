@@ -153,6 +153,93 @@ async fn apply_prefetch(
 }
 
 #[tokio::test]
+async fn compression_summary_projects_images_using_the_full_conversation() {
+    use crate::agentic::core::{ToolCall, ToolResult};
+    use crate::util::types::ToolImageAttachment;
+
+    let (_temp, engine) = engine();
+    let image = crate::agentic::image_analysis::attachments::test_image();
+    let url = image.data_url.unwrap();
+    let call = ToolCall {
+        tool_id: "read".into(),
+        tool_name: "view_image".into(),
+        arguments: serde_json::json!({"path": "screenshot.png"}),
+        raw_arguments: None,
+        is_error: false,
+        parse_error: None,
+        recovered_from_truncation: false,
+        repair_kind: Default::default(),
+    };
+    let result = Message::tool_result(ToolResult {
+        tool_id: call.tool_id.clone(),
+        tool_name: call.tool_name.clone(),
+        effective_tool_name: None,
+        result: serde_json::json!({"path": "screenshot.png"}),
+        result_for_assistant: None,
+        is_error: false,
+        duration_ms: None,
+        image_attachments: Some(vec![ToolImageAttachment {
+            mime_type: image.mime_type,
+            data_base64: url.split_once(',').unwrap().1.into(),
+        }]),
+    });
+    let messages = [
+        Message::user("Inspect the screenshot".into()),
+        Message::assistant_with_tools(String::new(), vec![call]),
+        result,
+        Message::assistant("The screenshot shows a blue icon".into()),
+    ]
+    .map(|message| message.with_turn_id("turn".into()));
+    let observed_answer_tokens = messages[3].estimate_tokens_with_reasoning(true);
+    for (history, recent_tokens, pending) in [
+        (&messages[..], observed_answer_tokens, false),
+        (&messages[..3], 0, true),
+    ] {
+        let server = RetryTestServer::new(vec![retry_test_success()]);
+        let job = CompressionJob::new(
+            engine.context_compressor.clone(),
+            "session",
+            128_000,
+            recent_tokens,
+            CompressionModelSummaryInput {
+                ai_client: server.client(),
+                model_request_context: &ModelRequestContext::default(),
+                runtime_messages: history,
+                dialog_turn_id: "turn",
+                workspace: None,
+                workspace_services: None,
+                tool_definitions: &None,
+                prepended_prompt_reminders: &PrependedPromptReminders::default(),
+                primary_supports_image_understanding: true,
+                trace_config: None,
+            },
+        );
+        let candidate = job.run_manual().await.unwrap();
+        assert_eq!(
+            candidate.plan.summary_messages.last().unwrap().id,
+            messages[2].id
+        );
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        let wire = requests[0]["messages"].to_string();
+        assert_eq!(wire.contains(&url), pending);
+        assert_eq!(wire.contains("Earlier image pixels omitted"), !pending);
+    }
+
+    let tail_tokens = messages[1..]
+        .iter()
+        .map(|message| message.estimate_non_image_tokens_with_reasoning(true))
+        .sum();
+    let plan = engine
+        .context_compressor
+        .plan_compression_for_turn("session", "turn", &messages, 128_000, tail_tokens)
+        .unwrap()
+        .unwrap();
+    assert_eq!(plan.recent_tail_messages.len(), 3);
+    assert_eq!(plan.recent_tail_tokens, tail_tokens);
+}
+
+#[tokio::test]
 async fn compression_skips_retained_history_and_reconsiders_after_large_tool_result() {
     use crate::agentic::core::{ToolCall, ToolResult};
 

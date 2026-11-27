@@ -1615,9 +1615,18 @@ impl AgentSessionRevertPort for ScheduledSessionManagementPort {
     }
 }
 
-/// ACP accepts one prompt at a time per session. Keep that protocol-specific
-/// admission rule in the product assembly instead of changing the shared
-/// scheduler policy used by GUI, TUI, and remote-control surfaces.
+/// Build a scoped submission adapter over an existing host scheduler. Admission
+/// and the busy check share its session lock, including races with desktop input.
+pub fn idle_session_dialog_port(
+    coordinator: Arc<ConversationCoordinator>,
+    scheduler: Arc<DialogScheduler>,
+) -> Arc<dyn AgentDialogTurnPort> {
+    configured_plugin_dialog_turn_port(
+        coordinator,
+        Arc::new(RejectBusyAgentDialogTurnPort(scheduler)),
+    )
+}
+
 struct RejectBusyAgentDialogTurnPort(Arc<DialogScheduler>);
 
 #[async_trait::async_trait]

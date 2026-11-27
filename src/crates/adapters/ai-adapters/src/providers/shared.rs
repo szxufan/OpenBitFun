@@ -638,6 +638,7 @@ mod tests {
                         conversation_scope: None,
                         prompt_cache_route_key: Some("runtime-lineage".into()),
                         output_schema: Some(serde_json::json!({"type": "object"})),
+                        ..Default::default()
                     }),
                 ] {
                     assert_eq!(
@@ -696,6 +697,7 @@ mod tests {
                             conversation_scope: None,
                             prompt_cache_route_key: Some(" ".into()),
                             output_schema: Some(serde_json::json!({"type":"object"})),
+                            ..Default::default()
                         }),
                         Some(ModelRequestContext {
                             conversation_scope: None,
@@ -864,6 +866,7 @@ mod tests {
                             conversation_scope: None,
                             prompt_cache_route_key: Some("  ".into()),
                             output_schema: Some(serde_json::json!({"type": "object"})),
+                            ..Default::default()
                         }),
                     ] {
                         let schema = initial

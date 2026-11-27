@@ -1,3 +1,4 @@
+import { supportsBtwModelDefaults } from '@/infrastructure/config/services/btwModelDefaults';
 import { modelSelectionsConfigPath } from '@/infrastructure/config/services/modelSelections';
 import '@/app/scenes/settings/pages/ai/ModelSettingsPage.scss';
 import { ModelDiscoveryPicker, type ModelDiscoveryOption } from './ModelDiscoveryPicker';
@@ -24,7 +25,7 @@ import { SubscriptionProviderBrowser } from './SubscriptionProviderBrowser';
 import { ProductBrandIcon } from '@/shared/ui/ProductBrandIcon';
 import { getProductBrandIcon } from '@/shared/ui/productBrandIcons';
 import { SubscriptionAccountList, SubscriptionServiceGroup } from './SubscriptionServiceGroup';
-import { managedSubscriptionAccounts, modelsUsingSubscriptionAccount, groupSubscriptionServices, isRetiredSubscriptionProvider, isZcodeProvider, preferredZcodeProvider, subscriptionManagerAccounts, subscriptionAccountBadge, subscriptionAccountLabel, countSubscriptionServices, subscriptionLoginPlaceholder, subscriptionRemovalKeys } from './subscriptionServices';
+import { managedSubscriptionAccounts, modelsUsingSubscriptionAccount, groupSubscriptionServices, isRetiredSubscriptionProvider, isZcodeProvider, preferredZcodeProvider, subscriptionManagerAccounts, subscriptionAccountBadge, subscriptionAccountLabel, countSubscriptionServices, subscriptionLoginPlaceholder, subscriptionRemovalKeys, retainedSubscriptionAccountId } from './subscriptionServices';
 import { aiApi, systemAPI } from '@/infrastructure/api';
 import { mediaAPI } from '@/infrastructure/api/service-api/MediaApi';
 import { agentAPI, type ModelRoutingStatus } from '@/infrastructure/api/service-api/AgentAPI';
@@ -2605,13 +2606,14 @@ const ModelSettingsPage: React.FC = () => {
   };
 
   const inspectModelReferenceCount = async (modelIds: string[]): Promise<number> => {
-    const [defaultModels, taskModels, agentModelDefaults] = await Promise.all([
+    const [defaultModels, taskModels, agentModelDefaults, btwDefaults] = await Promise.all([
       configManager.getConfig<unknown>('ai.default_models'),
       configManager.getConfig<unknown>('ai.task_models'),
       configManager.getConfig<unknown>(modelSelectionsConfigPath()),
+      supportsBtwModelDefaults() ? configManager.getConfig<unknown>('ai.btw') : undefined,
     ]);
     const ids = new Set(modelIds);
-    return [defaultModels, taskModels, agentModelDefaults]
+    return [defaultModels, taskModels, agentModelDefaults, btwDefaults]
       .reduce<number>((count, value) => count + countModelConfigReferences(value, ids), 0);
   };
 
@@ -3793,7 +3795,6 @@ const ModelSettingsPage: React.FC = () => {
     const authOptions: ComboboxOption[] = [
       { value: 'api_key', label: t('subscriptionAuth.options.apiKey') },
       { value: 'subscription:codex', label: t('subscriptionAuth.options.codex') },
-      { value: 'subscription:antigravity', label: t('subscriptionAuth.options.antigravity') },
       { value: 'subscription:grok', label: t('subscriptionAuth.options.grok') },
       { value: 'subscription:hermes', label: t('subscriptionAuth.options.hermes') },
       { value: 'subscription:zcode', label: t('subscriptionAuth.options.zcode') },
@@ -4675,9 +4676,15 @@ const ModelSettingsPage: React.FC = () => {
       const hasAccount = managed.some(item => item.account.provider === target);
       const retrySlot = importing && subscriptionLoginPanel?.provider === target && subscriptionLoginPanel.status === 'failed'
         ? subscriptionLoginAccountId : null;
+      // A provider-card login reauthenticates a retained signed-out slot. The
+      // account manager's explicit Add account action remains the path for a
+      // genuinely new slot.
+      const retainedSlot = importing ? retainedSubscriptionAccountId(managed, target) : undefined;
       void handleSubscriptionLogin(target, retrySlot
         ? (retrySlot === target ? undefined : retrySlot)
-        : canAdd && hasAccount ? newAccountSlotId(target) : undefined);
+        : retainedSlot
+          ? (retainedSlot === target ? undefined : retainedSlot)
+          : canAdd && hasAccount ? newAccountSlotId(target) : undefined);
     };
     const renderAccount = (account: SubscriptionAccount, groupedRegion = false, slot: string = account.provider, enabled = true) => {
       const retiredAccount = isRetiredSubscriptionProvider(account.provider);

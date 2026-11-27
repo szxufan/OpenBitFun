@@ -11,6 +11,7 @@ import {
   FileInput,
   FolderGit2,
   Globe,
+  HardDrive,
   Keyboard,
   MousePointerClick,
   Palette,
@@ -183,12 +184,6 @@ export const SETTINGS_PAGE_MANIFESTS: readonly SettingsPageManifest[] = [
         searchPhrases: [phrase('settings/application', 'messageSending.title'), phrase('settings/application', 'messageSending.duringTurn'), phrase('settings/application', 'messageSending.description')],
       },
       {
-        id: 'btw-close-confirmation',
-        labelKey: 'navigation.sections.btw-close-confirmation',
-        keywords: ['btw', 'side conversation', 'close', 'confirmation', 'prompt'],
-        searchPhrases: [phrase('settings/application', 'btwCloseConfirmation.title'), phrase('settings/application', 'btwCloseConfirmation.label')],
-      },
-      {
         id: 'text-selection',
         labelKey: 'navigation.sections.text-selection',
         keywords: ['selection', 'annotation', 'excerpt', 'toolbar', 'popup', 'flowchat'],
@@ -239,8 +234,8 @@ export const SETTINGS_PAGE_MANIFESTS: readonly SettingsPageManifest[] = [
     icon: Brain,
     labelKey: 'navigation.pages.sessionMemory.label',
     descriptionKey: 'navigation.pages.sessionMemory.description',
-    keywords: ['session', 'memory', 'harness', 'title', 'remember', 'recall'],
-    namespaces: ['settings', 'settings/runtime', 'settings/models', 'settings/memory', 'flow-chat'],
+    keywords: ['session', 'memory', 'harness', 'title', 'remember', 'recall', 'btw', 'side question'],
+    namespaces: ['settings', 'settings/runtime', 'settings/models', 'settings/memory', 'settings/application', 'flow-chat'],
     searchPhrases: [],
     sections: [
       {
@@ -248,6 +243,12 @@ export const SETTINGS_PAGE_MANIFESTS: readonly SettingsPageManifest[] = [
         labelKey: 'navigation.sections.session',
         keywords: ['session', 'harness', 'mode', 'title'],
         searchPhrases: [phrase('settings/runtime', 'defaultHarness.title'), phrase('settings/models', 'sessionTitle.title')],
+      },
+      {
+        id: 'btw',
+        labelKey: 'navigation.sections.btw',
+        keywords: ['btw', 'side question', 'side conversation', 'model', 'pool', 'close', 'confirmation'],
+        searchPhrases: [phrase('settings/models', 'btwModel.title'), phrase('settings/models', 'btwModel.label'), phrase('settings/application', 'btwCloseConfirmation.label')],
       },
       {
         id: 'memory',
@@ -414,6 +415,7 @@ export const SETTINGS_PAGE_MANIFESTS: readonly SettingsPageManifest[] = [
       phrase('settings/runtime', 'computerUse.sectionTitle'),
       phrase('settings/runtime', 'computerUse.accessibility'),
       phrase('settings/runtime', 'computerUse.screenCapture'),
+      phrase('settings/runtime', 'externalControl.title'),
       phrase('settings/runtime', 'browserLinks.sectionTitle'),
       phrase('settings/runtime', 'browserLinks.defaultTarget'),
       phrase('settings/runtime', 'browserLinks.builtin'),
@@ -511,6 +513,17 @@ export const SETTINGS_PAGE_MANIFESTS: readonly SettingsPageManifest[] = [
     namespaces: ['settings/usage'],
     searchPhrases: [phrase('settings/usage', 'title'), phrase('settings/usage', 'subtitle')],
     load: () => import('./pages/data/UsageStatisticsSettingsPage'),
+  }),
+  definePage({
+    id: 'data.storage',
+    categoryId: 'data',
+    icon: HardDrive,
+    labelKey: 'navigation.pages.storage.label',
+    descriptionKey: 'navigation.pages.storage.description',
+    keywords: ['storage', 'disk', 'space', 'cleanup', 'snapshot', 'history'],
+    namespaces: ['settings'],
+    searchPhrases: [phrase('settings', 'storage.snapshots'), phrase('settings', 'storage.cleanup')],
+    load: () => import('./pages/data/StorageSettingsPage'),
   }),
   definePage({
     id: 'data.archived',

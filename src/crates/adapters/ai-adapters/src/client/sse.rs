@@ -538,7 +538,7 @@ where
                         error_kind,
                         provider_recovery_hint_ms(&headers, &error_text),
                     );
-                    if error_body_timed_out {
+                    if error_body_timed_out && status != StatusCode::PAYLOAD_TOO_LARGE {
                         // Keep the HTTP status, but do not report a partially
                         // received 403 as a confirmed credential failure.
                         provider_error.category = ErrorCategory::Timeout;
@@ -552,19 +552,17 @@ where
                         max_tries,
                         error
                     );
-                    last_error = Some(error);
                     if let Some(trace) = trace.as_ref() {
                         trace
                             .sink
-                            .request_attempt_failed(
-                                trace_handle.as_ref(),
-                                &last_error
-                                    .as_ref()
-                                    .map(ToString::to_string)
-                                    .unwrap_or_else(|| "unknown error".to_string()),
-                            )
+                            .request_attempt_failed(trace_handle.as_ref(), &error.to_string())
                             .await;
                     }
+                    // Repeating the same oversized body cannot make it fit.
+                    if status == StatusCode::PAYLOAD_TOO_LARGE {
+                        return Err(error);
+                    }
+                    last_error = Some(error);
 
                     if !fallback_used && !error_body_timed_out {
                         if let Some(adapted_body) =

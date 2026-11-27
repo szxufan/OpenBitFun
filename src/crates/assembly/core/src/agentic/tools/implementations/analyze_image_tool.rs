@@ -16,14 +16,23 @@ pub struct AnalyzeImageTool;
 
 #[derive(Debug, Clone)]
 enum ResolvedImagePath {
-    Local(PathBuf),
-    RemoteWorkspace { logical_path: String, path: String },
+    Local {
+        path: PathBuf,
+        reference: Option<String>,
+    },
+    RemoteWorkspace {
+        logical_path: String,
+        path: String,
+    },
 }
 
 impl ResolvedImagePath {
     fn display_path(&self) -> &str {
         match self {
-            Self::Local(path) => path.to_str().unwrap_or("<non-utf8-path>"),
+            Self::Local { path, reference } => reference
+                .as_deref()
+                .or_else(|| path.to_str())
+                .unwrap_or("<non-utf8-path>"),
             Self::RemoteWorkspace { logical_path, .. } => logical_path,
         }
     }
@@ -67,7 +76,10 @@ impl AnalyzeImageTool {
             && !crate::agentic::tools::workspace_paths::is_openbitfun_tool_uri(input_path)
             && !context.is_some_and(|ctx| ctx.is_remote())
         {
-            return Ok(ResolvedImagePath::Local(local_path.to_path_buf()));
+            return Ok(ResolvedImagePath::Local {
+                path: local_path.to_path_buf(),
+                reference: None,
+            });
         }
 
         match context.map(|ctx| ctx.resolve_tool_path(input_path)) {
@@ -78,9 +90,12 @@ impl AnalyzeImageTool {
                         path: resolved.resolved_path,
                     });
                 }
-                Ok(ResolvedImagePath::Local(PathBuf::from(
-                    resolved.resolved_path,
-                )))
+                Ok(ResolvedImagePath::Local {
+                    reference: resolved
+                        .is_runtime_artifact()
+                        .then_some(resolved.logical_path),
+                    path: PathBuf::from(resolved.resolved_path),
+                })
             }
             Some(Err(err)) => Err(err),
             None => {
@@ -91,7 +106,10 @@ impl AnalyzeImageTool {
                         input_path
                     )));
                 }
-                Ok(ResolvedImagePath::Local(path.to_path_buf()))
+                Ok(ResolvedImagePath::Local {
+                    path: path.to_path_buf(),
+                    reference: None,
+                })
             }
         }
     }
@@ -101,25 +119,25 @@ impl AnalyzeImageTool {
         context: Option<&ToolUseContext>,
     ) -> OpenBitFunResult<Vec<u8>> {
         match resolved {
-            ResolvedImagePath::Local(path) => {
+            ResolvedImagePath::Local { path, .. } => {
                 let metadata = fs::metadata(path).await.map_err(|err| {
                     OpenBitFunError::tool(format!(
                         "unable to locate image at {}: {}",
-                        path.display(),
+                        resolved.display_path(),
                         err
                     ))
                 })?;
                 if !metadata.is_file() {
                     return Err(OpenBitFunError::tool(format!(
                         "image path is not a file: {}",
-                        path.display()
+                        resolved.display_path()
                     )));
                 }
 
                 fs::read(path).await.map_err(|err| {
                     OpenBitFunError::tool(format!(
                         "unable to read image at {}: {}",
-                        path.display(),
+                        resolved.display_path(),
                         err
                     ))
                 })
@@ -294,7 +312,9 @@ impl Tool for AnalyzeImageTool {
         };
 
         match &resolved {
-            ResolvedImagePath::Local(local_path) => match std::fs::metadata(local_path) {
+            ResolvedImagePath::Local {
+                path: local_path, ..
+            } => match std::fs::metadata(local_path) {
                 Ok(metadata) if metadata.is_file() => ValidationResult::default(),
                 Ok(_) => ValidationResult {
                     result: false,
@@ -531,7 +551,7 @@ mod image_path_tests {
         let reference = images[0].image_path.as_deref().unwrap();
         assert!(reference.starts_with("openbitfun://runtime/remote-workspace/"));
         let resolved = AnalyzeImageTool::resolve_path(reference, Some(&context)).unwrap();
-        assert!(matches!(resolved, ResolvedImagePath::Local(_)));
+        assert!(matches!(resolved, ResolvedImagePath::Local { .. }));
         assert_eq!(
             AnalyzeImageTool::read_image_bytes(&resolved, Some(&context))
                 .await

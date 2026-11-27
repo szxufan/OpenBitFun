@@ -405,6 +405,7 @@ fn apply_primary_agent_model_default(
 #[cfg(test)]
 tokio::task_local! {
     static TEST_AGENT_MODEL_DEFAULTS: AgentModelSelections;
+    static TEST_BTW_AI_CONFIG: crate::service::config::types::AIConfig;
 }
 
 async fn normalize_model_selection(model_id: &str) -> OpenBitFunResult<String> {
@@ -6590,12 +6591,20 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             )?;
         }
         let workspace = Self::build_workspace_binding(&session.config).await;
+        let services = if images.iter().any(|image| {
+            image.data_url.is_none()
+                && image.image_path.as_deref().is_some_and(|path| {
+                    !crate::agentic::tools::workspace_paths::is_openbitfun_tool_uri(path)
+                })
+        }) {
+            Self::build_workspace_services(&workspace).await?
+        } else {
+            None
+        };
         let context =
-            crate::agentic::tools::framework::ToolUseContext::for_tool_listing(workspace, None);
-        crate::agentic::image_analysis::attachments::prepare_inline_image_attachments(
-            images, &context,
-        )
-        .await
+            crate::agentic::tools::framework::ToolUseContext::for_tool_listing(workspace, services);
+        crate::agentic::image_analysis::attachments::prepare_input_attachments(images, &context)
+            .await
     }
 
     fn input_image_pool_id(config: &SessionConfig) -> Option<&str> {
@@ -7175,18 +7184,9 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             user_message_metadata = Some(metadata);
         }
 
-        // Pool admission sees the same image-bearing history as execution,
-        // including inherited BTW context. Fixed-model admission retains its
-        // existing current-input validation contract.
-        let mut image_input_messages =
-            if session.config.model_binding_policy == SessionModelBindingPolicy::Pool {
-                self.session_manager
-                    .get_context_messages(&session_id)
-                    .await?
-            } else {
-                Vec::new()
-            };
-        image_input_messages.extend(additional_prepended_messages.iter().cloned());
+        // Only new input can require a visual model. Admission can check it
+        // without loading or cloning any images in the session's earlier turns.
+        let mut image_input_messages = additional_prepended_messages.clone();
         image_input_messages.extend(
             wrapped_user_input_payload
                 .prepended_messages
@@ -7210,6 +7210,7 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
             );
         let image_requirement = ExecutionEngine::resolve_image_input_requirement(
             &image_input_messages,
+            0,
             session.config.enable_tools,
             &image_tool_context,
         )
@@ -12132,6 +12133,50 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
         Ok(child_session)
     }
 
+    async fn resolve_btw_initial_model_target(
+        &self,
+        child_session_id: &str,
+        model_id: Option<&str>,
+        legacy_selection: Option<&openbitfun_runtime_ports::AgentSessionModelSelection>,
+        explicit_target: Option<openbitfun_runtime_ports::AgentSessionModelTargetSelection>,
+    ) -> OpenBitFunResult<Option<openbitfun_runtime_ports::AgentSessionModelTargetSelection>> {
+        if explicit_target.is_some()
+            || legacy_selection.is_some()
+            || model_id.is_some_and(|id| !id.trim().is_empty())
+            || self
+                .session_manager
+                .get_session(child_session_id)
+                .is_some_and(|session| !session.dialog_turn_ids.is_empty())
+        {
+            return Ok(explicit_target);
+        }
+        #[cfg(test)]
+        if let Ok(ai) = TEST_BTW_AI_CONFIG.try_with(Clone::clone) {
+            return Self::btw_default_model_target(&ai);
+        }
+        let service = get_global_config_service().await?;
+        let ai = service.get_config(Some("ai")).await?;
+        Self::btw_default_model_target(&ai)
+    }
+
+    fn btw_default_model_target(
+        ai: &crate::service::config::types::AIConfig,
+    ) -> OpenBitFunResult<Option<openbitfun_runtime_ports::AgentSessionModelTargetSelection>> {
+        let selection = openbitfun_config_contracts::btw::validate_model_selection(ai)
+            .map_err(OpenBitFunError::validation)?;
+        let selection = match selection {
+            AgentModelSelection::Inherit => return Ok(None),
+            AgentModelSelection::Model { model_ref } => ModelSelection::Model { model_ref },
+            AgentModelSelection::Pool { pool_id } => ModelSelection::Pool { pool_id },
+        };
+        Ok(Some(
+            openbitfun_runtime_ports::AgentSessionModelTargetSelection {
+                selection,
+                reasoning_preset: None,
+            },
+        ))
+    }
+
     pub async fn start_btw_turn(
         &self,
         request_id: &str,
@@ -12168,6 +12213,17 @@ Update the persona files and delete BOOTSTRAP.md as soon as bootstrap is complet
                 "question is required".to_string(),
             ));
         }
+
+        // Resolve the host's future-session default only for an unsubmitted
+        // child. Explicit controller choices and existing children keep ownership.
+        let initial_model_target = self
+            .resolve_btw_initial_model_target(
+                child_session_id,
+                model_id,
+                initial_model_selection.as_ref(),
+                initial_model_target,
+            )
+            .await?;
 
         let child_session = self
             .ensure_btw_session(

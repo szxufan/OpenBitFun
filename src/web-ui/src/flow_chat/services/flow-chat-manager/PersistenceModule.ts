@@ -9,6 +9,7 @@ import { createLogger } from '@/shared/utils/logger';
 import type { UiSessionMetadataField } from '@/infrastructure/api/service-api/SessionAPI';
 import { getActiveSurfaceScope, isLocalSurface } from '@/infrastructure/peer-device/deviceSurface';
 import type { FlowChatContext, DialogTurn } from './types';
+import { isAcpFlowSession } from '../../utils/acpSession';
 import { buildSessionMetadata } from '../../utils/sessionMetadata';
 import { settleInterruptedDialogTurn } from '../../utils/dialogTurnStability';
 import {
@@ -381,6 +382,10 @@ async function performSaveDialogTurnToDisk(
     if (!dialogTurn) {
       skip('GenUI source turn is unavailable');
       log.debug('Dialog turn not found, skipping save', { sessionId, turnId });
+      return;
+    }
+    if (isAcpFlowSession(session) && dialogTurn.userMessage.metadata?.acpRuntimeOwnsHistory === true) {
+      skip('The ACP runtime owns this turn');
       return;
     }
     if (dialogTurn.recovery) {

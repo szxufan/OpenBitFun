@@ -19,7 +19,8 @@ pub struct SnapshotService {
     config: SnapshotConfig,
     isolation_manager: Arc<RwLock<IsolationManager>>,
     file_lock_manager: Arc<FileLockManager>,
-    snapshot_core: Arc<RwLock<SnapshotCore>>,
+    pub(super) writer_lease: Option<super::maintenance::WriterLease>,
+    pub(super) snapshot_core: Arc<RwLock<SnapshotCore>>,
     workspace_dir: PathBuf,
     runtime_context: WorkspaceRuntimeContext,
     workspace_fs: Option<Arc<dyn WorkspaceFileSystem>>,
@@ -56,10 +57,11 @@ impl SnapshotService {
             workspace_dir.clone(),
             runtime_context.clone(),
         )));
-        let snapshot_system = match &workspace_fs {
+        let mut snapshot_system = match &workspace_fs {
             Some(fs) => FileSnapshotSystem::with_workspace_fs(runtime_context.clone(), fs.clone()),
             None => FileSnapshotSystem::new(runtime_context.clone()),
         };
+        snapshot_system.set_capture_budget_mb(config.max_snapshot_size_mb);
         let snapshot_core = Arc::new(RwLock::new(SnapshotCore::new(
             runtime_context.clone(),
             snapshot_system,
@@ -70,6 +72,7 @@ impl SnapshotService {
             config,
             isolation_manager,
             file_lock_manager,
+            writer_lease: None,
             snapshot_core,
             workspace_dir,
             runtime_context,
@@ -84,6 +87,12 @@ impl SnapshotService {
             return Ok(());
         }
 
+        let locks = self.runtime_context.locks_dir.clone();
+        self.writer_lease = Some(
+            tokio::task::spawn_blocking(move || super::maintenance::WriterLease::register(&locks))
+                .await
+                .map_err(|e| SnapshotError::ConfigError(e.to_string()))??,
+        );
         let total_started_at = Instant::now();
         info!("Initializing snapshot/operation history service");
 
@@ -463,6 +472,10 @@ impl SnapshotService {
         let mut snapshot_core = self.snapshot_core.write().await;
         snapshot_core.cleanup_session(session_id).await?;
 
+        self.release_session_file_locks(session_id).await
+    }
+
+    pub(crate) async fn release_session_file_locks(&self, session_id: &str) -> SnapshotResult<()> {
         let released_count = self
             .file_lock_manager
             .release_session_locks(session_id)

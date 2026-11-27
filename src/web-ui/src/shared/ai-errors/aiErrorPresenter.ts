@@ -174,12 +174,13 @@ export function getAiErrorPresentation(detail: AiErrorDetail): AiErrorPresentati
   const normalized = normalizeAiErrorDetail(detail);
   const category = normalized.category ?? 'unknown';
   const config = PRESENTATION_KEYS[category] ?? PRESENTATION_KEYS.unknown;
+  const payloadTooLarge = category === 'invalid_request' && normalized.httpStatus === 413;
   const actionCodes = normalized.actionHints?.length ? normalized.actionHints : DEFAULT_ACTIONS[category];
 
   return {
     category,
-    titleKey: config.titleKey,
-    messageKey: config.messageKey,
+    titleKey: payloadTooLarge ? 'errors:ai.payloadTooLarge.title' : config.titleKey,
+    messageKey: payloadTooLarge ? 'errors:ai.payloadTooLarge.message' : config.messageKey,
     severity: config.severity,
     retryable: normalized.retryable ?? RETRYABLE_CATEGORIES.has(category),
     actions: actionCodes.map((code) => ({ code, labelKey: ACTION_LABEL_KEYS[code] })),

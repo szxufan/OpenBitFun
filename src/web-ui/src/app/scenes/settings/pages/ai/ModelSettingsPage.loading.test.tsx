@@ -972,7 +972,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     const account = { provider: 'codex' as const, connected: true, account: 'private@example.invalid',
       display_label: 'Codex', suggested_format: 'openai', suggested_base_url: 'https://example.test/v1',
       suggested_model: 'fixture-model', api_offerings: [] };
-    const catalog = [account, ...(['zcode', 'zcode_cn', 'workbuddy'] as const).map(provider => ({ ...account, provider }))];
+    const catalog = [account, ...(['zcode', 'zcode_cn', 'antigravity', 'workbuddy'] as const).map(provider => ({ ...account, provider }))];
     const catalogRead = deferred();
     const list = vi.mocked(aiApi.listSubscriptionAccounts).mockImplementation(() => catalogRead.promise as never);
     vi.spyOn(aiApi, 'listSubscriptionAccountInstances').mockResolvedValue([]);
@@ -999,6 +999,7 @@ describe('ModelSettingsPage loading and provider actions', () => {
     expect(dialog().querySelector('input[type="radio"], [role="radiogroup"]')).toBeNull();
     expect(login('codex').disabled).toBe(false);
     expect(login('zcode').disabled).toBe(false);
+    expect(dialog().querySelector('[data-provider="antigravity"]')).toBeNull();
     expect(dialog().textContent).not.toContain(account.account);
     expect(dialog().textContent).not.toContain(copy('subscriptionAuth.products.workbuddy'));
     expect(dialog().querySelector('[data-openbitfun-part="subscriptionAccounts"]')).toBeNull();

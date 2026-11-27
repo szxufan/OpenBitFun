@@ -101,6 +101,11 @@ impl AiProviderError {
         http_status: Option<u16>,
     ) -> Self {
         let category = classify_ai_error_parts(&message, provider_code.as_deref(), http_status);
+        let message = if http_status == Some(413) && category == ErrorCategory::InvalidRequest {
+            format!("The request body is too large. Crop images or send attachments in smaller batches. {message}")
+        } else {
+            message
+        };
         Self {
             message,
             category,
@@ -184,6 +189,15 @@ pub fn classify_ai_error_parts(
     ) {
         return ErrorCategory::ContextOverflow;
     }
+    // Some model servers report a token limit with HTTP 413. A proxy returning
+    // the same status for a byte limit has no recoverable context-window error.
+    if http_status == Some(413) {
+        return if is_context_overflow_message(&message.to_ascii_lowercase()) {
+            ErrorCategory::ContextOverflow
+        } else {
+            ErrorCategory::InvalidRequest
+        };
+    }
     match code.as_str() {
         "insufficient_quota" | "quota_exceeded" | "usage_limit_reached" => {
             return ErrorCategory::ProviderQuota;
@@ -204,11 +218,14 @@ pub fn classify_ai_error_parts(
         return category;
     }
 
-    if matches!(code.as_str(), "invalid_request_error" | "invalid_prompt") {
+    if matches!(
+        code.as_str(),
+        "invalid_request_error" | "invalid_prompt" | "request_too_large"
+    ) {
         return ErrorCategory::InvalidRequest;
     }
 
-    if matches!(http_status, Some(400 | 404 | 409 | 413 | 422)) {
+    if matches!(http_status, Some(400 | 404 | 409 | 422)) {
         ErrorCategory::InvalidRequest
     } else {
         category
@@ -365,6 +382,9 @@ pub fn classify_ai_error_message(msg: &str) -> ErrorCategory {
             "model not found",
             "unsupported model",
             "request too large",
+            "request_too_large",
+            "request entity too large",
+            "payload too large",
             "http 400",
             "error 400",
             "http 413",
@@ -477,11 +497,9 @@ fn is_context_overflow_message(message: &str) -> bool {
             "greater than the context length",
             "prompt is too long",
             "prompt too long; exceeded",
-            "request_too_large",
             "input is too long for requested model",
             "tokens in request more than max tokens allowed",
             "reduce the length of the messages",
-            "request entity too large",
         ],
     ) || ((message.contains("input") || message.contains("prompt"))
         && message.contains("token")
@@ -683,13 +701,45 @@ mod tests {
     }
 
     #[test]
-    fn classifies_common_provider_context_overflow_messages() {
+    fn http_413_distinguishes_body_size_from_an_explicit_model_token_limit() {
         for message in [
             "request_too_large",
+            "<html>Request Entity Too Large</html>",
+            "Payload Too Large",
+        ] {
+            assert_eq!(
+                classify_ai_error_message(message),
+                ErrorCategory::InvalidRequest
+            );
+            let error = AiProviderError::from_parts(message.into(), None, None, Some(413));
+            assert_eq!(error.category, ErrorCategory::InvalidRequest);
+            assert_eq!(error.detail().retryable, Some(false));
+            assert!(error.message.contains("smaller batches"));
+        }
+        for (message, code) in [
+            ("request rejected", Some("context_length_exceeded")),
+            (
+                "Input token count exceeds the model limit",
+                Some("request_too_large"),
+            ),
+        ] {
+            let error = AiProviderError::from_parts(
+                message.into(),
+                None,
+                code.map(str::to_owned),
+                Some(413),
+            );
+            assert_eq!(error.category, ErrorCategory::ContextOverflow);
+            assert!(!error.message.contains("smaller batches"));
+        }
+    }
+
+    #[test]
+    fn classifies_common_provider_context_overflow_messages() {
+        for message in [
             "Input is too long for requested model",
             "tokens in request more than max tokens allowed",
             "Please reduce the length of the messages or completion",
-            "request entity too large",
             "model_context_window_exceeded",
             "context window exceeds limit",
             "maximum prompt length is 200000",

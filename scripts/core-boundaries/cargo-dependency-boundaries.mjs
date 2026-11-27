@@ -547,6 +547,13 @@ const THIRD_PARTY_CAPABILITY_PROFILES = new Map([
   ['image', {
     label: 'Image',
     packages: new Map([
+      ['openbitfun-ai-adapters', dependencyProfile([], {
+        optional: true,
+        useDefaultFeatures: false,
+        ownerFeatureCapabilities: new Map([
+          ['vision-input', ['bmp', 'gif', 'jpeg', 'png', 'webp']],
+        ]),
+      })],
       ['openbitfun-computer-use', dependencyProfile(['jpeg', 'png'], { useDefaultFeatures: false })],
       ['openbitfun-services-core', dependencyProfile([], {
         optional: true,

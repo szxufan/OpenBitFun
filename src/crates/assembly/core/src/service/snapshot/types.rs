@@ -150,6 +150,13 @@ pub struct SnapshotConfig {
     pub max_session_retention_days: u64,
     pub compression_threshold_kb: usize,
     pub max_cache_size_mb: usize,
+    /// Maximum logical bytes per new before/after snapshot, in MiB.
+    #[serde(default = "default_max_snapshot_size_mb")]
+    pub max_snapshot_size_mb: usize,
+}
+
+const fn default_max_snapshot_size_mb() -> usize {
+    128
 }
 
 impl Default for SnapshotConfig {
@@ -160,6 +167,7 @@ impl Default for SnapshotConfig {
             max_session_retention_days: 30,
             compression_threshold_kb: 100,
             max_cache_size_mb: 500,
+            max_snapshot_size_mb: default_max_snapshot_size_mb(),
         }
     }
 }
@@ -227,5 +235,27 @@ impl FileSnapshot {
             timestamp: SystemTime::now(),
             metadata,
         }
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+
+    #[test]
+    fn old_config_keeps_cache_policy_and_receives_the_default_capture_limit() {
+        let original = serde_json::json!({
+            "auto_snapshot_enabled": true, "snapshot_interval_minutes": 30,
+            "max_session_retention_days": 7, "compression_threshold_kb": 100,
+            "max_cache_size_mb": 32
+        });
+        let config: SnapshotConfig = serde_json::from_value(original.clone()).unwrap();
+        assert_eq!(config.max_snapshot_size_mb, 128);
+        let mut roundtrip = serde_json::to_value(config).unwrap();
+        roundtrip
+            .as_object_mut()
+            .unwrap()
+            .remove("max_snapshot_size_mb");
+        assert_eq!(roundtrip, original);
     }
 }

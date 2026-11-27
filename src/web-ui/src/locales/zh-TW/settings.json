@@ -91,6 +91,10 @@
       "externalImport": {
         "label": "外部匯入",
         "description": "匯入並管理其他 AI 應用程式中的內容"
+      },
+      "storage": {
+        "label": "儲存空間",
+        "description": "檢視本機儲存用量並清理檔案快照"
       }
     },
     "views": {
@@ -101,7 +105,6 @@
     "sections": {
       "text-selection": "文字選取",
       "message-sending": "訊息傳送",
-      "btw-close-confirmation": "側問關閉",
       "voice": "語音",
       "shortcuts": "快捷鍵",
       "session": "工作階段預設行為",
@@ -114,7 +117,8 @@
       "pet": "寵物",
       "voice-call": "即時語音通話",
       "desktop-cards": "小卡片",
-      "sidebar-navigation": "左側導覽列"
+      "sidebar-navigation": "左側導覽列",
+      "btw": "側問"
     }
   },
   "changeGuard": {
@@ -628,5 +632,36 @@
   },
   "archivedSessions": {
     "sectionDescription": "依工作區分組；還原後可繼續原會話，永久刪除無法復原"
+  },
+  "storage": {
+    "snapshots": "檔案快照",
+    "device": "統計本機儲存的快照，包含 SSH 工作區快照。",
+    "total": "快照總用量",
+    "refresh": "重新整理儲存用量",
+    "unverified": "部分快照引用無法核實，清理時會保留歸屬不確定的檔案。",
+    "incomplete": "部分目錄無法掃描。用量統計僅包含成功讀取的目錄。",
+    "scanning": "正在統計快照大小…",
+    "unidentified": "無法識別的工作區",
+    "unidentifiedHint": "這些快照無法核實所屬工作區，清理時會保留。",
+    "cleanup": "清理快照",
+    "scope": "工作區範圍",
+    "allWorkspaces": "所有工作區",
+    "period": "清理範圍",
+    "thirtyDays": "超過 30 天未活動",
+    "sevenDays": "超過 7 天未活動",
+    "all": "全部符合條件的工作階段",
+    "preview": "涉及 {{sessions}} 個工作階段，預計釋放 {{size}}",
+    "skipped": "已排除 {{sessions}} 個工作階段。",
+    "confirmTitle": "永久刪除這些檔案快照？",
+    "confirm": "{{preview}}。相關檔案差異與快照還原點將永久失效。對話記錄與工作區檔案會保留。",
+    "result": "已清理 {{sessions}} 個工作階段的快照，釋放 {{size}}。預覽中有 {{skipped}} 個工作階段已略過。",
+    "desktopOnly": "請在桌面應用程式的儲存空間頁面管理本機快照。",
+    "sharedColumn": "共用或未歸屬",
+    "usedColumn": "快照用量",
+    "candidates": "待清理工作階段",
+    "lastActive": "最近活動",
+    "sessionCount": "{{sessions}} 個工作階段",
+    "removedSession": "工作階段已移除",
+    "noCandidates": "目前範圍內沒有可清理的工作階段"
   }
 }

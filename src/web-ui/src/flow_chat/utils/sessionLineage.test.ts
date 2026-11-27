@@ -159,4 +159,39 @@ describe('sessionLineage', () => {
       ]),
     )).toBe(false);
   });
+
+  it.each(['pending', 'image_analyzing', 'processing', 'finishing', 'cancelling'] as const)(
+    'does not count a BTW side question as overview activity while %s',
+    status => {
+      const side = liveSession('side', 'root');
+      side.sessionKind = 'btw';
+      side.dialogTurns[0].status = status;
+
+      expect(hasActiveSessionLineageDescendants(
+        'root', new Map([[side.sessionId, side]]),
+      )).toBe(false);
+    },
+  );
+
+  it('does not count a BTW side question beneath an inactive subagent', () => {
+    const child = liveSession('child', 'root');
+    child.dialogTurns[0].status = 'completed';
+    const side = liveSession('side', 'child');
+    side.sessionKind = 'btw';
+
+    expect(hasActiveSessionLineageDescendants(
+      'root', new Map([[child.sessionId, child], [side.sessionId, side]]),
+    )).toBe(false);
+  });
+
+  it('still counts an active subagent alongside a BTW side question', () => {
+    const side = liveSession('side', 'root');
+    side.sessionKind = 'btw';
+    const child = liveSession('child', 'root');
+    const sessions = new Map([[side.sessionId, side], [child.sessionId, child]]);
+
+    expect(hasActiveSessionLineageDescendants('root', sessions)).toBe(true);
+    child.dialogTurns[0].status = 'completed';
+    expect(hasActiveSessionLineageDescendants('root', sessions)).toBe(false);
+  });
 });

@@ -1606,6 +1606,21 @@ pub async fn create_session(
     coordinator: State<'_, Arc<ConversationCoordinator>>,
     app_state: State<'_, AppState>,
     runtime: State<'_, DesktopRuntimeContext>,
+    request: CreateSessionRequest,
+) -> Result<CreateSessionResponse, String> {
+    create_desktop_session(
+        coordinator.inner(),
+        app_state.inner(),
+        runtime.inner(),
+        request,
+    )
+    .await
+}
+
+pub(crate) async fn create_desktop_session(
+    coordinator: &ConversationCoordinator,
+    app_state: &AppState,
+    runtime: &DesktopRuntimeContext,
     mut request: CreateSessionRequest,
 ) -> Result<CreateSessionResponse, String> {
     fn norm_conn(s: Option<String>) -> Option<String> {
@@ -1863,7 +1878,7 @@ pub async fn create_session(
             .as_deref()
             .ok_or_else(|| "Idempotent worktree session requires a session ID".to_string())?;
         let effective_path = desktop_session_storage_root(
-            &coordinator,
+            coordinator,
             project_workspace_id.as_deref(),
             Some(&project_workspace_path),
             remote_conn.as_deref(),
@@ -1898,7 +1913,7 @@ pub async fn create_session(
             .as_deref()
             .ok_or_else(|| "Idempotent Review session requires a session ID".to_string())?;
         let effective_path = desktop_session_storage_root(
-            &coordinator,
+            coordinator,
             project_workspace_id.as_deref(),
             Some(&project_workspace_path),
             remote_conn.as_deref(),
@@ -2679,7 +2694,7 @@ fn desktop_dialog_turn_request(
     })
 }
 
-fn desktop_user_message_metadata(
+pub(super) fn desktop_user_message_metadata(
     metadata: Option<serde_json::Value>,
 ) -> serde_json::Map<String, serde_json::Value> {
     match metadata {

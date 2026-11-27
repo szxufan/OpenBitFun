@@ -388,10 +388,16 @@ impl PathManager {
 
     /// Get the runtime root for a workspace: ~/.openbitfun/projects/<24-hex-key>/
     pub fn project_runtime_root(&self, workspace_path: &Path) -> PathBuf {
-        let runtime_root = self
-            .projects_root()
-            .join(self.project_runtime_key(workspace_path));
-        self.migrate_legacy_project_runtime(workspace_path, &runtime_root)
+        self.migrate_legacy_project_runtime(
+            workspace_path,
+            &self.project_runtime_location(workspace_path),
+        )
+    }
+
+    /// Compute the current layout location without migrating any persisted data.
+    pub(crate) fn project_runtime_location(&self, workspace_path: &Path) -> PathBuf {
+        self.projects_root()
+            .join(self.project_runtime_key(workspace_path))
     }
 
     /// Get the legacy runtime root for a local workspace.
@@ -734,7 +740,7 @@ impl Default for PathManager {
 
 #[cfg(any(test, feature = "test-support"))]
 impl PathManager {
-    pub(crate) fn with_user_root_for_tests(user_root: PathBuf) -> Self {
+    pub fn with_user_root_for_tests(user_root: PathBuf) -> Self {
         let base = user_root
             .parent()
             .map(Path::to_path_buf)

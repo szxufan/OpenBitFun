@@ -533,6 +533,21 @@ pub(crate) async fn process_image_contexts_in_workspace(
     .await
 }
 
+pub(super) async fn read_image_in_context(
+    path: &str,
+    context: &ToolUseContext,
+) -> OpenBitFunResult<Vec<u8>> {
+    if context.workspace.is_none() && super::attachments::is_saved_image(path, context) {
+        return load_image_from_path(Path::new(path), None).await;
+    }
+    let resolved = context.resolve_tool_path(path)?;
+    context
+        .file_system_for_path(&resolved)?
+        .read_file(&resolved.resolved_path)
+        .await
+        .map_err(|error| OpenBitFunError::io(format!("Failed to read image: {error}")))
+}
+
 async fn process_image_contexts(
     image_contexts: &[ImageContextData],
     provider: &str,
@@ -557,14 +572,7 @@ async fn process_image_contexts(
             (data, data_url_mime.or_else(|| Some(ctx.mime_type.clone())))
         } else if let Some(path_str) = &ctx.image_path {
             let data = if let Some(context) = context {
-                let resolved = context.resolve_tool_path(path_str)?;
-                context
-                    .file_system_for_path(&resolved)?
-                    .read_file(&resolved.resolved_path)
-                    .await
-                    .map_err(|error| {
-                        OpenBitFunError::io(format!("Failed to read image: {error}"))
-                    })?
+                read_image_in_context(path_str, context).await?
             } else {
                 let path = resolve_image_path(path_str, workspace_path)?;
                 load_image_from_path(&path, workspace_path).await?

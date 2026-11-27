@@ -49,7 +49,7 @@
   },
   "subscriptionAuth": {
     "sectionTitle": "订阅账号",
-    "sectionDescription": "连接 Codex、Antigravity、OpenCode、xAI、Hermes 或 ZCode 订阅",
+    "sectionDescription": "连接 Codex、OpenCode、xAI、Hermes 或 ZCode 订阅",
     "rescan": "刷新状态",
     "import": "导入使用",
     "login": "登录",
@@ -66,7 +66,7 @@
     "refreshFailed": "刷新失败：{{error}}",
     "loginSuccess": "登录成功",
     "loginFailed": "登录失败：{{error}}",
-    "peerLoginRequiresLocalDevice": "Antigravity 登录必须在运行 OpenBitFun 的设备上完成，请切换到该设备后再登录",
+    "peerLoginRequiresLocalDevice": "Antigravity 订阅登录已不再支持，现有配置会保留",
     "logoutSuccess": "已退出登录",
     "logoutCleanupPending": "已退出登录，凭据清理仍在等待中，稍后会自动重试",
     "logoutFailed": "退出登录失败：{{error}}",
@@ -82,7 +82,7 @@
     "chooseRegionHint": "选择你购买 Coding Plan 订阅的平台。",
     "products": {
       "codex": "Codex",
-      "antigravity": "Antigravity",
+      "antigravity": "Antigravity（已下线）",
       "opencode": "OpenCode",
       "grok": "Grok",
       "hermes": "Hermes",
@@ -92,7 +92,7 @@
     },
     "details": {
       "codex": "ChatGPT",
-      "antigravity": "Google",
+      "antigravity": "已下线 · 不再支持订阅导入",
       "opencode": "Zen",
       "grok": "SuperGrok",
       "hermes": "Nous Portal",
@@ -112,7 +112,7 @@
       "opencode": "OpenCode",
       "apiKey": "API Key",
       "codex": "Codex",
-      "antigravity": "Antigravity",
+      "antigravity": "Antigravity（已下线）",
       "grok": "Grok",
       "hermes": "Hermes",
       "workbuddy": "WorkBuddy（已下线）",
@@ -153,7 +153,7 @@
     "confirmForget": "确认移除",
     "forgetSuccess": "已移除订阅账号",
     "openCodeRemoved": "OpenCode Console OAuth 仅支持 Zen。Go 模型请选择 API key 并填写密钥，已有模型配置保留。",
-    "retiredProvider": "WorkBuddy 订阅已下线：厂商不再支持订阅授权。现有模型配置与凭据均保留，如需继续使用这些模型请新建 API Key 服务。",
+    "retiredProvider": "此订阅服务已下线：不再支持订阅访问。现有模型配置与凭据均保留，如需继续使用这些模型请新建 API Key 服务。",
     "editorDescription": "此服务的模型共用当前登录的订阅账号",
     "accountLabel": "账号",
     "accountAuthentication": "订阅账号授权",
@@ -1064,5 +1064,15 @@
     "noCandidates": "暂无可用的备用模型",
     "mode": "使用方式",
     "modeHint": "自动切换会在失败时依次尝试备用渠道；固定使用只走所选渠道，失败时不切换。"
+  },
+  "btwModel": {
+    "title": "侧问",
+    "label": "默认模型",
+    "inherit": "继承父会话",
+    "pool": "模型池：{{name}}",
+    "unavailable": "已保存的选择不可用，请另选模型或恢复继承",
+    "unsupported": "此宿主不支持侧问默认模型设置。",
+    "failed": "无法读取或保存侧问模型设置，已保留原有选择。",
+    "retry": "重试"
   }
 }

@@ -25,6 +25,9 @@ pub struct CompressionResult {
 #[derive(Debug, Clone)]
 pub struct CompressionPlan {
     pub summary_request_messages: Vec<Message>,
+    /// The first pending observation in the summary prefix, located using the
+    /// complete conversation (the consuming response can be in the retained tail).
+    pub(crate) summary_pending_image_start: usize,
     pub summary_messages: Vec<Message>,
     pub retained_user_messages: Vec<Message>,
     pub recent_tail_messages: Vec<Message>,
@@ -138,7 +141,11 @@ impl ContextCompressor {
             return Ok(None);
         }
 
-        let units = Self::atomic_message_units(conversation);
+        let turn_start =
+            current_turn_id.map_or(0, |turn| Message::image_turn_start(runtime_messages, turn));
+        let pending_start = Message::fresh_image_start(runtime_messages, turn_start);
+        let pending_conversation_start = pending_start.saturating_sub(system_message_count);
+        let units = Self::atomic_message_units(conversation, pending_conversation_start);
         if units.is_empty() {
             return Ok(None);
         }
@@ -175,10 +182,7 @@ impl ContextCompressor {
         }
 
         let recent_tail_messages = conversation[cutoff..].to_vec();
-        let recent_tail_tokens = recent_tail_messages
-            .iter()
-            .map(|message| message.estimate_tokens_with_reasoning(true))
-            .sum();
+        let recent_tail_tokens = accumulated_tokens;
         let current_turn_todo_checkpoint = current_turn_id.and_then(|turn_id| {
             Self::latest_successful_todo_snapshot_for_turn(conversation, turn_id).and_then(
                 |(source_message_index, snapshot)| {
@@ -191,10 +195,14 @@ impl ContextCompressor {
         });
         let mut summary_request_messages = runtime_messages[..system_message_count].to_vec();
         summary_request_messages.extend(summary_messages.clone());
+        let summary_pending_image_start = pending_start.min(summary_request_messages.len());
 
         let retained_user_token_budget = (context_window / 10).min(Self::MAX_RETAINED_USER_TOKENS);
-        let (retained_user_messages, retained_user_tokens) =
-            Self::retain_historical_user_messages(&summary_messages, retained_user_token_budget);
+        let (retained_user_messages, retained_user_tokens) = Self::retain_historical_user_messages(
+            &summary_messages,
+            retained_user_token_budget,
+            pending_conversation_start,
+        );
         debug!(
             "Compression plan: session_id={}, retained_user_token_budget={}, retained_user_tokens={}, retained_user_messages={}, recent_target_tokens={}, recent_tail_tokens={}, cutoff_message_index={}, summary_messages={}, recent_tail_messages={}, next_recent_target_tokens={:?}",
             session_id,
@@ -211,6 +219,7 @@ impl ContextCompressor {
 
         Ok(Some(CompressionPlan {
             summary_request_messages,
+            summary_pending_image_start,
             summary_messages,
             retained_user_messages,
             recent_tail_messages,
@@ -292,7 +301,15 @@ impl ContextCompressor {
         latest
     }
 
-    fn atomic_message_units(messages: &[Message]) -> Vec<AtomicMessageUnit> {
+    fn message_tokens(message: &Message, images_pending: bool) -> usize {
+        if images_pending {
+            message.estimate_tokens_with_reasoning(true)
+        } else {
+            message.estimate_non_image_tokens_with_reasoning(true)
+        }
+    }
+
+    fn atomic_message_units(messages: &[Message], pending_start: usize) -> Vec<AtomicMessageUnit> {
         let mut units = Vec::new();
         let mut index = 0usize;
 
@@ -306,7 +323,10 @@ impl ContextCompressor {
             }
             let tokens = messages[start..index]
                 .iter()
-                .map(|message| message.estimate_tokens_with_reasoning(true))
+                .enumerate()
+                .map(|(offset, message)| {
+                    Self::message_tokens(message, start + offset >= pending_start)
+                })
                 .sum();
             units.push(AtomicMessageUnit { start, tokens });
         }
@@ -317,16 +337,18 @@ impl ContextCompressor {
     fn retain_historical_user_messages(
         summary_messages: &[Message],
         token_budget: usize,
+        pending_start: usize,
     ) -> (Vec<Message>, usize) {
         let mut retained = Vec::new();
         let mut retained_tokens = 0usize;
 
-        for message in summary_messages
+        for (index, message) in summary_messages
             .iter()
+            .enumerate()
             .rev()
-            .filter(|message| message.is_actual_user_message())
+            .filter(|(_, message)| message.is_actual_user_message())
         {
-            let message_tokens = message.estimate_tokens_with_reasoning(true);
+            let message_tokens = Self::message_tokens(message, index >= pending_start);
             if retained_tokens.saturating_add(message_tokens) > token_budget {
                 break;
             }
@@ -349,24 +371,26 @@ impl ContextCompressor {
         let conversation = Self::canonical_conversation(runtime_messages)
             .cloned()
             .collect::<Vec<_>>();
+        let pending_start = Message::fresh_image_start(
+            &conversation,
+            Message::image_turn_start(&conversation, current_turn_id),
+        );
+        let units = Self::atomic_message_units(&conversation, pending_start);
         let cutoff = plan.summary_messages.len();
         if !Self::has_message_id_prefix(
             &conversation,
             plan.summary_messages
                 .iter()
                 .map(|message| message.id.as_str()),
-        ) || (cutoff < conversation.len()
-            && !Self::atomic_message_units(&conversation)
-                .iter()
-                .any(|unit| unit.start == cutoff))
+        ) || (cutoff < conversation.len() && !units.iter().any(|unit| unit.start == cutoff))
         {
             return Ok(None);
         }
         plan.recent_tail_messages = conversation[cutoff..].to_vec();
-        plan.recent_tail_tokens = plan
-            .recent_tail_messages
+        plan.recent_tail_tokens = units
             .iter()
-            .map(|message| message.estimate_tokens_with_reasoning(true))
+            .filter(|unit| unit.start >= cutoff)
+            .map(|unit| unit.tokens)
             .sum();
         plan.current_turn_todo_checkpoint =
             Self::latest_successful_todo_snapshot_for_turn(&conversation, current_turn_id)
@@ -1434,8 +1458,11 @@ mod tests {
             .map(|message| message.estimate_tokens_with_reasoning(true))
             .sum();
 
-        let (retained, retained_tokens) =
-            ContextCompressor::retain_historical_user_messages(&messages, total_tokens);
+        let (retained, retained_tokens) = ContextCompressor::retain_historical_user_messages(
+            &messages,
+            total_tokens,
+            messages.len(),
+        );
 
         assert_eq!(retained.len(), 25);
         assert_eq!(retained_tokens, total_tokens);
@@ -1475,6 +1502,7 @@ mod tests {
         let (retained, retained_tokens) = ContextCompressor::retain_historical_user_messages(
             &[oldest, too_large, newest.clone()],
             budget,
+            3,
         );
 
         assert_eq!(retained.len(), 1);
@@ -1488,7 +1516,7 @@ mod tests {
         let newest = Message::user("newest".repeat(500));
 
         let (retained, retained_tokens) =
-            ContextCompressor::retain_historical_user_messages(&[older, newest], 1);
+            ContextCompressor::retain_historical_user_messages(&[older, newest], 1, 2);
 
         assert!(retained.is_empty());
         assert_eq!(retained_tokens, 0);

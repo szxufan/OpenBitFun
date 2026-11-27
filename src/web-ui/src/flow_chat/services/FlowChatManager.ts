@@ -625,7 +625,7 @@ export class FlowChatManager {
     return createChatSessionModule(this.context, config, mode);
   }
 
-  /** User-facing new conversations acquire their host session on first submission. */
+  /** Reuse a blank draft, or reserve a conversation that reaches its host on first submission. */
   async createChatDraft(config: SessionConfig, mode?: string): Promise<string> {
     return createChatSessionModule(this.context, config, mode, true);
   }
@@ -827,7 +827,7 @@ export class FlowChatManager {
       sessionBelongsToWorkspaceNavRow(activeSession, workspace.id);
 
     if (!hasHistoricalSessions || !hasActiveWorkspaceSession) {
-      await this.createChatSession(
+      await this.createChatDraft(
         {
           workspacePath,
           workspaceId: workspace.id,

@@ -1,4 +1,21 @@
 {
+  "externalControl": {
+    "port": "监听端口",
+    "title": "外部控制",
+    "enable": "启用本机 HTTP 访问",
+    "description": "允许集成在选定的本机项目工作区执行任务。工具审批由桌面端处理。",
+    "retry": "重试",
+    "endpoint": "API 地址",
+    "name": "集成名称",
+    "workspaces": "授权工作区",
+    "origin": "网页来源（可选）",
+    "originHint": "网页直连时填写完整来源，包含端口。通过后端连接时留空。",
+    "access": "集成访问权限",
+    "issue": "创建令牌",
+    "token": "访问令牌",
+    "tokenHint": "请立即复制此令牌，它只显示一次。",
+    "revoke": "撤销授权"
+  },
   "defaultHarness": {
     "title": "默认智能体执行模式",
     "description": "用于普通新会话；助理、ACP 和已指定模式的会话不受影响",

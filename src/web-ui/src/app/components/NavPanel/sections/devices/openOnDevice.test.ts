@@ -66,7 +66,6 @@ vi.mock('@/infrastructure/services/business/workspaceManager', () => ({
   workspaceManager: { getState: () => ({ openedWorkspaces: mocks.workspaces }), setActiveWorkspace: vi.fn() },
 }));
 vi.mock('@/app/utils/projectSessionWorkspace', () => ({
-  findReusableEmptySessionId: () => null,
   flowChatSessionConfigForWorkspace: (workspace: { id: string }) => ({ workspaceId: workspace.id }),
 }));
 vi.mock('../workspaces/openLatestAssistantSession', () => ({ openLatestAssistantSession: mocks.openLatestAssistant }));

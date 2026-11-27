@@ -89,6 +89,13 @@ impl From<agent_client_protocol::schema::PlanEntry> for AcpPlanEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AcpSessionOptions {
+    /// A passive read from local history. Sending is available even when the
+    /// agent has never advertised a selectable model.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub agent_disconnected: bool,
+    /// The host has no agent-provided options snapshot for this session yet.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub needs_initial_options: bool,
     /// Present on combined metadata reads; absence preserves the legacy commands endpoint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available_commands: Option<Vec<AcpAvailableCommand>>,
@@ -102,6 +109,15 @@ pub struct AcpSessionOptions {
     pub config_options: Vec<AcpSessionConfigOption>,
     #[serde(default)]
     pub context_usage: Option<AcpSessionContextUsage>,
+}
+
+impl AcpSessionOptions {
+    pub(super) fn before_first_snapshot() -> Self {
+        Self {
+            needs_initial_options: true,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

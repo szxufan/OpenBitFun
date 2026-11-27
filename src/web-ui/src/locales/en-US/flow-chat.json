@@ -255,6 +255,7 @@
     "waitingForModelResponse": "Waiting for model response..."
   },
   "historyState": {
+    "turnSaveFailed": "This turn ended, but its conversation history could not be saved. {{error}}",
     "emptyWindow": "No visible messages in this history window.",
     "loadingTitle": "Loading saved session",
     "loadingDescription": "Preparing the conversation history.",
@@ -1429,7 +1430,8 @@
     "nestedDisabled": "A side question cannot start another side question",
     "error": "Failed",
     "close": "Close",
-    "noSession": "No active session for /btw"
+    "noSession": "No active session for /btw",
+    "submitFailed": "Could not start the side question: {{error}}"
   },
   "childSession": {
     "stopReview": "Stop review",

@@ -507,7 +507,7 @@
             "items": {
               "providers": "新增內建或自訂供應商、探測 Magpie 閘道器與設定獨立生圖服務",
               "credentials-endpoint": "設定 API Key、Base URL、請求格式（含即時派生 URL 預覽）與備用通道",
-              "subscription-auth": "登入 Codex、ZCode、OpenCode、Grok、Antigravity、Hermes 等訂閱帳號與多帳號訂閱池",
+              "subscription-auth": "登入 Codex、ZCode、OpenCode、Grok、Hermes 等訂閱帳號與多帳號訂閱池",
               "default-models": "選擇主模型、快速模型、經濟模型以及圖像理解、圖像生成和語音辨識預設模型",
               "reasoning": "依模型能力選擇推理預設或自訂思考預算",
               "smart-routing": "設定智慧模式路由：聯動主模型、經濟模型與路由分類模型",
@@ -605,6 +605,7 @@
             "title": "桌面控制（Computer Use）",
             "summary": "管理智能體操作原生桌面應用介面的「允許桌面控制」總開關，清晰核查並引導授予系統「輔助功能」與「螢幕錄製」權限，在可控安全邊界內完成跨應用自動化。",
             "items": {
+              "external-control": "為本機整合授權工作區",
               "permissions": "檢視「允許桌面控制」開關及「輔助功能」、「螢幕錄製」系統授權狀態並完成授權",
               "safety-posture": "結合應用級總開關、單視窗共享與主機邊界安全管控桌面操作"
             }
@@ -684,6 +685,13 @@
               "distribution": "切換「按模型」與「按服務商」分佈排行，並在詳情檢視依請求端點明細",
               "filter": "輸入關鍵詞篩選模型、服務商或請求端點的調用明細",
               "trend": "透過堆疊柱狀圖檢視輸入與輸出 Token 隨時間的變化趨勢"
+            }
+          },
+          "storage": {
+            "title": "儲存空間",
+            "summary": "依工作區檢視本機檔案快照佔用，手動清理符合條件的會話。",
+            "items": {
+              "clean": "預覽並清理會話檔案快照"
             }
           },
           "archived": {

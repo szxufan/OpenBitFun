@@ -26,12 +26,13 @@ describe('settings information architecture', () => {
       ai: ['ai.models', 'ai.session-memory', 'ai.execution', 'ai.permissions'],
       development: ['development.editor', 'development.terminal', 'development.workspace'],
       tools: ['tools.external-import', 'tools.web-search', 'tools.desktop-control', 'tools.mcp', 'tools.external-agents', 'tools.automation'],
-      data: ['data.usage', 'data.archived', 'data.diagnostics'],
+      data: ['data.usage', 'data.storage', 'data.archived', 'data.diagnostics'],
     });
-    expect(new Set(SETTINGS_PAGE_MANIFESTS.map(page => page.id)).size).toBe(20);
+    expect(new Set(SETTINGS_PAGE_MANIFESTS.map(page => page.id)).size).toBe(21);
     expect(SETTINGS_PAGE_MANIFESTS.filter(page => page.views?.length).map(page => page.id)).toEqual(['tools.external-agents']);
     expect(getSettingsPageManifest('tools.external-agents').views?.map(view => view.id)).toEqual(['local', 'ssh', 'json']);
-    expect(getSettingsPageManifest('application.input').sections?.map(section => section.id)).toEqual(['voice', 'message-sending', 'btw-close-confirmation', 'text-selection', 'shortcuts']);
+    expect(getSettingsPageManifest('application.input').sections?.map(section => section.id)).toEqual(['voice', 'message-sending', 'text-selection', 'shortcuts']);
+    expect(getSettingsPageManifest('ai.session-memory').sections?.map(section => section.id)).toEqual(['session', 'btw', 'memory']);
     expect(getSettingsPageManifest('application.pet').sections?.map(section => section.id)).toEqual(['voice-call', 'pet', 'desktop-cards']);
     expect(resolveSettingsDestination({ pageId: 'application.appearance', sectionId: 'sidebar-navigation' }))
       .toEqual({ pageId: 'application.appearance', sectionId: 'sidebar-navigation' });
@@ -93,6 +94,16 @@ describe('settings information architecture', () => {
     expect(useSettingsStore.getState().activeSectionId).toBe(destination.sectionId ?? null);
   });
 
+  it.each(['application.input', 'application.voice'])('migrates the old BTW section on %s without redirecting the whole input page', pageId => {
+    const destination = resolveSettingsDestination({ pageId, sectionId: 'btw-close-confirmation' });
+    expect(destination).toEqual({ pageId: 'ai.session-memory', sectionId: 'btw' });
+    expect(resolveSettingsDestination(destination)).toEqual(destination);
+    useSettingsStore.getState().openDestination({ pageId, sectionId: 'btw-close-confirmation' });
+    expect(useSettingsStore.getState().activePageId).toBe('ai.session-memory');
+    expect(useSettingsStore.getState().activeSectionId).toBe('btw');
+    expect(resolveSettingsDestination({ pageId: 'application.input' })).toEqual({ pageId: 'application.input' });
+  });
+
   it('migrates old view payloads and drops targets that do not belong to the destination', () => {
     expect(resolveSettingsDestination({ pageId: 'tools.execution', viewId: 'common' })).toEqual({ pageId: 'ai.permissions' });
     expect(resolveSettingsDestination({ pageId: 'tools.execution', viewId: 'advanced' })).toEqual({ pageId: 'ai.execution' });
@@ -105,6 +116,7 @@ describe('settings information architecture', () => {
     const targets: SettingsDestinationInput[] = [
       ...Object.values(migrations.pages),
       ...Object.values(migrations.views).flatMap(Object.values),
+      ...Object.values(migrations.sections).flatMap(Object.values),
       ...Object.values(migrations.capabilities).flatMap((migration) => [
         ...('destination' in migration ? [migration.destination] : []),
         ...('items' in migration ? Object.values(migration.items) : []),

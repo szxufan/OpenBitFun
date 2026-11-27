@@ -16,6 +16,7 @@ pub struct SessionWriteLock {
 struct SessionWriteLockInner {
     lock: Option<FileLock>,
     lock_path: PathBuf,
+    maintenance: bool,
 }
 
 impl SessionWriteLock {
@@ -23,7 +24,45 @@ impl SessionWriteLock {
         session_storage_root: &Path,
         session_id: &str,
     ) -> Result<Self, SessionWriteLockError> {
-        Self::acquire(session_storage_root, session_id, false)
+        Self::acquire(session_storage_root, session_id, false, false)
+    }
+
+    /// Inspect ownership without creating a lock file or a Session directory.
+    /// This is a preview only. A mutation must still acquire the writer lock.
+    pub fn is_in_use(
+        session_storage_root: &Path,
+        session_id: &str,
+    ) -> Result<bool, SessionWriteLockError> {
+        openbitfun_core_types::validate_session_id(session_id)
+            .map_err(|_| SessionWriteLockError::InvalidSessionId)?;
+        let root = std::fs::canonicalize(session_storage_root).map_err(|source| {
+            SessionWriteLockError::CanonicalizeStorage {
+                path: session_storage_root.to_owned(),
+                source,
+            }
+        })?;
+        let path = session_lock_root(&root)?.join(format!("{}.lock", lock_key(&root, session_id)));
+        let file = match std::fs::File::open(&path) {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(source) => return Err(SessionWriteLockError::OpenLockFile { path, source }),
+        };
+        match file.try_lock_shared() {
+            Ok(()) => Ok(false),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(true),
+            Err(std::fs::TryLockError::Error(source)) => {
+                Err(SessionWriteLockError::LockFailed { source })
+            }
+        }
+    }
+
+    /// Prevent even same-process persistence operations from borrowing this
+    /// guard while maintenance is revalidating and removing session history.
+    pub fn try_acquire_for_maintenance(
+        session_storage_root: &Path,
+        session_id: &str,
+    ) -> Result<Self, SessionWriteLockError> {
+        Self::acquire(session_storage_root, session_id, false, true)
     }
 
     /// Reuses a lock already held by this process for one persistence operation.
@@ -33,13 +72,14 @@ impl SessionWriteLock {
         session_storage_root: &Path,
         session_id: &str,
     ) -> Result<Self, SessionWriteLockError> {
-        Self::acquire(session_storage_root, session_id, true)
+        Self::acquire(session_storage_root, session_id, true, false)
     }
 
     fn acquire(
         session_storage_root: &Path,
         session_id: &str,
         reuse_process_writer: bool,
+        maintenance: bool,
     ) -> Result<Self, SessionWriteLockError> {
         openbitfun_core_types::validate_session_id(session_id)
             .map_err(|_| SessionWriteLockError::InvalidSessionId)?;
@@ -77,7 +117,7 @@ impl SessionWriteLock {
             .lock()
             .expect("Session write lock registry poisoned");
         if let Some(existing) = process_locks.get(&lock_path).and_then(Weak::upgrade) {
-            if reuse_process_writer {
+            if reuse_process_writer && !existing.maintenance {
                 return Ok(Self { inner: existing });
             }
             return Err(SessionWriteLockError::InUse);
@@ -99,6 +139,7 @@ impl SessionWriteLock {
             )?;
         let inner = Arc::new(SessionWriteLockInner {
             lock: Some(lock),
+            maintenance,
             lock_path: lock_path.clone(),
         });
         process_locks.insert(lock_path, Arc::downgrade(&inner));

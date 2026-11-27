@@ -1518,7 +1518,7 @@ pub async fn apply_subscription_auth_with_options(
     Ok(resolved.apply_to(ai_config))
 }
 
-/// List subscription accounts (Codex / Antigravity / xAI / Hermes).
+/// List subscription accounts, including retained legacy accounts for cleanup.
 #[cfg(feature = "subscription-auth")]
 pub async fn list_subscription_accounts() -> Vec<subscription_auth::SubscriptionAccount> {
     subscription_auth::list_accounts().await

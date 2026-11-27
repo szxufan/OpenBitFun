@@ -50,10 +50,7 @@ import {
   SESSION_LOADING_DELAY_MS,
   subscribeHistorySessionOpenTransition,
 } from '@/flow_chat/services/sessionOpenIntent';
-import {
-  findReusableEmptySessionId,
-  flowChatSessionConfigForWorkspace,
-} from '@/app/utils/projectSessionWorkspace';
+import { flowChatSessionConfigForWorkspace } from '@/app/utils/projectSessionWorkspace';
 import type { AcpClientInfo } from '@/infrastructure/api/service-api/ACPClientAPI';
 import { loadWorkspaceAcpMenuClients } from './workspaceAcpMenuClients';
 import WorkspaceAcpSessionSubmenu from './WorkspaceAcpSessionSubmenu';
@@ -744,10 +741,7 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     }
   }, [t, workspace.rootPath]);
 
-  // One new session per gesture: a second click while the first is being
-  // created would open a second draft. The pending state is rendered on the
-  // button (busy + disabled) so a slow create, e.g. over a peer relay, is
-  // visibly in progress instead of silently swallowing clicks.
+  // Keep slow draft preparation visible, including over a peer relay.
   const [creatingSession, setCreatingSession] = useState(false);
   const showCreatingSessionIndicator = useDelayedPendingIndicator(creatingSession);
   const handleCreateSession = useCallback(async (mode?: 'Standard' | 'Cowork' | 'Claw') => {
@@ -756,14 +750,6 @@ const WorkspaceItem: React.FC<WorkspaceItemProps> = ({
     setCreatingSession(true);
     const resolvedMode = mode ?? (workspace.workspaceKind === WorkspaceKind.Assistant ? 'Claw' : undefined);
     try {
-      const reusableId = findReusableEmptySessionId(workspace, resolvedMode);
-      if (reusableId) {
-        await openMainSession(reusableId, {
-          workspaceId: workspace.id,
-          activateWorkspace: setActiveWorkspace,
-        });
-        return;
-      }
       const newSessionId = await flowChatManager.createChatDraft(
         flowChatSessionConfigForWorkspace(workspace),
         resolvedMode

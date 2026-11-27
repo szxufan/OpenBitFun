@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
   __test_only__,
   handleDialogTurnComplete,
+  initializeEventListeners,
   handlePromptSuggestion,
   handleSessionHistoryChanged,
   handleSessionStateChanged,
@@ -23,6 +24,9 @@ import type { FlowChatContext } from './types';
 import { markOptimisticDispatchTurnMetadata } from '@/features/dispatch/optimisticDispatchTurn';
 import { interruptedTurnRecoveryGate } from '../interruptedTurnRecoveryGate';
 import { agentAPI } from '@/infrastructure/api/service-api/AgentAPI';
+import { api } from '@/infrastructure/api/service-api/ApiClient';
+import { agenticEventListener } from '../AgenticEventListener';
+import { i18nService } from '@/infrastructure/i18n';
 import { localSessionDriver } from '../../session-drivers/local/LocalSessionDriver';
 import * as peerSessionRefresh from './PeerSessionRefreshModule';
 import { chatInputSessionSubscriptionKey } from '../../utils/chatInputSessionSubscription';
@@ -1654,11 +1658,12 @@ describe('handleDialogTurnFailed', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     resetFlowChatStore();
     stateMachineManager.clear();
   });
 
-  it('keeps a zero-round turn and records the terminal provider error', () => {
+  it.each([undefined, 'disk full'])('keeps the provider failure when the history save error is %s', async (saveError) => {
     createSessionWithTurn({
       id: 'turn-1',
       sessionId: 'session-1',
@@ -1674,15 +1679,21 @@ describe('handleDialogTurnFailed', () => {
     const context = createFlowChatContext();
     context.userCancelledSessionIds.add('session-1');
 
-    __test_only__.handleDialogTurnFailed(context, {
+    vi.spyOn(api, 'listen').mockImplementation(() => () => {});
+    vi.spyOn(api, 'waitForListenerRegistrations').mockResolvedValue();
+    const translate = vi.spyOn(i18nService, 't');
+    const cleanup = await initializeEventListeners(context, vi.fn());
+    agenticEventListener.dispatchExternal('agentic://dialog-turn-failed', {
       sessionId: 'session-1',
       turnId: 'turn-1',
       error: 'OpenAI Streaming API failed after 10 attempts: connection refused',
+      acpHistorySaveError: saveError,
       errorDetail: {
         category: 'network',
         provider: 'openai',
       },
     });
+    cleanup();
 
     const turn = FlowChatStore.getInstance()
       .getState()
@@ -1699,7 +1710,12 @@ describe('handleDialogTurnFailed', () => {
       modelRounds: [],
     });
     expect(notificationService.error).not.toHaveBeenCalled();
-    expect(notificationService.warning).not.toHaveBeenCalled();
+    if (saveError) {
+      expect(translate).toHaveBeenCalledWith('flow-chat:historyState.turnSaveFailed', { error: saveError });
+      expect(notificationService.warning).toHaveBeenCalledOnce();
+    } else {
+      expect(notificationService.warning).not.toHaveBeenCalled();
+    }
     expect(context.userCancelledSessionIds.has('session-1')).toBe(false);
   });
 });

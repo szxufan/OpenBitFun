@@ -4,7 +4,7 @@
   "title": "OpenBitFun Playbook",
   "origin": "https://playbook.openbitfun.com",
   "source": "src/shared/interactive-capabilities/catalog.json",
-  "digest": "387a53e41117dfb6a341934a9a53c8162bc97c3b01cc4462312d71514fc22011",
+  "digest": "2cc4fddea2616df7d0bbda40f33fb0f1ca1c141e474f39c19c0a47825a2b276b",
   "ownerDigest": "6f0746578f3c56479f7c289bb05395dfe6917042f4d419de8c9a2f719d31f815",
   "searchAcceptance": [
     {
@@ -185,13 +185,13 @@
   ],
   "counts": {
     "features": 24,
-    "settings": 23,
-    "userFacing": 47,
-    "documentedItems": 368,
+    "settings": 24,
+    "userFacing": 48,
+    "documentedItems": 370,
     "controlCoverage": {
       "direct": 63,
       "delegated": 74,
-      "interactive": 231,
+      "interactive": 233,
       "unsupported": 0
     }
   },
@@ -18866,6 +18866,7 @@
       "id": "setting.tools.desktop-control:query",
       "capabilityId": "setting.tools.desktop-control",
       "itemIds": [
+        "external-control",
         "permissions",
         "safety-posture"
       ],
@@ -18903,6 +18904,52 @@
       "valueSource": {
         "kind": "static"
       },
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.desktop-control"
+      }
+    },
+    {
+      "id": "setting.tools.desktop-control:open:external-control",
+      "capabilityId": "setting.tools.desktop-control",
+      "itemIds": [
+        "external-control"
+      ],
+      "kind": "open",
+      "risk": "ui",
+      "executionHost": "presentationSurface",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_presentation_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openReason": "visualSelection",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "tools.desktop-control"
@@ -21370,6 +21417,97 @@
       "presentationTarget": {
         "kind": "settings",
         "pageId": "data.usage"
+      }
+    },
+    {
+      "id": "setting.data.storage:query",
+      "capabilityId": "setting.data.storage",
+      "itemIds": [
+        "clean"
+      ],
+      "kind": "query",
+      "risk": "read",
+      "executionHost": "productHost",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": true
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": true
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "valueSource": {
+        "kind": "static"
+      },
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "data.storage"
+      }
+    },
+    {
+      "id": "setting.data.storage:open:clean",
+      "capabilityId": "setting.data.storage",
+      "itemIds": [
+        "clean"
+      ],
+      "kind": "open",
+      "risk": "ui",
+      "executionHost": "presentationSurface",
+      "availability": {
+        "desktop": {
+          "available": true
+        },
+        "cli": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        },
+        "peer": {
+          "available": true,
+          "requiredCapabilities": [
+            "product_control_v1",
+            "product_control_presentation_v1"
+          ]
+        },
+        "remoteControl": {
+          "available": true
+        },
+        "detachedDispatch": {
+          "available": false,
+          "reason": "This delivery profile has no live presentation surface"
+        }
+      },
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "openReason": "unstructuredInteraction",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "data.storage"
       }
     },
     {
@@ -30511,8 +30649,8 @@
           "control": {
             "kind": "open",
             "reasonCode": "unstructuredInteraction",
-            "reasonZh": "“开启或关闭侧问（/btw）面板关闭前的丢弃确认提示”保存在当前界面的交互偏好中，智能体会为你打开“输入与交互 → 侧问关闭确认”开关位置。",
-            "reasonEn": "“Enable or disable the confirmation prompt before closing a /btw side conversation” is stored as a client UI interaction preference; the Agent opens Input & Interaction → Side-Question Close Confirmation for you."
+            "reasonZh": "“开启或关闭侧问（/btw）面板关闭前的丢弃确认提示”保存在当前界面的交互偏好中，智能体会为你打开“会话与记忆 → 侧问”中的确认开关。",
+            "reasonEn": "“Enable or disable the confirmation prompt before closing a /btw side conversation” is stored as a client UI interaction preference; the Agent opens Session & Memory → Side questions for you."
           }
         },
         {
@@ -31586,8 +31724,8 @@
         },
         {
           "id": "subscription-auth",
-          "titleZh": "登录 Codex、ZCode、OpenCode、Grok、Antigravity、Hermes 等订阅账号与多号订阅池",
-          "titleEn": "Sign in to Codex, ZCode, OpenCode, Grok, Antigravity, Hermes, and multi-account subscription pools",
+          "titleZh": "登录 Codex、ZCode、OpenCode、Grok、Hermes 等订阅账号与多号订阅池",
+          "titleEn": "Sign in to Codex, ZCode, OpenCode, Grok, Hermes, and multi-account subscription pools",
           "control": {
             "kind": "open",
             "reasonCode": "externalAuth",
@@ -31831,8 +31969,8 @@
         "Add built-in or custom providers, probe Magpie gateways, and set up standalone image services",
         "配置 API Key、Base URL、请求格式（含实时派生 URL 预览）与备用通道",
         "Configure API keys, base URLs, API formats with live derived URL preview, and fallback channels",
-        "登录 Codex、ZCode、OpenCode、Grok、Antigravity、Hermes 等订阅账号与多号订阅池",
-        "Sign in to Codex, ZCode, OpenCode, Grok, Antigravity, Hermes, and multi-account subscription pools",
+        "登录 Codex、ZCode、OpenCode、Grok、Hermes 等订阅账号与多号订阅池",
+        "Sign in to Codex, ZCode, OpenCode, Grok, Hermes, and multi-account subscription pools",
         "选择主模型、快速模型、经济模型以及图像理解、图像生成和语音识别默认模型",
         "Choose Primary, Fast, Economy, image-understanding, image-generation, and speech-recognition defaults",
         "按模型能力选择推理预设或自定义思考预算",
@@ -33917,6 +34055,17 @@
       ],
       "items": [
         {
+          "id": "external-control",
+          "titleZh": "为本机集成授权工作区",
+          "titleEn": "Authorize workspaces for local integrations",
+          "control": {
+            "kind": "open",
+            "reasonCode": "visualSelection",
+            "reasonZh": "用户需要在桌面设置中选择此集成可以访问的工作区，并复制仅在创建时显示一次的令牌。",
+            "reasonEn": "In Desktop settings, the user chooses which workspaces the integration can access and copies the token while it is visible at creation."
+          }
+        },
+        {
           "id": "permissions",
           "titleZh": "查看“允许桌面控制”开关及“辅助功能”、“屏幕录制”系统授权状态并完成授权",
           "titleEn": "Inspect Allow desktop control plus Accessibility and Screen Recording grants and authorize in OS settings",
@@ -33993,6 +34142,8 @@
         "Shows live grant status for both Accessibility (mouse/keyboard input) and Screen Recording (visual capture)",
         "One-click permission request or direct jump into your operating system’s Privacy & Security settings",
         "Works alongside single-window App Sharing, live control status cards, and immediate stop controls",
+        "为本机集成授权工作区",
+        "Authorize workspaces for local integrations",
         "查看“允许桌面控制”开关及“辅助功能”、“屏幕录制”系统授权状态并完成授权",
         "Inspect Allow desktop control plus Accessibility and Screen Recording grants and authorize in OS settings",
         "结合应用级总开关、单窗口共享与主机边界安全管控桌面操作",
@@ -35585,6 +35736,79 @@
         "Take me to model call statistics"
       ],
       "docsUrl": "https://playbook.openbitfun.com/capabilities/setting.data.usage/"
+    },
+    {
+      "id": "setting.data.storage",
+      "kind": "setting",
+      "categoryId": "data",
+      "titleZh": "存储空间",
+      "titleEn": "Storage",
+      "summaryZh": "按工作区查看本机文件快照占用，手动清理符合条件的会话。",
+      "summaryEn": "Inspect local file snapshot usage by workspace and clean up eligible session histories.",
+      "keywordsZh": [
+        "存储空间",
+        "快照清理"
+      ],
+      "keywordsEn": [
+        "storage",
+        "snapshot cleanup"
+      ],
+      "highlightsZh": [
+        "查看每个工作区的快照占用及共享文件大小。"
+      ],
+      "highlightsEn": [
+        "See snapshot usage and shared file sizes for each workspace."
+      ],
+      "items": [
+        {
+          "id": "clean",
+          "titleZh": "预览并清理会话文件快照",
+          "titleEn": "Preview and clean up session file snapshots",
+          "control": {
+            "kind": "open",
+            "reasonCode": "unstructuredInteraction",
+            "reasonZh": "“预览并清理会话文件快照”会永久移除所选会话的文件回退记录，请在存储空间页面核对并确认。",
+            "reasonEn": "“Preview and clean up session file snapshots” opens Storage so you can review the affected sessions before permanently removing their file rollback history."
+          }
+        }
+      ],
+      "stepsZh": [
+        "打开存储空间，选择工作区和清理范围。",
+        "核对预览并确认删除文件快照。"
+      ],
+      "stepsEn": [
+        "Open Storage and select the workspaces and inactivity period.",
+        "Review the preview and confirm deletion of file snapshots."
+      ],
+      "agentExamplesZh": [
+        "打开快照存储设置"
+      ],
+      "agentExamplesEn": [
+        "Open snapshot storage settings"
+      ],
+      "destination": {
+        "kind": "settings",
+        "pageId": "data.storage"
+      },
+      "operations": [],
+      "options": [],
+      "searchTerms": [
+        "setting.data.storage",
+        "存储空间",
+        "Storage",
+        "数据与诊断",
+        "Data & diagnostics",
+        "快照清理",
+        "storage",
+        "snapshot cleanup",
+        "查看每个工作区的快照占用及共享文件大小。",
+        "See snapshot usage and shared file sizes for each workspace.",
+        "预览并清理会话文件快照",
+        "Preview and clean up session file snapshots",
+        "打开快照存储设置",
+        "Open snapshot storage settings"
+      ],
+      "docsUrl": "https://playbook.openbitfun.com/capabilities/setting.data.storage/"
     },
     {
       "id": "setting.data.archived",

@@ -50,16 +50,29 @@ impl FileEditTool {
         context: &ToolUseContext,
         resolved: &ToolPathResolution,
     ) -> OpenBitFunResult<String> {
-        context
+        const MAX_EDIT_BYTES: usize = 8 * 1024 * 1024;
+        let bytes = context
             .file_system_for_path(resolved)?
-            .read_file_text(&resolved.resolved_path)
+            .read_file_bounded(&resolved.resolved_path, MAX_EDIT_BYTES)
             .await
             .map_err(|error| {
                 OpenBitFunError::tool(format!(
                     "Failed to read file {}: {:#}",
                     resolved.logical_path, error
                 ))
-            })
+            })?
+            .ok_or_else(|| {
+                OpenBitFunError::tool(format!(
+                    "Edit exceeds the {MAX_EDIT_BYTES} byte limit for {}",
+                    resolved.logical_path
+                ))
+            })?;
+        String::from_utf8(bytes).map_err(|error| {
+            OpenBitFunError::tool(format!(
+                "Failed to decode {} as UTF-8: {error}",
+                resolved.logical_path
+            ))
+        })
     }
 }
 

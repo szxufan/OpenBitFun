@@ -56,7 +56,7 @@ describe('ACPClientAPI client list startup cache', () => {
     invokeMock.mockReturnValueOnce(deferred.promise);
     const options = ACPClientAPI.getSessionOptions(sessionRequest);
     const commands = ACPClientAPI.getSessionCommands({ ...sessionRequest });
-    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith('get_acp_session_options', { request: sessionRequest }, { timeout: 0 });
     deferred.resolve({ availableModels: [], configOptions: [], availableCommands: [] });
     await expect(commands).resolves.toEqual([]);
     await options;

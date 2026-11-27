@@ -5255,6 +5255,16 @@ export class FlowChatStore {
     });
   }
 
+  public markBtwModelSelectionExplicit(sessionId: string): void {
+    this.setState(state => {
+      const session = state.sessions.get(sessionId);
+      if (!session || session.sessionKind !== 'btw' || session.dialogTurns.length > 0) return state;
+      return { ...state, sessions: new Map(state.sessions).set(sessionId, {
+        ...session, config: { ...session.config, btwModelSelectionExplicit: true },
+      }) };
+    });
+  }
+
   public updateSessionModelPool(
     sessionId: string, poolId: string | undefined,
     binding?: import('@/infrastructure/api/service-api/ModelPoolAPI').ModelPoolBinding,

@@ -12,7 +12,7 @@
 |---|---|
 | 多服务商 | 已接入的 OpenAI Chat/Responses、Anthropic、Gemini 及订阅渠道可被用户明确选为主备；不同模型名称也可显式选入，不推测模型等价 |
 | 多渠道、多 key | 引用现有模型配置 ID，每个连接使用自己的端点、协议、模型及凭据；同一服务商的多把 API key 可配置为多个独立连接 |
-| 多账号 | Codex、Antigravity、OpenCode Zen、Grok、Hermes 和 ZCode 均使用独立账号槽位、固定账号和顺序账号池；登录、可信路由与额度查询分别按 adapter 能力处理 |
+| 多账号 | Codex、OpenCode Zen、Grok、Hermes 和 ZCode 使用独立账号槽位、固定账号和顺序账号池；登录、可信路由与额度查询分别按 adapter 能力处理；历史 Antigravity 槽位保留读取但已失效 |
 
 首版仅支持明确的顺序主备和手动固定选择。复用现有 Rust 模型链路、认证存储、客户端工厂与 Agent 回合，不引入网关、sidecar、daemon 或另一套工具执行循环。
 
@@ -23,7 +23,7 @@
 | 订阅渠道 | 授权与身份 | 多账号请求路由 | 额度查询 |
 |---|---|---|---|
 | Codex | 浏览器 / 设备码；ChatGPT 席位身份 | 每槽位凭据与刷新租约，沿用账号绑定的 Responses 路由 | 现有服务商快照 |
-| Antigravity | 执行主机浏览器回调；Google 用户 ID / ID token subject | 每槽位 Code Assist 凭据，沿用可信项目发现与请求链路 | 暂不支持，显示未知，由请求验证 |
+| Antigravity（已下线） | 历史执行主机浏览器回调凭据仅保留读取 | 不支持，所有历史订阅配置拒绝请求 | 不支持，显示下线状态 |
 | OpenCode Zen | 设备码；Console 用户身份与各账号目录 | 按所选账号解析协议、模型、组织请求头及可信 Console 端点；不向公开 Zen/Go key 路由发送 OAuth token | 暂不支持，显示未知，由请求验证 |
 | Grok | 设备码；服务商 JWT subject | 每槽位刷新，使用 Grok Build 的可信 Responses 与模型目录端点 | 暂不支持，显示未知，由请求验证 |
 | Hermes | 设备码；推理 scope 与 JWT subject | 每槽位轮换刷新，沿用可信 Nous 推理端点及 Chat 协议 | 暂不支持，显示未知，由请求验证 |

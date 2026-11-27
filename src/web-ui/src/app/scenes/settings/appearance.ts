@@ -28,6 +28,7 @@ export const settingsAppearanceDescriptor: AppearanceSurfaceDescriptor = {
       'tools.external-agents',
       'tools.automation',
       'data.usage',
+      'data.storage',
       'data.archived',
       'data.diagnostics',
     ],

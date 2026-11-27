@@ -34,8 +34,8 @@ Manage AI providers and subscription accounts in one place, assign Primary, Fast
   - Configure API keys, base URLs, API formats with live derived URL preview, and fallback channels
   - 说明：切换 chat/completions、responses、Anthropic messages、Gemini generateContent 或 Gemini Code Assist 时可实时查看最终请求路径，一键拉取远端模型清单，并为单模型绑定备用通道路由。
   - Why & how: See the exact derived request URL update live as you switch between chat/completions, responses, Anthropic messages, Gemini generateContent, or Gemini Code Assist, fetch remote model lists, and bind fallback channel routing.
-- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 登录 Codex、ZCode、OpenCode、Grok、Antigravity、Hermes 等订阅账号与多号订阅池
-  - Sign in to Codex, ZCode, OpenCode, Grok, Antigravity, Hermes, and multi-account subscription pools
+- **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 登录 Codex、ZCode、OpenCode、Grok、Hermes 等订阅账号与多号订阅池
+  - Sign in to Codex, ZCode, OpenCode, Grok, Hermes, and multi-account subscription pools
   - 说明：支持浏览器或设备码授权登录（含智谱国内版与 Z.ai 国际版 ZCode），可在卡片上直观查看 OpenCode 与 Grok 实时额度面板，并将多个账号编成订阅池在限流时自动故障轮换。
   - Why & how: Sign in via browser or device code (including ZCode CN and Z.ai Intl), view live OpenCode and Grok quota panels, and group multiple accounts into a subscription pool that rotates automatically on rate limits.
 - **智能体可定位入口，需交互完成 / Agent opens; interaction required** · 选择主模型、快速模型、经济模型以及图像理解、图像生成和语音识别默认模型

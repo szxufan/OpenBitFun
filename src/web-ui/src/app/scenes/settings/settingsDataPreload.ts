@@ -1,3 +1,4 @@
+import { supportsBtwModelDefaults } from '@/infrastructure/config/services/btwModelDefaults';
 import { modelSelectionsConfigPath } from '@/infrastructure/config/services/modelSelections';
 import { configManager } from '@/infrastructure/config/services/ConfigManager';
 import type { SettingsPageId } from './settingsTypes';
@@ -30,6 +31,7 @@ const OPTIONAL_PATHS = new Set([
 
 export async function preloadSettingsData(pageId: SettingsPageId): Promise<void> {
   const paths = [...(CONFIG_PATHS[pageId] ?? []), ...(pageId === 'ai.execution' ? [modelSelectionsConfigPath()] : [])];
+  if (pageId === 'ai.session-memory' && supportsBtwModelDefaults()) paths.push('ai.btw');
   await Promise.allSettled(paths.map(path => {
     if (configManager.hasCachedConfig(path)) return;
     return OPTIONAL_PATHS.has(path)

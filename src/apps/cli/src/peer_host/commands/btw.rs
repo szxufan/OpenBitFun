@@ -143,6 +143,10 @@ pub(crate) async fn btw_ask_stream(state: &PeerHostState, args: &Value) -> Resul
         return Err("Peer event stream lost continuity while starting the side question".into());
     }
 
+    let model_target = coordinator
+        .get_session_manager()
+        .get_session(&child_session_id)
+        .map(openbitfun_core::agentic::session::session_model_target);
     let runtime = side_questions().clone();
     let request_id = request.request_id;
     runtime
@@ -166,7 +170,7 @@ pub(crate) async fn btw_ask_stream(state: &PeerHostState, args: &Value) -> Resul
             tokio::time::sleep(BTW_TURN_POLL_INTERVAL).await;
         }
     });
-    Ok(json!({ "ok": true }))
+    Ok(json!({ "ok": true, "modelTarget": model_target }))
 }
 
 pub(crate) async fn btw_cancel(args: &Value) -> Result<Value, String> {

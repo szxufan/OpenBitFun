@@ -168,6 +168,10 @@ impl PersistenceManager {
         self.save_session(workspace_path, &target_session).await?;
 
         let branch_result = async {
+            use crate::agentic::image_analysis::attachments::copy_session_image_reference;
+            let layout = self.session_layout(workspace_path);
+            let source_dir = layout.session_dir(&request.source_session_id);
+            let target_dir = layout.session_dir(&target_session_id);
             let branched_turns = source_turns
                 .iter()
                 .take(copied_turn_count)
@@ -207,7 +211,15 @@ impl PersistenceManager {
                 };
                 if let Some(mut messages) = context_snapshot {
                     for message in &mut messages {
+                        for reference in &message.metadata.tool_image_references {
+                            copy_session_image_reference(reference, &source_dir, &target_dir)
+                                .await?;
+                        }
                         if let MessageContent::ToolResult { result, .. } = &mut message.content {
+                            if let Some(reference) = result["source_image_reference"].as_str() {
+                                copy_session_image_reference(reference, &source_dir, &target_dir)
+                                    .await?;
+                            }
                             clear_inherited_snapshot_capability(result);
                         }
                     }
@@ -245,6 +257,16 @@ impl PersistenceManager {
             }
 
             for turn in &branched_turns {
+                for result in turn
+                    .model_rounds
+                    .iter()
+                    .flat_map(|round| &round.tool_items)
+                    .filter_map(|tool| tool.tool_result.as_ref())
+                {
+                    if let Some(reference) = result.result["source_image_reference"].as_str() {
+                        copy_session_image_reference(reference, &source_dir, &target_dir).await?;
+                    }
+                }
                 self.save_dialog_turn(workspace_path, turn).await?;
             }
 
@@ -674,12 +696,38 @@ mod tests {
             .expect("omitted transcript should create")
             .expect("omitted transcript should exist");
 
+        let runtime = workspace
+            .path_manager()
+            .project_runtime_root(workspace.path());
+        let binding =
+            crate::agentic::workspace::WorkspaceBinding::new(None, workspace.path().into());
+        let mut image_context =
+            crate::agentic::tools::ToolUseContext::for_tool_listing(Some(binding), None);
+        image_context.custom_data.insert(
+            "__openbitfun_test_runtime_root".into(),
+            serde_json::json!(runtime),
+        );
+        image_context.session_id = Some(source_session.session_id.clone());
+        let image = crate::agentic::image_analysis::attachments::test_image();
+        let (image_bytes, _) =
+            crate::agentic::image_analysis::decode_data_url(image.data_url.as_deref().unwrap())
+                .unwrap();
+        let reference =
+            crate::agentic::image_analysis::attachments::save_image(&image_bytes, &image_context)
+                .await
+                .unwrap();
+        let source_image = image_context
+            .resolve_tool_path(&reference)
+            .unwrap()
+            .resolved_path;
+        let mut context_message = Message::user("snapshot-0".to_string());
+        context_message.metadata.tool_image_references = vec![reference.clone()];
         manager
             .save_turn_context_snapshot(
                 workspace.path(),
                 &source_session.session_id,
                 0,
-                &[Message::user("snapshot-0".to_string())],
+                &[context_message],
             )
             .await
             .expect("snapshot 0 should save");
@@ -818,6 +866,10 @@ mod tests {
             &branched_snapshot[0].content,
             crate::agentic::core::MessageContent::Text(text) if text == "snapshot-0"
         ));
+        assert_eq!(
+            branched_snapshot[0].metadata.tool_image_references,
+            [reference.as_str()]
+        );
 
         let branched_prompt_cache = manager
             .load_prompt_cache(workspace.path(), &result.session_id)
@@ -854,6 +906,17 @@ mod tests {
                 "baseTitle": "Source Title"
             })
         );
+        manager
+            .delete_session(workspace.path(), &source_session.session_id)
+            .await
+            .unwrap();
+        assert!(!Path::new(&source_image).exists());
+        image_context.session_id = Some(result.session_id);
+        let target_image = image_context
+            .resolve_tool_path(&reference)
+            .unwrap()
+            .resolved_path;
+        assert_eq!(tokio::fs::read(target_image).await.unwrap(), image_bytes);
     }
 
     #[tokio::test]

@@ -711,6 +711,11 @@ pub fn create_main_window(
     let build_started_at = Instant::now();
     match builder.build() {
         Ok(window) => {
+            tauri::async_runtime::spawn(crate::external_control::restore(app_handle.clone()));
+            #[cfg(target_os = "linux")]
+            if let Err(error) = crate::linux_browser_layout::install(&window) {
+                error!("Failed to install browser WebView layout: {error}");
+            }
             #[cfg(target_os = "macos")]
             if let Err(error) = crate::macos_window_chrome::install(&window) {
                 error!("Failed to install native fullscreen chrome synchronization: {error}");

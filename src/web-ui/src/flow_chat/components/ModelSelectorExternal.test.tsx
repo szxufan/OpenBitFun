@@ -50,6 +50,7 @@ const flowChatStoreMocks = vi.hoisted(() => {
       subscribers.add(callback);
       return () => subscribers.delete(callback);
     }),
+    markBtwModelSelectionExplicit: vi.fn(),
     updateSessionModelName: vi.fn((sessionId: string, modelName: string) => {
       const session = sessions.get(sessionId);
       if (session) session.config.modelName = modelName;

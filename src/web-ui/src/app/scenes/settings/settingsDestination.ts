@@ -24,6 +24,7 @@ export function isLegacyEcosystemCompatibilityDestination(value: unknown): boole
  * validator and the frontend share the same compatibility boundary.
  */
 const LEGACY_DESTINATION_MIGRATIONS: Readonly<Record<string, SettingsDestinationInput>> = migrations.pages;
+const LEGACY_SECTION_MIGRATIONS: Readonly<Record<string, Readonly<Record<string, SettingsDestinationInput>>>> = migrations.sections;
 const LEGACY_VIEW_MIGRATIONS: Readonly<Record<string, Readonly<Record<string, SettingsDestinationInput>>>> = migrations.views;
 
 export interface SettingsDestinationInput {
@@ -32,17 +33,18 @@ export interface SettingsDestinationInput {
   sectionId?: string;
 }
 
-/** Normalize both old page IDs and old tab links before entering the settings store. */
+/** Normalize old page, tab and section links before entering the settings store. */
 export function resolveSettingsDestination(value: string | SettingsDestinationInput): SettingsDestination {
   const input = typeof value === 'string' ? { pageId: value } : value;
-  const migrated = (input.viewId ? LEGACY_VIEW_MIGRATIONS[input.pageId]?.[input.viewId] : undefined)
+  const migratedSection = input.sectionId ? LEGACY_SECTION_MIGRATIONS[input.pageId]?.[input.sectionId] : undefined;
+  const migrated = migratedSection ?? (input.viewId ? LEGACY_VIEW_MIGRATIONS[input.pageId]?.[input.viewId] : undefined)
     ?? LEGACY_DESTINATION_MIGRATIONS[input.pageId];
   const pageId = migrated?.pageId ?? input.pageId;
   const destination: SettingsDestination = {
     pageId: isSettingsPageId(pageId) ? pageId : DEFAULT_SETTINGS_PAGE_ID,
   };
   const manifest = getSettingsPageManifest(destination.pageId);
-  const sectionId = input.sectionId
+  const sectionId = migratedSection?.sectionId ?? input.sectionId
     ?? migrated?.sectionId;
   const section = manifest.sections?.find(section => section.id === sectionId);
   const view = manifest.views?.find(view => view.id === input.viewId);

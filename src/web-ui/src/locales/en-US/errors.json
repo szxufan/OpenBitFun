@@ -86,6 +86,10 @@
       "title": "Model permission denied",
       "message": "The API key does not have permission to use this model or endpoint. Check the model configuration or switch models."
     },
+    "payloadTooLarge": {
+      "title": "Request body is too large",
+      "message": "Crop images to the area you need or send attachments in smaller batches."
+    },
     "invalidRequest": {
       "title": "Model request invalid",
       "message": "The provider rejected the request format, parameters, model name, or payload size. Adjust the request or choose another model."

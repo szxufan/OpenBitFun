@@ -91,6 +91,7 @@ use crate::service::snapshot::{
     open_snapshot_manager_for_view, SnapshotError, SnapshotManager,
 };
 use crate::service::token_usage::TokenUsageService;
+pub use crate::service_agent_runtime::idle_session_dialog_port;
 use crate::service_agent_runtime::CoreServiceAgentRuntime;
 use crate::util::errors::{OpenBitFunError, OpenBitFunResult};
 
@@ -2134,11 +2135,11 @@ impl CoreAgentRuntimeCompatibility {
             .is_externally_projected_session(&permit.storage_path, &permit.session_id)
             .await?
         {
-            // No Runtime history branch exists to validate against: the external
-            // agent owns the conversation and the projection is the only writer.
+            // Older observers still write checkpoints. The store protects
+            // the suffix owned by an external session runtime.
             return self
                 .persistence
-                .save_dialog_turn(&permit.storage_path, turn)
+                .save_external_view_checkpoint(&permit.storage_path, turn)
                 .await;
         }
         let session = self

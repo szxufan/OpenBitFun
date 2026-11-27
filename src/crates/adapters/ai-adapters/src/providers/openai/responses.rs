@@ -535,6 +535,7 @@ mod tests {
             conversation_scope: None,
             prompt_cache_route_key: Some("lineage-1".to_string()),
             output_schema: None,
+            ..Default::default()
         };
         let request_body = build_request_body_with_context(
             &client,
@@ -558,6 +559,7 @@ mod tests {
             conversation_scope: None,
             prompt_cache_route_key: None,
             output_schema: Some(schema.clone()),
+            ..Default::default()
         };
         let request_body = build_request_body_with_context(
             &test_client(),

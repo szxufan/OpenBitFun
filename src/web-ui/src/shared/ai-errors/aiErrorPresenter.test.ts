@@ -67,6 +67,18 @@ describe('aiErrorPresenter', () => {
     }
   });
 
+  it('shows attachment guidance for oversized bodies and keeps token recovery for model context errors', () => {
+    const oversized = getAiErrorPresentation({ category: 'invalid_request', httpStatus: 413 });
+    expect(oversized.titleKey).toBe('errors:ai.payloadTooLarge.title');
+    expect(oversized.messageKey).toBe('errors:ai.payloadTooLarge.message');
+    expect(oversized.retryable).toBe(false);
+
+    const overflow = getAiErrorPresentation({ category: 'context_overflow', httpStatus: 413 });
+    expect(overflow.titleKey).toBe('errors:ai.contextOverflow');
+    expect(overflow.messageKey).toBe('errors:ai.contextOverflowSuggestion');
+    expect(overflow.actions.map((action) => action.code)).toContain('compress_context');
+  });
+
   it('keeps overloaded provider errors retryable without exposing raw payloads', () => {
     const detail = normalizeAiErrorDetail({
       category: 'unknown',

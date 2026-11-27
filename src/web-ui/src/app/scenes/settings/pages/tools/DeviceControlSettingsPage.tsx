@@ -35,6 +35,7 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SettingsPage } from '../shared/SettingsPage';
+import ExternalControlSection from './ExternalControlSection';
 import BrowserLinkSettingsSection from './BrowserLinkSettingsSection';
 const log = createLogger('DeviceControlSettingsPage');
 
@@ -857,6 +858,7 @@ const DeviceControlSettingsPage: React.FC = () => {
 
         </>
       )}
+      {IS_TAURI_DESKTOP && !peerModeActive && <ExternalControlSection />}
     </SettingsPage>
   );
 };

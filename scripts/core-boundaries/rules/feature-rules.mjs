@@ -896,6 +896,7 @@ export const coreClosedFeatureProfileRules = [
     requiredFeatureRefs: [
       'ai-adapter-runtime',
       'openbitfun-ai-adapters/local-tokenizer',
+      'openbitfun-ai-adapters/vision-input',
       'dep:openbitfun-agent-runtime',
       'openbitfun-agent-runtime/agent-runtime',
       'dep:openbitfun-agent-content',

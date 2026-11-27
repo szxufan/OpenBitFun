@@ -660,6 +660,14 @@ pub struct AIConfig {
 /// in this contract.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModelRequestContext {
+    /// First outgoing message in the active turn, after host-only messages and reminders
+    /// have been projected. A boundary at the end denotes a history-only request.
+    pub image_turn_start: Option<usize>,
+    /// Keep the latest user upload when the receiving model cannot reopen it.
+    pub retain_latest_user_image: bool,
+    /// Non-image input estimate calibrated from a matching text-only provider prefix.
+    /// Zero denotes that no comparable provider usage is available for this request.
+    pub minimum_non_image_input_tokens: usize,
     /// Opaque execution-lifetime identity, distinct from shareable prompt-cache lineage.
     /// Absence means a standalone request with no reusable transport continuation.
     pub conversation_scope: Option<std::sync::Arc<String>>,

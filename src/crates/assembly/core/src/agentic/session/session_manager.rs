@@ -5510,7 +5510,18 @@ impl SessionManager {
         {
             let snapshot_service = snapshot_manager.get_snapshot_service();
             let snapshot_service = snapshot_service.read().await;
-            if let Err(error) = snapshot_service.accept_session(session_id).await {
+            let result = if policy == SessionResourceCleanupPolicy::BestEffort
+                && self.config.enable_persistence
+                && !self.is_transient_session(session_id)
+            {
+                // Persisted deletion reclaims references after releasing the session writer lock.
+                snapshot_service
+                    .release_session_file_locks(session_id)
+                    .await
+            } else {
+                snapshot_service.accept_session(session_id).await
+            };
+            if let Err(error) = result {
                 record_error("snapshot", error.to_string());
             }
         }
@@ -5570,7 +5581,7 @@ impl SessionManager {
             .resolve_session_workspace_binding(session_id)
             .await
             .and_then(|binding| binding.workspace_id);
-        let _temporary_write_lock = if self.config.enable_persistence
+        let temporary_write_lock = if self.config.enable_persistence
             && !self.is_transient_session(session_id)
             && !self.session_write_locks.contains_key(session_id)
         {
@@ -5586,9 +5597,7 @@ impl SessionManager {
             self.config.enable_persistence
         );
 
-        // Persisted deletion is the only fallible required stage. Complete it
-        // before mutating loaded runtime state so a storage failure leaves the
-        // active session usable and retryable.
+        let mut pending_snapshot_deletion = None;
         if self.config.enable_persistence {
             let revert_state = self
                 .persistence_manager
@@ -5602,6 +5611,15 @@ impl SessionManager {
                     "Session deletion cannot discard an unfinished revert transition: session_id={session_id}"
                 )));
             }
+            pending_snapshot_deletion =
+                crate::service::snapshot::maintenance::prepare_session_deletion(
+                    self.persistence_manager.path_manager(),
+                    cleanup_workspace_id.as_deref(),
+                    session_storage_path,
+                    session_id,
+                )
+                .await
+                .map_err(|e| OpenBitFunError::Session(e.to_string()))?;
             let persistence_stage_started_at = Instant::now();
             debug!(
                 "Session deletion stage starting: session_id={}, stage=persistence_delete",
@@ -5664,6 +5682,12 @@ impl SessionManager {
         );
         self.session_storage_path_index.remove(session_id);
         self.release_session_write_lock(session_id);
+        drop(temporary_write_lock);
+        if let Some(intent) = pending_snapshot_deletion {
+            if let Err(e) = intent.finish(self.persistence_manager.path_manager()).await {
+                warn!("Snapshot cleanup deferred after session deletion: session_id={session_id}, error={e}");
+            }
+        }
 
         info!(
             "Session deletion completed: session_id={}, cleanup_workspace_path={}, session_storage_path={}, duration_ms={}",

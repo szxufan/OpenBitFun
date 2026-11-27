@@ -25,6 +25,12 @@ vi.mock('@/infrastructure/i18n', () => ({
   useI18n: () => ({ t: mocks.t }),
 }));
 vi.mock('@/infrastructure/api/service-api/ApiClient', () => ({ api: { invoke: mocks.invoke } }));
+vi.mock('@/infrastructure/api/service-api/DesktopExternalControlAPI', () => ({
+  desktopControllerSettings: async () => ({
+    enabled: false, listening: false, port: 38371, endpoint: 'http://127.0.0.1:38371/v1',
+    error: null, token: null, grants: [], workspaces: [],
+  }),
+}));
 vi.mock('@/infrastructure/api/service-api/SystemAPI', () => ({ systemAPI: { getSystemInfo: async () => ({ platform: 'macos' }) } }));
 vi.mock('../../../../../infrastructure/config/services/ConfigManager', () => ({ configManager: { hasCachedConfig: () => false, getCachedConfig: () => undefined,
   getConfig: mocks.getConfig,
@@ -172,6 +178,12 @@ afterEach(async () => {
 });
 
 describe('Browser and desktop control settings', () => {
+  it('places external control at the end of the page', async () => {
+    await render();
+    const titles = container.querySelectorAll('[data-openbitfun-part="sectionTitle"]');
+    expect(titles[titles.length - 1]?.textContent).toBe('externalControl.title');
+  });
+
   it('keeps detailed host permissions in the standard compact settings rows', async () => {
     const original = mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation(async (command: string, ...args: unknown[]) => command === 'computer_use_get_status'

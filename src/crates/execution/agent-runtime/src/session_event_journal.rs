@@ -242,6 +242,30 @@ impl SessionEventJournal {
     /// the event is not represented by this projection; attachment must always
     /// release that live event instead of letting a snapshot cursor cover it.
     pub fn record(&self, event: &AgenticEvent) -> Option<SessionEventCursor> {
+        self.record_event(event, false)
+    }
+
+    /// An external execution owner acknowledges the terminal event after its
+    /// canonical conversation write succeeds. Until then the raw log survives.
+    pub fn record_until_checkpoint(&self, event: &AgenticEvent) -> Option<SessionEventCursor> {
+        self.record_event(event, true)
+    }
+
+    pub fn pending_checkpoint(&self, session: &str) -> Option<StoredSessionEvents> {
+        self.store.as_ref()?.load(session)
+    }
+
+    pub fn checkpoint_saved(&self, session: &str) {
+        if let Some(store) = &self.store {
+            store.discard(session);
+        }
+    }
+
+    fn record_event(
+        &self,
+        event: &AgenticEvent,
+        retain_terminal: bool,
+    ) -> Option<SessionEventCursor> {
         let session_id = event.session_id()?.to_string();
         let mut state = lock_state(&self.state);
         if matches!(event, AgenticEvent::SessionDeleted { .. }) {
@@ -288,7 +312,7 @@ impl SessionEventJournal {
                 // Release the lock before touching the store: an append must
                 // never stall the delivery stream it is recording.
                 drop(state);
-                if terminal {
+                if terminal && !retain_terminal {
                     store.discard(&session_id);
                 } else {
                     store.append(&session_id, &stream_id, cursor, event);
@@ -995,6 +1019,20 @@ mod tests {
         // Runtime process and replays it instead of comparing cursors.
         assert_eq!(after.stream_id, before.stream_id);
         assert_ne!(after.stream_id, restarted.snapshot("session-2").stream_id);
+        let stopped = AgenticEvent::DialogTurnCancelled {
+            session_id: "session-1".into(),
+            turn_id: "turn-1".into(),
+        };
+        first.record_until_checkpoint(&stopped);
+        let log = restarted
+            .pending_checkpoint("session-1")
+            .expect("terminal kept until the history is saved");
+        assert!(matches!(
+            log.events.last(),
+            Some(AgenticEvent::DialogTurnCancelled { .. })
+        ));
+        restarted.checkpoint_saved("session-1");
+        assert!(first.pending_checkpoint("session-1").is_none());
     }
 
     #[test]

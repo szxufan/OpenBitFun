@@ -507,7 +507,7 @@
             "items": {
               "providers": "Add built-in or custom providers, probe Magpie gateways, and set up standalone image services",
               "credentials-endpoint": "Configure API keys, base URLs, API formats with live derived URL preview, and fallback channels",
-              "subscription-auth": "Sign in to Codex, ZCode, OpenCode, Grok, Antigravity, Hermes, and multi-account subscription pools",
+              "subscription-auth": "Sign in to Codex, ZCode, OpenCode, Grok, Hermes, and multi-account subscription pools",
               "default-models": "Choose Primary, Fast, Economy, image-understanding, image-generation, and speech-recognition defaults",
               "reasoning": "Choose reasoning presets or a custom thinking budget per model",
               "smart-routing": "Configure Smart Mode routing with Primary, Economy, and router classifier models",
@@ -605,6 +605,7 @@
             "title": "Desktop control (Computer Use)",
             "summary": "Manage the Allow desktop control master switch for native desktop GUI automation, inspect Accessibility and Screen Recording OS grants, and jump straight to system privacy settings.",
             "items": {
+              "external-control": "Authorize workspaces for local integrations",
               "permissions": "Inspect Allow desktop control plus Accessibility and Screen Recording grants and authorize in OS settings",
               "safety-posture": "Keep desktop automation bounded with the in-app toggle, per-window sharing, and host isolation"
             }
@@ -684,6 +685,13 @@
               "distribution": "Compare usage across Model and Provider tabs and inspect per-endpoint details",
               "filter": "Filter model, provider, or endpoint usage rows by search keyword",
               "trend": "Track Input and Output token volume over time in the stacked bar chart"
+            }
+          },
+          "storage": {
+            "title": "Storage",
+            "summary": "Inspect local file snapshot usage by workspace and clean up eligible session histories.",
+            "items": {
+              "clean": "Preview and clean up session file snapshots"
             }
           },
           "archived": {

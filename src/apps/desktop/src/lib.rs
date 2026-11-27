@@ -27,9 +27,12 @@ pub mod computer_use;
 pub mod crash_diagnostics;
 pub mod desktop_cards;
 mod embedded_relay_host;
+mod external_control;
 mod figure_verifier;
 mod frontend_asset_cache;
 pub mod frontend_workbench;
+#[cfg(target_os = "linux")]
+mod linux_browser_layout;
 pub mod logging;
 pub mod macos_menubar;
 #[cfg(target_os = "macos")]
@@ -758,6 +761,10 @@ pub async fn run() {
         &path_manager.user_data_dir(),
     ));
 
+    let mut controller_dir = path_manager.user_data_dir().join("external-control");
+    if !miniapp_host_channel.is_default() {
+        controller_dir.push("development");
+    }
     let mut builder = tauri::Builder::default();
     let frontend_protocol_manager = Arc::clone(&frontend_workbench);
     // The synchronous registration runs the handler inline on the WebView
@@ -820,6 +827,7 @@ pub async fn run() {
         .manage(miniapp_desktop::DesktopMiniApps::new(miniapp_host_channel))
         .manage(sleep_prevention::SleepPreventionState::default())
         .manage(desktop_runtime)
+        .manage(external_control::DesktopController::new(controller_dir))
         .manage(coordinator_state)
         .manage(scheduler_state)
         .manage(path_manager)
@@ -1426,6 +1434,7 @@ pub async fn run() {
             get_startup_native_trace,
             api::agentic_api::list_sessions,
             api::agentic_api::get_session_interaction_mailbox,
+            external_control::desktop_external_control,
             api::agentic_api::list_pending_permission_requests,
             api::agentic_api::subscribe_permission_requests,
             api::agentic_api::respond_permission,
@@ -1741,6 +1750,8 @@ pub async fn run() {
             get_snapshot_sessions,
             check_git_isolation,
             get_file_change_history,
+            inspect_snapshot_storage,
+            clean_snapshot_storage,
             get_all_modified_files,
             get_baseline_snapshot_diff,
             // Session persistence API

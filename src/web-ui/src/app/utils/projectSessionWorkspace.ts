@@ -2,16 +2,6 @@ import { WorkspaceKind, isRemoteWorkspace, type WorkspaceInfo } from '@/shared/t
 import { workspaceManager } from '@/infrastructure/services/business/workspaceManager';
 
 /**
- * Always create a new session instead of reusing an existing empty one.
- */
-export function findReusableEmptySessionId(
-  _workspace: WorkspaceInfo,
-  _requestedMode?: string
-): string | null {
-  return null;
-}
-
-/**
  * Code / Cowork sessions belong to project (non-assistant) workspaces only.
  * Assistant “instances” use Claw sessions under their own storage.
  */

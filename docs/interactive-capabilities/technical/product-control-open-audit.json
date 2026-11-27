@@ -1,13 +1,13 @@
 {
   "schemaVersion": 1,
   "generatedFrom": "src/shared/interactive-capabilities/catalog.json",
-  "catalogDigest": "387a53e41117dfb6a341934a9a53c8162bc97c3b01cc4462312d71514fc22011",
-  "count": 231,
+  "catalogDigest": "2cc4fddea2616df7d0bbda40f33fb0f1ca1c141e474f39c19c0a47825a2b276b",
+  "count": 233,
   "reasonCounts": {
     "externalAuth": 4,
     "secretEntry": 6,
-    "unstructuredInteraction": 194,
-    "visualSelection": 27
+    "unstructuredInteraction": 195,
+    "visualSelection": 28
   },
   "entries": [
     {
@@ -2755,15 +2755,15 @@
       "titleZh": "开启或关闭侧问（/btw）面板关闭前的丢弃确认提示",
       "titleEn": "Enable or disable the confirmation prompt before closing a /btw side conversation",
       "reasonCode": "unstructuredInteraction",
-      "reasonZh": "“开启或关闭侧问（/btw）面板关闭前的丢弃确认提示”保存在当前界面的交互偏好中，智能体会为你打开“输入与交互 → 侧问关闭确认”开关位置。",
-      "reasonEn": "“Enable or disable the confirmation prompt before closing a /btw side conversation” is stored as a client UI interaction preference; the Agent opens Input & Interaction → Side-Question Close Confirmation for you.",
+      "reasonZh": "“开启或关闭侧问（/btw）面板关闭前的丢弃确认提示”保存在当前界面的交互偏好中，智能体会为你打开“会话与记忆 → 侧问”中的确认开关。",
+      "reasonEn": "“Enable or disable the confirmation prompt before closing a /btw side conversation” is stored as a client UI interaction preference; the Agent opens Session & Memory → Side questions for you.",
       "presentationTarget": {
         "kind": "settings",
         "pageId": "application.voice",
         "sectionId": "btw-close-confirmation"
       },
       "evidence": [
-        "source:src/web-ui/src/app/scenes/settings/pages/application/BtwCloseConfirmationSettingsSection.tsx#BtwCloseConfirmationSettingsSection"
+        "source:src/web-ui/src/app/scenes/settings/pages/ai/BtwSettingsSection.tsx#BtwSettingsSection"
       ]
     },
     {
@@ -2838,8 +2838,8 @@
     {
       "capabilityId": "setting.ai.models",
       "itemId": "subscription-auth",
-      "titleZh": "登录 Codex、ZCode、OpenCode、Grok、Antigravity、Hermes 等订阅账号与多号订阅池",
-      "titleEn": "Sign in to Codex, ZCode, OpenCode, Grok, Antigravity, Hermes, and multi-account subscription pools",
+      "titleZh": "登录 Codex、ZCode、OpenCode、Grok、Hermes 等订阅账号与多号订阅池",
+      "titleEn": "Sign in to Codex, ZCode, OpenCode, Grok, Hermes, and multi-account subscription pools",
       "reasonCode": "externalAuth",
       "reasonZh": "订阅账户登录需要在供应商网页或设备授权流程中确认；智能体可以打开入口，但不能代替用户完成外部认证。",
       "reasonEn": "Subscription sign-in requires confirmation in a provider web or device-authorization flow; the Agent can open the entry but cannot complete external authentication for the user.",
@@ -3420,6 +3420,22 @@
     },
     {
       "capabilityId": "setting.tools.desktop-control",
+      "itemId": "external-control",
+      "titleZh": "为本机集成授权工作区",
+      "titleEn": "Authorize workspaces for local integrations",
+      "reasonCode": "visualSelection",
+      "reasonZh": "用户需要在桌面设置中选择此集成可以访问的工作区，并复制仅在创建时显示一次的令牌。",
+      "reasonEn": "In Desktop settings, the user chooses which workspaces the integration can access and copies the token while it is visible at creation.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "tools.desktop-control"
+      },
+      "evidence": [
+        "command:desktop_external_control"
+      ]
+    },
+    {
+      "capabilityId": "setting.tools.desktop-control",
       "itemId": "permissions",
       "titleZh": "查看“允许桌面控制”开关及“辅助功能”、“屏幕录制”系统授权状态并完成授权",
       "titleEn": "Inspect Allow desktop control plus Accessibility and Screen Recording grants and authorize in OS settings",
@@ -3975,6 +3991,23 @@
       "evidence": [
         "command:get_token_usage_statistics",
         "source:src/web-ui/src/locales/zh-CN/settings/usage.json#trend.legend.cacheRead"
+      ]
+    },
+    {
+      "capabilityId": "setting.data.storage",
+      "itemId": "clean",
+      "titleZh": "预览并清理会话文件快照",
+      "titleEn": "Preview and clean up session file snapshots",
+      "reasonCode": "unstructuredInteraction",
+      "reasonZh": "“预览并清理会话文件快照”会永久移除所选会话的文件回退记录，请在存储空间页面核对并确认。",
+      "reasonEn": "“Preview and clean up session file snapshots” opens Storage so you can review the affected sessions before permanently removing their file rollback history.",
+      "presentationTarget": {
+        "kind": "settings",
+        "pageId": "data.storage"
+      },
+      "evidence": [
+        "command:inspect_snapshot_storage",
+        "command:clean_snapshot_storage"
       ]
     },
     {

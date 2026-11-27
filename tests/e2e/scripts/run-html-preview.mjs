@@ -101,10 +101,15 @@ await writeFile(path.join(spa, 'assets/app.mjs'), 'const { routes } = await impo
 await writeFile(path.join(spa, 'assets/routes.mjs'), 'export const routes = ["/", "/evaluation", "/docs/detail"];');
 await cp(path.join(workspace, 'site/dist/assets/pixel.png'), path.join(spa, 'assets/pixel.png'));
 const previews = [];
-async function checkPage(label, marker, color) {
+const viewport = () => execute(() => [window.innerWidth, window.innerHeight]);
+const initialBounds = { x: 350, y: 80, width: 480, height: 320 };
+const updatedBounds = { x: 400, y: 100, width: 300, height: 200 };
+async function checkPage(label, marker, color, { bounds = initialBounds, reload = false } = {}) {
+  const mainViewport = process.platform === 'linux' ? await viewport() : null;
   await invoke('plugin:webview|webview_show', { label });
   await request('/session/' + session + '/window', { handle: label });
   try {
+    if (reload) await request('/session/' + session + '/refresh', {});
     await until(() => execute((marker, color) => {
       const result = document.querySelector('#result');
       const image = document.querySelector('#image');
@@ -116,6 +121,12 @@ async function checkPage(label, marker, color) {
       resources: performance.getEntriesByType('resource').map(entry => entry.name) }));
     assert.ok(!details.url.includes('previewToken='), 'Bootstrap token must leave the document URL');
     assert.ok(details.url.endsWith('/index%20%231.html'));
+    if (mainViewport) {
+      details.viewport = await viewport();
+      assert.deepEqual(details.viewport, [bounds.width, bounds.height], 'Linux preview must use its panel size');
+      await request('/session/' + session + '/window', { handle: 'main' });
+      assert.deepEqual(await viewport(), mainViewport, 'A visible preview must keep the main viewport size');
+    }
     report.checks.push(details);
   } finally {
     await request('/session/' + session + '/window', { handle: 'main' });
@@ -146,14 +157,15 @@ try {
       filePath: path.join(workspace, directory, 'index #1.html') } });
     previews.push(preview);
     const label = 'embedded-browser-panel-view-html-' + marker;
-    await invoke('browser_webview_create', { request: { label, url: preview.url, x: 350, y: 80, width: 480, height: 320 } });
+    await invoke('browser_webview_create', { request: { label, url: preview.url, ...initialBounds } });
     await checkPage(label, marker, color);
   }
   // The second preview must not replace the first preview's authorization cookie.
-  await request('/session/' + session + '/window', { handle: 'embedded-browser-panel-view-html-first' });
-  await request('/session/' + session + '/refresh', {});
-  await request('/session/' + session + '/window', { handle: 'main' });
-  await checkPage('embedded-browser-panel-view-html-first', 'first', 'rgb(23, 81, 139)');
+  const firstLabel = 'embedded-browser-panel-view-html-first';
+  if (process.platform === 'linux') {
+    await invoke('browser_webview_set_bounds', { request: { label: firstLabel, ...updatedBounds } });
+  }
+  await checkPage(firstLabel, 'first', 'rgb(23, 81, 139)', { bounds: updatedBounds, reload: true });
   const sitePreview = await invoke('html_preview_create', { request: { workspaceId: opened.id,
     filePath: path.join(spa, 'index.html') } });
   previews.push(sitePreview);

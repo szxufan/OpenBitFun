@@ -190,5 +190,5 @@ test('the script runs standalone as a CLI', () => {
     [scriptPath, '--version', '1.0.9', '--notes-dir', path.join(repoRoot, 'scripts/release-notes')],
     { encoding: 'utf8', cwd: repoRoot, env },
   );
-  assert.match(output, /## OpenBitFun 1\.0\.9/);
+  assert.match(output, /OpenBitFun 1\.0\.9/);
 });
